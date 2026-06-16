@@ -51,14 +51,41 @@ proxy within budget implies a lossy re-encode also fits (`image/compression-ok`)
 When the proxy exceeds budget the outcome is advisory
 (`image/compression-uncertain`) — it is not a real WebP size.
 
-All thresholds (`DEFAULT_IMAGE_ANALYSIS_OPTIONS`) are configurable. Platform
-target width and manifest-aware compression checks belong to #10 (Phase 2).
+All thresholds (`DEFAULT_IMAGE_ANALYSIS_OPTIONS`) are configurable.
 
-## Out of scope (Phase 2)
+## Bubble-text overflow
 
-`toony lint` CLI wiring, bubble-text overflow (needs #8 layout), export manifest
-completeness (needs #10's manifest), and OCR are deliberately not implemented
-here.
+`lintBubbleOverflow(bundle, resolveImage, options?)` reuses `@toony/render`'s
+`layoutCut` — the single source of truth for lettering geometry — and reports a
+`warning` (`lettering/overflow`) for every overlay whose text overflows its box
+even at the minimum font size. It does not re-measure or re-lay-out text; it only
+attributes the layout's `overflow` flag. Cut pixel dimensions come from the
+header reader (`readImageDimensions`) when an image is present; otherwise the
+documented fallback `DEFAULT_OVERFLOW_FALLBACK` (a typical portrait cut) keeps
+the check deterministic. `resolveImage(cutId)` returns the cut's encoded image
+bytes, or `null` when none is associated.
+
+## Export-manifest completeness
+
+`lintManifestCompleteness(manifest, manifestId, resolveFile?)` consumes
+`@toony/export`'s manifest contract rather than redefining it: `validateManifest`
+owns structure, project-relative path safety, and quality bounds, and the
+PlotLink constraints come from the exported `PLOTLINK_*` constants. On top of the
+structural check it adds the PlotLink semantics (all WebP, ≤20 images, ≤1MB each,
+markdown present), a reading-order check on the declared file order, and — when a
+`resolveFile` probe is supplied — on-disk existence and `byteSize` consistency.
+
+## OCR (accidental text/logo/watermark detection)
+
+**Excluded from the MVP, deliberately.** OCR for detecting accidental
+text/logos/watermarks in generated art requires either a heavy native/WASM
+engine (e.g. a Tesseract build plus per-language trained data — megabytes of
+dependency and a non-deterministic, locale-sensitive result) or a cloud OCR
+service (network access and credentials). Both violate this package's
+constraints: dependency-light, fully offline/deterministic, and no
+secrets/network in a public repo. It is therefore left out until a lightweight,
+deterministic, offline option exists. This is an explicit decision, not a silent
+drop; revisit if requirements change.
 
 ## Commands
 

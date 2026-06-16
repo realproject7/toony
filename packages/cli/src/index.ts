@@ -9,6 +9,7 @@ export { runExport } from "./commands/export.js";
 export { runGenerate } from "./commands/generate.js";
 export { runImportImage } from "./commands/import-image.js";
 export { runInit } from "./commands/init.js";
+export { runLint, runLintEpisode } from "./commands/lint.js";
 export { runStudio } from "./commands/studio.js";
 export { runValidate } from "./commands/validate.js";
 export { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "./exit.js";
@@ -19,6 +20,7 @@ import { runExport } from "./commands/export.js";
 import { runGenerate } from "./commands/generate.js";
 import { runImportImage } from "./commands/import-image.js";
 import { runInit } from "./commands/init.js";
+import { runLint, runLintEpisode } from "./commands/lint.js";
 import { runStudio } from "./commands/studio.js";
 import { runValidate } from "./commands/validate.js";
 import { EXIT_OK, EXIT_USAGE } from "./exit.js";
@@ -54,6 +56,10 @@ export async function run(argv: string[], io: RunIo): Promise<number> {
       return runGenerate(rest, io);
     case "export":
       return runExport(rest, io);
+    case "lint":
+      return runLint(rest, io);
+    case "lint-episode":
+      return runLintEpisode(rest, io);
     default:
       io.err(`unknown command: ${command}`);
       io.err(HELP_TEXT);

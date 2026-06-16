@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@toony/export": "workspace:*",
+    "@toony/lint": "workspace:*",
     "@toony/project-io": "workspace:*",
     "@toony/providers": "workspace:*",
     "@toony/schema": "workspace:*"
