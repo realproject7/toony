@@ -8,11 +8,16 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  type Cut,
+  type Episode,
   IssueCollector,
   type LetteringOverlay,
   type Project,
+  type Transition,
+  validateEpisodeValue,
   validateLetteringOverlayValue,
   validateProject,
+  validateTransitionValue,
 } from "@toony/schema";
 import { ProjectIoError } from "./errors.js";
 import { encodeJson, encodeYaml } from "./format.js";
@@ -114,4 +119,173 @@ export async function writeLettering(
     throw new ProjectIoError(`refusing to write invalid lettering: ${detail}`, episodeId);
   }
   await writeFile(letteringFile(root, episodeId), encodeJson(overlays), "utf8");
+}
+
+/**
+ * Persist one episode's transitions and its reading sequence together: writes
+ * the episode's `transitions.yaml` and the updated `episode.yaml`. This is the
+ * surgical write path the transition editor (#9) uses — transitions are
+ * first-class objects that live in `episode.sequence` between cuts, so the
+ * transition records and the sequence that references them must be written as a
+ * single consistent unit. Output is deterministic (sorted keys), so a no-op save
+ * re-emits identical bytes, and only the two target files are touched.
+ *
+ * Both files are fully validated against `@toony/schema` BEFORE any byte is
+ * written, and nothing is written if validation fails:
+ *   - per-transition schema conformance (type, gutter range, nullable strings,
+ *     project-relative image path, review status);
+ *   - unique transition ids;
+ *   - well-formed episode (schema version, id/title, sequence item shape);
+ *   - sequence integrity against the supplied cuts AND transitions: every
+ *     sequence entry references a real record, no record is referenced twice,
+ *     no record is orphaned;
+ *   - canonical sequence shape: a transition must sit BETWEEN two cuts (no
+ *     leading/trailing transition, no two adjacent transitions).
+ *
+ * `cuts` is supplied (not written) so the sequence's `cut` references can be
+ * checked without re-reading disk; the cuts file itself is left byte-stable.
+ */
+export async function writeTransitions(
+  root: string,
+  episodeId: string,
+  episode: Episode,
+  transitions: Transition[],
+  cuts: Cut[],
+): Promise<void> {
+  const c = new IssueCollector();
+
+  // Per-transition schema conformance + unique ids.
+  const transitionIds = new Set<string>();
+  for (let i = 0; i < transitions.length; i++) {
+    validateTransitionValue(transitions[i], `transitions[${i}]`, c);
+    const id = transitions[i]?.id;
+    if (typeof id === "string" && id.length > 0) {
+      if (transitionIds.has(id)) {
+        c.add(
+          `transitions[${i}].id`,
+          "transition.duplicate-id",
+          `duplicate transition id "${id}".`,
+        );
+      }
+      transitionIds.add(id);
+    }
+  }
+
+  // Well-formed episode (sequence item shapes, schema version, id/title).
+  validateEpisodeValue(episode, "episode", c);
+
+  // Cross-reference + canonical shape of the sequence against the real records.
+  const cutIds = new Set<string>();
+  for (const cut of cuts) {
+    if (typeof cut?.id === "string" && cut.id.length > 0) cutIds.add(cut.id);
+  }
+  validateSequenceConsistency(episode.sequence, cutIds, transitionIds, "episode.sequence", c);
+
+  const result = c.result();
+  if (!result.valid) {
+    const detail = result.issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ");
+    throw new ProjectIoError(`refusing to write invalid transitions: ${detail}`, episodeId);
+  }
+
+  // Validation passed: write both files (deterministic YAML).
+  await writeFile(transitionsFile(root, episodeId), encodeYaml(transitions), "utf8");
+  await writeFile(episodeFile(root, episodeId), encodeYaml(episode), "utf8");
+}
+
+/**
+ * Enforce the sequence invariants the transition editor owns: every reference
+ * resolves to a real record, no record is referenced twice or orphaned, and a
+ * transition sits between two cuts (canonical webtoon reading rhythm). Mirrors
+ * the cross-file checks `validateProject` runs, scoped to one episode so the
+ * surgical writer can reject a bad edit before touching disk.
+ */
+function validateSequenceConsistency(
+  sequence: Episode["sequence"],
+  cutIds: Set<string>,
+  transitionIds: Set<string>,
+  path: string,
+  c: IssueCollector,
+): void {
+  const seen = new Set<string>();
+  const referencedCutIds = new Set<string>();
+  const referencedTransitionIds = new Set<string>();
+  const types: string[] = [];
+
+  for (let i = 0; i < sequence.length; i++) {
+    const item = sequence[i];
+    const itemPath = `${path}[${i}]`;
+    types.push(item?.type ?? "invalid");
+    if (!item) continue;
+    const id = item.id;
+    if (typeof id !== "string" || id.length === 0) continue;
+
+    if (seen.has(id)) {
+      c.add(
+        itemPath,
+        "sequence.duplicate-reference",
+        `sequence references id "${id}" more than once.`,
+      );
+    }
+    seen.add(id);
+
+    if (item.type === "cut") {
+      referencedCutIds.add(id);
+      if (!cutIds.has(id)) {
+        c.add(
+          itemPath,
+          "sequence.missing-cut",
+          `sequence references cut "${id}" with no matching cut record.`,
+        );
+      }
+    } else if (item.type === "transition") {
+      referencedTransitionIds.add(id);
+      if (!transitionIds.has(id)) {
+        c.add(
+          itemPath,
+          "sequence.missing-transition",
+          `sequence references transition "${id}" with no matching transition record.`,
+        );
+      }
+    }
+  }
+
+  for (const cutId of cutIds) {
+    if (!referencedCutIds.has(cutId)) {
+      c.add(path, "cut.orphan", `cut "${cutId}" is not referenced by the episode sequence.`);
+    }
+  }
+  for (const transitionId of transitionIds) {
+    if (!referencedTransitionIds.has(transitionId)) {
+      c.add(
+        path,
+        "transition.orphan",
+        `transition "${transitionId}" is not referenced by the episode sequence.`,
+      );
+    }
+  }
+
+  // Canonical shape: a transition must sit between two cuts.
+  if (types.length === 0) {
+    c.add(path, "sequence.empty", "episode sequence must contain at least one cut.");
+    return;
+  }
+  if (types[0] === "transition") {
+    c.add(
+      path,
+      "sequence.leading-transition",
+      "episode sequence must not begin with a transition.",
+    );
+  }
+  if (types[types.length - 1] === "transition") {
+    c.add(path, "sequence.trailing-transition", "episode sequence must not end with a transition.");
+  }
+  for (let i = 1; i < types.length; i++) {
+    if (types[i] === "transition" && types[i - 1] === "transition") {
+      c.add(
+        `${path}[${i}]`,
+        "sequence.adjacent-transitions",
+        "two transitions cannot be adjacent; a transition must sit between cuts.",
+      );
+    }
+  }
 }
