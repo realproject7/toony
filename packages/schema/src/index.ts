@@ -2,6 +2,7 @@
 // and canonical serialization for Toony projects.
 
 export type { ValidationIssue, ValidationResult } from "./errors.js";
+export { IssueCollector, joinPath } from "./errors.js";
 export { parseProject, serializeProject } from "./serialize.js";
 export type {
   BubbleBorder,

@@ -96,6 +96,7 @@ export default async function EpisodePreviewPage({ params }: { params: Promise<{
                   cut={cut}
                   bubbles={bubblesByCut.get(cut.id) ?? []}
                   art={artByCut.get(cut.id) ?? { src: null, width: 1000, height: 1414 }}
+                  episodeId={episode.id}
                 />
               );
             }

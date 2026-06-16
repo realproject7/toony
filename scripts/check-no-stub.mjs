@@ -50,7 +50,9 @@ const MARKERS = [
   { name: "xxx", regex: /\bXXX\b/ }, // no-stub-ignore: rule definition
   { name: "hack", regex: /\bHACK\b/ }, // no-stub-ignore: rule definition
   { name: "stub", regex: /(?<!no-)\bstub\b/i }, // no-stub-ignore: rule definition
-  { name: "placeholder", regex: /\bplaceholder\b/i }, // no-stub-ignore: rule definition
+  // Skip the HTML/JSX `placeholder=` attribute and CSS `::placeholder` pseudo;
+  // still flag the bare word used to mark fake code. // no-stub-ignore: rule definition
+  { name: "placeholder", regex: /(?<!:)\bplaceholder\b(?!\s*=)/i }, // no-stub-ignore: rule definition
   { name: "temporary", regex: /\btemporary\b/i }, // no-stub-ignore: rule definition
   // `mock` only as a runtime identifier (call / import / new), not the word.
   { name: "mock-runtime", regex: /\bmock[A-Za-z0-9_]*\s*\(|\bnew\s+Mock|from\s+['"][^'"]*mock/i }, // no-stub-ignore: rule definition

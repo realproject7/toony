@@ -12,6 +12,7 @@
 
 import { type BubbleRender, layoutCut } from "@toony/render";
 import type { Cut, LetteringOverlay } from "@toony/schema";
+import Link from "next/link";
 import type { CutArt } from "@/lib/project";
 
 export interface CutCanvasProps {
@@ -20,6 +21,8 @@ export interface CutCanvasProps {
   bubbles: LetteringOverlay[];
   /** Resolved art src + natural dimensions (from `resolveCutArt`). */
   art: CutArt;
+  /** Owning episode id, used to link to the focused cut editor (#8). */
+  episodeId: string;
 }
 
 /** One bubble drawn as SVG from its geometry-core render plan. */
@@ -70,7 +73,7 @@ function Bubble({ plan }: { plan: BubbleRender }) {
   );
 }
 
-export function CutCanvas({ cut, bubbles, art }: CutCanvasProps) {
+export function CutCanvas({ cut, bubbles, art, episodeId }: CutCanvasProps) {
   const hasArt = Boolean(art.src);
   const plans = layoutCut(bubbles, art.width, art.height);
   const aspectRatio = `${art.width} / ${art.height}`;
@@ -85,6 +88,13 @@ export function CutCanvas({ cut, bubbles, art }: CutCanvasProps) {
             {bubbles.length} bubble{bubbles.length === 1 ? "" : "s"}
           </span>
         )}
+        <Link
+          href={`/episodes/${encodeURIComponent(episodeId)}/cuts/${encodeURIComponent(cut.id)}/edit`}
+          className="cut-edit-link"
+          data-testid={`cut-edit-${cut.id}`}
+        >
+          Edit lettering
+        </Link>
       </div>
 
       {hasArt ? (
