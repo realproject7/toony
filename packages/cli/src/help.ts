@@ -7,6 +7,7 @@ usage:
   toony validate [path]    validate a project folder (default: current directory)
   toony studio [path]      launch the local web studio for a project
   toony import-image ...   import/ingest an image asset for a cut or transition
+  toony export <target> ...  export platform/stitched/plotlink for an episode
   toony --help             show this help
 
 options:
@@ -15,6 +16,9 @@ options:
   import-image --episode <id> (--cut <id> [--slot clean|final] | --transition <id>)
                --from <file> [--provider manual]
                            strips image metadata at ingest; provider-neutral
+  export <platform|stitched|plotlink> [path] --episode <id>
+         [--width <px>] [--format png|jpg] [--quality <0-100>]
+                           writes into the project's exports/ folder + manifest
 
 exit codes (agent-readable):
   0   success; for \`validate\`, the project is valid

@@ -1,11 +1,8 @@
 {
-  "name": "@toony/cli",
+  "name": "@toony/export",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "bin": {
-    "toony": "./dist/bin.js"
-  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -23,9 +20,9 @@
     "test": "tsc -p tsconfig.json && node ../../scripts/run-tests.mjs dist"
   },
   "dependencies": {
-    "@toony/export": "workspace:*",
+    "@napi-rs/canvas": "1.0.0",
     "@toony/project-io": "workspace:*",
-    "@toony/providers": "workspace:*",
+    "@toony/render": "workspace:*",
     "@toony/schema": "workspace:*"
   },
   "devDependencies": {
