@@ -3,7 +3,7 @@
 The initial Open Design package lives outside this repository:
 
 ```txt
-/Users/cho/Projects/z-design/toony-design/
+<LOCAL_DESIGN_PACKAGE>/toony-design/
 ```
 
 Implementation tickets should reference the design package paths, but public

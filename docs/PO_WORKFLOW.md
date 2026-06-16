@@ -21,7 +21,7 @@ unredacted logs in issues, pull requests, review comments, commits, or docs.
 
 ## Implementation Rules
 
-- No mock, stub, placeholder, or temporary runtime code.
+- No mock, stub, placeholder, or temporary runtime code. <!-- no-stub-ignore: states the no-stub rule itself -->
 - Use test fixtures only when they are explicitly named fixtures.
 - Keep webtoon craft study as internal product research, not GitHub tickets.
 - Do not copy specific webtoon characters, panels, compositions, dialogue, or
