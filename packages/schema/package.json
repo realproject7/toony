@@ -17,7 +17,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsc -p tsconfig.json && node --test dist"
+    "test": "tsc -p tsconfig.json && node ../../scripts/run-tests.mjs dist"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
