@@ -41,7 +41,7 @@ export interface TransitionAssetTarget {
 export type AssetTarget = CutAssetTarget | TransitionAssetTarget;
 
 export interface IngestResult {
-  /** Episode-relative path written into the record (never absolute). */
+  /** Project-relative path written into the record (never absolute). */
   assetPath: string;
   bytesWritten: number;
   sha256: string;
@@ -144,8 +144,12 @@ export async function ingestImageAsset(
       : transitionsFile(root, target.episodeId),
   );
   const slotDir = target.kind === "cut" ? target.slot : "clean";
-  const assetPath = `assets/${slotDir}/${recordId}.${extensionFor(result.format)}`;
-  const absolutePath = join(episodeDir(root, target.episodeId), assetPath);
+  const episodeRelative = `assets/${slotDir}/${recordId}.${extensionFor(result.format)}`;
+  // Records store a project-relative path (per the schema's ImageAssetRef
+  // contract) so consumers resolve assets from the project root; the file
+  // itself still lives under the episode directory.
+  const assetPath = `episodes/${target.episodeId}/${episodeRelative}`;
+  const absolutePath = join(episodeDir(root, target.episodeId), episodeRelative);
 
   // Locate and update the in-memory record before touching disk.
   if (target.kind === "cut") {

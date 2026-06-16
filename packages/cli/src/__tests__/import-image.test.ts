@@ -77,7 +77,7 @@ test("import-image ingests a cut asset; project still validates; metadata stripp
     c.io,
   );
   assert.equal(code, EXIT_OK, c.err.join("\n"));
-  assert.match(c.out.join("\n"), /imported assets\/clean\/cut-001\.png/);
+  assert.match(c.out.join("\n"), /imported episodes\/ep-001\/assets\/clean\/cut-001\.png/);
 
   const validate = capture();
   assert.equal(await runValidate([projectDir], validate.io), EXIT_OK);
