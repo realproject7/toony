@@ -5,13 +5,32 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import type { Project } from "@toony/schema";
+import type { LetteringOverlay, Project } from "@toony/schema";
 import { decodeYaml } from "../format.js";
 import { ProjectIoError } from "../index.js";
 import { cutsFile, episodeFile, letteringFile, transitionsFile, webtoonPath } from "../paths.js";
 import { loadProject } from "../reader.js";
 import { buildInitialProject, slugify } from "../scaffold.js";
-import { writeProject } from "../writer.js";
+import { writeLettering, writeProject } from "../writer.js";
+
+function overlay(over: Partial<LetteringOverlay> = {}): LetteringOverlay {
+  return {
+    id: "ov-001",
+    cutId: "cut-001",
+    speaker: "Mira",
+    kind: "speech",
+    text: "Hello.",
+    font: "Nanum Gothic",
+    fill: "#ffffff",
+    opacity: 1,
+    border: { width: 2, color: "#101010" },
+    tail: { x: 0.42, y: 0.78 },
+    geometry: { x: 0.1, y: 0.12, width: 0.45, height: 0.2 },
+    overflow: false,
+    reviewStatus: "human-edited",
+    ...over,
+  };
+}
 
 let workdir: string;
 
@@ -126,6 +145,68 @@ test("a corrupted-but-parseable field surfaces as a validation issue, not a thro
   const loaded = await loadProject(root);
   assert.equal(loaded.validation.valid, false);
   assert.ok(loaded.validation.issues.some((issue) => issue.path.includes("gutterHeight")));
+});
+
+test("writeLettering persists overlays and survives reload", async () => {
+  const root = join(workdir, "demo");
+  await writeProject(root, buildInitialProject("demo"));
+
+  const overlays = [
+    overlay({ id: "ov-001", text: "First line." }),
+    overlay({
+      id: "ov-002",
+      text: "Second line.",
+      tail: null,
+      geometry: { x: 0.5, y: 0.5, width: 0.3, height: 0.2 },
+    }),
+  ];
+  await writeLettering(root, "ep-001", overlays);
+
+  const loaded = await loadProject(root);
+  assert.equal(loaded.validation.valid, true, JSON.stringify(loaded.validation.issues));
+  const persisted = loaded.project.episodes[0]?.lettering;
+  assert.equal(persisted?.length, 2);
+  assert.equal(persisted?.[0]?.id, "ov-001");
+  assert.equal(persisted?.[1]?.text, "Second line.");
+});
+
+test("writeLettering output is deterministic (sorted keys, byte-stable)", async () => {
+  const root = join(workdir, "demo");
+  await writeProject(root, buildInitialProject("demo"));
+  const overlays = [overlay()];
+  await writeLettering(root, "ep-001", overlays);
+  const first = await readFile(letteringFile(root, "ep-001"), "utf8");
+  await writeLettering(root, "ep-001", overlays);
+  const second = await readFile(letteringFile(root, "ep-001"), "utf8");
+  assert.equal(first, second);
+  // Sorted keys: "border" sorts before "cutId" within an overlay object.
+  assert.ok(first.indexOf('"border"') < first.indexOf('"cutId"'));
+});
+
+test("writeLettering rejects an invalid overlay before writing", async () => {
+  const root = join(workdir, "demo");
+  await writeProject(root, buildInitialProject("demo"));
+  const before = await readFile(letteringFile(root, "ep-001"), "utf8");
+  // geometry x + width > 1 escapes the image bounds.
+  const bad = [overlay({ geometry: { x: 0.9, y: 0.1, width: 0.4, height: 0.2 } })];
+  await assert.rejects(writeLettering(root, "ep-001", bad), (error: unknown) => {
+    assert.ok(error instanceof ProjectIoError);
+    assert.match(error.message, /invalid lettering/);
+    return true;
+  });
+  // The file on disk is untouched by a rejected write.
+  assert.equal(await readFile(letteringFile(root, "ep-001"), "utf8"), before);
+});
+
+test("writeLettering rejects duplicate overlay ids", async () => {
+  const root = join(workdir, "demo");
+  await writeProject(root, buildInitialProject("demo"));
+  const dupes = [overlay({ id: "dup" }), overlay({ id: "dup", text: "Other." })];
+  await assert.rejects(writeLettering(root, "ep-001", dupes), (error: unknown) => {
+    assert.ok(error instanceof ProjectIoError);
+    assert.match(error.message, /duplicate overlay id/);
+    return true;
+  });
 });
 
 test("a fuller fixture with lettering round-trips", async () => {

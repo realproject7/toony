@@ -7,7 +7,14 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type Project, validateProject } from "@toony/schema";
+import {
+  IssueCollector,
+  type LetteringOverlay,
+  type Project,
+  validateLetteringOverlayValue,
+  validateProject,
+} from "@toony/schema";
+import { ProjectIoError } from "./errors.js";
 import { encodeJson, encodeYaml } from "./format.js";
 import {
   cutsFile,
@@ -69,4 +76,42 @@ export async function writeProject(root: string, project: Project): Promise<void
     await writeFile(transitionsFile(root, id), encodeYaml(bundle.transitions), "utf8");
     await writeFile(letteringFile(root, id), encodeJson(bundle.lettering), "utf8");
   }
+}
+
+/**
+ * Persist one episode's lettering overlays to its `lettering.json`, validating
+ * the full set against `@toony/schema` first and refusing to write if any
+ * overlay is invalid. This is the surgical write path the focused cut editor
+ * (#8) uses: it touches only the target episode's lettering file and leaves
+ * every other file byte-stable. Output is deterministic (sorted keys), so a
+ * no-op save re-emits identical bytes.
+ *
+ * Overlay ids must be unique within the set so edits target deterministically.
+ * Callers are responsible for any cross-file checks (e.g. that each `cutId`
+ * matches a real cut); this function enforces per-overlay schema conformance and
+ * id uniqueness, which are the invariants the lettering file alone can own.
+ */
+export async function writeLettering(
+  root: string,
+  episodeId: string,
+  overlays: LetteringOverlay[],
+): Promise<void> {
+  const c = new IssueCollector();
+  const seen = new Set<string>();
+  for (let i = 0; i < overlays.length; i++) {
+    validateLetteringOverlayValue(overlays[i], `lettering[${i}]`, c);
+    const id = overlays[i]?.id;
+    if (typeof id === "string" && id.length > 0) {
+      if (seen.has(id)) {
+        c.add(`lettering[${i}].id`, "overlay.duplicate-id", `duplicate overlay id "${id}".`);
+      }
+      seen.add(id);
+    }
+  }
+  const result = c.result();
+  if (!result.valid) {
+    const detail = result.issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ");
+    throw new ProjectIoError(`refusing to write invalid lettering: ${detail}`, episodeId);
+  }
+  await writeFile(letteringFile(root, episodeId), encodeJson(overlays), "utf8");
 }
