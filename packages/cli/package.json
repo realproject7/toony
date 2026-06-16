@@ -20,9 +20,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsc -p tsconfig.json && node --test dist"
+    "test": "tsc -p tsconfig.json && node --test dist/__tests__/*.test.js"
   },
   "dependencies": {
+    "@toony/project-io": "workspace:*",
     "@toony/schema": "workspace:*"
   },
   "devDependencies": {

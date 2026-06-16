@@ -1,21 +1,16 @@
 // Public API for @toony/cli.
 //
-// Exposes the command runners and the reusable project loader so other packages
-// (notably the studio app and issue #6) can consume the data layer directly,
-// and exposes `run` for the bin entry point.
+// Exposes the command runners, the validation report helpers, and `run` for the
+// bin entry point. The shared on-disk data layer (loadProject, writeProject,
+// the format/paths) lives in `@toony/project-io`; consumers import it from there
+// directly rather than through the CLI.
 
 export { runInit } from "./commands/init.js";
 export { runStudio } from "./commands/studio.js";
 export { runValidate } from "./commands/validate.js";
 export { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "./exit.js";
 export { HELP_TEXT } from "./help.js";
-export {
-  type LoadedProject,
-  loadProject,
-  ProjectLoadError,
-} from "./loader.js";
 export { jsonReport, textReport, type ValidateJsonReport } from "./report.js";
-export { buildInitialProject, slugify, writeProject } from "./scaffold.js";
 
 import { runInit } from "./commands/init.js";
 import { runStudio } from "./commands/studio.js";

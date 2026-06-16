@@ -4,12 +4,7 @@
 // episode preview, and Open Design styling are issue #6 — intentionally not
 // built here.
 
-import {
-  loadSelectedProject,
-  ProjectLoadError,
-  projectDir,
-  summarizeEpisodes,
-} from "@/lib/project";
+import { loadSelectedProject, ProjectIoError, projectDir, summarizeEpisodes } from "@/lib/project";
 
 // The project is read from disk per request, so this page must not be cached.
 export const dynamic = "force-dynamic";
@@ -19,7 +14,7 @@ export default async function HomePage() {
   try {
     loaded = await loadSelectedProject();
   } catch (cause) {
-    const reason = cause instanceof ProjectLoadError ? cause.message : String(cause);
+    const reason = cause instanceof ProjectIoError ? cause.message : String(cause);
     return (
       <main data-testid="studio-load-error">
         <h1>Toony Studio</h1>

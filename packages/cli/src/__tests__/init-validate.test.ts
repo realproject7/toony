@@ -6,6 +6,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
+import { cutsFile, transitionsFile } from "@toony/project-io";
 import { runInit } from "../commands/init.js";
 import { runValidate } from "../commands/validate.js";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
@@ -72,6 +73,34 @@ test("validate fails (exit 1) on a corrupted field with actionable output", asyn
   const text = c.out.join("\n");
   assert.match(text, /^invalid:/);
   assert.match(text, /defaultLanguage/);
+});
+
+test("validate fails (exit 1) on a corrupted YAML content field", async () => {
+  assert.equal(await runInit(["demo"], capture().io), EXIT_OK);
+  const projectDir = join(workdir, "demo");
+
+  // Valid YAML, invalid value: gutterHeight must be a non-negative integer.
+  await writeFile(
+    transitionsFile(projectDir, "ep-001"),
+    "- id: tr-001\n  type: gutter\n  gutterHeight: -5\n  text: null\n  sfx: null\n" +
+      "  agentNote: null\n  humanNote: null\n  image: null\n  reviewStatus: draft\n",
+  );
+
+  const c = capture();
+  const code = await runValidate([projectDir], c.io);
+  assert.equal(code, EXIT_VALIDATION);
+  assert.match(c.out.join("\n"), /gutterHeight/);
+});
+
+test("validate reports an IO error (exit 2) for malformed YAML", async () => {
+  assert.equal(await runInit(["demo"], capture().io), EXIT_OK);
+  const projectDir = join(workdir, "demo");
+  await writeFile(cutsFile(projectDir, "ep-001"), "- id: cut-001\n  image: [unterminated\n");
+
+  const c = capture();
+  const code = await runValidate([projectDir], c.io);
+  assert.equal(code, EXIT_USAGE);
+  assert.match(c.err.join("\n"), /load error/);
 });
 
 test("validate --json emits a structured report", async () => {

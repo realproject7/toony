@@ -10,7 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@toony/cli": "workspace:*",
+    "@toony/project-io": "workspace:*",
     "@toony/schema": "workspace:*",
     "next": "15.5.19",
     "react": "19.2.7",

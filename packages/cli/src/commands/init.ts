@@ -2,8 +2,8 @@
 
 import { stat } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
+import { buildInitialProject, slugify, writeProject } from "@toony/project-io";
 import { EXIT_OK, EXIT_USAGE } from "../exit.js";
-import { buildInitialProject, slugify, writeProject } from "../scaffold.js";
 
 export interface InitIo {
   cwd: string;

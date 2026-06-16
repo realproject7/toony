@@ -13,8 +13,8 @@ import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadProject, ProjectIoError } from "@toony/project-io";
 import { EXIT_OK, EXIT_USAGE } from "../exit.js";
-import { loadProject, ProjectLoadError } from "../loader.js";
 
 export interface StudioIo {
   cwd: string;
@@ -72,7 +72,7 @@ export async function runStudio(args: string[], io: StudioIo): Promise<number> {
       io.out(`note: project has ${loaded.validation.issues.length} validation issue(s)`);
     }
   } catch (cause) {
-    const reason = cause instanceof ProjectLoadError ? cause.message : String(cause);
+    const reason = cause instanceof ProjectIoError ? cause.message : String(cause);
     io.err(`cannot launch studio: ${reason}`);
     return EXIT_USAGE;
   }

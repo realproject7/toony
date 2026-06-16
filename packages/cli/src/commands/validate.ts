@@ -1,8 +1,8 @@
 // `toony validate [path]` — load and validate a project folder.
 
 import { resolve } from "node:path";
+import { loadProject, ProjectIoError } from "@toony/project-io";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
-import { loadProject, ProjectLoadError } from "../loader.js";
 import { jsonReport, textReport } from "../report.js";
 
 export interface ValidateIo {
@@ -29,7 +29,7 @@ export async function runValidate(args: string[], io: ValidateIo): Promise<numbe
   try {
     loaded = await loadProject(root);
   } catch (cause) {
-    if (cause instanceof ProjectLoadError) {
+    if (cause instanceof ProjectIoError) {
       if (json) io.out(JSON.stringify({ root, valid: false, error: cause.message }, null, 2));
       else io.err(`load error: ${cause.message}`);
       return EXIT_USAGE;
