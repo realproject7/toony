@@ -4,7 +4,13 @@
 // matches the studio preview and never invents its own lettering/transition
 // geometry. This module only turns those layout plans into pixels.
 
-import { type Canvas, createCanvas, Image, type SKRSContext2D } from "@napi-rs/canvas";
+import {
+  type Canvas,
+  createCanvas,
+  type Image,
+  loadImage,
+  type SKRSContext2D,
+} from "@napi-rs/canvas";
 import {
   type BalloonCommand,
   type BubbleRender,
@@ -24,10 +30,11 @@ export interface ComposedCut {
   height: number;
 }
 
-function decode(imageBytes: Uint8Array): Image {
-  const img = new Image();
-  img.src = Buffer.from(imageBytes);
-  return img;
+// @napi-rs/canvas@1.0.0's `new Image(); img.src = …` sets width/height but never
+// decodes pixels, so a later drawImage paints nothing. The async loadImage()
+// fully decodes the buffer, which is what drawImage actually needs.
+async function decode(imageBytes: Uint8Array): Promise<Image> {
+  return loadImage(Buffer.from(imageBytes));
 }
 
 function traceOutline(ctx: SKRSContext2D, outline: readonly BalloonCommand[]): void {
@@ -90,16 +97,16 @@ function drawBubble(ctx: SKRSContext2D, b: BubbleRender): void {
  * image asset, a neutral background of the fallback aspect is used so reading
  * order and lettering still export.
  */
-export function composeCut(
+export async function composeCut(
   overlays: LetteringOverlay[],
   imageBytes: Uint8Array | null,
   targetWidth: number,
-): ComposedCut {
+): Promise<ComposedCut> {
   const width = Math.max(1, Math.round(targetWidth));
   let height: number;
   let image: Image | null = null;
   if (imageBytes) {
-    image = decode(imageBytes);
+    image = await decode(imageBytes);
     const natW = image.width > 0 ? image.width : width;
     const natH = image.height > 0 ? image.height : Math.round(width * FALLBACK_CUT_ASPECT);
     height = Math.max(1, Math.round((natH * width) / natW));

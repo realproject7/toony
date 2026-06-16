@@ -182,7 +182,7 @@ export async function exportPlatform(
   for (let i = 0; i < cuts.length; i++) {
     const cut = cuts[i] as Cut;
     const overlays = bundle.lettering.filter((o) => o.cutId === cut.id);
-    const composed = composeCut(overlays, imageFor(cut.id), width);
+    const composed = await composeCut(overlays, imageFor(cut.id), width);
     const bytes = encodeCanvas(composed.canvas, format, quality ?? undefined);
     const name = `${String(i + 1).padStart(3, "0")}.${ext(format)}`;
     await writeFileSafe(`${outAbs}/${name}`, bytes, "a platform image");
@@ -223,7 +223,7 @@ export async function exportStitched(
       const cut = cutsById.get(item.id);
       if (!cut) continue;
       const overlays = bundle.lettering.filter((o) => o.cutId === cut.id);
-      const composed = composeCut(overlays, imageFor(cut.id), width);
+      const composed = await composeCut(overlays, imageFor(cut.id), width);
       bands.push({ canvas: composed.canvas, height: composed.height });
     } else {
       const transition = transitionsById.get(item.id);
@@ -297,7 +297,7 @@ export async function exportPlotlink(
   for (let i = 0; i < cuts.length; i++) {
     const cut = cuts[i] as Cut;
     const overlays = bundle.lettering.filter((o) => o.cutId === cut.id);
-    const composed = composeCut(overlays, imageFor(cut.id), width);
+    const composed = await composeCut(overlays, imageFor(cut.id), width);
     const fit = encodeWebpToFit(
       composed.canvas,
       PLOTLINK_MAX_BYTES,
