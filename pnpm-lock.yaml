@@ -20,9 +20,9 @@ importers:
 
   apps/studio:
     dependencies:
-      '@toony/cli':
+      '@toony/project-io':
         specifier: workspace:*
-        version: link:../../packages/cli
+        version: link:../../packages/project-io
       '@toony/schema':
         specifier: workspace:*
         version: link:../../packages/schema
@@ -51,9 +51,28 @@ importers:
 
   packages/cli:
     dependencies:
+      '@toony/project-io':
+        specifier: workspace:*
+        version: link:../project-io
       '@toony/schema':
         specifier: workspace:*
         version: link:../schema
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.2
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  packages/project-io:
+    dependencies:
+      '@toony/schema':
+        specifier: workspace:*
+        version: link:../schema
+      yaml:
+        specifier: 2.9.0
+        version: 2.9.0
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -484,6 +503,11 @@ packages:
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
+  yaml@2.9.0:
+    resolution: {integrity: sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==}
+    engines: {node: '>= 14.6'}
+    hasBin: true
+
 snapshots:
 
   '@biomejs/biome@2.5.0':
@@ -790,3 +814,5 @@ snapshots:
   typescript@6.0.3: {}
 
   undici-types@7.18.2: {}
+
+  yaml@2.9.0: {}
