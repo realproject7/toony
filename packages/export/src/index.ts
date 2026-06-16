@@ -3,6 +3,7 @@
 
 export { composeCut, composeTransitionBand } from "./compose.js";
 export {
+  clampQuality,
   DEFAULT_JPEG_QUALITY,
   DEFAULT_WEBP_QUALITY,
   encodeCanvas,

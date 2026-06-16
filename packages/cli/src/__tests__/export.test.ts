@@ -73,6 +73,19 @@ test("a non-positive --width is a usage error", async () => {
   assert.match(c.err.join("\n"), /--width/);
 });
 
+test("--quality outside 0..100 is a usage error", async () => {
+  const dir = await scaffold();
+  for (const q of ["999", "-1"]) {
+    const c = capture();
+    const code = await runExport(
+      ["platform", dir, "--episode", "ep-001", "--format", "jpg", "--quality", q],
+      c.io,
+    );
+    assert.equal(code, EXIT_USAGE, `quality ${q} should be rejected`);
+    assert.match(c.err.join("\n"), /--quality/);
+  }
+});
+
 test("plotlink on a sparse project reports an export failure", async () => {
   const dir = await scaffold(); // scaffold has no lettering → markdown below minimum
   const c = capture();

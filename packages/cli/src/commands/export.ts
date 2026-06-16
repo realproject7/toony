@@ -51,13 +51,17 @@ function parse(args: string[]): Parsed | { error: string } {
   return { positional, values };
 }
 
-function parsePositiveInt(
+function parseIntInRange(
   value: string | undefined,
   name: string,
+  min: number,
+  max: number,
 ): number | undefined | { error: string } {
   if (value === undefined) return undefined;
   const n = Number(value);
-  if (!Number.isInteger(n) || n <= 0) return { error: `${name} must be a positive integer` };
+  if (!Number.isInteger(n) || n < min || n > max) {
+    return { error: `${name} must be an integer between ${min} and ${max}` };
+  }
   return n;
 }
 
@@ -90,12 +94,12 @@ export async function runExport(args: string[], io: ExportIo): Promise<number> {
     return EXIT_USAGE;
   }
 
-  const width = parsePositiveInt(parsed.values.get("--width"), "--width");
+  const width = parseIntInRange(parsed.values.get("--width"), "--width", 1, 100000);
   if (width !== undefined && typeof width === "object") {
     io.err(width.error);
     return EXIT_USAGE;
   }
-  const quality = parsePositiveInt(parsed.values.get("--quality"), "--quality");
+  const quality = parseIntInRange(parsed.values.get("--quality"), "--quality", 0, 100);
   if (quality !== undefined && typeof quality === "object") {
     io.err(quality.error);
     return EXIT_USAGE;

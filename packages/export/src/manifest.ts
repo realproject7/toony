@@ -97,6 +97,15 @@ export function validateManifest(value: unknown): string[] {
       if (typeof f.sha256 !== "string" || (f.sha256 as string).length !== 64) {
         problems.push(`files[${i}].sha256 must be a 64-char hex digest`);
       }
+      if (f.format === "png") {
+        if (f.quality !== null) problems.push(`files[${i}].quality must be null for png`);
+      } else if (f.format === "jpeg" || f.format === "webp") {
+        if (typeof f.quality !== "number" || f.quality < 0 || f.quality > 100) {
+          problems.push(`files[${i}].quality must be a number in 0..100 for ${f.format}`);
+        }
+      } else {
+        problems.push(`files[${i}].format must be png, jpeg, or webp`);
+      }
     });
   }
 

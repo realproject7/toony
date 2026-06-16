@@ -55,6 +55,52 @@ test("validateManifest rejects an absolute path", () => {
   assert.ok(problems.some((p) => p.includes("project-relative")));
 });
 
+test("validateManifest rejects lossy quality outside 0..100", () => {
+  const problems = validateManifest({
+    manifestVersion: 1,
+    target: "platform",
+    projectId: "p",
+    episodeId: "ep-001",
+    width: 800,
+    files: [
+      {
+        path: "episodes/ep-001/exports/platform/001.jpg",
+        format: "jpeg",
+        width: 1,
+        height: 1,
+        byteSize: 1,
+        quality: 999,
+        sha256: "a".repeat(64),
+      },
+    ],
+    markdown: null,
+  });
+  assert.ok(problems.some((p) => p.includes("quality")));
+});
+
+test("validateManifest requires null quality for png", () => {
+  const problems = validateManifest({
+    manifestVersion: 1,
+    target: "platform",
+    projectId: "p",
+    episodeId: "ep-001",
+    width: 800,
+    files: [
+      {
+        path: "episodes/ep-001/exports/platform/001.png",
+        format: "png",
+        width: 1,
+        height: 1,
+        byteSize: 1,
+        quality: 80,
+        sha256: "a".repeat(64),
+      },
+    ],
+    markdown: null,
+  });
+  assert.ok(problems.some((p) => p.includes("quality must be null")));
+});
+
 test("validateManifest accepts a well-formed manifest", () => {
   const problems = validateManifest({
     manifestVersion: 1,
