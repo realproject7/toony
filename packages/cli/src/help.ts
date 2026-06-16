@@ -6,11 +6,15 @@ usage:
   toony init <name>        scaffold a new project folder (passes \`toony validate\`)
   toony validate [path]    validate a project folder (default: current directory)
   toony studio [path]      launch the local web studio for a project
+  toony import-image ...   import/ingest an image asset for a cut or transition
   toony --help             show this help
 
 options:
   validate --json          emit a structured JSON report instead of text
   studio --port <n>        port for the local studio dev server (default 4477)
+  import-image --episode <id> (--cut <id> [--slot clean|final] | --transition <id>)
+               --from <file> [--provider manual]
+                           strips image metadata at ingest; provider-neutral
 
 exit codes (agent-readable):
   0   success; for \`validate\`, the project is valid

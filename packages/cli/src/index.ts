@@ -5,6 +5,7 @@
 // the format/paths) lives in `@toony/project-io`; consumers import it from there
 // directly rather than through the CLI.
 
+export { runImportImage } from "./commands/import-image.js";
 export { runInit } from "./commands/init.js";
 export { runStudio } from "./commands/studio.js";
 export { runValidate } from "./commands/validate.js";
@@ -12,6 +13,7 @@ export { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "./exit.js";
 export { HELP_TEXT } from "./help.js";
 export { jsonReport, textReport, type ValidateJsonReport } from "./report.js";
 
+import { runImportImage } from "./commands/import-image.js";
 import { runInit } from "./commands/init.js";
 import { runStudio } from "./commands/studio.js";
 import { runValidate } from "./commands/validate.js";
@@ -40,6 +42,8 @@ export async function run(argv: string[], io: RunIo): Promise<number> {
       return runValidate(rest, io);
     case "studio":
       return runStudio(rest, io);
+    case "import-image":
+      return runImportImage(rest, io);
     default:
       io.err(`unknown command: ${command}`);
       io.err(HELP_TEXT);
