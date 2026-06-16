@@ -78,6 +78,16 @@ test("analyzeImageBuffer reports an unreadable buffer as an error", () => {
   assert.equal(findings[0]?.code, "image/undecodable");
 });
 
+test("a PNG-signature-like but corrupt buffer is reported undecodable", () => {
+  const fake = new Uint8Array(24);
+  fake[0] = 0x89;
+  fake[1] = 0x50;
+  const findings = analyzeImageBuffer(fake, "cut-001");
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0]?.code, "image/undecodable");
+  assert.equal(findings[0]?.severity, "error");
+});
+
 test("analyzeImageBuffer skips pixels for a non-PNG recognized format", () => {
   const gif = Uint8Array.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 40, 0, 60, 0, 0, 0]);
   const findings = analyzeImageBuffer(gif, "cut-001");

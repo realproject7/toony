@@ -2,6 +2,8 @@
 // Supports PNG, JPEG, GIF, and WebP — enough to run dimension/aspect checks
 // across the formats Toony cut/transition assets are likely to use.
 
+import { isPng } from "./png.js";
+
 export type ImageFormat = "png" | "jpeg" | "gif" | "webp";
 
 export interface ImageDimensions {
@@ -11,8 +13,13 @@ export interface ImageDimensions {
 }
 
 function readPng(buffer: Uint8Array, view: DataView): ImageDimensions | null {
-  // Signature (8) + IHDR length (4) + "IHDR" (4) then width/height.
-  if (buffer.length < 24) return null;
+  // Require the full PNG signature plus a leading IHDR chunk before trusting
+  // the dimension fields, so a buffer that merely starts with the first
+  // signature bytes is not mistaken for a valid PNG.
+  if (buffer.length < 24 || !isPng(buffer)) return null;
+  const isIhdr =
+    buffer[12] === 0x49 && buffer[13] === 0x48 && buffer[14] === 0x44 && buffer[15] === 0x52;
+  if (!isIhdr) return null;
   return { format: "png", width: view.getUint32(16), height: view.getUint32(20) };
 }
 

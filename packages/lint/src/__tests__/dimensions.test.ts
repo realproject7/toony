@@ -46,3 +46,11 @@ test("reads WebP (VP8X) dimensions from the header", () => {
 test("returns null for an unrecognized buffer", () => {
   assert.equal(readImageDimensions(Uint8Array.from([0, 1, 2, 3, 4, 5, 6, 7])), null);
 });
+
+test("rejects a buffer that only starts like a PNG", () => {
+  // First two signature bytes but not the full signature / IHDR.
+  const fake = new Uint8Array(24);
+  fake[0] = 0x89;
+  fake[1] = 0x50;
+  assert.equal(readImageDimensions(fake), null);
+});
