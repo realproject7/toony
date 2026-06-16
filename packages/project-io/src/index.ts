@@ -44,4 +44,4 @@ export {
   summarizeEpisodes,
 } from "./reader.js";
 export { buildInitialProject, slugify } from "./scaffold.js";
-export { writeLettering, writeProject } from "./writer.js";
+export { writeLettering, writeProject, writeTransitions } from "./writer.js";

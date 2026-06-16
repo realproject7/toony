@@ -5,13 +5,39 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import type { LetteringOverlay, Project } from "@toony/schema";
+import type {
+  Cut,
+  Episode,
+  LetteringOverlay,
+  Project,
+  SequenceItem,
+  Transition,
+} from "@toony/schema";
 import { decodeYaml } from "../format.js";
 import { ProjectIoError } from "../index.js";
 import { cutsFile, episodeFile, letteringFile, transitionsFile, webtoonPath } from "../paths.js";
 import { loadProject } from "../reader.js";
 import { buildInitialProject, slugify } from "../scaffold.js";
-import { writeLettering, writeProject } from "../writer.js";
+import { writeLettering, writeProject, writeTransitions } from "../writer.js";
+
+function transition(over: Partial<Transition> = {}): Transition {
+  return {
+    id: "tr-001",
+    type: "gutter",
+    gutterHeight: 48,
+    text: null,
+    sfx: null,
+    agentNote: null,
+    humanNote: null,
+    image: null,
+    reviewStatus: "draft",
+    ...over,
+  };
+}
+
+function episodeWith(sequence: SequenceItem[]): Episode {
+  return { schemaVersion: 1, id: "ep-001", title: "Episode", sequence };
+}
 
 function overlay(over: Partial<LetteringOverlay> = {}): LetteringOverlay {
   return {
@@ -207,6 +233,172 @@ test("writeLettering rejects duplicate overlay ids", async () => {
     assert.match(error.message, /duplicate overlay id/);
     return true;
   });
+});
+
+test("writeTransitions inserts a transition and survives reload", async () => {
+  const root = join(workdir, "demo");
+  await writeProject(root, buildInitialProject("demo"));
+  const cuts: Cut[] = [
+    { id: "cut-001", image: null },
+    { id: "cut-002", image: null },
+  ];
+  // Insert a second transition (a scene break) before cut-002 is not possible
+  // (tr-001 already sits there); instead edit tr-001 and add a leading cut span.
+  const transitions = [transition({ id: "tr-001", type: "scene-break", gutterHeight: 96 })];
+  const sequence: SequenceItem[] = [
+    { type: "cut", id: "cut-001" },
+    { type: "transition", id: "tr-001" },
+    { type: "cut", id: "cut-002" },
+  ];
+  await writeTransitions(root, "ep-001", episodeWith(sequence), transitions, cuts);
+
+  const loaded = await loadProject(root);
+  assert.equal(loaded.validation.valid, true, JSON.stringify(loaded.validation.issues));
+  const persisted = loaded.project.episodes[0]?.transitions;
+  assert.equal(persisted?.length, 1);
+  assert.equal(persisted?.[0]?.type, "scene-break");
+  assert.equal(persisted?.[0]?.gutterHeight, 96);
+  assert.equal(loaded.project.episodes[0]?.episode.sequence.length, 3);
+});
+
+test("writeTransitions writes both transitions.yaml and episode.yaml", async () => {
+  const root = join(workdir, "demo");
+  await writeProject(root, buildInitialProject("demo"));
+  const cuts: Cut[] = [
+    { id: "cut-001", image: null },
+    { id: "cut-002", image: null },
+  ];
+  const transitions = [transition({ id: "tr-001", text: "Later that night." })];
+  const sequence: SequenceItem[] = [
+    { type: "cut", id: "cut-001" },
+    { type: "transition", id: "tr-001" },
+    { type: "cut", id: "cut-002" },
+  ];
+  await writeTransitions(root, "ep-001", episodeWith(sequence), transitions, cuts);
+  const tr = decodeYaml(await readFile(transitionsFile(root, "ep-001"), "utf8")) as Transition[];
+  const ep = decodeYaml(await readFile(episodeFile(root, "ep-001"), "utf8")) as Episode;
+  assert.equal(tr[0]?.text, "Later that night.");
+  assert.equal(ep.sequence.length, 3);
+});
+
+test("writeTransitions output is deterministic (byte-stable)", async () => {
+  const root = join(workdir, "demo");
+  await writeProject(root, buildInitialProject("demo"));
+  const cuts: Cut[] = [
+    { id: "cut-001", image: null },
+    { id: "cut-002", image: null },
+  ];
+  const transitions = [transition({ id: "tr-001" })];
+  const sequence: SequenceItem[] = [
+    { type: "cut", id: "cut-001" },
+    { type: "transition", id: "tr-001" },
+    { type: "cut", id: "cut-002" },
+  ];
+  await writeTransitions(root, "ep-001", episodeWith(sequence), transitions, cuts);
+  const firstTr = await readFile(transitionsFile(root, "ep-001"), "utf8");
+  const firstEp = await readFile(episodeFile(root, "ep-001"), "utf8");
+  await writeTransitions(root, "ep-001", episodeWith(sequence), transitions, cuts);
+  assert.equal(await readFile(transitionsFile(root, "ep-001"), "utf8"), firstTr);
+  assert.equal(await readFile(episodeFile(root, "ep-001"), "utf8"), firstEp);
+});
+
+test("writeTransitions rejects a transition with an out-of-range gutter", async () => {
+  const root = join(workdir, "demo");
+  await writeProject(root, buildInitialProject("demo"));
+  const before = await readFile(transitionsFile(root, "ep-001"), "utf8");
+  const cuts: Cut[] = [
+    { id: "cut-001", image: null },
+    { id: "cut-002", image: null },
+  ];
+  const transitions = [transition({ id: "tr-001", gutterHeight: -10 })];
+  const sequence: SequenceItem[] = [
+    { type: "cut", id: "cut-001" },
+    { type: "transition", id: "tr-001" },
+    { type: "cut", id: "cut-002" },
+  ];
+  await assert.rejects(
+    writeTransitions(root, "ep-001", episodeWith(sequence), transitions, cuts),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectIoError);
+      assert.match(error.message, /invalid transitions/);
+      return true;
+    },
+  );
+  // Files are untouched by a rejected write.
+  assert.equal(await readFile(transitionsFile(root, "ep-001"), "utf8"), before);
+});
+
+test("writeTransitions rejects two adjacent transitions", async () => {
+  const root = join(workdir, "demo");
+  await writeProject(root, buildInitialProject("demo"));
+  const cuts: Cut[] = [
+    { id: "cut-001", image: null },
+    { id: "cut-002", image: null },
+  ];
+  const transitions = [transition({ id: "tr-001" }), transition({ id: "tr-002" })];
+  const sequence: SequenceItem[] = [
+    { type: "cut", id: "cut-001" },
+    { type: "transition", id: "tr-001" },
+    { type: "transition", id: "tr-002" },
+    { type: "cut", id: "cut-002" },
+  ];
+  await assert.rejects(
+    writeTransitions(root, "ep-001", episodeWith(sequence), transitions, cuts),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectIoError);
+      assert.match(error.message, /adjacent|between cuts/);
+      return true;
+    },
+  );
+});
+
+test("writeTransitions rejects a sequence referencing an unknown transition", async () => {
+  const root = join(workdir, "demo");
+  await writeProject(root, buildInitialProject("demo"));
+  const cuts: Cut[] = [
+    { id: "cut-001", image: null },
+    { id: "cut-002", image: null },
+  ];
+  // The record list is empty but the sequence still points at tr-001.
+  const sequence: SequenceItem[] = [
+    { type: "cut", id: "cut-001" },
+    { type: "transition", id: "tr-001" },
+    { type: "cut", id: "cut-002" },
+  ];
+  await assert.rejects(
+    writeTransitions(root, "ep-001", episodeWith(sequence), [], cuts),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectIoError);
+      assert.match(error.message, /missing-transition|no matching transition/);
+      return true;
+    },
+  );
+});
+
+test("writeTransitions rejects duplicate transition ids", async () => {
+  const root = join(workdir, "demo");
+  await writeProject(root, buildInitialProject("demo"));
+  const cuts: Cut[] = [
+    { id: "cut-001", image: null },
+    { id: "cut-002", image: null },
+    { id: "cut-003", image: null },
+  ];
+  const transitions = [transition({ id: "dup" }), transition({ id: "dup" })];
+  const sequence: SequenceItem[] = [
+    { type: "cut", id: "cut-001" },
+    { type: "transition", id: "dup" },
+    { type: "cut", id: "cut-002" },
+    { type: "transition", id: "dup" },
+    { type: "cut", id: "cut-003" },
+  ];
+  await assert.rejects(
+    writeTransitions(root, "ep-001", episodeWith(sequence), transitions, cuts),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectIoError);
+      assert.match(error.message, /duplicate transition id|more than once/);
+      return true;
+    },
+  );
 });
 
 test("a fuller fixture with lettering round-trips", async () => {
