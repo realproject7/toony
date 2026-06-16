@@ -8,6 +8,8 @@ usage:
   toony studio [path]      launch the local web studio for a project
   toony import-image ...   import/ingest an image asset for a cut or transition
   toony export <target> ...  export platform/stitched/plotlink for an episode
+  toony lint [path]        lint a whole project (schema, images, overflow, manifests)
+  toony lint-episode <id>  lint a single episode by id
   toony --help             show this help
 
 options:
@@ -19,9 +21,12 @@ options:
   export <platform|stitched|plotlink> [path] --episode <id>
          [--width <px>] [--format png|jpg] [--quality <0-100>]
                            writes into the project's exports/ folder + manifest
+  lint [path] --json       emit findings as JSON instead of text
+  lint-episode <id> [path] [--json]
+                           lint only the named episode
 
 exit codes (agent-readable):
-  0   success; for \`validate\`, the project is valid
-  1   validation errors found (\`validate\` only)
+  0   success; for \`validate\`, the project is valid; for \`lint\`, no error/warning findings
+  1   findings found (\`validate\`: schema errors; \`lint\`: any error/warning finding)
   2   usage error or IO failure (bad arguments, missing/unreadable files)
 `;

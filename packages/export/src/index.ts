@@ -13,12 +13,15 @@ export {
 } from "./encode.js";
 export { ExportError } from "./errors.js";
 export {
+  EXPORT_TARGET_KINDS,
   type ExportManifest,
   type ExportTargetKind,
   MANIFEST_FILE,
   MANIFEST_VERSION,
   type ManifestFile,
   type ManifestMarkdown,
+  PLOTLINK_MAX_BYTES,
+  PLOTLINK_MAX_IMAGES,
   sha256Hex,
   validateManifest,
 } from "./manifest.js";

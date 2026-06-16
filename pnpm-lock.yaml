@@ -60,6 +60,9 @@ importers:
       '@toony/export':
         specifier: workspace:*
         version: link:../export
+      '@toony/lint':
+        specifier: workspace:*
+        version: link:../lint
       '@toony/project-io':
         specifier: workspace:*
         version: link:../project-io
@@ -101,6 +104,12 @@ importers:
 
   packages/lint:
     dependencies:
+      '@toony/export':
+        specifier: workspace:*
+        version: link:../export
+      '@toony/render':
+        specifier: workspace:*
+        version: link:../render
       '@toony/schema':
         specifier: workspace:*
         version: link:../schema

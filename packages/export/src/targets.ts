@@ -24,6 +24,8 @@ import {
   MANIFEST_VERSION,
   type ManifestFile,
   type ManifestMarkdown,
+  PLOTLINK_MAX_BYTES,
+  PLOTLINK_MAX_IMAGES,
   sha256Hex,
 } from "./manifest.js";
 import { buildPlotlinkMarkdown } from "./markdown.js";
@@ -31,8 +33,6 @@ import { buildPlotlinkMarkdown } from "./markdown.js";
 const PLATFORM_DEFAULT_WIDTH = 1200;
 const STITCHED_DEFAULT_WIDTH = 1200;
 const PLOTLINK_DEFAULT_WIDTH = 800;
-const PLOTLINK_MAX_IMAGES = 20;
-const PLOTLINK_MAX_BYTES = 1_000_000;
 
 export interface ExportOptions {
   /** Render width in px. Each target has a sensible default. */
