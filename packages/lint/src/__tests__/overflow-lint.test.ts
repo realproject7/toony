@@ -79,7 +79,10 @@ test("a readable image's header dimensions drive the layout", () => {
   // overlay overflows when the cut's real image is 2x2 px (the box collapses to
   // ~1px). The flip proves the resolver's bytes — not the fallback — set the size.
   const o = overlay("ov-1", "cut-001", "Hi", BIG_BOX);
-  assert.deepEqual(lintBubbleOverflow(bundle("cut-001", [o]), () => null), []);
+  assert.deepEqual(
+    lintBubbleOverflow(bundle("cut-001", [o]), () => null),
+    [],
+  );
 
   const tiny = encodePng(makeSolidRaster(2, 2, 3, 128));
   const findings = lintBubbleOverflow(bundle("cut-001", [o]), () => tiny);
