@@ -11,7 +11,13 @@ import { notFound } from "next/navigation";
 import { CutCanvas } from "@/components/cut-canvas";
 import { LoadError } from "@/components/load-error";
 import { TransitionBlock } from "@/components/transition-block";
-import { findEpisodeBundle, loadSelectedProject, ProjectIoError } from "@/lib/project";
+import {
+  type CutArt,
+  findEpisodeBundle,
+  loadSelectedProject,
+  ProjectIoError,
+  resolveCutArt,
+} from "@/lib/project";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +48,13 @@ export default async function EpisodePreviewPage({ params }: { params: Promise<{
 
   const cutCount = episode.sequence.filter((item) => item.type === "cut").length;
   const transitionCount = episode.sequence.filter((item) => item.type === "transition").length;
+
+  // Resolve each cut's art (src + natural dimensions) once, in parallel, so the
+  // synchronous sequence render below can place bubbles at the true aspect ratio.
+  const artEntries = await Promise.all(
+    cuts.map(async (cut) => [cut.id, await resolveCutArt(cut)] as const),
+  );
+  const artByCut = new Map<string, CutArt>(artEntries);
 
   return (
     <div data-testid="studio-episode-preview">
@@ -77,7 +90,14 @@ export default async function EpisodePreviewPage({ params }: { params: Promise<{
                   </div>
                 );
               }
-              return <CutCanvas key={key} cut={cut} bubbles={bubblesByCut.get(cut.id) ?? []} />;
+              return (
+                <CutCanvas
+                  key={key}
+                  cut={cut}
+                  bubbles={bubblesByCut.get(cut.id) ?? []}
+                  art={artByCut.get(cut.id) ?? { src: null, width: 1000, height: 1414 }}
+                />
+              );
             }
             const transition = transitionById.get(item.id);
             if (!transition) {
