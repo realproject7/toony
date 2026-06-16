@@ -71,6 +71,15 @@ export default async function EpisodePreviewPage({ params }: { params: Promise<{
             </span>
           </div>
         </div>
+        <div className="editor-actions">
+          <Link
+            href={`/episodes/${encodeURIComponent(episode.id)}/transitions/edit`}
+            className="btn"
+            data-testid="edit-transitions-link"
+          >
+            Edit transitions
+          </Link>
+        </div>
       </header>
 
       <div className="preview-layout">
