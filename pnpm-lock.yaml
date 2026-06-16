@@ -54,6 +54,9 @@ importers:
       '@toony/project-io':
         specifier: workspace:*
         version: link:../project-io
+      '@toony/providers':
+        specifier: workspace:*
+        version: link:../providers
       '@toony/schema':
         specifier: workspace:*
         version: link:../schema
@@ -80,12 +83,24 @@ importers:
 
   packages/project-io:
     dependencies:
+      '@toony/providers':
+        specifier: workspace:*
+        version: link:../providers
       '@toony/schema':
         specifier: workspace:*
         version: link:../schema
       yaml:
         specifier: 2.9.0
         version: 2.9.0
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.2
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  packages/providers:
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
