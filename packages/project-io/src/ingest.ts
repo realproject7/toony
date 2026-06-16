@@ -63,6 +63,21 @@ function targetRecordId(target: AssetTarget): string {
   return target.kind === "cut" ? target.cutId : target.transitionId;
 }
 
+// Schema only requires record ids to be non-empty strings, so a valid project
+// could use ids with path separators or `..`. Asset filenames are derived from
+// the id, so reject anything that is not a safe single path segment before any
+// write — otherwise ingest could place a file outside the episode asset folder.
+const SAFE_ASSET_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+function assertSafeAssetSegment(id: string, file: string): void {
+  if (!SAFE_ASSET_ID.test(id) || id.includes("..")) {
+    throw new ProjectIoError(
+      `record id "${id}" is not a safe asset filename (letters, digits, ".", "_", "-" only; no path separators or "..").`,
+      file,
+    );
+  }
+}
+
 async function appendProvenance(
   root: string,
   episodeId: string,
@@ -104,6 +119,12 @@ export async function ingestImageAsset(
   }
 
   const recordId = targetRecordId(target);
+  assertSafeAssetSegment(
+    recordId,
+    target.kind === "cut"
+      ? cutsFile(root, target.episodeId)
+      : transitionsFile(root, target.episodeId),
+  );
   const slotDir = target.kind === "cut" ? target.slot : "clean";
   const assetPath = `assets/${slotDir}/${recordId}.${extensionFor(result.format)}`;
   const absolutePath = join(episodeDir(root, target.episodeId), assetPath);

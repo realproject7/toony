@@ -136,6 +136,33 @@ test("a neutral provenance entry is recorded without leaking absolute paths", as
   assert.ok(!JSON.stringify(log).includes(root));
 });
 
+test("a schema-valid but path-unsafe record id cannot escape the asset folder", async () => {
+  // A cut id with parent segments is a non-empty string, so the schema accepts
+  // it — but ingest must refuse to derive an asset path from it.
+  const base = await mkdtemp(join(tmpdir(), "toony-io-"));
+  const root = join(base, "proj");
+  const project = buildInitialProject("Traversal Sample");
+  const bundle = project.episodes[0];
+  assert.ok(bundle);
+  const evilId = "../../pwned";
+  bundle.cuts.push({ id: evilId, image: null });
+  bundle.episode.sequence.push({ type: "cut", id: evilId }); // keep it referenced so the project is valid
+  await writeProject(root, project);
+
+  await assert.rejects(
+    () =>
+      ingestImageAsset(
+        root,
+        { kind: "cut", episodeId: "ep-001", cutId: evilId, slot: "clean" },
+        manualResult(),
+      ),
+    ProjectIoError,
+  );
+  // Nothing was written outside the asset folder.
+  await assert.rejects(() => readFile(join(base, "pwned.png")));
+  await assert.rejects(() => readFile(join(root, "pwned.png")));
+});
+
 test("an unknown cut id is rejected", async () => {
   const root = await freshProject();
   await assert.rejects(

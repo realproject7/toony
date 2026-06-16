@@ -59,7 +59,7 @@ const USAGE =
 
 function buildProvider(id: string): ImageProvider | { error: string } {
   if (id === "manual") return new ManualImportProvider();
-  // No fake/stub providers: only sources with a real implementation are offered.
+  // Only providers with a real implementation are offered; unknown ids fail.
   return { error: `unknown provider "${id}"; only "manual" is available in this build` };
 }
 
