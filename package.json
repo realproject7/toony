@@ -1,0 +1,25 @@
+{
+  "name": "toony",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.3",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "scan": "node scripts/scan-public-safety.mjs",
+    "no-stub": "node scripts/check-no-stub.mjs",
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run scan && pnpm run no-stub"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.0",
+    "turbo": "2.9.18",
+    "typescript": "6.0.3"
+  }
+}
