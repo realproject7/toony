@@ -11,6 +11,14 @@ export {
   encodeYaml,
 } from "./format.js";
 export {
+  type AssetSlot,
+  type AssetTarget,
+  type CutAssetTarget,
+  type IngestResult,
+  ingestImageAsset,
+  type TransitionAssetTarget,
+} from "./ingest.js";
+export {
   CUTS_FILE,
   cutsFile,
   EPISODE_DIRS,
