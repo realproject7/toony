@@ -59,11 +59,11 @@ test("ingesting a cut clean asset associates the record and strips metadata", as
     { kind: "cut", episodeId: "ep-001", cutId: "cut-001", slot: "clean" },
     manualResult(),
   );
-  assert.equal(out.assetPath, "assets/clean/cut-001.png");
+  assert.equal(out.assetPath, "episodes/ep-001/assets/clean/cut-001.png");
 
   const loaded = await loadProject(root);
   const cut = loaded.project.episodes[0]?.cuts.find((c) => c.id === "cut-001");
-  assert.equal(cut?.image?.clean, "assets/clean/cut-001.png");
+  assert.equal(cut?.image?.clean, "episodes/ep-001/assets/clean/cut-001.png");
   assert.equal(cut?.image?.final, null);
 
   const written = await readFile(
@@ -92,10 +92,10 @@ test("ingesting a transition asset associates the single image ref", async () =>
     { kind: "transition", episodeId: "ep-001", transitionId: "tr-001" },
     manualResult(),
   );
-  assert.equal(out.assetPath, "assets/clean/tr-001.png");
+  assert.equal(out.assetPath, "episodes/ep-001/assets/clean/tr-001.png");
   const loaded = await loadProject(root);
   const transition = loaded.project.episodes[0]?.transitions.find((t) => t.id === "tr-001");
-  assert.equal(transition?.image, "assets/clean/tr-001.png");
+  assert.equal(transition?.image, "episodes/ep-001/assets/clean/tr-001.png");
 });
 
 test("a final-slot ingest preserves a previously-set clean slot", async () => {
@@ -112,8 +112,8 @@ test("a final-slot ingest preserves a previously-set clean slot", async () => {
   );
   const loaded = await loadProject(root);
   const cut = loaded.project.episodes[0]?.cuts.find((c) => c.id === "cut-001");
-  assert.equal(cut?.image?.clean, "assets/clean/cut-001.png");
-  assert.equal(cut?.image?.final, "assets/final/cut-001.png");
+  assert.equal(cut?.image?.clean, "episodes/ep-001/assets/clean/cut-001.png");
+  assert.equal(cut?.image?.final, "episodes/ep-001/assets/final/cut-001.png");
 });
 
 test("a neutral provenance entry is recorded without leaking absolute paths", async () => {
@@ -128,7 +128,7 @@ test("a neutral provenance entry is recorded without leaking absolute paths", as
   );
   assert.equal(Array.isArray(log), true);
   assert.equal(log.length, 1);
-  assert.equal(log[0].assetPath, "assets/clean/cut-001.png");
+  assert.equal(log[0].assetPath, "episodes/ep-001/assets/clean/cut-001.png");
   assert.equal(log[0].source, "manual");
   assert.equal(log[0].providerId, "manual");
   assert.equal(typeof log[0].sha256, "string");
