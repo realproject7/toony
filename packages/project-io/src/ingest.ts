@@ -78,6 +78,16 @@ function assertSafeAssetSegment(id: string, file: string): void {
   }
 }
 
+// Wrap filesystem writes so a raw fs error (which embeds the absolute path)
+// never rethrows to the surface; callers get a neutral, path-free message.
+async function writeFileSafe(file: string, data: string | Uint8Array, what: string): Promise<void> {
+  try {
+    await writeFile(file, data);
+  } catch {
+    throw new ProjectIoError(`could not write ${what}.`, file);
+  }
+}
+
 async function appendProvenance(
   root: string,
   episodeId: string,
@@ -92,8 +102,16 @@ async function appendProvenance(
     // No log yet, or unreadable: start a fresh list.
   }
   entries.push(entry);
-  await mkdir(dirname(logPath), { recursive: true });
-  await writeFile(logPath, encodeJson(entries), "utf8");
+  await mkdirSafe(dirname(logPath), "the ingest log directory");
+  await writeFileSafe(logPath, encodeJson(entries), "the ingest provenance log");
+}
+
+async function mkdirSafe(dir: string, what: string): Promise<void> {
+  try {
+    await mkdir(dir, { recursive: true });
+  } catch {
+    throw new ProjectIoError(`could not create ${what}.`, dir);
+  }
 }
 
 /**
@@ -153,17 +171,17 @@ export async function ingestImageAsset(
 
   // Strip metadata so the asset is public-safe by construction, then write it.
   const stripped = stripImageMetadata(result.bytes, result.format);
-  await mkdir(dirname(absolutePath), { recursive: true });
-  await writeFile(absolutePath, stripped);
+  await mkdirSafe(dirname(absolutePath), "the asset directory");
+  await writeFileSafe(absolutePath, stripped, "the ingested asset");
 
   // Persist the updated record file (deterministic YAML).
   if (target.kind === "cut") {
-    await writeFile(cutsFile(root, target.episodeId), encodeYaml(bundle.cuts), "utf8");
+    await writeFileSafe(cutsFile(root, target.episodeId), encodeYaml(bundle.cuts), "the cuts file");
   } else {
-    await writeFile(
+    await writeFileSafe(
       transitionsFile(root, target.episodeId),
       encodeYaml(bundle.transitions),
-      "utf8",
+      "the transitions file",
     );
   }
 
