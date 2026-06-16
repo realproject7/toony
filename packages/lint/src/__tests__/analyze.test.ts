@@ -93,3 +93,10 @@ test("analyzeImageBuffer skips pixels for a non-PNG recognized format", () => {
   const findings = analyzeImageBuffer(gif, "cut-001");
   assert.ok(codes(findings).includes("image/pixel-analysis-skipped"));
 });
+
+test("the header-only path also flags extreme aspect", () => {
+  // GIF 4x200 → aspect 50, beyond the default max of 20.
+  const gif = Uint8Array.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 4, 0, 200, 0, 0, 0]);
+  const findings = analyzeImageBuffer(gif, "cut-001");
+  assert.ok(codes(findings).includes("image/aspect-extreme"));
+});

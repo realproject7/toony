@@ -273,6 +273,19 @@ export function analyzeImageBuffer(
       ),
     );
   }
+  if (dimensions.width > 0) {
+    const aspect = dimensions.height / dimensions.width;
+    if (aspect < opts.minAspectRatio || aspect > opts.maxAspectRatio) {
+      findings.push(
+        finding(
+          "warning",
+          "image/aspect-extreme",
+          imageId,
+          `aspect ratio ${aspect.toFixed(3)} (height/width) is outside ${opts.minAspectRatio.toFixed(3)}..${opts.maxAspectRatio.toFixed(3)}.`,
+        ),
+      );
+    }
+  }
   findings.push(
     finding(
       "info",
