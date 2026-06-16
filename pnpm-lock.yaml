@@ -18,6 +18,19 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  packages/lint:
+    dependencies:
+      '@toony/schema':
+        specifier: workspace:*
+        version: link:../schema
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.2
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
   packages/schema:
     devDependencies:
       '@types/node':
