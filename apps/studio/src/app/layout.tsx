@@ -1,4 +1,7 @@
 import type { ReactNode } from "react";
+import { Sidebar } from "@/components/sidebar";
+import "./tokens.css";
+import "./studio.css";
 
 export const metadata = {
   title: "Toony Studio",
@@ -8,15 +11,11 @@ export const metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body
-        style={{
-          fontFamily: "system-ui, sans-serif",
-          margin: 0,
-          padding: "2rem",
-          lineHeight: 1.5,
-        }}
-      >
-        {children}
+      <body>
+        <div className="app-frame">
+          <Sidebar />
+          <main className="content">{children}</main>
+        </div>
       </body>
     </html>
   );
