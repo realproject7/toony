@@ -151,6 +151,17 @@ export function validateImageProvidersValue(value: unknown, path: string, c: Iss
         "provider kind must be a non-empty string label.",
       );
     }
+    // Allowlist provider keys so private metadata (account ids, endpoints,
+    // tokens) cannot ride along on a provider record and still validate.
+    for (const key of Object.keys(provider)) {
+      if (key !== "id" && key !== "kind") {
+        c.add(
+          joinPath(providerPath, key),
+          "provider.unexpected-field",
+          `provider records allow only "id" and "kind"; remove unexpected field "${key}" (provider config must stay provider-neutral, no account details).`,
+        );
+      }
+    }
   }
 
   const defaultProvider = value.defaultProvider;
@@ -628,6 +639,9 @@ export function validateProject(value: unknown): ValidationResult {
       joinPath(bundlePath, "transitions"),
       c,
     );
+
+    // Overlay ids must also be unique so #8 can target edits deterministically.
+    collectIds(bundle.lettering, "overlay", joinPath(bundlePath, "lettering"), c);
 
     if (isPlainObject(episode)) {
       validateSequenceIntegrity(episode, cutIds, transitionIds, bundlePath, c);

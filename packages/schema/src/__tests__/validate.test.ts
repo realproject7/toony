@@ -51,6 +51,28 @@ test("a configured provider id satisfies defaultProvider", () => {
   assert.equal(result.valid, true, JSON.stringify(result.issues));
 });
 
+test("provider records reject private metadata fields", () => {
+  const project = cloneValidProject();
+  project.webtoon.imageProviders.providers = [
+    {
+      id: "cloud-x",
+      kind: "constrained-cloud",
+      // Private provider details must not be accepted on a provider record.
+      apiKey: "should-not-be-here",
+      endpoint: "https://provider.example/v1",
+    } as unknown as (typeof project.webtoon.imageProviders.providers)[number],
+  ];
+  project.webtoon.imageProviders.defaultProvider = "cloud-x";
+  const result = validateWebtoon(project.webtoon);
+  assert.equal(result.valid, false);
+  const unexpected = result.issues.filter((issue) => issue.code === "provider.unexpected-field");
+  assert.equal(unexpected.length, 2, JSON.stringify(result.issues));
+  assert.deepEqual(unexpected.map((issue) => issue.path).sort(), [
+    "webtoon.imageProviders.providers[0].apiKey",
+    "webtoon.imageProviders.providers[0].endpoint",
+  ]);
+});
+
 test("duplicate cut ids are reported", () => {
   const project = cloneValidProject();
   const bundle = project.episodes[0];
@@ -58,6 +80,17 @@ test("duplicate cut ids are reported", () => {
   bundle.cuts.push({ id: "cut-001", image: null });
   const result = validateProject(project);
   assert.ok(codes(result).includes("cut.duplicate-id"));
+});
+
+test("duplicate lettering overlay ids are reported", () => {
+  const project = cloneValidProject();
+  const bundle = project.episodes[0];
+  assert.ok(bundle);
+  const overlay = bundle.lettering[0];
+  assert.ok(overlay);
+  bundle.lettering.push({ ...overlay, cutId: "cut-002" });
+  const result = validateProject(project);
+  assert.ok(codes(result).includes("overlay.duplicate-id"));
 });
 
 test("sequence referencing a missing cut record fails", () => {
