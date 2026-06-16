@@ -20,9 +20,15 @@ importers:
 
   apps/studio:
     dependencies:
+      '@toony/lint':
+        specifier: workspace:*
+        version: link:../../packages/lint
       '@toony/project-io':
         specifier: workspace:*
         version: link:../../packages/project-io
+      '@toony/render':
+        specifier: workspace:*
+        version: link:../../packages/render
       '@toony/schema':
         specifier: workspace:*
         version: link:../../packages/schema
@@ -86,6 +92,19 @@ importers:
       yaml:
         specifier: 2.9.0
         version: 2.9.0
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.2
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  packages/render:
+    dependencies:
+      '@toony/schema':
+        specifier: workspace:*
+        version: link:../schema
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
