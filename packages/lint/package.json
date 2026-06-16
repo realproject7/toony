@@ -20,6 +20,8 @@
     "test": "tsc -p tsconfig.json && node ../../scripts/run-tests.mjs dist"
   },
   "dependencies": {
+    "@toony/export": "workspace:*",
+    "@toony/render": "workspace:*",
     "@toony/schema": "workspace:*"
   },
   "devDependencies": {

@@ -16,4 +16,8 @@ export { readImageDimensions } from "./image/dimensions.js";
 export { decodePng, ImageDecodeError, isPng } from "./image/png.js";
 export type { ChannelCount, Raster } from "./image/raster.js";
 export { expectedByteLength, isRasterWellFormed, luma, lumaSamples } from "./image/raster.js";
+export type { ManifestFileProbe, ResolveManifestFile } from "./manifest-lint.js";
+export { lintManifestCompleteness } from "./manifest-lint.js";
+export type { OverflowLintOptions, ResolveCutImage } from "./overflow-lint.js";
+export { DEFAULT_OVERFLOW_FALLBACK, lintBubbleOverflow } from "./overflow-lint.js";
 export { lintProjectSchema } from "./schema-lint.js";

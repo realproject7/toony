@@ -9,7 +9,13 @@ import type { RasterFormat } from "./encode.js";
 export const MANIFEST_VERSION = 1;
 export const MANIFEST_FILE = "manifest.json";
 
-export type ExportTargetKind = "platform" | "stitched" | "plotlink";
+/** PlotLink package constraints, part of the manifest contract for that target. */
+export const PLOTLINK_MAX_IMAGES = 20;
+export const PLOTLINK_MAX_BYTES = 1_000_000;
+
+/** The export target vocabulary; the single runtime source for the kind list. */
+export const EXPORT_TARGET_KINDS = ["platform", "stitched", "plotlink"] as const;
+export type ExportTargetKind = (typeof EXPORT_TARGET_KINDS)[number];
 
 export interface ManifestFile {
   /** Project-relative path to the output file. Never absolute. */
