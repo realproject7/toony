@@ -13,7 +13,13 @@
 // in the caller's space (display px for the preview, natural px for export). The
 // tail point is image-space normalized; it is converted to pixel space here.
 
-import type { BubbleKind, LetteringOverlay } from "@toony/schema";
+import {
+  type BubbleKind,
+  type FontWeight,
+  LETTERING_STYLE_DEFAULTS,
+  type LetteringOverlay,
+  type TextAlign,
+} from "@toony/schema";
 import {
   type BalloonCommand,
   balloonOutline,
@@ -41,6 +47,13 @@ export interface RenderedTextLine {
   y: number;
   /** Center x of the bubble's text column (for center-anchored rendering). */
   centerX: number;
+  /**
+   * X to anchor this line at for the resolved `textAlign`: the text column's
+   * left edge (left), center (center), or right edge (right). A renderer draws
+   * the line at `anchorX` with the matching text-anchor. For center alignment
+   * this equals `centerX`, so existing center-anchored consumers are unchanged.
+   */
+  anchorX: number;
 }
 
 /** A fully resolved render plan for one bubble, in the caller's pixel space. */
@@ -65,9 +78,19 @@ export interface BubbleRender {
   strokeWidth: number;
   /** Fill opacity 0..1. */
   fillOpacity: number;
+  /** Resolved corner radius in px (override clamped, else per-kind default). */
+  cornerRadius: number;
+  /** Resolved body font weight (override, else per-kind default). */
+  fontWeight: FontWeight;
+  /** Resolved horizontal text alignment. */
+  textAlign: TextAlign;
+  /** Resolved letter spacing in em. */
+  letterSpacing: number;
+  /** Resolved stacking order; layoutCut returns plans in ascending z (then input order). */
+  zIndex: number;
   /** Wrapped, auto-fit text layout. */
   text: BubbleTextLayout;
-  /** Positioned body lines (center-anchored), ready to place. */
+  /** Positioned body lines, ready to place. */
   lines: RenderedTextLine[];
   /** Text origin: top-left of the body text area. */
   textOrigin: { x: number; y: number };
@@ -104,13 +127,32 @@ export function layoutBubble(
   const kind = overlay.kind;
   const style = bubbleKindStyle(kind);
 
+  // Resolve the additive style fields (#54). An absent field falls back to the
+  // current behavior — per-kind weight/color/corner-radius, auto-fit size — so
+  // overlays written before these fields existed render identically.
+  const fontWeight: FontWeight = overlay.fontWeight ?? style.fontWeight;
+  const textAlign: TextAlign = overlay.textAlign ?? LETTERING_STYLE_DEFAULTS.textAlign;
+  const lineHeightFactor = overlay.lineHeight ?? LETTERING_STYLE_DEFAULTS.lineHeight;
+  const letterSpacing = overlay.letterSpacing ?? LETTERING_STYLE_DEFAULTS.letterSpacing;
+  const zIndex = overlay.zIndex ?? LETTERING_STYLE_DEFAULTS.zIndex;
+  const textColor = overlay.textColor?.trim() ? overlay.textColor : style.text;
+  // The approximate/canvas measurers distinguish only regular vs bold advance;
+  // map intermediate weights to the nearer of 400/700 for measurement while the
+  // exact weight is still exposed for the renderer to apply.
+  const measureWeight: 400 | 700 = fontWeight >= 700 ? 700 : 400;
+
   // Body rect → pixel space, clamped to a sane positive size.
   const ow = Math.max(1, overlay.geometry.width * width);
   const oh = Math.max(1, overlay.geometry.height * height);
   const ox = overlay.geometry.x * width;
   const oy = overlay.geometry.y * height;
 
-  const radius = defaultBalloonRadius(ow, oh) * style.radiusScale;
+  // Corner radius: a stored override (clamped so arcs never overrun the body)
+  // takes precedence; otherwise the per-kind default scale.
+  const radius =
+    overlay.cornerRadius !== undefined && Number.isFinite(overlay.cornerRadius)
+      ? clamp(overlay.cornerRadius, 0, Math.min(ow, oh) / 2)
+      : defaultBalloonRadius(ow, oh) * style.radiusScale;
   const hasBubble = kindHasBubble(kind);
 
   // Tail: schema `tail` is an image-space normalized point. Convert to pixel
@@ -128,7 +170,11 @@ export function layoutBubble(
   const text = layoutBubbleText(measure, overlay.text, ow, oh, {
     minFontSize,
     maxFontSize,
-    fontWeight: style.fontWeight,
+    // A stored numeric fontSize fixes the size; null/absent keeps auto-fit.
+    fontSize: overlay.fontSize ?? undefined,
+    fontWeight: measureWeight,
+    lineHeightFactor,
+    letterSpacing,
   });
 
   // Text origin: inside the box padding.
@@ -137,12 +183,15 @@ export function layoutBubble(
   const textOriginX = ox + padX;
   const textOriginY = oy + padY;
   const centerX = ox + ow / 2;
+  const rightX = ox + ow - padX;
+  const anchorX = textAlign === "left" ? textOriginX : textAlign === "right" ? rightX : centerX;
 
   const lines: RenderedTextLine[] = text.lines.map((line, i) => ({
     text: line,
     x: textOriginX,
     y: textOriginY + i * text.lineHeight,
     centerX,
+    anchorX,
   }));
 
   // Stored style overrides per-kind defaults. A stored border width is authored
@@ -167,9 +216,14 @@ export function layoutBubble(
     tail,
     fill,
     stroke,
-    textColor: style.text,
+    textColor,
     strokeWidth,
     fillOpacity,
+    cornerRadius: radius,
+    fontWeight,
+    textAlign,
+    letterSpacing,
+    zIndex,
     text,
     lines,
     textOrigin: { x: textOriginX, y: textOriginY },
@@ -178,9 +232,11 @@ export function layoutBubble(
 }
 
 /**
- * Lay out all overlays for one cut at the given render size. Overlays are laid
- * out in input order (reading order is preserved by the caller). Returns one
- * `BubbleRender` per overlay.
+ * Lay out all overlays for one cut at the given render size. Plans are returned
+ * in ASCENDING `zIndex`, ties broken by input order (a stable sort), so a
+ * consumer that draws them in array order paints higher-z overlays on top.
+ * Overlays without a `zIndex` default to 0, so legacy projects keep their
+ * input/reading order exactly. Returns one `BubbleRender` per overlay.
  */
 export function layoutCut(
   overlays: LetteringOverlay[],
@@ -188,5 +244,12 @@ export function layoutCut(
   height: number,
   opts: LayoutOptions = {},
 ): BubbleRender[] {
-  return overlays.map((overlay) => layoutBubble(overlay, width, height, opts));
+  return overlays
+    .map((overlay, index) => ({ overlay, index }))
+    .sort(
+      (a, b) =>
+        (a.overlay.zIndex ?? LETTERING_STYLE_DEFAULTS.zIndex) -
+          (b.overlay.zIndex ?? LETTERING_STYLE_DEFAULTS.zIndex) || a.index - b.index,
+    )
+    .map(({ overlay }) => layoutBubble(overlay, width, height, opts));
 }
