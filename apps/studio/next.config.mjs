@@ -1,6 +1,18 @@
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Emit a self-contained server under `.next/standalone` (its own minimal
+  // `node_modules` + `server.js`). The Toony CLI bundles this output so
+  // `toony studio` launches the web app from a single global install with no
+  // monorepo present. `.next/static` and `public/` are copied alongside it by
+  // the CLI packaging script (Next does not include them in the standalone dir).
+  output: "standalone",
+  // Collect the file trace from the monorepo root so standalone's bundled
+  // `node_modules` resolves hoisted/workspace deps (`@toony/*`, react) correctly.
+  outputFileTracingRoot: join(dirname(fileURLToPath(import.meta.url)), "..", ".."),
   // Reading project files happens in server components; nothing here uploads or
   // publishes. No wallet/account/publish/royalty surfaces exist in this app.
   //

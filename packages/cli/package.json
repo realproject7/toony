@@ -1,36 +1,46 @@
 {
-  "name": "@toony/cli",
+  "name": "toony-cli",
   "version": "0.0.0",
-  "private": true,
+  "private": false,
+  "description": "Toony — agent CLI with a bundled Studio web app. `toony` runs headless commands; `toony studio` launches the local web studio from a single install.",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "toony": "./dist/bin.js"
   },
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
   },
+  "engines": {
+    "node": ">=20"
+  },
   "files": [
-    "dist"
+    "dist",
+    "assets",
+    "studio"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node scripts/build.mjs && node scripts/bundle-studio.mjs",
+    "bundle:cli": "node scripts/build.mjs",
+    "bundle:studio": "node scripts/bundle-studio.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsc -p tsconfig.json && node ../../scripts/run-tests.mjs dist"
+    "test": "tsc -p tsconfig.test.json && node ../../scripts/run-tests.mjs dist-test"
   },
   "dependencies": {
+    "@napi-rs/canvas": "1.0.0"
+  },
+  "devDependencies": {
     "@toony/export": "workspace:*",
     "@toony/lint": "workspace:*",
     "@toony/project-io": "workspace:*",
     "@toony/providers": "workspace:*",
-    "@toony/schema": "workspace:*"
-  },
-  "devDependencies": {
+    "@toony/schema": "workspace:*",
+    "@toony/studio": "workspace:*",
     "@types/node": "^24.0.0",
+    "esbuild": "0.27.0",
     "typescript": "6.0.3"
   }
 }
