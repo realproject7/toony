@@ -63,9 +63,12 @@ and the studio share one set of files — no parallel TTF set is shipped.
 | `nanum-pen-400.woff2`    | 372 KB  |
 | **total**                | ~2.2 MB |
 
-The Latin editor faces total under ~155 KB; the CJK faces are lazy-loaded (the
-studio injects `@font-face` only when an episode actually uses them) so the
-library and reader stay light when no CJK lettering is present.
+The Latin editor faces total under ~155 KB. The studio declares all curated
+`@font-face` rules globally (a single static `lettering-fonts.css`, generated
+from this registry), but with `font-display: swap` the browser fetches a face's
+woff2 only when that family is first actually used. So the heavy CJK files are
+not downloaded eagerly: the library and reader stay light until a page renders
+text in a CJK family.
 
 ## Licenses
 

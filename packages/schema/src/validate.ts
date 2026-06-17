@@ -16,6 +16,7 @@ import {
   isPlainObject,
   isString,
 } from "./guards.js";
+import { isPathSafeId } from "./path-safe-id.js";
 import {
   BUBBLE_KINDS,
   CORNER_RADIUS_MAX_PX,
@@ -546,6 +547,15 @@ export function validateEpisodeValue(value: unknown, path: string, c: IssueColle
   requireSchemaVersion(value.schemaVersion, path, c);
   if (!isNonEmptyString(value.id)) {
     c.add(joinPath(path, "id"), "field.required", "episode id must be a non-empty string.");
+  } else if (!isPathSafeId(value.id)) {
+    // The episode id is joined into `episodes/<id>/...` on disk by project-io and
+    // the export engine, so it must be a single safe path segment — reject `/`,
+    // `\`, NUL, absolute prefixes, and `.`/`..` traversal before any write.
+    c.add(
+      joinPath(path, "id"),
+      "episode.id.unsafe",
+      "episode id must be a path-safe segment (no /, \\, NUL, or . / .. traversal).",
+    );
   }
   if (!isNonEmptyString(value.title)) {
     c.add(joinPath(path, "title"), "field.required", "episode title must be a non-empty string.");

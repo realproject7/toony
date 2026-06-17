@@ -21,6 +21,7 @@
 // the loaded-checkpoint hint. The browser never talks to ComfyUI directly.
 
 import { readConfig, type ToonyConfig, writeConfig } from "@toony/project-io";
+import { safeErrorMessage } from "@/lib/errors";
 import { workspaceRoot } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -81,6 +82,16 @@ async function probeConnection(endpoint: string | null): Promise<ConnectionStatu
   } catch {
     return { state: "unreachable" };
   }
+  // SSRF posture (#82): this is a server-side fetch of the OPERATOR's own
+  // ComfyUI endpoint, and Studio is a local-first, single-user, localhost-only
+  // tool — the operator sets and trusts this address (typically 127.0.0.1:8188),
+  // so the risk is accepted for the intended deployment. As a basic guard we only
+  // probe http/https (no file:, etc.) and keep the short timeout below; we do NOT
+  // attempt to enumerate/block internal addresses, which would break the common
+  // case of pointing at a LAN ComfyUI host.
+  if (base.protocol !== "http:" && base.protocol !== "https:") {
+    return { state: "unreachable" };
+  }
   const url = new URL("/system_stats", base);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS);
@@ -114,8 +125,10 @@ export async function GET(): Promise<Response> {
   try {
     config = await readConfig(workspaceRoot());
   } catch (cause) {
-    const reason = cause instanceof Error ? cause.message : String(cause);
-    return Response.json({ ok: false, error: reason }, { status: 500 });
+    return Response.json(
+      { ok: false, error: safeErrorMessage(cause, "could not read the workspace settings") },
+      { status: 500 },
+    );
   }
   const connection = await probeConnection(config.comfyui.endpoint);
   return Response.json({ ok: true, config, connection });
@@ -157,8 +170,10 @@ export async function POST(request: Request): Promise<Response> {
   try {
     await writeConfig(workspaceRoot(), config);
   } catch (cause) {
-    const reason = cause instanceof Error ? cause.message : String(cause);
-    return Response.json({ ok: false, error: reason }, { status: 500 });
+    return Response.json(
+      { ok: false, error: safeErrorMessage(cause, "could not save the workspace settings") },
+      { status: 500 },
+    );
   }
 
   const connection = await probeConnection(config.comfyui.endpoint);

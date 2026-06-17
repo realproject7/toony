@@ -13,6 +13,13 @@ import {
   exportStitched,
 } from "@toony/export";
 import { ProjectIoError } from "@toony/project-io";
+import {
+  EXPORT_QUALITY_MAX,
+  EXPORT_QUALITY_MIN,
+  EXPORT_WIDTH_MAX,
+  EXPORT_WIDTH_MIN,
+  validateExportInt,
+} from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE } from "../exit.js";
 
 export interface ExportIo {
@@ -59,9 +66,11 @@ function parseIntInRange(
 ): number | undefined | { error: string } {
   if (value === undefined) return undefined;
   const n = Number(value);
-  if (!Number.isInteger(n) || n < min || n > max) {
-    return { error: `${name} must be an integer between ${min} and ${max}` };
-  }
+  // Bounds + the integer-range check are shared with the Studio route via
+  // @toony/schema so the CLI and the route cannot silently diverge (#87). A
+  // non-numeric arg becomes NaN, which fails the integer check below.
+  const error = validateExportInt(n, name, min, max);
+  if (error) return { error };
   return n;
 }
 
@@ -94,12 +103,22 @@ export async function runExport(args: string[], io: ExportIo): Promise<number> {
     return EXIT_USAGE;
   }
 
-  const width = parseIntInRange(parsed.values.get("--width"), "--width", 1, 100000);
+  const width = parseIntInRange(
+    parsed.values.get("--width"),
+    "--width",
+    EXPORT_WIDTH_MIN,
+    EXPORT_WIDTH_MAX,
+  );
   if (width !== undefined && typeof width === "object") {
     io.err(width.error);
     return EXIT_USAGE;
   }
-  const quality = parseIntInRange(parsed.values.get("--quality"), "--quality", 0, 100);
+  const quality = parseIntInRange(
+    parsed.values.get("--quality"),
+    "--quality",
+    EXPORT_QUALITY_MIN,
+    EXPORT_QUALITY_MAX,
+  );
   if (quality !== undefined && typeof quality === "object") {
     io.err(quality.error);
     return EXIT_USAGE;

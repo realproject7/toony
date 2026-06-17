@@ -24,8 +24,10 @@ import {
   type ExportOptions,
   type ExportTargetKind,
 } from "@toony/export";
+import { isPathSafeId, validateExportQuality, validateExportWidth } from "@toony/schema";
+import { safeErrorMessage } from "@/lib/errors";
 import { deriveConstraintChecks, runExportTarget } from "@/lib/export";
-import { loadWork, ProjectIoError } from "@/lib/project";
+import { loadWork } from "@/lib/project";
 import { resolveWork } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -56,20 +58,6 @@ function isExportPayload(value: unknown): value is ExportPayload {
   return true;
 }
 
-/** Validate an integer option against an inclusive range; mirrors the CLI. */
-function intInRange(
-  value: number | undefined,
-  name: string,
-  min: number,
-  max: number,
-): string | null {
-  if (value === undefined) return null;
-  if (!Number.isInteger(value) || value < min || value > max) {
-    return `${name} must be an integer between ${min} and ${max}`;
-  }
-  return null;
-}
-
 export async function POST(request: Request): Promise<Response> {
   let payload: unknown;
   try {
@@ -84,11 +72,17 @@ export async function POST(request: Request): Promise<Response> {
   }
   const { workId, episodeId, target, width, format, quality } = payload;
 
-  // Validate render options against the same bounds the CLI enforces.
-  const widthError = intInRange(width, "width", 1, 100000);
+  // Validate render options against the same bounds the CLI enforces (the bounds
+  // and check are shared via @toony/schema so the two cannot diverge).
+  const widthError = validateExportWidth(width);
   if (widthError) return badRequest(widthError);
-  const qualityError = intInRange(quality, "quality", 0, 100);
+  const qualityError = validateExportQuality(quality);
   if (qualityError) return badRequest(qualityError);
+
+  // The episode id is handed to the engine, which joins it into a path. The
+  // exact-match check below is the primary guard, but reject an unsafe segment
+  // up front for a clear 400 (defense in depth, #74).
+  if (!isPathSafeId(episodeId)) return badRequest(`unknown episode "${episodeId}"`);
 
   const work = await resolveWork(workId);
   if (work === null) return badRequest(`unknown work "${workId}"`);
@@ -99,8 +93,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     loaded = await loadWork(work.root);
   } catch (cause) {
-    const reason = cause instanceof ProjectIoError ? cause.message : String(cause);
-    return Response.json({ ok: false, error: reason }, { status: 500 });
+    return Response.json({ ok: false, error: safeErrorMessage(cause) }, { status: 500 });
   }
   if (!loaded.project.episodes.some((bundle) => bundle.episode.id === episodeId)) {
     return badRequest(`unknown episode "${episodeId}"`);
@@ -124,10 +117,11 @@ export async function POST(request: Request): Promise<Response> {
     if (cause instanceof ExportError) {
       return Response.json({ ok: false, error: cause.message, code: cause.code }, { status: 422 });
     }
-    if (cause instanceof ProjectIoError) {
-      return Response.json({ ok: false, error: cause.message }, { status: 422 });
-    }
-    const reason = cause instanceof Error ? cause.message : String(cause);
-    return Response.json({ ok: false, error: reason }, { status: 500 });
+    // ProjectIoError and unknown causes embed absolute on-disk paths — return a
+    // generic, path-free message instead of their raw text (#78).
+    return Response.json(
+      { ok: false, error: safeErrorMessage(cause, "could not run the export") },
+      { status: 500 },
+    );
   }
 }

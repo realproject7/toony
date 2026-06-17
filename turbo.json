@@ -9,6 +9,16 @@
     "typecheck": {
       "dependsOn": ["^build"]
     },
+    "@toony/studio#typecheck": {
+      // The studio typecheck reads Next's generated `.next/types` (route/page
+      // type defs). Those are produced by `next build`/`next typegen`, NOT by
+      // upstream package builds, so `^build` alone leaves them missing on a cold
+      // cache (#84). Depend on the studio's OWN build so `.next/types` exists
+      // before tsc runs AND so a concurrent `next build` (triggered for the CLI's
+      // studio bundling) can never clobber `.next/types` mid-typecheck — build
+      // completes first, then typecheck runs against its output.
+      "dependsOn": ["^build", "build"]
+    },
     "test": {
       "dependsOn": ["^build"]
     }

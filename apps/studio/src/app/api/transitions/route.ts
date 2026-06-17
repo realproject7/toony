@@ -20,7 +20,8 @@
 
 import { writeTransitions } from "@toony/project-io";
 import { type Project, type SequenceItem, type Transition, validateProject } from "@toony/schema";
-import { loadWork, ProjectIoError } from "@/lib/project";
+import { safeErrorMessage } from "@/lib/errors";
+import { loadWork } from "@/lib/project";
 import { resolveWork } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -70,8 +71,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     loaded = await loadWork(work.root);
   } catch (cause) {
-    const reason = cause instanceof ProjectIoError ? cause.message : String(cause);
-    return Response.json({ ok: false, error: reason }, { status: 500 });
+    return Response.json({ ok: false, error: safeErrorMessage(cause) }, { status: 500 });
   }
 
   // Resolve the episode by exact id match — never join raw input into a path.
@@ -128,8 +128,10 @@ export async function POST(request: Request): Promise<Response> {
       target.cuts,
     );
   } catch (cause) {
-    const reason = cause instanceof ProjectIoError ? cause.message : String(cause);
-    return Response.json({ ok: false, error: reason }, { status: 500 });
+    return Response.json(
+      { ok: false, error: safeErrorMessage(cause, "could not save the transitions") },
+      { status: 500 },
+    );
   }
 
   return Response.json({ ok: true, count: transitions.length });

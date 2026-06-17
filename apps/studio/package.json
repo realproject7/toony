@@ -5,11 +5,13 @@
   "type": "module",
   "scripts": {
     "copy-fonts": "node scripts/copy-fonts.mjs",
-    "predev": "node scripts/copy-fonts.mjs",
+    "gen-fonts-css": "node scripts/gen-studio-fonts-css.mjs",
+    "predev": "node scripts/copy-fonts.mjs && node scripts/gen-studio-fonts-css.mjs",
     "dev": "next dev",
-    "prebuild": "node scripts/copy-fonts.mjs",
+    "prebuild": "node scripts/copy-fonts.mjs && node scripts/gen-studio-fonts-css.mjs",
     "build": "next build",
     "start": "next start",
+    "pretypecheck": "next typegen",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

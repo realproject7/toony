@@ -39,12 +39,8 @@ import {
   TEXT_ALIGNS,
   type TextAlign,
 } from "@toony/schema";
+import { clamp } from "@/lib/clamp";
 import { ColorPicker } from "./color-picker";
-
-/** Clamp a value into [min, max]. */
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
 
 /** Font-size quick presets (px), within the schema's 6..200 bounds. */
 const SIZE_PRESETS = [16, 24, 32, 48, 64] as const;
