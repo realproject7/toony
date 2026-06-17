@@ -21,8 +21,14 @@ interface TargetSpec {
   kind: TargetKind;
   title: string;
   blurb: string;
-  /** Whether the format/quality controls apply to this target. */
+  /** Whether the PNG/JPEG format selector applies to this target. */
   supportsFormat: boolean;
+  /**
+   * Whether a quality value is sent to (and honored by) the engine for this
+   * target. Platform/stitched honor it only for JPEG; PlotLink always encodes
+   * WebP and honors quality as the encode's starting quality. PNG ignores it.
+   */
+  supportsQuality: boolean;
   defaultWidth: number;
 }
 
@@ -34,6 +40,7 @@ const TARGETS = [
     title: "Platform sequence",
     blurb: "One image per cut, in reading order.",
     supportsFormat: true,
+    supportsQuality: true,
     defaultWidth: 1200,
   },
   {
@@ -41,6 +48,7 @@ const TARGETS = [
     title: "Stitched strip",
     blurb: "A single tall image: cuts, gutters, transitions, lettering.",
     supportsFormat: true,
+    supportsQuality: true,
     defaultWidth: 1200,
   },
   {
@@ -48,6 +56,7 @@ const TARGETS = [
     title: "PlotLink-ready",
     blurb: "WebP package (≤20 images, ≤1 MB each) plus generated markdown.",
     supportsFormat: false,
+    supportsQuality: true,
     defaultWidth: 800,
   },
 ] as const satisfies readonly TargetSpec[];
@@ -86,6 +95,14 @@ export function ExportPanel({ workId, episodeId }: ExportPanelProps) {
     [target],
   );
 
+  // Quality is meaningful (and honored by the engine) for PlotLink's WebP encode
+  // and for JPEG on the platform/stitched targets. PNG ignores it, so the control
+  // is hidden — and never sent — when it would have no effect.
+  const qualityApplies = useMemo(
+    () => spec.supportsQuality && (target === "plotlink" || format === "jpeg"),
+    [spec, target, format],
+  );
+
   const selectTarget = useCallback((next: TargetSpec) => {
     setTarget(next.kind);
     setWidth(next.defaultWidth);
@@ -98,10 +115,11 @@ export function ExportPanel({ workId, episodeId }: ExportPanelProps) {
     setError(null);
     try {
       const body: Record<string, unknown> = { workId, episodeId, target, width };
-      if (spec.supportsFormat) {
-        body.format = format;
-        if (format === "jpeg") body.quality = quality;
-      }
+      if (spec.supportsFormat) body.format = format;
+      // Send quality only when it actually affects the output (PlotLink WebP, or
+      // JPEG on platform/stitched). For PNG the engine ignores it, so it is not
+      // sent — the control matches behavior (#86).
+      if (qualityApplies) body.quality = quality;
       const response = await fetch("/api/export", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -120,7 +138,7 @@ export function ExportPanel({ workId, episodeId }: ExportPanelProps) {
     } finally {
       setBusy(false);
     }
-  }, [workId, episodeId, target, width, format, quality, spec]);
+  }, [workId, episodeId, target, width, format, quality, spec, qualityApplies]);
 
   return (
     <section className="export-panel" data-testid="export-panel">
@@ -184,7 +202,7 @@ export function ExportPanel({ workId, episodeId }: ExportPanelProps) {
             </label>
           )}
 
-          {(spec.supportsFormat && format === "jpeg") || target === "plotlink" ? (
+          {qualityApplies ? (
             <label className="field">
               <span>Quality (0–100)</span>
               <input
