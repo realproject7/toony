@@ -65,3 +65,40 @@ Producing the episode surfaced and fixed real issues before sign-off:
 See [`examples/last-train/README.md`](../examples/last-train/README.md). The
 committed seed carries the story, prompts, lettering, and transitions; artwork
 regenerates from the prompts through any configured provider.
+
+---
+
+# v2 Capstone — Workspace Studio Re-verification
+
+Status: PASSED (2026-06-18)
+
+v2 turned Toony into "one workspace, two doors" (agents via the `toony` CLI;
+humans via Toony Studio) with a workspace library, a pro-lettering editor, a
+reader mode, an in-Studio export screen, and the "Studio Pulse" redesign. This
+re-verifies the whole experience end-to-end on a real multi-work workspace —
+built self-contained from the rendered "Last Train" episode plus a second
+`toony init` work (no pre-existing local path required).
+
+## What was verified
+
+| Surface | Result |
+| --- | --- |
+| Workspace library | Lists multiple works (Last Train w/ its real generated cover, Cafe Hours) with episode/cut counts — "2 works · 2 episodes · 9 cuts". Open/switch without restart; New webtoon. |
+| Reader mode | Full "Last Train" episode renders top-to-bottom — real artwork + composited bubbles (no speaker labels) + transition bands — in a clean centered column, no edit chrome. |
+| Pro-lettering editor | Typography (family/size/weight/align/line-height/letter-spacing), color pickers (text/fill/border + opacity), styling (border/radius/tail), arrangement (z-order/nudge) — all persist and render via the shared `@toony/render` core. |
+| Export | All three targets from the UI and CLI; PlotLink-ready produced 7 WebP + 734-char markdown + manifest, constraints met. |
+| Settings | ComfyUI endpoint/checkpoint/workflow via the shared `.toony/config.json`, with a connection badge; env overrides file. |
+| Agent door (CLI) | `toony validate` / `lint` / `export` run headlessly on the same workspace files — the agent path is intact. |
+| Redesign | "Studio Pulse" (Toony Indigo + Pulse Coral, state colors, new icon/logo) applied across every screen; livelier and higher-contrast while keeping canvas-first Production Scroll. |
+| Single install | `toony-cli` tarball installs outside the monorepo and provides both `toony` (CLI) and `toony studio` (bundled web app). |
+
+## Findings folded in during v2
+
+- #45 (pre-existing): `pnpm check` was red (biome); fixed and check output is no longer grep-filtered.
+- #57: the only verification catch was two `no-stub` comment-wording flags (reworded); packaging deps were correct (`@toony/*` are devDeps/bundled, runtime dep = `@napi-rs/canvas`).
+
+## Conclusion
+
+The v2 quality bar — a human can manage all works, fine-tune lettering with a
+real editor, read the episode, and export, while agents still drive everything
+headlessly, all under one livelier brand — is met. EPIC #47 complete.
