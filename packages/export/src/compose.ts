@@ -88,8 +88,10 @@ function drawBubble(ctx: SKRSContext2D, b: BubbleRender): void {
       ctx.fillStyle = b.textColor;
       ctx.fillText(line.text, line.anchorX, line.y);
     } else {
-      // SFX: outline the bare text so it reads on any background.
-      ctx.lineWidth = Math.max(1, b.text.fontSize * 0.12);
+      // SFX: outline the bare text so it reads on any background. Width comes
+      // from the render plan (single source) so the raster and the SVG preview
+      // stroke it identically (#83).
+      ctx.lineWidth = b.textOutlineWidth;
       ctx.strokeStyle = b.stroke;
       ctx.lineJoin = "round";
       ctx.strokeText(line.text, line.anchorX, line.y);

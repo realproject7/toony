@@ -13,8 +13,20 @@
 // provided (see ./measure) so the core needs no DOM/canvas to lay out text
 // server-side, while a real `canvas.measureText` measurer can still be injected.
 
-/** Measure rendered width of `text` at `fontSize` px, optionally bold. */
-export type MeasureWidth = (text: string, fontSize: number, fontWeight?: 400 | 700) => number;
+/**
+ * Measure rendered width of `text` at `fontSize` px, optionally bold and in a
+ * specific resolved font family. `fontFamily` is the render plan's resolved
+ * family id (#56); a face-aware measurer (e.g. the canvas one in `@toony/export`)
+ * keys its `ctx.font` off it so wrap/auto-fit match the glyphs actually drawn.
+ * The deterministic DOM-free default measurer ignores it, so server-side layout
+ * stays platform-independent.
+ */
+export type MeasureWidth = (
+  text: string,
+  fontSize: number,
+  fontWeight?: 400 | 700,
+  fontFamily?: string,
+) => number;
 
 export interface BubbleTextLayout {
   /** Wrapped lines of body text (never empty; [""] for empty text). */
@@ -43,6 +55,8 @@ export interface BubbleTextOptions {
   lineHeightFactor?: number;
   /** Body text weight, for consistent bold/regular measurement. */
   fontWeight?: 400 | 700;
+  /** Resolved font family id, forwarded to a face-aware measurer (#56/#77). */
+  fontFamily?: string;
   /** Letter spacing in em; widens each line by spacing*(glyphs-1)*font. Default 0. */
   letterSpacing?: number;
   /** Horizontal padding inside the box (each side). Default 6% of width. */
@@ -97,7 +111,14 @@ export function layoutBubbleText(
   const availW = Math.max(1, boxWidth - 2 * padX);
   const availH = Math.max(1, boxHeight - 2 * padY);
   const fontWeight = opts.fontWeight ?? 400;
+  const fontFamily = opts.fontFamily;
   const letterSpacing = opts.letterSpacing ?? 0;
+
+  // Bind the resolved family so a face-aware measurer wraps with the real face
+  // (#77); the default measurer ignores the extra arg. When no family is set
+  // this is the raw measurer, so existing layouts are byte-for-byte unchanged.
+  const measureFam: MeasureWidth =
+    fontFamily === undefined ? measure : (t, fs, w) => measure(t, fs, w, fontFamily);
 
   // Fold letter spacing into measurement so wrapping/auto-fit account for it:
   // each glyph after the first adds `letterSpacing * fontSize` of advance. When
@@ -105,10 +126,8 @@ export function layoutBubbleText(
   // byte-for-byte unchanged.
   const measureSpaced: MeasureWidth =
     letterSpacing === 0
-      ? measure
-      : (text, fontSize, weight) =>
-          measure(text, fontSize, weight) +
-          letterSpacing * fontSize * Math.max(0, [...text].length - 1);
+      ? measureFam
+      : (t, fs, w) => measureFam(t, fs, w) + letterSpacing * fs * Math.max(0, [...t].length - 1);
 
   const maxFont = Math.max(opts.minFontSize, opts.maxFontSize);
   const minFont = Math.max(1, Math.min(opts.minFontSize, maxFont));
