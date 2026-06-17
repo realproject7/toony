@@ -8,6 +8,14 @@
  * status and counters stay quiet.
  */
 
+/* Native form controls (range/checkbox/radio) adopt the primary accent so the
+   whole studio reads as one decisive Toony Indigo. */
+input[type="range"],
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--color-accent);
+}
+
 /* ---- App frame: fixed sidebar + scrollable working surface ---- */
 .app-frame {
   display: grid;
@@ -30,18 +38,26 @@
 .brand {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
   font-family: var(--font-display);
-  font-weight: 600;
-  font-size: var(--text-lg);
-  letter-spacing: -0.01em;
+  font-weight: 700;
+  font-size: var(--text-xl);
+  letter-spacing: var(--tracking-tight);
+  color: var(--color-ink-strong);
 }
 
+/* The app icon (indigo scroll + coral bubble) anchors the brand lockup. */
 .brand-mark {
-  width: 1.5rem;
-  height: 1.5rem;
+  width: 2rem;
+  height: 2rem;
   border-radius: var(--radius-2);
-  background: var(--color-accent);
+  display: block;
+  box-shadow: var(--shadow-1);
+}
+
+/* The wordmark closes with a Pulse Coral dot, matching the brand sheet. */
+.brand-dot {
+  color: var(--color-accent-2);
 }
 
 .nav {
@@ -56,12 +72,34 @@
   border-radius: var(--radius-2);
   color: var(--color-muted);
   font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  transition:
+    background var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
+}
+
+.nav-link:hover {
+  background: var(--color-surface-sunken);
+  color: var(--color-ink);
 }
 
 .nav-link[aria-current="page"] {
   background: var(--color-accent-soft);
-  color: var(--color-accent-strong);
+  color: var(--color-accent-press);
   font-weight: 600;
+}
+
+.nav-link[aria-current="page"]:hover {
+  background: var(--color-accent-soft);
+}
+
+/* A calm status pill at the foot of the rail, mirroring the design mocks'
+   "PROVIDER CONNECTED" affordance. State color comes from the chip system. */
+.sidebar-status {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
 .nav-section-title {
@@ -74,7 +112,6 @@
 }
 
 .sidebar-foot {
-  margin-top: auto;
   font-size: var(--text-xs);
   color: var(--color-faint);
 }
@@ -95,17 +132,19 @@
 }
 
 .page-eyebrow {
-  font-size: var(--text-xs);
+  font-size: var(--text-2xs);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-faint);
+  letter-spacing: var(--tracking-wide);
+  font-weight: var(--weight-semibold);
+  color: var(--color-accent);
 }
 
 .page-title {
   font-family: var(--font-display);
-  font-size: var(--text-title);
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  font-size: var(--text-3xl);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+  color: var(--color-ink-strong);
   margin: var(--space-1) 0 0;
 }
 
@@ -132,16 +171,17 @@
 .card {
   background: var(--color-surface);
   border: 1px solid var(--color-line);
-  border-radius: var(--radius-3);
+  border-radius: var(--radius-4);
   padding: var(--space-5);
-  box-shadow: var(--shadow-panel);
+  box-shadow: var(--shadow-2);
 }
 
 .card-title {
-  font-size: var(--text-xs);
+  font-size: var(--text-2xs);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--color-faint);
+  letter-spacing: var(--tracking-wide);
+  font-weight: var(--weight-semibold);
+  color: var(--color-muted);
   margin: 0 0 var(--space-3);
 }
 
@@ -266,40 +306,58 @@
   white-space: nowrap;
 }
 
-/* ---- Status chips ---- */
+/* ---- Status chips ----
+   Color signals state (a v2 guardrail): each tone is a soft state-colored pill
+   with a leading dot, so draft/edited/final and connected/disconnected read at
+   a glance and stay consistent across every surface (chips, checks, status). */
 .chip {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  padding: 0.1rem var(--space-2);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  padding: 0.15rem var(--space-2);
   border-radius: var(--radius-round);
-  border: 1px solid var(--color-line);
-  color: var(--color-muted);
-  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line-strong);
+  color: var(--state-draft);
+  background: var(--state-draft-soft);
   white-space: nowrap;
 }
 
+/* The leading status dot — saturated state color even on a soft pill. */
+.chip::before {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: var(--radius-round);
+  background: currentColor;
+  flex: none;
+}
+
 .chip-ok {
-  color: var(--color-success);
-  border-color: color-mix(in srgb, var(--color-success) 35%, var(--color-line));
+  color: var(--state-final);
+  background: var(--state-final-soft);
+  border-color: color-mix(in srgb, var(--state-final) 40%, transparent);
 }
 
 .chip-warn {
-  color: var(--color-warning);
-  border-color: color-mix(in srgb, var(--color-warning) 35%, var(--color-line));
+  color: var(--state-edited);
+  background: var(--state-edited-soft);
+  border-color: color-mix(in srgb, var(--state-edited) 40%, transparent);
 }
 
 .chip-danger {
-  color: var(--color-danger);
-  border-color: color-mix(in srgb, var(--color-danger) 35%, var(--color-line));
+  color: var(--state-disconnected);
+  background: var(--state-disconnected-soft);
+  border-color: color-mix(in srgb, var(--state-disconnected) 40%, transparent);
 }
 
 .chip-accent {
-  color: var(--color-accent-strong);
+  color: var(--color-accent-press);
   background: var(--color-accent-soft);
-  border-color: transparent;
+  border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
 }
 
 /* ---- Episode preview: vertical reading sequence ---- */
@@ -368,8 +426,8 @@
   width: 100%;
   border-radius: var(--radius-3);
   overflow: hidden;
-  background: var(--color-surface-raised);
-  box-shadow: var(--shadow-panel);
+  background: var(--color-scroll-page);
+  box-shadow: var(--shadow-3);
   border: 1px solid var(--color-line);
 }
 
@@ -591,17 +649,24 @@
   font-weight: 600;
   padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-2);
-  border: 1px solid var(--color-line);
+  border: 1px solid var(--color-line-strong);
   background: var(--color-surface);
   color: var(--color-ink);
   cursor: pointer;
   transition:
-    border-color 0.12s ease,
-    background 0.12s ease;
+    border-color var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
 }
 
 .btn:hover:not(:disabled) {
   border-color: var(--color-accent);
+  color: var(--color-accent-press);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
 }
 
 .btn:disabled {
@@ -612,21 +677,47 @@
 .btn-primary {
   background: var(--color-accent);
   border-color: var(--color-accent);
-  color: #ffffff;
+  color: var(--color-accent-on);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--color-accent-strong);
-  border-color: var(--color-accent-strong);
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  color: var(--color-accent-on);
+  box-shadow: var(--shadow-accent);
+}
+
+/* Pulse Coral secondary — the energetic "save"/decisive moment. */
+.btn-accent2 {
+  background: var(--color-accent-2);
+  border-color: var(--color-accent-2);
+  color: var(--color-accent-2-on);
+}
+
+.btn-accent2:hover:not(:disabled) {
+  background: var(--color-accent-2-hover);
+  border-color: var(--color-accent-2-hover);
+  color: var(--color-accent-2-on);
 }
 
 .btn-ghost {
   background: transparent;
+  border-color: transparent;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
 }
 
 .btn-danger {
   color: var(--color-danger);
-  border-color: color-mix(in srgb, var(--color-danger) 35%, var(--color-line));
+  border-color: color-mix(in srgb, var(--color-danger) 35%, var(--color-line-strong));
+}
+
+.btn-danger:hover:not(:disabled) {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
 }
 
 .editor-layout {
@@ -732,10 +823,22 @@
   font: inherit;
   font-size: var(--text-sm);
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-line);
+  border: 1px solid var(--color-line-strong);
   border-radius: var(--radius-2);
   background: var(--color-surface-raised);
   color: var(--color-ink);
+  transition:
+    border-color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
+}
+
+.field input[type="text"]:focus,
+.field input[type="number"]:focus,
+.field textarea:focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-focus);
 }
 
 .field textarea {
@@ -807,12 +910,13 @@
 .btn-chip-active {
   background: var(--color-accent);
   border-color: var(--color-accent);
-  color: #ffffff;
+  color: var(--color-accent-on);
 }
 
 .btn-chip-active:hover:not(:disabled) {
-  background: var(--color-accent-strong);
-  border-color: var(--color-accent-strong);
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  color: var(--color-accent-on);
 }
 
 /* Directional nudge pad: a 3x3 grid with arrows on the cross. */
@@ -1172,20 +1276,29 @@ button.transition-block {
   flex-direction: column;
   background: var(--color-surface);
   border: 1px solid var(--color-line);
-  border-radius: var(--radius-3);
+  border-radius: var(--radius-4);
   overflow: hidden;
-  box-shadow: var(--shadow-panel);
+  box-shadow: var(--shadow-2);
   color: inherit;
-  transition: border-color 0.12s ease;
+  transition:
+    border-color var(--dur-base) var(--ease-standard),
+    box-shadow var(--dur-base) var(--ease-standard),
+    transform var(--dur-base) var(--ease-standard);
 }
 
 .work-card:hover {
   border-color: var(--color-accent);
+  box-shadow: var(--shadow-3);
+  transform: translateY(-2px);
 }
 
 .work-cover {
   aspect-ratio: 3 / 4;
-  background: var(--color-canvas);
+  background: linear-gradient(
+    150deg,
+    color-mix(in srgb, var(--color-accent) 16%, var(--color-surface-sunken)),
+    var(--color-surface-sunken)
+  );
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1202,9 +1315,9 @@ button.transition-block {
 
 .work-cover-empty {
   font-family: var(--font-display);
-  font-size: var(--text-title);
-  font-weight: 600;
-  color: var(--color-faint);
+  font-size: var(--text-4xl);
+  font-weight: 700;
+  color: color-mix(in srgb, var(--color-accent) 55%, var(--color-faint));
 }
 
 .work-card-body {

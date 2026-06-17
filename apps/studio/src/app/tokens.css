@@ -1,43 +1,164 @@
 /*
- * Toony Production Scroll design tokens.
+ * Toony "Studio Pulse" design tokens (v2).
  *
- * Brought in from the Open Design package (`system/tokens.css`) as the real
- * theme for the studio. Values are kept verbatim so the implemented UI matches
- * the design source; UI labels and structure are defined in code.
+ * Brought in from the Open Design package (`v2/system/tokens.css`) as the real
+ * theme for the studio. The v2 set keeps the v1 semantic alias names
+ * (--color-accent, --color-canvas, --shadow-canvas, ...) so existing component
+ * references map straight over; a small compatibility block at the end maps the
+ * remaining v1 names the studio code still uses onto their v2 equivalents.
+ *
+ * Core rule unchanged: the canvas (Production Scroll) is always the protagonist;
+ * chrome stays calm so the artwork pops. v2 raises contrast and energy with ONE
+ * decisive primary accent (Toony Indigo) + an energetic secondary (Pulse Coral),
+ * and uses color to signal production state (draft / edited / final) and
+ * connection state (connected / disconnected).
  */
+
 :root {
   color-scheme: light;
 
-  --color-canvas: #f6f3ed;
-  --color-surface: #fffdf8;
-  --color-surface-raised: #ffffff;
-  --color-ink: #1c1a17;
-  --color-muted: #6e6860;
-  --color-faint: #a49b90;
-  --color-line: #d8d0c4;
-  --color-line-strong: #2a2723;
+  /* -----------------------------------------------------------------------
+     1. BRAND ACCENTS — Primary = Toony Indigo, Secondary = Pulse Coral
+     ----------------------------------------------------------------------- */
+  --indigo-50: #eef0ff;
+  --indigo-100: #dde0ff;
+  --indigo-200: #c2c6ff;
+  --indigo-300: #9ea0ff;
+  --indigo-400: #7d76fb;
+  --indigo-500: #5b3cf0; /* core brand */
+  --indigo-600: #4a2bd6;
+  --indigo-700: #3c20ad;
+  --indigo-800: #2f1a85;
+  --indigo-900: #231463;
 
-  --color-accent: #127c72;
-  --color-accent-strong: #0b5f58;
-  --color-accent-soft: #d9f0ec;
-  --color-warning: #a45f00;
-  --color-danger: #b42318;
-  --color-success: #237a3b;
-  --color-transition: #252525;
-  --color-gutter: #ffffff;
+  --coral-50: #fff0f3;
+  --coral-100: #ffdbe2;
+  --coral-200: #ffb8c6;
+  --coral-300: #ff8da3;
+  --coral-400: #ff6280;
+  --coral-500: #ff4d6d; /* core secondary */
+  --coral-600: #ed2f53;
+  --coral-700: #c61c3d;
+  --coral-800: #9c142e;
+  --coral-900: #730d20;
 
+  --amber-400: #ffb020;
+  --amber-500: #f59300;
+  --teal-400: #1fc6b0;
+  --teal-500: #0fa896;
+  --sky-400: #3aa0ff;
+  --sky-500: #1d83ec;
+
+  /* -----------------------------------------------------------------------
+     2. NEUTRAL RAMP (calm, cool paper-white chrome)
+     ----------------------------------------------------------------------- */
+  --neutral-0: #ffffff;
+  --neutral-25: #fbfbfe;
+  --neutral-50: #f5f5fb;
+  --neutral-100: #ededf5;
+  --neutral-200: #e0e0ec;
+  --neutral-300: #cbcbdb;
+  --neutral-400: #a3a3bb;
+  --neutral-500: #7c7c97;
+  --neutral-600: #5d5d76;
+  --neutral-700: #43435a;
+  --neutral-800: #2a2a3c;
+  --neutral-900: #181826;
+  --neutral-950: #0e0e18;
+
+  /* -----------------------------------------------------------------------
+     3. SEMANTIC SURFACES & TEXT (light theme defaults)
+     ----------------------------------------------------------------------- */
+  --color-canvas: var(--neutral-50);
+  --color-surface: var(--neutral-0);
+  --color-surface-raised: var(--neutral-0);
+  --color-surface-sunken: var(--neutral-100);
+
+  --color-ink: var(--neutral-900);
+  --color-ink-strong: var(--neutral-950);
+  --color-muted: var(--neutral-600);
+  --color-faint: var(--neutral-400);
+  --color-line: var(--neutral-200);
+  --color-line-strong: var(--neutral-300);
+
+  /* Accent roles (semantic aliases — components reference these, not raw ramps) */
+  --color-accent: var(--indigo-500);
+  --color-accent-hover: var(--indigo-600);
+  --color-accent-press: var(--indigo-700);
+  --color-accent-soft: var(--indigo-50);
+  --color-accent-on: var(--neutral-0);
+
+  --color-accent-2: var(--coral-500);
+  --color-accent-2-hover: var(--coral-600);
+  --color-accent-2-soft: var(--coral-50);
+  --color-accent-2-on: var(--neutral-0);
+
+  /* The Production Scroll canvas itself */
+  --color-scroll-bg: var(--neutral-200);
+  --color-scroll-page: var(--neutral-0);
+  --color-gutter: var(--neutral-0);
+
+  /* -----------------------------------------------------------------------
+     4. STATE COLORS — color signals state (a v2 guardrail)
+     ----------------------------------------------------------------------- */
+  --state-draft: var(--neutral-400);
+  --state-draft-soft: var(--neutral-100);
+  --state-edited: var(--amber-500);
+  --state-edited-soft: #fff3da;
+  --state-final: var(--teal-500);
+  --state-final-soft: #d7f6f1;
+
+  --state-connected: var(--teal-500);
+  --state-connected-soft: #d7f6f1;
+  --state-disconnected: var(--coral-600);
+  --state-disconnected-soft: var(--coral-50);
+  --state-pending: var(--amber-500);
+  --state-pending-soft: #fff3da;
+
+  --color-success: var(--teal-500);
+  --color-success-soft: #d7f6f1;
+  --color-warning: var(--amber-500);
+  --color-warning-soft: #fff3da;
+  --color-danger: var(--coral-600);
+  --color-danger-soft: var(--coral-50);
+  --color-info: var(--sky-500);
+  --color-info-soft: #e3f1ff;
+
+  /* -----------------------------------------------------------------------
+     5. TYPOGRAPHY
+     ----------------------------------------------------------------------- */
   --font-sans:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-display: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 
+  --text-2xs: 0.6875rem;
   --text-xs: 0.75rem;
-  --text-sm: 0.875rem;
-  --text-md: 1rem;
-  --text-lg: 1.125rem;
-  --text-xl: 1.375rem;
-  --text-title: 1.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1.0625rem;
+  --text-xl: 1.3125rem;
+  --text-2xl: 1.625rem;
+  --text-3xl: 2.125rem;
+  --text-4xl: 2.875rem;
 
+  --leading-tight: 1.15;
+  --leading-snug: 1.3;
+  --leading-normal: 1.5;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --tracking-tight: -0.02em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;
+
+  /* -----------------------------------------------------------------------
+     6. SPACING (4px base)
+     ----------------------------------------------------------------------- */
+  --space-0: 0;
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -46,19 +167,127 @@
   --space-6: 1.5rem;
   --space-8: 2rem;
   --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
 
+  /* -----------------------------------------------------------------------
+     7. RADII
+     ----------------------------------------------------------------------- */
   --radius-1: 0.25rem;
-  --radius-2: 0.375rem;
-  --radius-3: 0.5rem;
+  --radius-2: 0.5rem;
+  --radius-3: 0.75rem;
+  --radius-4: 1rem;
+  --radius-5: 1.5rem;
   --radius-round: 999px;
 
-  --shadow-panel: 0 1px 2px rgba(28, 26, 23, 0.08), 0 8px 24px rgba(28, 26, 23, 0.08);
-  --shadow-canvas: 0 12px 40px rgba(28, 26, 23, 0.14);
+  /* -----------------------------------------------------------------------
+     8. ELEVATION — calm shadows; the canvas floats above chrome
+     ----------------------------------------------------------------------- */
+  --shadow-1: 0 1px 2px rgba(24, 24, 38, 0.06);
+  --shadow-2: 0 1px 3px rgba(24, 24, 38, 0.08), 0 4px 12px rgba(24, 24, 38, 0.06);
+  --shadow-3: 0 4px 12px rgba(24, 24, 38, 0.1), 0 12px 32px rgba(24, 24, 38, 0.1);
+  --shadow-canvas: 0 8px 24px rgba(24, 24, 38, 0.14), 0 24px 64px rgba(35, 20, 99, 0.12);
+  --shadow-accent: 0 6px 20px rgba(91, 60, 240, 0.3);
+  --shadow-focus: 0 0 0 3px rgba(91, 60, 240, 0.35);
 
-  --studio-sidebar-width: 14rem;
-  --studio-inspector-width: 20rem;
-  --studio-toolbar-height: 3rem;
-  --episode-max-width: 48rem;
+  /* -----------------------------------------------------------------------
+     9. MOTION (subtle — guardrail)
+     ----------------------------------------------------------------------- */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasis: cubic-bezier(0.3, 0, 0, 1);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 260ms;
+
+  /* -----------------------------------------------------------------------
+     10. LAYOUT METRICS (Production Scroll workspace)
+     ----------------------------------------------------------------------- */
+  --studio-sidebar-width: 15rem;
+  --studio-inspector-width: 21rem;
+  --studio-toolbar-height: 3.25rem;
+  --studio-statusbar-height: 1.75rem;
+  --scroll-max-width: 30rem;
+  --cut-gutter: 0.75rem;
+
+  /* -----------------------------------------------------------------------
+     11. COMPATIBILITY — v1 alias names the studio code still references,
+     mapped onto their v2 equivalents so the reskin is token-driven.
+     ----------------------------------------------------------------------- */
+  --color-accent-strong: var(--color-accent-press);
+  --color-transition: var(--neutral-700);
+  --text-title: var(--text-2xl);
+  --shadow-panel: var(--shadow-2);
+  --episode-max-width: var(--scroll-max-width);
+}
+
+/* ===========================================================================
+   DARK CANVAS MODE — opt-in via [data-theme="dark"] on a root element.
+   =========================================================================== */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-canvas: var(--neutral-950);
+  --color-surface: var(--neutral-900);
+  --color-surface-raised: var(--neutral-800);
+  --color-surface-sunken: #060610;
+
+  --color-ink: var(--neutral-50);
+  --color-ink-strong: var(--neutral-0);
+  --color-muted: var(--neutral-400);
+  --color-faint: var(--neutral-500);
+  --color-line: rgba(255, 255, 255, 0.08);
+  --color-line-strong: rgba(255, 255, 255, 0.16);
+
+  --color-accent: var(--indigo-400);
+  --color-accent-hover: var(--indigo-300);
+  --color-accent-press: var(--indigo-500);
+  --color-accent-soft: rgba(91, 60, 240, 0.16);
+  --color-accent-on: var(--neutral-950);
+
+  --color-accent-2: var(--coral-400);
+  --color-accent-2-hover: var(--coral-300);
+  --color-accent-2-soft: rgba(255, 77, 109, 0.16);
+  --color-accent-2-on: var(--neutral-950);
+
+  --color-scroll-bg: #060610;
+  --color-scroll-page: var(--neutral-800);
+  --color-gutter: var(--neutral-950);
+
+  --state-draft: var(--neutral-500);
+  --state-draft-soft: rgba(255, 255, 255, 0.06);
+  --state-edited: var(--amber-400);
+  --state-edited-soft: rgba(245, 147, 0, 0.16);
+  --state-final: var(--teal-400);
+  --state-final-soft: rgba(15, 168, 150, 0.16);
+
+  --state-connected: var(--teal-400);
+  --state-connected-soft: rgba(15, 168, 150, 0.16);
+  --state-disconnected: var(--coral-400);
+  --state-disconnected-soft: rgba(255, 77, 109, 0.16);
+  --state-pending: var(--amber-400);
+  --state-pending-soft: rgba(245, 147, 0, 0.16);
+
+  --color-success: var(--teal-400);
+  --color-success-soft: rgba(15, 168, 150, 0.16);
+  --color-warning: var(--amber-400);
+  --color-warning-soft: rgba(245, 147, 0, 0.16);
+  --color-danger: var(--coral-400);
+  --color-danger-soft: rgba(255, 77, 109, 0.16);
+  --color-info: var(--sky-400);
+  --color-info-soft: rgba(58, 160, 255, 0.16);
+
+  --shadow-canvas: 0 8px 24px rgba(0, 0, 0, 0.5), 0 24px 64px rgba(0, 0, 0, 0.5);
+  --shadow-accent: 0 6px 24px rgba(125, 118, 251, 0.45);
+
+  --color-transition: var(--neutral-300);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+    --dur-slow: 0ms;
+  }
 }
 
 * {
@@ -76,7 +305,7 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans);
   font-size: var(--text-md);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
   -webkit-font-smoothing: antialiased;
 }
 
