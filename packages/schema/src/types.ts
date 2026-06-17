@@ -19,8 +19,27 @@ export const MANUAL_PROVIDER_ID = "manual";
  * Bubble kinds for lettering overlays. This is the MVP vocabulary; new kinds
  * are added here so consumers validate against one list.
  */
-export const BUBBLE_KINDS = ["speech", "thought", "narration", "shout", "whisper", "sfx"] as const;
+export const BUBBLE_KINDS = [
+  "speech",
+  "thought",
+  "narration",
+  "shout",
+  "whisper",
+  "sfx",
+  // v3 bubble grammar (#93): `beat` = an ellipsis/"…" silence-pause bubble;
+  // `ambient` = a small, dense, low-emphasis "background noise" bubble.
+  "beat",
+  "ambient",
+] as const;
 export type BubbleKind = (typeof BUBBLE_KINDS)[number];
+
+/**
+ * Emotional tone for a bubble (#93). Refines the outline SHAPE so the silhouette
+ * encodes emotion: `neutral` keeps the kind's default outline; `shout` →
+ * scalloped/cloud; `aggressive` → jagged/spiky. Default `"neutral"`.
+ */
+export const BUBBLE_TONES = ["neutral", "shout", "aggressive"] as const;
+export type BubbleTone = (typeof BUBBLE_TONES)[number];
 
 /**
  * Transition type vocabulary between cuts. `gutter` is plain vertical spacing;
@@ -171,6 +190,18 @@ export interface LetteringOverlay {
   geometry: BubbleGeometry;
   overflow: boolean;
   reviewStatus: ReviewStatus;
+  /**
+   * Emotional tone (#93), one of `BUBBLE_TONES`. Refines the outline shape;
+   * absent → `"neutral"` (the kind's default outline). Back-compatible.
+   */
+  tone?: BubbleTone;
+  /**
+   * Off-panel speaker target for the tail (#93), a point in the SAME cut-image
+   * 0..1 space as `geometry`. UNLIKE `tail`, it MAY lie outside [0,1] (the
+   * speaker is off-panel); the renderer clamps the drawn tail tip to the art
+   * edge. `null`/absent → the tail uses `tail` (current behavior).
+   */
+  tailTarget?: NormalizedPoint | null;
   // Additive pro-lettering style overrides (#54, #56). All OPTIONAL and back-
   // compatible: absent fields fall back to the renderer's current behavior. See
   // the bounds/defaults constants above.

@@ -9,7 +9,8 @@
 // supplies the per-kind defaults a stored style does not specify (text color,
 // stroke, stroke weight, corner-radius scale).
 
-import type { BubbleKind } from "@toony/schema";
+import type { BubbleKind, BubbleTone } from "@toony/schema";
+import type { OutlineDecoration } from "./geometry.js";
 
 export interface BubbleKindStyle {
   /** Default bubble fill (CSS color) when the overlay does not set one. */
@@ -24,6 +25,8 @@ export interface BubbleKindStyle {
   radiusScale: number;
   /** Body weight default for this kind. */
   fontWeight: 400 | 700;
+  /** Body font-size multiplier for this kind (#93: ambient reads smaller). Default 1. */
+  fontScale: number;
 }
 
 const KIND_STYLE: Record<BubbleKind, BubbleKindStyle> = {
@@ -34,6 +37,7 @@ const KIND_STYLE: Record<BubbleKind, BubbleKindStyle> = {
     strokeScale: 1,
     radiusScale: 1,
     fontWeight: 400,
+    fontScale: 1,
   },
   thought: {
     fill: "rgba(255, 255, 255, 0.86)",
@@ -42,6 +46,7 @@ const KIND_STYLE: Record<BubbleKind, BubbleKindStyle> = {
     strokeScale: 0.75,
     radiusScale: 1.3,
     fontWeight: 400,
+    fontScale: 1,
   },
   narration: {
     fill: "rgba(244, 239, 230, 0.95)",
@@ -50,6 +55,7 @@ const KIND_STYLE: Record<BubbleKind, BubbleKindStyle> = {
     strokeScale: 0.75,
     radiusScale: 0.32,
     fontWeight: 400,
+    fontScale: 1,
   },
   shout: {
     fill: "#ffffff",
@@ -58,6 +64,7 @@ const KIND_STYLE: Record<BubbleKind, BubbleKindStyle> = {
     strokeScale: 1.45,
     radiusScale: 0.55,
     fontWeight: 700,
+    fontScale: 1,
   },
   whisper: {
     fill: "rgba(255, 255, 255, 0.78)",
@@ -66,6 +73,7 @@ const KIND_STYLE: Record<BubbleKind, BubbleKindStyle> = {
     strokeScale: 0.55,
     radiusScale: 1.1,
     fontWeight: 400,
+    fontScale: 1,
   },
   sfx: {
     fill: "transparent",
@@ -74,6 +82,27 @@ const KIND_STYLE: Record<BubbleKind, BubbleKindStyle> = {
     strokeScale: 1,
     radiusScale: 0,
     fontWeight: 700,
+    fontScale: 1,
+  },
+  // #93: a silence-pause bubble — small, very rounded, minimal (renders "…").
+  beat: {
+    fill: "rgba(255, 255, 255, 0.9)",
+    stroke: "#3a332d",
+    text: "#3a332d",
+    strokeScale: 0.6,
+    radiusScale: 1.6,
+    fontWeight: 400,
+    fontScale: 1,
+  },
+  // #93: low-emphasis "background noise" — faint, rounded, smaller/denser text.
+  ambient: {
+    fill: "rgba(255, 255, 255, 0.62)",
+    stroke: "#9a938a",
+    text: "#5a534b",
+    strokeScale: 0.45,
+    radiusScale: 1.2,
+    fontWeight: 400,
+    fontScale: 0.72,
   },
 };
 
@@ -91,4 +120,22 @@ export function kindHasBubble(kind: BubbleKind): boolean {
 /** Whether a kind renders a speech tail when a tail point is present. */
 export function kindSupportsTail(kind: BubbleKind): boolean {
   return kind === "speech" || kind === "shout" || kind === "whisper";
+}
+
+/**
+ * Resolve the outline silhouette (#93) from a bubble's kind + tone. `"none"`
+ * means NO balloon outline is drawn — sfx is bare outlined text, narration is a
+ * borderless caption. Tone overrides the kind default: shout→scalloped (cloud),
+ * aggressive→jagged (spiky); otherwise the per-kind default shape applies.
+ */
+export function outlineDecorationFor(
+  kind: BubbleKind,
+  tone: BubbleTone,
+): OutlineDecoration | "none" {
+  if (kind === "sfx" || kind === "narration") return "none";
+  if (tone === "shout") return "scalloped";
+  if (tone === "aggressive") return "jagged";
+  if (kind === "shout") return "scalloped";
+  if (kind === "thought") return "bumpy";
+  return "rounded";
 }

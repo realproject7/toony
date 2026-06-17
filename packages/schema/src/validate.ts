@@ -19,6 +19,7 @@ import {
 import { isPathSafeId } from "./path-safe-id.js";
 import {
   BUBBLE_KINDS,
+  BUBBLE_TONES,
   CORNER_RADIUS_MAX_PX,
   CORNER_RADIUS_MIN_PX,
   FONT_FAMILY_IDS,
@@ -452,15 +453,17 @@ export function validateLetteringOverlayValue(
       c.add(joinPath(path, key), "field.required", `${key} must be a non-empty string.`);
     }
   }
-  // speaker is always a string, but only attributed kinds require it to be
-  // non-empty; narration and SFX are unattributed and may leave it empty.
+  // speaker is always a string, but only ATTRIBUTED kinds require it to be
+  // non-empty. Narration/SFX and the v3 beat (silence pause) / ambient
+  // (background noise) treatments are unattributed and may leave it empty.
+  const unattributed =
+    value.kind === "narration" ||
+    value.kind === "sfx" ||
+    value.kind === "beat" ||
+    value.kind === "ambient";
   if (!isString(value.speaker)) {
     c.add(joinPath(path, "speaker"), "field.type", "speaker must be a string.");
-  } else if (
-    value.speaker.trim().length === 0 &&
-    value.kind !== "narration" &&
-    value.kind !== "sfx"
-  ) {
+  } else if (value.speaker.trim().length === 0 && !unattributed) {
     c.add(
       joinPath(path, "speaker"),
       "field.required",
@@ -494,6 +497,31 @@ export function validateLetteringOverlayValue(
   validateTail(value.tail, joinPath(path, "tail"), c);
   validateGeometry(value.geometry, joinPath(path, "geometry"), c);
   validateLetteringStyle(value, path, c);
+  // Bubble grammar (#93), both OPTIONAL + back-compat.
+  if (value.tone !== undefined && !isOneOf(value.tone, BUBBLE_TONES)) {
+    c.add(
+      joinPath(path, "tone"),
+      "overlay.tone",
+      `tone must be one of: ${BUBBLE_TONES.join(", ")}.`,
+    );
+  }
+  validateTailTarget(value.tailTarget, joinPath(path, "tailTarget"), c);
+}
+
+/**
+ * Validate `tailTarget` (#93). Unlike `tail`, the point MAY lie outside [0,1]
+ * (an off-panel speaker) — so only finiteness is required; the renderer clamps
+ * the drawn tip to the art edge. `null`/absent is valid (use `tail`).
+ */
+function validateTailTarget(value: unknown, path: string, c: IssueCollector): void {
+  if (value === undefined || value === null) return;
+  if (!isPlainObject(value)) {
+    c.add(path, "tail-target.type", "tailTarget must be an {x, y} point or null.");
+    return;
+  }
+  if (!isFiniteNumber(value.x) || !isFiniteNumber(value.y)) {
+    c.add(path, "tail-target.bounds", "tailTarget x and y must be finite numbers.");
+  }
 }
 
 /**

@@ -32,11 +32,15 @@ test("speech bubble produces a visible tail and a closed SVG path", () => {
   assert.equal(r.tail.tip.y, (speechOverlay.tail?.y ?? 0) * H);
 });
 
-test("narration is tailless and renders a body", () => {
+test("narration is a borderless caption: tailless, no balloon, text only (#93)", () => {
   const r = layoutBubble(narrationOverlay, W, H);
+  // Borderless caption: no balloon outline drawn, but it is a text-bearing kind
+  // (plain text, not sfx-style outlined), so it keeps hasBubble + renders lines.
   assert.ok(r.hasBubble);
   assert.equal(r.tail, null);
-  assert.ok(r.pathD.length > 0);
+  assert.equal(r.pathD, "");
+  assert.equal(r.outline.length, 0);
+  assert.ok(r.lines.length >= 1);
 });
 
 test("SFX renders bare text with no bubble body or path", () => {
@@ -237,4 +241,78 @@ test("measure weight follows CSS face matching: 600→bold, 500→regular (#85)"
   captured = [];
   layoutBubble(overlay({ id: "w5", fontWeight: 500, text: "x" }), W, H, { measure: spy });
   assert.deepEqual([...new Set(captured)], [400], `500 → regular; saw ${captured}`);
+});
+
+// --- Bubble grammar: kinds, tone→shape, tailTarget (#93) -------------------
+
+test("tone refines the outline shape; neutral keeps the rounded silhouette", () => {
+  const rounded = layoutBubble(overlay({ id: "r", kind: "speech" }), W, H);
+  const scalloped = layoutBubble(overlay({ id: "s", kind: "speech", tone: "shout" }), W, H);
+  const jagged = layoutBubble(overlay({ id: "j", kind: "speech", tone: "aggressive" }), W, H);
+  // Decorated silhouettes add lobes/spikes → strictly more outline commands.
+  assert.ok(scalloped.outline.length > rounded.outline.length, "scalloped should add lobes");
+  assert.ok(jagged.outline.length > rounded.outline.length, "jagged should add spikes");
+  // All shapes stay M/L/A so SVG path and canvas trace are identical (parity).
+  for (const cmd of [...scalloped.outline, ...jagged.outline]) {
+    assert.ok(cmd.k === "M" || cmd.k === "L" || cmd.k === "A");
+  }
+  assert.ok(scalloped.pathD.startsWith("M ") && scalloped.pathD.endsWith("Z"));
+});
+
+test("shout kind defaults to a scalloped silhouette; thought is bumpy", () => {
+  const rounded = layoutBubble(overlay({ id: "r2", kind: "speech" }), W, H);
+  const shout = layoutBubble(overlay({ id: "sh", kind: "shout", speaker: "X" }), W, H);
+  const thought = layoutBubble(overlay({ id: "th", kind: "thought" }), W, H);
+  assert.ok(shout.outline.length > rounded.outline.length);
+  assert.ok(thought.outline.length > rounded.outline.length);
+});
+
+test("beat renders an ellipsis when it has no authored text", () => {
+  const beat = layoutBubble(overlay({ id: "b", kind: "beat", text: "" }), W, H);
+  assert.ok(beat.hasBubble);
+  assert.equal(beat.lines.map((l) => l.text).join(""), "...");
+  assert.ok(beat.outline.length > 0); // rounded minimal bubble
+});
+
+test("ambient reads at a smaller font than speech in the same box", () => {
+  const geometry = { x: 0.1, y: 0.1, width: 0.6, height: 0.4 };
+  const speech = layoutBubble(overlay({ id: "sp", kind: "speech", text: "hi", geometry }), W, H);
+  const ambient = layoutBubble(overlay({ id: "am", kind: "ambient", text: "hi", geometry }), W, H);
+  assert.ok(
+    ambient.text.fontSize < speech.text.fontSize,
+    `${ambient.text.fontSize} < ${speech.text.fontSize}`,
+  );
+});
+
+test("an off-panel tailTarget clamps the drawn tail tip to the art edge", () => {
+  const r = layoutBubble(
+    overlay({
+      id: "tt",
+      kind: "speech",
+      tail: null,
+      tailTarget: { x: 1.5, y: 0.5 }, // off-panel to the right
+      geometry: { x: 0.1, y: 0.1, width: 0.3, height: 0.2 },
+    }),
+    W,
+    H,
+  );
+  assert.ok(r.tail, "tailTarget should produce a tail");
+  // 1.5*W is off-panel; the drawn tip is clamped to the art edge (x === W).
+  assert.equal(r.tail.tip.x, W);
+});
+
+test("tailTarget takes precedence over tail", () => {
+  const r = layoutBubble(
+    overlay({
+      id: "tp",
+      kind: "speech",
+      tail: { x: 0.0, y: 0.5 }, // would point left
+      tailTarget: { x: 1.0, y: 0.5 }, // points right — wins
+      geometry: { x: 0.4, y: 0.4, width: 0.2, height: 0.2 },
+    }),
+    W,
+    H,
+  );
+  assert.ok(r.tail);
+  assert.equal(r.tail.tip.x, W); // used tailTarget (right), not tail (left)
 });
