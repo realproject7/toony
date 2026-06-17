@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@toony/export": "workspace:*",
     "@toony/fonts": "workspace:*",
     "@toony/lint": "workspace:*",
     "@toony/project-io": "workspace:*",

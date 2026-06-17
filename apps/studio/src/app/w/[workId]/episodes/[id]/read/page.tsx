@@ -79,6 +79,13 @@ export default async function EpisodeReaderPage({
           <span className="btn btn-primary" aria-current="page" data-testid="reader-mode-active">
             Read
           </span>
+          <Link
+            href={`${editHref}/export`}
+            className="btn btn-ghost"
+            data-testid="reader-export-toggle"
+          >
+            Export
+          </Link>
         </nav>
       </header>
 

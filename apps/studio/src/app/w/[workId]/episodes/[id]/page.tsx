@@ -97,6 +97,13 @@ export default async function EpisodePreviewPage({
             >
               Read
             </Link>
+            <Link
+              href={`${base}/episodes/${encodeURIComponent(episode.id)}/export`}
+              className="btn btn-ghost"
+              data-testid="open-export-link"
+            >
+              Export
+            </Link>
           </nav>
         </div>
       </header>
