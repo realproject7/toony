@@ -19,7 +19,14 @@ import {
   type TransitionRender,
 } from "@toony/render";
 import type { LetteringOverlay, Transition } from "@toony/schema";
-import { createCanvasMeasure, FONT_FAMILY } from "./measure.js";
+import { canvasFontFamily, registerToonyFonts } from "./fonts.js";
+import { createCanvasMeasure } from "./measure.js";
+
+// Band labels (transition cards/breaks) use a registered curated face so the
+// stitched export never falls back to the host's default sans. Nunito is the
+// clean dialogue face and ships both 400 and 700.
+const BAND_FONT_REGULAR = canvasFontFamily("nunito", 400, "narration");
+const BAND_FONT_BOLD = canvasFontFamily("nunito", 700, "narration");
 
 /** Height/width ratio used for a cut that has no image asset yet. */
 const FALLBACK_CUT_ASPECT = 1.4;
@@ -62,11 +69,14 @@ function drawBubble(ctx: SKRSContext2D, b: BubbleRender): void {
     }
   }
 
-  const fontWeight = b.kind === "shout" || b.kind === "sfx" ? 700 : 400;
+  // Use the SAME face the render plan resolved (#56): the per-weight registered
+  // canvas family for the overlay's font family, so the raster matches the SVG.
+  const fontWeight = b.fontWeight;
+  const family = canvasFontFamily(b.fontFamily, fontWeight, b.kind);
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
 
-  ctx.font = `${fontWeight} ${b.text.fontSize}px ${FONT_FAMILY}`;
+  ctx.font = `${fontWeight} ${b.text.fontSize}px "${family}"`;
   for (const line of b.lines) {
     if (b.hasBubble) {
       ctx.fillStyle = b.textColor;
@@ -106,6 +116,11 @@ export async function composeCut(
     height = Math.max(1, Math.round(width * FALLBACK_CUT_ASPECT));
   }
 
+  // Register the bundled curated faces before any text is measured or drawn so the
+  // raster uses the SAME self-hosted faces as the studio preview (no CDN, no
+  // host-default fallback). Idempotent across cuts.
+  registerToonyFonts();
+
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
   if (image) {
@@ -133,12 +148,12 @@ function drawBandText(
   const labelSize = Math.max(10, Math.round(height * 0.22));
   const cx = width / 2;
   if (render.detail) {
-    ctx.font = `700 ${labelSize}px ${FONT_FAMILY}`;
+    ctx.font = `700 ${labelSize}px "${BAND_FONT_BOLD}"`;
     ctx.fillText(render.detail, cx, height * 0.42);
-    ctx.font = `400 ${Math.max(8, Math.round(labelSize * 0.6))}px ${FONT_FAMILY}`;
+    ctx.font = `400 ${Math.max(8, Math.round(labelSize * 0.6))}px "${BAND_FONT_REGULAR}"`;
     ctx.fillText(render.label, cx, height * 0.68);
   } else {
-    ctx.font = `400 ${Math.max(8, Math.round(labelSize * 0.7))}px ${FONT_FAMILY}`;
+    ctx.font = `400 ${Math.max(8, Math.round(labelSize * 0.7))}px "${BAND_FONT_REGULAR}"`;
     ctx.fillText(render.label, cx, height / 2);
   }
 }
@@ -157,6 +172,9 @@ export function composeTransitionBand(
   const floor = render.isCard ? Math.round(width * 0.1) : 0;
   const height = Math.max(render.gutterHeight, floor);
   if (height <= 0) return null;
+
+  // Band labels draw with a bundled curated face; register before drawing.
+  registerToonyFonts();
 
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");

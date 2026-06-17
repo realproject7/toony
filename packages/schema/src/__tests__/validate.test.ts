@@ -369,3 +369,30 @@ test("zIndex must be a non-negative integer", () => {
   overlay.zIndex = 1.5;
   assert.ok(codes(validateProject(project)).includes("style.z-index"));
 });
+
+// --- Curated font family (#56) ----------------------------------------------
+
+test("fontFamily accepts a curated id and is back-compatible when absent", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  // Absent is valid (the default fixture overlay omits it).
+  assert.equal(validateProject(project).valid, true);
+  // A known curated id is valid.
+  overlay.fontFamily = "bangers";
+  assert.equal(
+    validateProject(project).valid,
+    true,
+    JSON.stringify(validateProject(project).issues),
+  );
+  overlay.fontFamily = "noto-sans-kr";
+  assert.equal(validateProject(project).valid, true);
+});
+
+test("fontFamily rejects an unknown family id", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.fontFamily = "comic-sans" as unknown as typeof overlay.fontFamily;
+  assert.ok(codes(validateProject(project)).includes("style.font-family"));
+});

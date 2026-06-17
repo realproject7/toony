@@ -90,6 +90,26 @@ export interface BubbleBorder {
 export const FONT_WEIGHTS = [400, 500, 600, 700] as const;
 export type FontWeight = (typeof FONT_WEIGHTS)[number];
 
+/**
+ * The curated lettering font-family ids (#56). This list is the schema-level
+ * CONTRACT for the optional `LetteringOverlay.fontFamily` field: validation
+ * accepts only these ids, and the `@toony/fonts` family registry is built to
+ * match them one-for-one. All faces are free Google Fonts under the SIL Open Font
+ * License, self-hosted as subset woff2 — schema only needs the id vocabulary, not
+ * the files, so it stays headless and free of any font-asset dependency.
+ */
+export const FONT_FAMILY_IDS = [
+  "nunito",
+  "noto-sans-kr",
+  "noto-sans-jp",
+  "bangers",
+  "anton",
+  "patrick-hand",
+  "gaegu",
+  "nanum-pen",
+] as const;
+export type FontFamilyId = (typeof FONT_FAMILY_IDS)[number];
+
 /** Allowed horizontal text alignments. */
 export const TEXT_ALIGNS = ["left", "center", "right"] as const;
 export type TextAlign = (typeof TEXT_ALIGNS)[number];
@@ -151,9 +171,16 @@ export interface LetteringOverlay {
   geometry: BubbleGeometry;
   overflow: boolean;
   reviewStatus: ReviewStatus;
-  // Additive pro-lettering style overrides (#54). All OPTIONAL and back-
+  // Additive pro-lettering style overrides (#54, #56). All OPTIONAL and back-
   // compatible: absent fields fall back to the renderer's current behavior. See
-  // the bounds/defaults constants above; font FAMILY is handled separately (#56).
+  // the bounds/defaults constants above.
+  /**
+   * Curated lettering font family id (#56), one of `FONT_FAMILY_IDS`. Absent →
+   * the renderer/export resolve the per-kind default family from `@toony/fonts`,
+   * so projects written before this field existed render with a sensible face.
+   * The SAME resolved family renders in the studio SVG and the export canvas.
+   */
+  fontFamily?: FontFamilyId;
   /** Fixed body font size in px (6–200); null or absent → renderer auto-fit. */
   fontSize?: number | null;
   /** Body font weight; absent → per-kind default (700 for shout/sfx). */

@@ -56,8 +56,9 @@ function Bubble({ plan }: { plan: BubbleRender }) {
           key={`${plan.id}-line-${i}`}
           x={line.centerX}
           y={line.y + fontSize}
+          fontFamily={plan.fontStack}
           fontSize={fontSize}
-          fontWeight={plan.kind === "shout" || plan.kind === "sfx" ? 700 : 400}
+          fontWeight={plan.fontWeight}
           textAnchor="middle"
           fill={plan.textColor}
           stroke={plan.kind === "sfx" ? plan.stroke : undefined}
