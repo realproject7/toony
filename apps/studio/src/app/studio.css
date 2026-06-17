@@ -181,7 +181,16 @@
   padding: 0;
 }
 
+/* A row pairs the navigable Open link with a small direct Read entry (#49). */
+.episode-row-wrap {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
 .episode-row {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--space-4);
@@ -192,6 +201,28 @@
   transition:
     border-color 0.12s ease,
     box-shadow 0.12s ease;
+}
+
+.episode-row-read {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-3);
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.episode-row-read:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
 }
 
 .episode-row:hover {
@@ -876,6 +907,62 @@ button.transition-block {
   border-radius: var(--radius-2);
   border: 1px solid var(--color-line);
   display: block;
+}
+
+/* ---- Distraction-free reader (#49) ---- */
+/* A centered, comfortable reading column with NO inspector/edit chrome. The cut
+   and transition render path is shared with the preview; only the surrounding
+   affordances differ. The header carries the Reader/Edit toggle so returning to
+   editing is always one click away. */
+.reader-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.reader-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  max-width: var(--episode-max-width);
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* The Reader/Edit toggle: a segmented pair where the active mode reads as a
+   solid primary chip and the inactive mode as a ghost button you can click. */
+.reader-toggle {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+.reader-toggle .btn[aria-current="page"] {
+  cursor: default;
+}
+
+/* The reading flow itself: cuts and transitions stacked top-to-bottom at a
+   comfortable centered width, the way a reader scrolls the published episode. */
+.reader-flow {
+  max-width: var(--episode-max-width);
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* In the reader, cut artwork stacks flush (no per-item head gap) for a
+   continuous vertical scroll; transitions still reserve their real gutter. */
+.reader-flow .cut-block {
+  margin-bottom: 0;
+}
+
+.reader-foot {
+  max-width: var(--episode-max-width);
+  margin: 0 auto;
+  width: 100%;
 }
 
 /* ---- Workspace library (issue #51) ---- */

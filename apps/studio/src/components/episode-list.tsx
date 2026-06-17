@@ -14,7 +14,7 @@ export function EpisodeList({ workId, episodes }: { workId: string; episodes: Ep
   return (
     <ul className="episode-rows" data-testid="episode-list">
       {episodes.map((episode) => (
-        <li key={episode.id}>
+        <li key={episode.id} className="episode-row-wrap">
           <Link
             href={`${base}/episodes/${encodeURIComponent(episode.id)}`}
             className="episode-row"
@@ -39,6 +39,15 @@ export function EpisodeList({ workId, episodes }: { workId: string; episodes: Ep
             <span className="episode-row-go" aria-hidden="true">
               Open &rarr;
             </span>
+          </Link>
+          {/* A direct entry into the distraction-free reader (#49), separate from
+              the row's Open link so a reader can preview without the edit chrome. */}
+          <Link
+            href={`${base}/episodes/${encodeURIComponent(episode.id)}/read`}
+            className="episode-row-read"
+            data-testid={`episode-read-${episode.id}`}
+          >
+            Read
           </Link>
         </li>
       ))}
