@@ -108,12 +108,18 @@ export const CORNER_RADIUS_MIN_PX = 0;
 export const CORNER_RADIUS_MAX_PX = 200;
 
 /**
- * Nominal defaults for the additive style fields. The flat values reproduce the
- * current renderer behavior when a field is absent; `fontSize: null` means
- * auto-fit. `fontWeight`, `textColor`, and `cornerRadius` have NO flat default
- * here because their effective default is PER BUBBLE KIND (e.g. shout/sfx are
- * weight 700 today) — `@toony/render` supplies those. These constants are the
- * starting values the editor (#55) pre-fills into its controls.
+ * The editor's starting values for the additive style fields — what the #55
+ * controls pre-fill when a user first opens them. This is NOT how the renderer
+ * fills an absent field: `@toony/render` leaves on-disk overlays sparse and, for
+ * `fontWeight`/`textColor`/`cornerRadius`, falls back to the PER-KIND render
+ * style (so shout/sfx stay weight 700 and legacy text keeps its per-kind color —
+ * that per-kind fallback, not these constants, is what preserves pixel
+ * consistency). The flat values here (`lineHeight` 1.2, `textAlign` "center",
+ * `letterSpacing` 0, `zIndex` 0, `fontSize` null → auto-fit) happen to match the
+ * renderer's current behavior. `cornerRadius` is omitted because it has no single
+ * starting value (it is per-kind). NB for #55: persist a field only when the user
+ * actually changes it — pre-filling and saving e.g. `textColor: "#111111"` would
+ * bake a color onto a bubble that never had one.
  */
 export const LETTERING_STYLE_DEFAULTS = {
   fontSize: null,
