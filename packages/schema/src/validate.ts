@@ -31,7 +31,7 @@ function isOneOf(value: unknown, allowed: readonly string[]): value is string {
 }
 
 /** Reject absolute or parent-escaping paths so asset references stay project-relative. */
-function isProjectRelativePath(value: string): boolean {
+export function isProjectRelativePath(value: string): boolean {
   if (value.length === 0) return false;
   if (value.startsWith("/") || value.startsWith("\\")) return false;
   if (/^[A-Za-z]:[\\/]/.test(value)) return false;
