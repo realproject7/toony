@@ -361,10 +361,25 @@ export function validateLetteringOverlayValue(
     c.add(path, "overlay.type", "lettering overlay must be an object.");
     return;
   }
-  for (const key of ["id", "cutId", "speaker", "font", "fill"] as const) {
+  for (const key of ["id", "cutId", "font", "fill"] as const) {
     if (!isNonEmptyString(value[key])) {
       c.add(joinPath(path, key), "field.required", `${key} must be a non-empty string.`);
     }
+  }
+  // speaker is always a string, but only attributed kinds require it to be
+  // non-empty; narration and SFX are unattributed and may leave it empty.
+  if (!isString(value.speaker)) {
+    c.add(joinPath(path, "speaker"), "field.type", "speaker must be a string.");
+  } else if (
+    value.speaker.trim().length === 0 &&
+    value.kind !== "narration" &&
+    value.kind !== "sfx"
+  ) {
+    c.add(
+      joinPath(path, "speaker"),
+      "field.required",
+      "speaker must be a non-empty string for this bubble kind.",
+    );
   }
   if (!isString(value.text)) {
     c.add(joinPath(path, "text"), "field.type", "text must be a string.");

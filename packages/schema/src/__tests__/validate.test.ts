@@ -260,3 +260,24 @@ test("every issue carries a path, code, and message", () => {
     assert.ok(issue.message.length > 0);
   }
 });
+
+test("narration and sfx overlays may have an empty speaker", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.kind = "narration";
+  overlay.speaker = "";
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+});
+
+test("attributed kinds still require a non-empty speaker", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.kind = "speech";
+  overlay.speaker = "";
+  const result = validateProject(project);
+  assert.equal(result.valid, false);
+  assert.ok(codes(result).includes("field.required"));
+});
