@@ -79,6 +79,11 @@ export interface BubbleRender {
   strokeWidth: number;
   /** Fill opacity 0..1. */
   fillOpacity: number;
+  /**
+   * Width in px to stroke bare (SFX) text so it reads on any background. Single
+   * source for SVG + canvas so they match (#83); 0 when the bubble has a body.
+   */
+  textOutlineWidth: number;
   /** Resolved corner radius in px (override clamped, else per-kind default). */
   cornerRadius: number;
   /** Resolved body font weight (override, else per-kind default). */
@@ -128,6 +133,15 @@ function baseStroke(height: number): number {
 }
 
 /**
+ * SFX bare text is stroked (outlined) so it reads on any background. The outline
+ * width is a fraction of the resolved font size, exposed on the plan as the
+ * SINGLE source so the SVG preview and the canvas export stroke it identically
+ * (#83 — they previously diverged 2×). 0.12em matches the value the export
+ * raster has shipped, so the exported artwork is unchanged.
+ */
+const SFX_TEXT_OUTLINE_FACTOR = 0.12;
+
+/**
  * Lay out a single overlay into a `BubbleRender`. Pure: same inputs → same plan.
  */
 export function layoutBubble(
@@ -156,10 +170,13 @@ export function layoutBubble(
   const letterSpacing = overlay.letterSpacing ?? LETTERING_STYLE_DEFAULTS.letterSpacing;
   const zIndex = overlay.zIndex ?? LETTERING_STYLE_DEFAULTS.zIndex;
   const textColor = overlay.textColor?.trim() ? overlay.textColor : style.text;
-  // The approximate/canvas measurers distinguish only regular vs bold advance;
-  // map intermediate weights to the nearer of 400/700 for measurement while the
-  // exact weight is still exposed for the renderer to apply.
-  const measureWeight: 400 | 700 = fontWeight >= 700 ? 700 : 400;
+  // Only two faces ship per family (400, 700). Map the resolved weight to the
+  // face that will actually be used, following CSS font-weight matching for a
+  // {400,700} set: 600-700 → the bold (700) face, 400-500 → regular. The same
+  // threshold is applied in @toony/export's canvas face selection so the raster
+  // and the SVG land on the identical face (#85). Measurement uses it too so
+  // wrap/auto-fit reflect the weight actually drawn.
+  const measureWeight: 400 | 700 = fontWeight >= 600 ? 700 : 400;
 
   // Body rect → pixel space, clamped to a sane positive size.
   const ow = Math.max(1, overlay.geometry.width * width);
@@ -193,6 +210,9 @@ export function layoutBubble(
     // A stored numeric fontSize fixes the size; null/absent keeps auto-fit.
     fontSize: overlay.fontSize ?? undefined,
     fontWeight: measureWeight,
+    // The resolved family id (#56), so a face-aware measurer (export) wraps with
+    // the same face it draws (#77). The default measurer ignores it.
+    fontFamily,
     lineHeightFactor,
     letterSpacing,
   });
@@ -226,6 +246,11 @@ export function layoutBubble(
       : fallbackStroke;
   const fillOpacity = clamp(Number.isFinite(overlay.opacity) ? overlay.opacity : 1, 0, 1);
 
+  // SFX (no bubble body) draws stroked-then-filled bare text; the outline width
+  // is resolved here so every consumer strokes it the same. 0 when there is a
+  // bubble body (no bare-text outline).
+  const textOutlineWidth = hasBubble ? 0 : Math.max(1, text.fontSize * SFX_TEXT_OUTLINE_FACTOR);
+
   return {
     id: overlay.id,
     kind,
@@ -240,6 +265,7 @@ export function layoutBubble(
     strokeWidth,
     fillOpacity,
     cornerRadius: radius,
+    textOutlineWidth,
     fontWeight,
     fontFamily,
     fontStack,
