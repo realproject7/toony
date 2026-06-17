@@ -108,3 +108,84 @@ test("preview-vs-export scale: relative geometry is identical at 2x", () => {
   // Same line breaking at both scales (font range scales with height).
   assert.deepEqual(exportP.text.lines, preview.text.lines);
 });
+
+// --- Pro-lettering style fields (#54) --------------------------------------
+
+test("absent style fields reproduce current per-kind behavior (back-compat)", () => {
+  const speech = layoutBubble(speechOverlay, W, H);
+  // Per-kind defaults: speech is weight 400, text color #1a1a1a, center-anchored.
+  assert.equal(speech.fontWeight, 400);
+  assert.equal(speech.textColor, "#1a1a1a");
+  assert.equal(speech.textAlign, "center");
+  assert.equal(speech.letterSpacing, 0);
+  assert.equal(speech.zIndex, 0);
+  for (const line of speech.lines) assert.equal(line.anchorX, line.centerX);
+  // shout/sfx default to weight 700.
+  assert.equal(
+    layoutBubble(overlay({ id: "s", kind: "shout", text: "HEY" }), W, H).fontWeight,
+    700,
+  );
+});
+
+test("a fixed fontSize overrides auto-fit", () => {
+  const r = layoutBubble(overlay({ id: "fs", fontSize: 30 }), W, H);
+  assert.equal(r.text.fontSize, 30);
+  // null is auto-fit (a number is chosen by the fitter).
+  const auto = layoutBubble(overlay({ id: "fa", fontSize: null }), W, H);
+  assert.ok(auto.text.fontSize > 0 && auto.text.fontSize !== 30);
+});
+
+test("fontWeight, textColor, lineHeight overrides are honored", () => {
+  const r = layoutBubble(
+    overlay({ id: "w", fontWeight: 600, textColor: "#2244ff", lineHeight: 2, fontSize: 20 }),
+    W,
+    H,
+  );
+  assert.equal(r.fontWeight, 600);
+  assert.equal(r.textColor, "#2244ff");
+  assert.equal(r.text.lineHeight, r.text.fontSize * 2);
+});
+
+test("textAlign controls each line's anchor x", () => {
+  const left = layoutBubble(overlay({ id: "l", textAlign: "left" }), W, H);
+  for (const line of left.lines) assert.equal(line.anchorX, left.textOrigin.x);
+  const right = layoutBubble(overlay({ id: "r", textAlign: "right" }), W, H);
+  const padX = Math.max(2, right.box.width * 0.06);
+  for (const line of right.lines) {
+    assert.equal(line.anchorX, right.box.x + right.box.width - padX);
+  }
+});
+
+test("letterSpacing widens measurement so wrapping reflects it", () => {
+  const base = overlay({
+    id: "ls",
+    text: "the tide remembers every single name tonight",
+    fontSize: 28,
+    geometry: { x: 0.1, y: 0.1, width: 0.5, height: 0.5 },
+  });
+  const tight = layoutBubble(base, W, H);
+  const spaced = layoutBubble({ ...base, letterSpacing: 0.5 }, W, H);
+  assert.equal(spaced.letterSpacing, 0.5);
+  // Wider per-glyph advance can only keep or increase the wrapped line count.
+  assert.ok(spaced.text.lines.length >= tight.text.lines.length);
+});
+
+test("cornerRadius override is honored and clamped to half the shorter side", () => {
+  const r = layoutBubble(overlay({ id: "cr", cornerRadius: 12 }), W, H);
+  assert.equal(r.cornerRadius, 12);
+  const clamped = layoutBubble(overlay({ id: "cr2", cornerRadius: 999 }), W, H);
+  assert.equal(clamped.cornerRadius, Math.min(clamped.box.width, clamped.box.height) / 2);
+});
+
+test("layoutCut orders plans by zIndex, ties by input order", () => {
+  const a = overlay({ id: "a", zIndex: 2, geometry: { x: 0.1, y: 0.1, width: 0.3, height: 0.2 } });
+  const b = overlay({ id: "b", zIndex: 0, geometry: { x: 0.1, y: 0.4, width: 0.3, height: 0.2 } });
+  const c = overlay({ id: "c", zIndex: 2, geometry: { x: 0.5, y: 0.1, width: 0.3, height: 0.2 } });
+  const d = overlay({ id: "d", zIndex: 1, geometry: { x: 0.5, y: 0.4, width: 0.3, height: 0.2 } });
+  const plans = layoutCut([a, b, c, d], W, H);
+  // Ascending z: b(0), d(1), then a & c (both 2) keep their input order.
+  assert.deepEqual(
+    plans.map((p) => p.id),
+    ["b", "d", "a", "c"],
+  );
+});

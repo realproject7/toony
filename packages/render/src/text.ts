@@ -43,6 +43,8 @@ export interface BubbleTextOptions {
   lineHeightFactor?: number;
   /** Body text weight, for consistent bold/regular measurement. */
   fontWeight?: 400 | 700;
+  /** Letter spacing in em; widens each line by spacing*(glyphs-1)*font. Default 0. */
+  letterSpacing?: number;
   /** Horizontal padding inside the box (each side). Default 6% of width. */
   paddingX?: number;
   /** Vertical padding inside the box (each side). Default 8% of height. */
@@ -95,14 +97,26 @@ export function layoutBubbleText(
   const availW = Math.max(1, boxWidth - 2 * padX);
   const availH = Math.max(1, boxHeight - 2 * padY);
   const fontWeight = opts.fontWeight ?? 400;
+  const letterSpacing = opts.letterSpacing ?? 0;
+
+  // Fold letter spacing into measurement so wrapping/auto-fit account for it:
+  // each glyph after the first adds `letterSpacing * fontSize` of advance. When
+  // spacing is 0 this is identical to the raw measurer, so existing layouts are
+  // byte-for-byte unchanged.
+  const measureSpaced: MeasureWidth =
+    letterSpacing === 0
+      ? measure
+      : (text, fontSize, weight) =>
+          measure(text, fontSize, weight) +
+          letterSpacing * fontSize * Math.max(0, [...text].length - 1);
 
   const maxFont = Math.max(opts.minFontSize, opts.maxFontSize);
   const minFont = Math.max(1, Math.min(opts.minFontSize, maxFont));
 
   const fit = (bodyFont: number): { lines: string[]; ok: boolean } => {
-    const lines = wrapText(measure, text, availW, bodyFont, fontWeight);
+    const lines = wrapText(measureSpaced, text, availW, bodyFont, fontWeight);
     const bodyH = lines.length * bodyFont * lineHeightFactor;
-    const widthOk = lines.every((l) => measure(l, bodyFont, fontWeight) <= availW + 0.5);
+    const widthOk = lines.every((l) => measureSpaced(l, bodyFont, fontWeight) <= availW + 0.5);
     return { lines, ok: bodyH <= availH && widthOk };
   };
 
@@ -131,7 +145,7 @@ export function layoutBubbleText(
   }
 
   // Nothing fits even at min — best effort: wrap at min font (may overflow).
-  const lines = wrapText(measure, text, availW, minFont, fontWeight);
+  const lines = wrapText(measureSpaced, text, availW, minFont, fontWeight);
   return {
     lines,
     fontSize: minFont,

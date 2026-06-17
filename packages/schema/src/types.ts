@@ -76,6 +76,61 @@ export interface BubbleBorder {
   color: string;
 }
 
+// --- Pro-lettering style fields (#54) ---------------------------------------
+//
+// Additive, OPTIONAL style overrides on a lettering overlay (mirrors how #38
+// added prompt fields to Cut). When a field is absent, `@toony/render`
+// reproduces the CURRENT behavior — auto-fit sizing and per-kind weight/color/
+// corner-radius — so every project written before these fields existed renders
+// identically. The exact bounds/enums/defaults below are the single contract
+// that schema validation, `@toony/render`, Studio (#55), and `@toony/export`
+// (#53) all agree on.
+
+/** Allowed body font weights. */
+export const FONT_WEIGHTS = [400, 500, 600, 700] as const;
+export type FontWeight = (typeof FONT_WEIGHTS)[number];
+
+/** Allowed horizontal text alignments. */
+export const TEXT_ALIGNS = ["left", "center", "right"] as const;
+export type TextAlign = (typeof TEXT_ALIGNS)[number];
+
+/** Fixed body font size bounds, in px. */
+export const FONT_SIZE_MIN_PX = 6;
+export const FONT_SIZE_MAX_PX = 200;
+/** Line-height multiple bounds. */
+export const LINE_HEIGHT_MIN = 0.8;
+export const LINE_HEIGHT_MAX = 2.5;
+/** Letter-spacing bounds, in em. */
+export const LETTER_SPACING_MIN_EM = -0.1;
+export const LETTER_SPACING_MAX_EM = 0.5;
+/** Bubble corner-radius bounds, in px. */
+export const CORNER_RADIUS_MIN_PX = 0;
+export const CORNER_RADIUS_MAX_PX = 200;
+
+/**
+ * The editor's starting values for the additive style fields — what the #55
+ * controls pre-fill when a user first opens them. This is NOT how the renderer
+ * fills an absent field: `@toony/render` leaves on-disk overlays sparse and, for
+ * `fontWeight`/`textColor`/`cornerRadius`, falls back to the PER-KIND render
+ * style (so shout/sfx stay weight 700 and legacy text keeps its per-kind color —
+ * that per-kind fallback, not these constants, is what preserves pixel
+ * consistency). The flat values here (`lineHeight` 1.2, `textAlign` "center",
+ * `letterSpacing` 0, `zIndex` 0, `fontSize` null → auto-fit) happen to match the
+ * renderer's current behavior. `cornerRadius` is omitted because it has no single
+ * starting value (it is per-kind). NB for #55: persist a field only when the user
+ * actually changes it — pre-filling and saving e.g. `textColor: "#111111"` would
+ * bake a color onto a bubble that never had one.
+ */
+export const LETTERING_STYLE_DEFAULTS = {
+  fontSize: null,
+  fontWeight: 400,
+  lineHeight: 1.2,
+  textAlign: "center",
+  letterSpacing: 0,
+  textColor: "#111111",
+  zIndex: 0,
+} as const;
+
 /**
  * A single lettering overlay placed on a cut. The tail resolves deterministically
  * to a normalized point in the same 0..1 coordinate space as `geometry`; a null
@@ -96,6 +151,25 @@ export interface LetteringOverlay {
   geometry: BubbleGeometry;
   overflow: boolean;
   reviewStatus: ReviewStatus;
+  // Additive pro-lettering style overrides (#54). All OPTIONAL and back-
+  // compatible: absent fields fall back to the renderer's current behavior. See
+  // the bounds/defaults constants above; font FAMILY is handled separately (#56).
+  /** Fixed body font size in px (6–200); null or absent → renderer auto-fit. */
+  fontSize?: number | null;
+  /** Body font weight; absent → per-kind default (700 for shout/sfx). */
+  fontWeight?: FontWeight;
+  /** Line advance as a multiple of font size (0.8–2.5); absent → 1.2. */
+  lineHeight?: number;
+  /** Horizontal text alignment; absent → "center". */
+  textAlign?: TextAlign;
+  /** Letter spacing in em (-0.1–0.5); absent → 0. */
+  letterSpacing?: number;
+  /** Body text color (CSS color); absent → per-kind default. */
+  textColor?: string;
+  /** Bubble corner radius in px (0–200); absent → per-kind default. */
+  cornerRadius?: number;
+  /** Stacking order among overlapping overlays (integer ≥ 0); absent → 0. */
+  zIndex?: number;
 }
 
 /**
