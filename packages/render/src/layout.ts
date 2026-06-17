@@ -16,6 +16,7 @@
 import { type FontFamilyId, resolveFontFamily } from "@toony/fonts";
 import {
   type BubbleKind,
+  type BubbleTone,
   type FontWeight,
   LETTERING_STYLE_DEFAULTS,
   type LetteringOverlay,
@@ -23,15 +24,15 @@ import {
 } from "@toony/schema";
 import {
   type BalloonCommand,
-  balloonOutline,
   balloonPathD,
+  buildBalloonOutline,
   clamp,
   defaultBalloonRadius,
   speechTailGeometry,
   type TailGeometry,
 } from "./geometry.js";
 import { approximateMeasure } from "./measure.js";
-import { bubbleKindStyle, kindHasBubble, kindSupportsTail } from "./style.js";
+import { bubbleKindStyle, kindHasBubble, kindSupportsTail, outlineDecorationFor } from "./style.js";
 import {
   type BubbleTextLayout,
   defaultBubbleFontRange,
@@ -191,22 +192,39 @@ export function layoutBubble(
       ? clamp(overlay.cornerRadius, 0, Math.min(ow, oh) / 2)
       : defaultBalloonRadius(ow, oh) * style.radiusScale;
   const hasBubble = kindHasBubble(kind);
+  // Outline silhouette (#93): tone refines the shape (shout→scalloped,
+  // aggressive→jagged); narration/sfx draw no balloon ("none").
+  const tone: BubbleTone = overlay.tone ?? "neutral";
+  const decoration = outlineDecorationFor(kind, tone);
 
-  // Tail: schema `tail` is an image-space normalized point. Convert to pixel
-  // space; only kinds that support a tail and have a non-null tail draw one.
+  // Tail: prefer the off-panel `tailTarget` (#93) over `tail`; both are cut-image
+  // normalized points. `tailTarget` MAY be off-panel, so the pixel tip is clamped
+  // to the art edge before the tail geometry is built. Only tail-supporting kinds
+  // with a target draw one.
+  const tailPoint = overlay.tailTarget ?? overlay.tail;
   let tail: TailGeometry | null = null;
-  if (hasBubble && kindSupportsTail(kind) && overlay.tail) {
-    const tip = { x: overlay.tail.x * width, y: overlay.tail.y * height };
+  if (hasBubble && kindSupportsTail(kind) && tailPoint) {
+    const tip = {
+      x: clamp(tailPoint.x * width, 0, width),
+      y: clamp(tailPoint.y * height, 0, height),
+    };
     tail = speechTailGeometry(ox, oy, ow, oh, tip, radius);
   }
 
-  const outline = hasBubble ? balloonOutline(ox, oy, ow, oh, tail, radius) : [];
-  const pathD = hasBubble ? balloonPathD(outline) : "";
+  // narration is a borderless caption and sfx is bare text — both skip the
+  // balloon. The rest build the (possibly decorated) outline; a decorated span is
+  // pure line segments so the SVG path and canvas trace stay identical (#88).
+  const drawsOutline = hasBubble && decoration !== "none";
+  const outline = drawsOutline ? buildBalloonOutline(ox, oy, ow, oh, tail, radius, decoration) : [];
+  const pathD = drawsOutline ? balloonPathD(outline) : "";
 
   const { minFontSize, maxFontSize } = defaultBubbleFontRange(height);
-  const text = layoutBubbleText(measure, overlay.text, ow, oh, {
-    minFontSize,
-    maxFontSize,
+  // #93: a beat bubble with no authored text renders an ellipsis pause; per-kind
+  // `fontScale` shrinks the auto-fit range (ambient reads smaller/denser).
+  const renderText = kind === "beat" && overlay.text.trim().length === 0 ? "..." : overlay.text;
+  const text = layoutBubbleText(measure, renderText, ow, oh, {
+    minFontSize: minFontSize * style.fontScale,
+    maxFontSize: maxFontSize * style.fontScale,
     // A stored numeric fontSize fixes the size; null/absent keeps auto-fit.
     fontSize: overlay.fontSize ?? undefined,
     fontWeight: measureWeight,

@@ -18,6 +18,7 @@ export type {
   BubbleBorder,
   BubbleGeometry,
   BubbleKind,
+  BubbleTone,
   Character,
   Cut,
   Episode,
@@ -40,6 +41,7 @@ export type {
 } from "./types.js";
 export {
   BUBBLE_KINDS,
+  BUBBLE_TONES,
   CORNER_RADIUS_MAX_PX,
   CORNER_RADIUS_MIN_PX,
   FONT_FAMILY_IDS,

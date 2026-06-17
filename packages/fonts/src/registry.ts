@@ -185,6 +185,9 @@ const DEFAULT_BY_KIND: Record<BubbleKind, FontFamilyId> = {
   narration: "patrick-hand",
   shout: "bangers",
   sfx: "anton",
+  // #93: a beat's "…" pause reads soft like thought; ambient noise is clean/dense.
+  beat: "patrick-hand",
+  ambient: "noto-sans-kr",
 };
 
 /** The default curated family id for a bubble kind (used when an overlay omits one). */

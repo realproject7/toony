@@ -125,19 +125,89 @@ export function speechTailGeometry(
 }
 
 /**
+ * Outline decoration for a straight edge span (#93): the body silhouette that
+ * encodes a bubble's kind/tone. `rounded` is a plain straight edge (current
+ * behavior); `scalloped`/`bumpy` bulge the edge into cloud lobes (shout / thought);
+ * `jagged` pushes it into spikes (aggressive). All are emitted as pure LINE
+ * segments so the SVG path and the canvas trace are byte-identical (#88 parity).
+ */
+export type OutlineDecoration = "rounded" | "scalloped" | "bumpy" | "jagged";
+
+/**
+ * Decorate the straight span from (fx,fy) to (tx,ty) — whose OUTWARD normal is
+ * the unit vector (nx,ny) — returning the commands AFTER the start point (the
+ * caller is already at (fx,fy)) up to and including (tx,ty). `rounded` is a single
+ * line; the others tile the span with outward lobes/spikes.
+ */
+function decorateSpan(
+  fx: number,
+  fy: number,
+  tx: number,
+  ty: number,
+  nx: number,
+  ny: number,
+  decoration: OutlineDecoration,
+): BalloonCommand[] {
+  if (decoration === "rounded") return [{ k: "L", x: tx, y: ty }];
+  const dx = tx - fx;
+  const dy = ty - fy;
+  const len = Math.hypot(dx, dy);
+  if (len < 2) return [{ k: "L", x: tx, y: ty }];
+  const amp =
+    decoration === "jagged"
+      ? Math.min(len * 0.18, 16)
+      : decoration === "bumpy"
+        ? Math.min(len * 0.1, 9)
+        : Math.min(len * 0.16, 14);
+  const lobeLen = decoration === "bumpy" ? amp * 2.2 : amp * 2.4;
+  const lobes = Math.max(1, Math.round(len / lobeLen));
+  const out: BalloonCommand[] = [];
+  for (let i = 0; i < lobes; i++) {
+    const a0 = i / lobes;
+    const a1 = (i + 1) / lobes;
+    if (decoration === "jagged") {
+      const m = (a0 + a1) / 2;
+      out.push({ k: "L", x: fx + dx * m + nx * amp, y: fy + dy * m + ny * amp });
+      out.push({ k: "L", x: fx + dx * a1, y: fy + dy * a1 });
+    } else {
+      // Outward semicircle from lobe start to lobe end, sampled as line segments.
+      const segments = 5;
+      const sx = fx + dx * a0;
+      const sy = fy + dy * a0;
+      const ex = fx + dx * a1;
+      const ey = fy + dy * a1;
+      for (let s = 1; s <= segments; s++) {
+        const angle = Math.PI * (s / segments);
+        const along = (1 - Math.cos(angle)) / 2;
+        const bulge = Math.sin(angle);
+        out.push({
+          x: sx + (ex - sx) * along + nx * amp * bulge,
+          y: sy + (ey - sy) * along + ny * amp * bulge,
+          k: "L",
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * The single source of truth for a balloon's outline: the rounded-rect body plus
  * its pointer tail as ONE continuous perimeter, with the tail folded into
  * whichever edge it sits on (a detour out to the tip and back), never a separate
  * shape. `tail` is null for a tailless bubble → a plain rounded rectangle.
- * Coordinates are in the caller's pixel space.
+ * `decoration` (#93) shapes the four edge spans — rounded keeps the corner arcs +
+ * straight edges (so existing bubbles are byte-identical); scalloped/bumpy/jagged
+ * replace the straight spans with lobes/spikes. Coordinates are in pixel space.
  */
-export function balloonOutline(
+export function buildBalloonOutline(
   ox: number,
   oy: number,
   ow: number,
   oh: number,
   tail: TailGeometry | null,
   radius?: number,
+  decoration: OutlineDecoration = "rounded",
 ): BalloonCommand[] {
   const r = radius ?? defaultBalloonRadius(ow, oh);
   const right = ox + ow;
@@ -151,55 +221,75 @@ export function balloonOutline(
   const onLeft = !!tail && tail.base1.x === ox && tail.base2.x === ox;
 
   const cmds: BalloonCommand[] = [{ k: "M", x: ox + r, y: oy }];
-  // Top edge, traced left→right.
+  let cx = ox + r;
+  let cy = oy;
+  // Top edge, traced left→right (outward normal up).
   if (onTop && tail) {
     cmds.push(
       { k: "L", x: tail.base1.x, y: oy },
       { k: "L", x: tail.tip.x, y: tail.tip.y },
       { k: "L", x: tail.base2.x, y: oy },
     );
+    cx = tail.base2.x;
+    cy = oy;
   }
-  cmds.push(
-    { k: "L", x: right - r, y: oy },
-    { k: "A", cornerX: right, cornerY: oy, x: right, y: oy + r, r },
-  );
-  // Right edge, traced top→bottom.
+  cmds.push(...decorateSpan(cx, cy, right - r, oy, 0, -1, decoration));
+  cmds.push({ k: "A", cornerX: right, cornerY: oy, x: right, y: oy + r, r });
+  cx = right;
+  cy = oy + r;
+  // Right edge, traced top→bottom (outward normal right).
   if (onRight && tail) {
     cmds.push(
       { k: "L", x: right, y: tail.base1.y },
       { k: "L", x: tail.tip.x, y: tail.tip.y },
       { k: "L", x: right, y: tail.base2.y },
     );
+    cx = right;
+    cy = tail.base2.y;
   }
-  cmds.push(
-    { k: "L", x: right, y: bottom - r },
-    { k: "A", cornerX: right, cornerY: bottom, x: right - r, y: bottom, r },
-  );
-  // Bottom edge, traced right→left.
+  cmds.push(...decorateSpan(cx, cy, right, bottom - r, 1, 0, decoration));
+  cmds.push({ k: "A", cornerX: right, cornerY: bottom, x: right - r, y: bottom, r });
+  cx = right - r;
+  cy = bottom;
+  // Bottom edge, traced right→left (outward normal down).
   if (onBottom && tail) {
     cmds.push(
       { k: "L", x: tail.base2.x, y: bottom },
       { k: "L", x: tail.tip.x, y: tail.tip.y },
       { k: "L", x: tail.base1.x, y: bottom },
     );
+    cx = tail.base1.x;
+    cy = bottom;
   }
-  cmds.push(
-    { k: "L", x: ox + r, y: bottom },
-    { k: "A", cornerX: ox, cornerY: bottom, x: ox, y: bottom - r, r },
-  );
-  // Left edge, traced bottom→top.
+  cmds.push(...decorateSpan(cx, cy, ox + r, bottom, 0, 1, decoration));
+  cmds.push({ k: "A", cornerX: ox, cornerY: bottom, x: ox, y: bottom - r, r });
+  cx = ox;
+  cy = bottom - r;
+  // Left edge, traced bottom→top (outward normal left).
   if (onLeft && tail) {
     cmds.push(
       { k: "L", x: ox, y: tail.base2.y },
       { k: "L", x: tail.tip.x, y: tail.tip.y },
       { k: "L", x: ox, y: tail.base1.y },
     );
+    cx = ox;
+    cy = tail.base1.y;
   }
-  cmds.push(
-    { k: "L", x: ox, y: oy + r },
-    { k: "A", cornerX: ox, cornerY: oy, x: ox + r, y: oy, r },
-  );
+  cmds.push(...decorateSpan(cx, cy, ox, oy + r, -1, 0, decoration));
+  cmds.push({ k: "A", cornerX: ox, cornerY: oy, x: ox + r, y: oy, r });
   return cmds;
+}
+
+/** The rounded balloon outline (back-compat wrapper over {@link buildBalloonOutline}). */
+export function balloonOutline(
+  ox: number,
+  oy: number,
+  ow: number,
+  oh: number,
+  tail: TailGeometry | null,
+  radius?: number,
+): BalloonCommand[] {
+  return buildBalloonOutline(ox, oy, ow, oh, tail, radius, "rounded");
 }
 
 /**

@@ -156,3 +156,57 @@ test("export honors textAlign: left text sits left of right-aligned text (#81)",
     `left-aligned ink (${leftX}) must be left of right-aligned (${rightX})`,
   );
 });
+
+// --- Bubble grammar consumption (#93) --------------------------------------
+
+test("export composes the new bubble kinds/tones without error", async () => {
+  const base = (over: Partial<LetteringOverlay>): LetteringOverlay => ({
+    id: "g",
+    cutId: "c",
+    speaker: "X",
+    kind: "speech",
+    text: "hello",
+    font: "sans-serif",
+    fill: "#ffffff",
+    opacity: 1,
+    border: null,
+    tail: null,
+    geometry: { x: 0.1, y: 0.1, width: 0.5, height: 0.2 },
+    overflow: false,
+    reviewStatus: "draft",
+    ...over,
+  });
+  // narration (borderless caption), beat (ellipsis), ambient, and a scalloped
+  // shout + jagged aggressive with an off-panel tailTarget all compose to a real
+  // raster of the expected size (they consume the shared render plan).
+  const overlays = [
+    base({
+      id: "n",
+      kind: "narration",
+      speaker: "",
+      geometry: { x: 0.05, y: 0.05, width: 0.9, height: 0.12 },
+    }),
+    base({
+      id: "b",
+      kind: "beat",
+      text: "",
+      geometry: { x: 0.4, y: 0.4, width: 0.2, height: 0.12 },
+    }),
+    base({
+      id: "a",
+      kind: "ambient",
+      text: "psst",
+      geometry: { x: 0.6, y: 0.7, width: 0.25, height: 0.1 },
+    }),
+    base({
+      id: "s",
+      kind: "shout",
+      text: "HEY",
+      tone: "aggressive",
+      tailTarget: { x: 1.4, y: 0.5 },
+    }),
+  ];
+  const composed = await composeCut(overlays, null, 480);
+  assert.equal(composed.width, 480);
+  assert.ok(composed.height > 0);
+});

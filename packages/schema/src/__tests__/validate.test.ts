@@ -458,3 +458,52 @@ test("a cut may reference characters; schema does not check refs exist (lint doe
     JSON.stringify(validateProject(project).issues),
   );
 });
+
+// --- Bubble grammar: kinds, tone, tailTarget (#93) -------------------------
+
+test("beat and ambient are valid bubble kinds", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  for (const kind of ["beat", "ambient"] as const) {
+    overlay.kind = kind;
+    overlay.speaker = ""; // beat/ambient are unattributed-friendly; set non-empty if needed
+    overlay.speaker = "X";
+    assert.equal(
+      validateProject(project).valid,
+      true,
+      `${kind}: ${JSON.stringify(validateProject(project).issues)}`,
+    );
+  }
+});
+
+test("tone must be one of the allowed tones when present", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.tone = "aggressive";
+  assert.equal(validateProject(project).valid, true);
+  overlay.tone = "angry" as unknown as typeof overlay.tone;
+  assert.ok(codes(validateProject(project)).includes("overlay.tone"));
+});
+
+test("tailTarget may be off-panel (outside 0..1) but must be finite, or null", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.tailTarget = { x: 1.5, y: -0.2 }; // off-panel — allowed
+  assert.equal(
+    validateProject(project).valid,
+    true,
+    JSON.stringify(validateProject(project).issues),
+  );
+  overlay.tailTarget = null;
+  assert.equal(validateProject(project).valid, true);
+  overlay.tailTarget = { x: Number.NaN, y: 0.5 } as unknown as typeof overlay.tailTarget;
+  assert.ok(codes(validateProject(project)).includes("tail-target.bounds"));
+});
+
+test("an overlay without tone/tailTarget is valid (back-compat)", () => {
+  // The default fixture overlay carries neither field.
+  assert.equal(validateProject(validProject).valid, true);
+});
