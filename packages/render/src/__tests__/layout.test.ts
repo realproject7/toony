@@ -201,3 +201,40 @@ test("layoutCut orders plans by zIndex, ties by input order", () => {
     ["b", "d", "a", "c"],
   );
 });
+
+// --- WYSIWYG parity foundations (#77/#83/#85) -------------------------------
+
+test("SFX exposes a single-source text-outline width; bubbles expose 0", () => {
+  const sfx = layoutBubble(sfxOverlay, W, H);
+  assert.equal(sfx.hasBubble, false);
+  assert.equal(sfx.textOutlineWidth, Math.max(1, sfx.text.fontSize * 0.12));
+  // A bubbled kind has no bare-text outline.
+  assert.equal(layoutBubble(speechOverlay, W, H).textOutlineWidth, 0);
+});
+
+test("the injected measurer receives the resolved font family (#77)", () => {
+  const seen: Array<{ weight: number | undefined; family: string | undefined }> = [];
+  const spy = (text: string, size: number, weight?: 400 | 700, family?: string) => {
+    seen.push({ weight, family });
+    return text.length * size * 0.5;
+  };
+  const r = layoutBubble(overlay({ id: "fam", text: "hello world" }), W, H, { measure: spy });
+  assert.ok(seen.length > 0, "measurer should be called");
+  // Render forwards its resolved family id (never undefined) to the measurer.
+  assert.equal(r.fontFamily, seen[0]?.family);
+  assert.notEqual(seen[0]?.family, undefined);
+});
+
+test("measure weight follows CSS face matching: 600→bold, 500→regular (#85)", () => {
+  let captured: number[] = [];
+  const spy = (text: string, size: number, weight: 400 | 700 = 400): number => {
+    captured.push(weight);
+    return text.length * size * 0.5;
+  };
+  layoutBubble(overlay({ id: "w6", fontWeight: 600, text: "x" }), W, H, { measure: spy });
+  // Distinct weights actually measured. 600 must resolve to the bold (700) face.
+  assert.deepEqual([...new Set(captured)], [700], `600 → bold; saw ${captured}`);
+  captured = [];
+  layoutBubble(overlay({ id: "w5", fontWeight: 500, text: "x" }), W, H, { measure: spy });
+  assert.deepEqual([...new Set(captured)], [400], `500 → regular; saw ${captured}`);
+});

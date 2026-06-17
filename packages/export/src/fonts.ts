@@ -30,6 +30,26 @@ function nameForFaceWeight(family: FontFamily, faceWeight: FontFaceWeight): stri
   return faceWeight === 700 ? `${family.name} 700` : family.name;
 }
 
+/**
+ * Map a resolved body weight (400-700) to the face weight actually used,
+ * following CSS font-weight matching for the {400,700} set each family ships:
+ * 600-700 pick the bold (700) face, 400-500 pick regular. This mirrors how the
+ * browser matches the studio SVG's `font-weight`, so e.g. weight 600 draws bold
+ * in BOTH the export raster and the SVG preview (#85). `@toony/render` applies
+ * the same threshold for its measurement weight.
+ */
+export function cssFaceWeight(weight: number): FontFaceWeight {
+  return weight >= 600 ? 700 : 400;
+}
+
+/**
+ * Canvas family name for an ALREADY-RESOLVED family + weight (CSS-matched face).
+ * Used by the measurer, which receives the render plan's resolved family.
+ */
+export function canvasFamilyName(family: FontFamily, weight: number): string {
+  return nameForFaceWeight(family, fontFileForWeight(family, cssFaceWeight(weight)).weight);
+}
+
 let registered = false;
 
 /**
@@ -66,8 +86,8 @@ export function canvasFontFamily(
   const family =
     (typeof familyId === "string" ? getFontFamily(familyId) : undefined) ??
     resolveFontFamily(familyId, kind);
-  // Pick the FILE the requested weight maps to, then name it by that file's
-  // weight — so a 400-only family at weight 700 still resolves to a registered
-  // name instead of an unregistered "<name> 700" that would silently fall back.
-  return nameForFaceWeight(family, fontFileForWeight(family, weight).weight);
+  // CSS-matched face (600-700 → bold), then the registered name for the file that
+  // actually exists — so a 400-only family at a bold weight still resolves to a
+  // registered name instead of an unregistered "<name> 700" that would fall back.
+  return canvasFamilyName(family, weight);
 }
