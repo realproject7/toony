@@ -20,6 +20,9 @@ importers:
 
   apps/studio:
     dependencies:
+      '@toony/export':
+        specifier: workspace:*
+        version: link:../../packages/export
       '@toony/fonts':
         specifier: workspace:*
         version: link:../../packages/fonts

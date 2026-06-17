@@ -1308,3 +1308,214 @@ button.transition-block {
   font-size: var(--text-sm);
   font-weight: 600;
 }
+
+/* ---- Export screen (issue #53) ---- */
+.export-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 14rem) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+@media (max-width: 64rem) {
+  .export-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.export-thumbs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-height: 80vh;
+  overflow-y: auto;
+  padding-right: var(--space-2);
+}
+
+.export-thumb {
+  margin: 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  overflow: hidden;
+  background: var(--color-surface-raised);
+}
+
+.export-thumb img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.export-thumb-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 4rem;
+  color: var(--color-faint);
+  font-size: var(--text-sm);
+}
+
+.export-thumb figcaption {
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+  border-top: 1px solid var(--color-line);
+}
+
+.export-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.export-card,
+.export-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.export-targets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--space-3);
+}
+
+.export-target {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-raised);
+  cursor: pointer;
+}
+
+.export-target:hover {
+  border-color: var(--color-accent);
+}
+
+.export-target-active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.export-target-title {
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.export-target-blurb {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.export-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-4);
+}
+
+.export-actions {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.export-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.export-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.export-check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--color-line);
+}
+
+.export-check:first-child {
+  border-top: none;
+}
+
+.export-check-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.export-check-detail {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.export-output {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
+}
+
+.export-output code {
+  word-break: break-all;
+}
+
+.export-manifest-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.export-files {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  overflow: hidden;
+}
+
+.export-file-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.export-file-row + .export-file-row {
+  border-top: 1px solid var(--color-line);
+}
+
+.export-file-path {
+  flex: 1 1 14rem;
+  word-break: break-all;
+}
+
+.export-file-meta {
+  color: var(--color-muted);
+}
+
+.export-file-sha {
+  font-family: var(--font-mono);
+  color: var(--color-faint);
+}
