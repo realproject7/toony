@@ -86,6 +86,18 @@ export default async function EpisodePreviewPage({
           >
             Edit transitions
           </Link>
+          <nav className="reader-toggle" aria-label="View mode">
+            <span className="btn btn-primary" aria-current="page" data-testid="edit-mode-active">
+              Edit
+            </span>
+            <Link
+              href={`${base}/episodes/${encodeURIComponent(episode.id)}/read`}
+              className="btn btn-ghost"
+              data-testid="open-reader-link"
+            >
+              Read
+            </Link>
+          </nav>
         </div>
       </header>
 

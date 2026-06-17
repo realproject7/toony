@@ -25,6 +25,14 @@ export interface CutCanvasProps {
   workId: string;
   /** Owning episode id, used to link to the focused cut editor (#8). */
   episodeId: string;
+  /**
+   * Distraction-free reader mode (#49): drop all edit chrome — the cut-id chip
+   * header, the "Edit lettering" link, and the secondary bubble text list — so
+   * only the rendered artwork + on-art bubbles remain, exactly as a reader sees
+   * the published episode. The artwork/overlay render path is unchanged, so the
+   * reader stays WYSIWYG with the preview and the export.
+   */
+  readOnly?: boolean;
 }
 
 /** One bubble drawn as SVG from its geometry-core render plan. */
@@ -63,29 +71,31 @@ function Bubble({ plan }: { plan: BubbleRender }) {
   );
 }
 
-export function CutCanvas({ cut, bubbles, art, workId, episodeId }: CutCanvasProps) {
+export function CutCanvas({ cut, bubbles, art, workId, episodeId, readOnly }: CutCanvasProps) {
   const hasArt = Boolean(art.src);
   const plans = layoutCut(bubbles, art.width, art.height);
   const aspectRatio = `${art.width} / ${art.height}`;
 
   return (
     <div className="cut-block" data-testid={`cut-${cut.id}`}>
-      <div className="seq-item-head">
-        <span className="chip chip-accent">Cut</span>
-        <span className="seq-id">{cut.id}</span>
-        {bubbles.length > 0 && (
-          <span className="chip">
-            {bubbles.length} bubble{bubbles.length === 1 ? "" : "s"}
-          </span>
-        )}
-        <Link
-          href={`/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}/cuts/${encodeURIComponent(cut.id)}/edit`}
-          className="cut-edit-link"
-          data-testid={`cut-edit-${cut.id}`}
-        >
-          Edit lettering
-        </Link>
-      </div>
+      {!readOnly && (
+        <div className="seq-item-head">
+          <span className="chip chip-accent">Cut</span>
+          <span className="seq-id">{cut.id}</span>
+          {bubbles.length > 0 && (
+            <span className="chip">
+              {bubbles.length} bubble{bubbles.length === 1 ? "" : "s"}
+            </span>
+          )}
+          <Link
+            href={`/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}/cuts/${encodeURIComponent(cut.id)}/edit`}
+            className="cut-edit-link"
+            data-testid={`cut-edit-${cut.id}`}
+          >
+            Edit lettering
+          </Link>
+        </div>
+      )}
 
       {hasArt ? (
         <div className="cut-stage" style={{ aspectRatio }} data-testid={`cut-stage-${cut.id}`}>
@@ -114,8 +124,9 @@ export function CutCanvas({ cut, bubbles, art, workId, episodeId }: CutCanvasPro
       )}
 
       {/* A compact, readable text list mirrors the overlaid bubbles for quick
-          scanning and for cuts whose art is not yet linked. */}
-      {bubbles.length > 0 && (
+          scanning and for cuts whose art is not yet linked. It is an authoring
+          aid, so reader mode (#49) hides it — a reader only sees on-art bubbles. */}
+      {!readOnly && bubbles.length > 0 && (
         <div className="cut-bubbles">
           {bubbles.map((bubble) => (
             <div className="bubble-row" key={bubble.id}>
