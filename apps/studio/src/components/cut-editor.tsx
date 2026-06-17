@@ -451,21 +451,6 @@ export function CutEditor({
                           strokeLinejoin="round"
                         />
                       )}
-                      {plan.speaker.trim().length > 0 && plan.hasBubble && (
-                        <text
-                          x={plan.box.x + Math.max(2, plan.box.width * 0.06)}
-                          y={
-                            plan.box.y +
-                            Math.max(2, plan.box.height * 0.08) +
-                            plan.text.speakerFontSize
-                          }
-                          fontSize={plan.text.speakerFontSize}
-                          fontWeight={700}
-                          fill={plan.speakerColor}
-                        >
-                          {plan.speaker}
-                        </text>
-                      )}
                       {plan.lines.map((line, i) => (
                         <text
                           // biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines are a positional layout output; the index is the stable identity within one layout pass.

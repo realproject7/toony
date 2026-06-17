@@ -46,10 +46,20 @@ test("SFX renders bare text with no bubble body or path", () => {
   assert.ok(r.lines.length >= 1);
 });
 
-test("speaker present reserves a speaker strip (text origin pushed down)", () => {
+test("render plan carries no speaker label (it is metadata, never drawn)", () => {
+  const r = layoutBubble(speechOverlay, W, H);
+  // The render plan must not expose a speaker label or any speaker layout, so
+  // consumers (canvas + SVG) cannot draw it on the artwork.
+  assert.ok(!("speaker" in r));
+  assert.ok(!("speakerColor" in r));
+  assert.ok(!("speakerFontSize" in r.text));
+});
+
+test("text origin is independent of the overlay's speaker", () => {
   const withSpeaker = layoutBubble(speechOverlay, W, H);
   const noSpeaker = layoutBubble(overlay({ ...speechOverlay, id: "x", speaker: "" }), W, H);
-  assert.ok(withSpeaker.textOrigin.y > noSpeaker.textOrigin.y);
+  // No speaker strip is reserved either way, so the body text origin is identical.
+  assert.equal(withSpeaker.textOrigin.y, noSpeaker.textOrigin.y);
 });
 
 test("stored fill and opacity override per-kind defaults", () => {
