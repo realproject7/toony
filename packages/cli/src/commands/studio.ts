@@ -2,9 +2,16 @@
 //
 // Toony Studio v2 opens over a WORKSPACE root (a parent folder of many works)
 // and shows a library at `/`; each work's pages live under `/w/<id>/...`. This
-// command resolves what to open and starts the Next.js dev server in
-// `apps/studio`, handing it the path through env vars. No network account is
-// involved.
+// command resolves what to open and starts the studio web server, handing it the
+// path through env vars. No network account is involved.
+//
+// Two launch modes, transparent to the caller:
+//   - Installed mode (single global install): the CLI package ships the Next.js
+//     standalone Studio build under `<pkg>/studio/`. The command spawns that
+//     self-contained `server.js` on a free port (or `--port`). No monorepo,
+//     pnpm, or `next` binary is required.
+//   - In-repo dev mode: when run from the monorepo (no bundled studio present),
+//     it starts the `@toony/studio` Next dev server via pnpm as before.
 //
 // Resolution:
 //   - `toony studio` (no path) → opens the default/explicit workspace; the studio
@@ -16,6 +23,7 @@
 
 import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
+import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadProject, ProjectIoError } from "@toony/project-io";
@@ -27,8 +35,8 @@ export interface StudioIo {
   err: (line: string) => void;
 }
 
-/** Default dev-server port; overridable with `--port`. */
-const DEFAULT_PORT = 4477;
+/** Default dev-server port when running in-repo and no `--port` is given. */
+const DEFAULT_DEV_PORT = 4477;
 
 /** Whether a directory is itself a single Toony project (has a webtoon.json). */
 async function isProjectDir(dir: string): Promise<boolean> {
@@ -55,9 +63,49 @@ async function findRepoRoot(from: string): Promise<string | null> {
   }
 }
 
-/** Run `toony studio`. Resolves on the dev server's exit code. */
+/**
+ * Locate the bundled standalone studio server shipped inside the installed CLI
+ * package. The packaging script (`scripts/bundle-studio.mjs`) places it at
+ * `<pkg>/studio/apps/studio/server.js`; this module's bundle lives at `<pkg>/dist/`,
+ * so the server sits one level up under `studio/`. Returns the absolute path when
+ * present (installed mode), or null when running in-repo.
+ */
+async function findBundledStudioServer(): Promise<string | null> {
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const candidate = join(moduleDir, "..", "studio", "apps", "studio", "server.js");
+  try {
+    await access(candidate);
+    return candidate;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ask the OS for a free TCP port (bind to 0, read the assigned port, release).
+ * Used so the bundled studio can launch on a non-colliding port by default.
+ */
+async function findFreePort(): Promise<number> {
+  return await new Promise<number>((resolvePort, rejectPort) => {
+    const server = createServer();
+    server.unref();
+    server.on("error", rejectPort);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        server.close();
+        rejectPort(new Error("could not determine a free port"));
+        return;
+      }
+      const { port } = address;
+      server.close(() => resolvePort(port));
+    });
+  });
+}
+
+/** Run `toony studio`. Resolves on the studio server's exit code. */
 export async function runStudio(args: string[], io: StudioIo): Promise<number> {
-  let port = DEFAULT_PORT;
+  let explicitPort: number | undefined;
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -68,7 +116,7 @@ export async function runStudio(args: string[], io: StudioIo): Promise<number> {
         io.err(`invalid --port value: ${value ?? "(missing)"}`);
         return EXIT_USAGE;
       }
-      port = parsed;
+      explicitPort = parsed;
     } else if (arg?.startsWith("-")) {
       io.err(`unknown option: ${arg}`);
       return EXIT_USAGE;
@@ -109,26 +157,60 @@ export async function runStudio(args: string[], io: StudioIo): Promise<number> {
     io.out("workspace: (default — TOONY_WORKSPACE_DIR or ~/Documents/Toony)");
   }
 
+  // Mode selection:
+  //   - In-repo (a pnpm workspace root is found above this module): run the Next
+  //     dev server so contributors get hot reload, exactly as before.
+  //   - Installed (no workspace; the bundled standalone studio is present): run
+  //     the self-contained server on a free port (or `--port`).
   const repoRoot = await findRepoRoot(dirname(fileURLToPath(import.meta.url)));
-  if (repoRoot === null) {
-    io.err("cannot locate the studio app (no pnpm workspace root found)");
+  if (repoRoot !== null) {
+    const port = explicitPort ?? DEFAULT_DEV_PORT;
+    const url = `http://localhost:${port}`;
+    io.out(`studio: ${url}`);
+    io.out("press Ctrl+C to stop");
+
+    return await new Promise<number>((resolveExit) => {
+      const child = spawn(
+        "pnpm",
+        ["--filter", "@toony/studio", "exec", "next", "dev", "--port", String(port)],
+        {
+          cwd: repoRoot,
+          stdio: "inherit",
+          env: { ...process.env, ...studioEnv },
+        },
+      );
+      child.on("error", (cause) => {
+        io.err(`failed to start studio: ${cause.message}`);
+        resolveExit(EXIT_USAGE);
+      });
+      child.on("exit", (code) => resolveExit(code ?? EXIT_OK));
+    });
+  }
+
+  // Installed mode: launch the bundled standalone server.
+  const bundledServer = await findBundledStudioServer();
+  if (bundledServer === null) {
+    io.err("cannot locate the studio app (no bundled studio and no pnpm workspace root found)");
     return EXIT_USAGE;
   }
 
+  const port = explicitPort ?? (await findFreePort());
   const url = `http://localhost:${port}`;
   io.out(`studio: ${url}`);
   io.out("press Ctrl+C to stop");
-
   return await new Promise<number>((resolveExit) => {
-    const child = spawn(
-      "pnpm",
-      ["--filter", "@toony/studio", "exec", "next", "dev", "--port", String(port)],
-      {
-        cwd: repoRoot,
-        stdio: "inherit",
-        env: { ...process.env, ...studioEnv },
+    const child = spawn(process.execPath, [bundledServer], {
+      // Run from the server's own directory so its relative `distDir`,
+      // `.next/static`, and `public/` resolve correctly.
+      cwd: dirname(bundledServer),
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        ...studioEnv,
+        PORT: String(port),
+        HOSTNAME: "127.0.0.1",
       },
-    );
+    });
     child.on("error", (cause) => {
       io.err(`failed to start studio: ${cause.message}`);
       resolveExit(EXIT_USAGE);

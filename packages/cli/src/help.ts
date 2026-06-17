@@ -15,7 +15,8 @@ usage:
 
 options:
   validate --json          emit a structured JSON report instead of text
-  studio --port <n>        port for the local studio dev server (default 4477)
+  studio --port <n>        port for the studio server (in-repo dev default 4477;
+                           installed: a free port is chosen automatically)
   import-image --episode <id> (--cut <id> [--slot clean|final] | --transition <id>)
                --from <file> [--provider manual]
                            strips image metadata at ingest; provider-neutral
