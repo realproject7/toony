@@ -10,6 +10,7 @@
 //   - JSON for structural/data files: `webtoon.json`, `lettering.json`
 
 import { join } from "node:path";
+import { isPathSafeId } from "@toony/schema";
 
 /** Project root manifest (JSON). */
 export const WEBTOON_FILE = "webtoon.json";
@@ -52,6 +53,13 @@ export function episodesDir(root: string): string {
 }
 
 export function episodeDir(root: string, episodeId: string): string {
+  // Defense in depth: the episode id is the only path segment derived from
+  // project data here, and every per-episode path helper routes through this
+  // function. Refuse an unsafe id (`..`, `/`, absolute, etc.) so a write or read
+  // can never escape `episodes/` even if an upstream guard is missed (#74).
+  if (!isPathSafeId(episodeId)) {
+    throw new Error(`unsafe episode id: ${JSON.stringify(episodeId)}`);
+  }
   return join(root, EPISODES_DIR, episodeId);
 }
 
