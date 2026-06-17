@@ -34,6 +34,7 @@ export {
   TRANSITION_TYPES,
 } from "./types.js";
 export {
+  isProjectRelativePath,
   validateCutValue,
   validateEpisodeValue,
   validateImageProvidersValue,

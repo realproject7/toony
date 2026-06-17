@@ -3,6 +3,16 @@
 // PROJECT_FORMAT.md). Consumed by the CLI (#5), the studio app and preview (#6),
 // and downstream tickets (#7, #10) so the on-disk contract lives in one place.
 
+export {
+  CONFIG_DIR,
+  CONFIG_FILE,
+  type ComfyUiConfig,
+  configPath,
+  defaultConfig,
+  readConfig,
+  type ToonyConfig,
+  writeConfig,
+} from "./config.js";
 export { ProjectIoError } from "./errors.js";
 export {
   decodeJson,
@@ -44,4 +54,5 @@ export {
   summarizeEpisodes,
 } from "./reader.js";
 export { buildInitialProject, slugify } from "./scaffold.js";
+export { listWorkspace, type WorkspaceEntry } from "./workspace.js";
 export { writeCuts, writeLettering, writeProject, writeTransitions } from "./writer.js";

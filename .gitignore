@@ -18,3 +18,6 @@ toony-projects/
 exports/
 tmp/
 temp/
+
+# Local workspace runtime config (endpoints/settings) — never committed.
+.toony/
