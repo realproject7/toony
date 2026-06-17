@@ -173,6 +173,52 @@ test("a corrupted-but-parseable field surfaces as a validation issue, not a thro
   assert.ok(loaded.validation.issues.some((issue) => issue.path.includes("gutterHeight")));
 });
 
+test("cut prompt fields round-trip through cuts.yaml deterministically", async () => {
+  const root = join(workdir, "demo");
+  await writeProject(root, buildInitialProject("demo"));
+
+  // Edit the cuts file to carry prompt text, then write it back through the same
+  // deterministic encoder the writer uses, and confirm a reload preserves it.
+  const cuts = decodeYaml(await readFile(cutsFile(root, "ep-001"), "utf8")) as Cut[];
+  const target = cuts.find((c) => c.id === "cut-001");
+  assert.ok(target);
+  target.imagePrompt = "rain-soaked alley at night, neon reflections";
+  target.negativePrompt = "lowres, extra fingers";
+  const { encodeYaml } = await import("../format.js");
+  await writeFile(cutsFile(root, "ep-001"), encodeYaml(cuts), "utf8");
+
+  const loaded = await loadProject(root);
+  assert.equal(loaded.validation.valid, true, JSON.stringify(loaded.validation.issues));
+  const reloaded = loaded.project.episodes[0]?.cuts.find((c) => c.id === "cut-001");
+  assert.equal(reloaded?.imagePrompt, "rain-soaked alley at night, neon reflections");
+  assert.equal(reloaded?.negativePrompt, "lowres, extra fingers");
+
+  // Byte-stability: re-encoding the loaded cuts is identical to what is on disk.
+  const onDisk = await readFile(cutsFile(root, "ep-001"), "utf8");
+  assert.equal(encodeYaml(loaded.project.episodes[0]?.cuts), onDisk);
+});
+
+test("old cuts.yaml without prompt fields still loads, validates, and defaults to ''", async () => {
+  const root = join(workdir, "demo");
+  await writeProject(root, buildInitialProject("demo"));
+
+  // Simulate a project written before the prompt fields existed: the cuts file
+  // has only id + image, exactly as an older toony would have emitted it.
+  const legacyCuts = `- id: cut-001
+  image: null
+- id: cut-002
+  image: null
+`;
+  await writeFile(cutsFile(root, "ep-001"), legacyCuts, "utf8");
+
+  const loaded = await loadProject(root);
+  assert.equal(loaded.validation.valid, true, JSON.stringify(loaded.validation.issues));
+  for (const cut of loaded.project.episodes[0]?.cuts ?? []) {
+    assert.equal(cut.imagePrompt, "");
+    assert.equal(cut.negativePrompt, "");
+  }
+});
+
 test("writeLettering persists overlays and survives reload", async () => {
   const root = join(workdir, "demo");
   await writeProject(root, buildInitialProject("demo"));
@@ -239,8 +285,8 @@ test("writeTransitions inserts a transition and survives reload", async () => {
   const root = join(workdir, "demo");
   await writeProject(root, buildInitialProject("demo"));
   const cuts: Cut[] = [
-    { id: "cut-001", image: null },
-    { id: "cut-002", image: null },
+    { id: "cut-001", image: null, imagePrompt: "", negativePrompt: "" },
+    { id: "cut-002", image: null, imagePrompt: "", negativePrompt: "" },
   ];
   // Insert a second transition (a scene break) before cut-002 is not possible
   // (tr-001 already sits there); instead edit tr-001 and add a leading cut span.
@@ -265,8 +311,8 @@ test("writeTransitions writes both transitions.yaml and episode.yaml", async () 
   const root = join(workdir, "demo");
   await writeProject(root, buildInitialProject("demo"));
   const cuts: Cut[] = [
-    { id: "cut-001", image: null },
-    { id: "cut-002", image: null },
+    { id: "cut-001", image: null, imagePrompt: "", negativePrompt: "" },
+    { id: "cut-002", image: null, imagePrompt: "", negativePrompt: "" },
   ];
   const transitions = [transition({ id: "tr-001", text: "Later that night." })];
   const sequence: SequenceItem[] = [
@@ -285,8 +331,8 @@ test("writeTransitions output is deterministic (byte-stable)", async () => {
   const root = join(workdir, "demo");
   await writeProject(root, buildInitialProject("demo"));
   const cuts: Cut[] = [
-    { id: "cut-001", image: null },
-    { id: "cut-002", image: null },
+    { id: "cut-001", image: null, imagePrompt: "", negativePrompt: "" },
+    { id: "cut-002", image: null, imagePrompt: "", negativePrompt: "" },
   ];
   const transitions = [transition({ id: "tr-001" })];
   const sequence: SequenceItem[] = [
@@ -307,8 +353,8 @@ test("writeTransitions rejects a transition with an out-of-range gutter", async 
   await writeProject(root, buildInitialProject("demo"));
   const before = await readFile(transitionsFile(root, "ep-001"), "utf8");
   const cuts: Cut[] = [
-    { id: "cut-001", image: null },
-    { id: "cut-002", image: null },
+    { id: "cut-001", image: null, imagePrompt: "", negativePrompt: "" },
+    { id: "cut-002", image: null, imagePrompt: "", negativePrompt: "" },
   ];
   const transitions = [transition({ id: "tr-001", gutterHeight: -10 })];
   const sequence: SequenceItem[] = [
@@ -332,8 +378,8 @@ test("writeTransitions rejects two adjacent transitions", async () => {
   const root = join(workdir, "demo");
   await writeProject(root, buildInitialProject("demo"));
   const cuts: Cut[] = [
-    { id: "cut-001", image: null },
-    { id: "cut-002", image: null },
+    { id: "cut-001", image: null, imagePrompt: "", negativePrompt: "" },
+    { id: "cut-002", image: null, imagePrompt: "", negativePrompt: "" },
   ];
   const transitions = [transition({ id: "tr-001" }), transition({ id: "tr-002" })];
   const sequence: SequenceItem[] = [
@@ -356,8 +402,8 @@ test("writeTransitions rejects a sequence referencing an unknown transition", as
   const root = join(workdir, "demo");
   await writeProject(root, buildInitialProject("demo"));
   const cuts: Cut[] = [
-    { id: "cut-001", image: null },
-    { id: "cut-002", image: null },
+    { id: "cut-001", image: null, imagePrompt: "", negativePrompt: "" },
+    { id: "cut-002", image: null, imagePrompt: "", negativePrompt: "" },
   ];
   // The record list is empty but the sequence still points at tr-001.
   const sequence: SequenceItem[] = [
@@ -379,9 +425,9 @@ test("writeTransitions rejects duplicate transition ids", async () => {
   const root = join(workdir, "demo");
   await writeProject(root, buildInitialProject("demo"));
   const cuts: Cut[] = [
-    { id: "cut-001", image: null },
-    { id: "cut-002", image: null },
-    { id: "cut-003", image: null },
+    { id: "cut-001", image: null, imagePrompt: "", negativePrompt: "" },
+    { id: "cut-002", image: null, imagePrompt: "", negativePrompt: "" },
+    { id: "cut-003", image: null, imagePrompt: "", negativePrompt: "" },
   ];
   const transitions = [transition({ id: "dup" }), transition({ id: "dup" })];
   const sequence: SequenceItem[] = [
@@ -428,8 +474,13 @@ test("a fuller fixture with lettering round-trips", async () => {
           ],
         },
         cuts: [
-          { id: "cut-001", image: { clean: "assets/clean/cut-001.webp", final: null } },
-          { id: "cut-002", image: null },
+          {
+            id: "cut-001",
+            image: { clean: "assets/clean/cut-001.webp", final: null },
+            imagePrompt: "a lantern drifting on dark water, soft glow",
+            negativePrompt: "blurry, watermark",
+          },
+          { id: "cut-002", image: null, imagePrompt: "", negativePrompt: "" },
         ],
         transitions: [
           {

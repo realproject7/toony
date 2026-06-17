@@ -77,7 +77,7 @@ test("duplicate cut ids are reported", () => {
   const project = cloneValidProject();
   const bundle = project.episodes[0];
   assert.ok(bundle);
-  bundle.cuts.push({ id: "cut-001", image: null });
+  bundle.cuts.push({ id: "cut-001", image: null, imagePrompt: "", negativePrompt: "" });
   const result = validateProject(project);
   assert.ok(codes(result).includes("cut.duplicate-id"));
 });
@@ -129,7 +129,7 @@ test("the sequence may not begin or end with a transition", () => {
     { type: "transition", id: "tr-001" },
     { type: "cut", id: "cut-001" },
   ];
-  bundle.cuts = [{ id: "cut-001", image: null }];
+  bundle.cuts = [{ id: "cut-001", image: null, imagePrompt: "", negativePrompt: "" }];
   const result = validateProject(project);
   assert.ok(codes(result).includes("sequence.leading-transition"));
 });
@@ -220,6 +220,36 @@ test("absolute image paths in cut records are rejected", () => {
   cut.image = { clean: "/etc/passwd", final: null };
   const result = validateProject(project);
   assert.ok(codes(result).includes("cut.image-path"));
+});
+
+test("cut prompt fields are accepted as strings", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  cut.imagePrompt = "a quiet harbor at dawn";
+  cut.negativePrompt = "text, watermark";
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+});
+
+test("cuts without prompt fields still validate (back-compat)", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  // Simulate an older record that predates the prompt fields.
+  delete (cut as { imagePrompt?: string }).imagePrompt;
+  delete (cut as { negativePrompt?: string }).negativePrompt;
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+});
+
+test("non-string cut prompt fields are rejected", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  (cut as unknown as { imagePrompt: unknown }).imagePrompt = 42;
+  const result = validateProject(project);
+  assert.ok(codes(result).includes("cut.prompt"));
 });
 
 test("every issue carries a path, code, and message", () => {

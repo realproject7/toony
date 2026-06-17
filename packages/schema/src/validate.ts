@@ -214,6 +214,15 @@ export function validateCutValue(value: unknown, path: string, c: IssueCollector
   if (!isNonEmptyString(value.id)) {
     c.add(joinPath(path, "id"), "field.required", "cut id must be a non-empty string.");
   }
+  // Prompt fields are back-compatible: a project written before they existed
+  // omits them entirely. A missing (undefined) prompt is accepted and normalized
+  // to "" on read by project-io; a present value must be a string.
+  for (const key of ["imagePrompt", "negativePrompt"] as const) {
+    const prompt = value[key];
+    if (prompt !== undefined && !isString(prompt)) {
+      c.add(joinPath(path, key), "cut.prompt", `${key} must be a string.`);
+    }
+  }
   const image = value.image;
   if (image === null) return;
   if (!isPlainObject(image)) {

@@ -52,6 +52,8 @@ export default async function CutEditorPage({
       cutId={cut.id}
       art={art}
       initialBubbles={bubbles}
+      initialImagePrompt={cut.imagePrompt}
+      initialNegativePrompt={cut.negativePrompt}
     />
   );
 }
