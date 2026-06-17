@@ -12,7 +12,7 @@
 // with a clear, actionable message — it never fabricates a result.
 
 import { resolve } from "node:path";
-import { type AssetTarget, ingestImageAsset, ProjectIoError } from "@toony/project-io";
+import { type AssetTarget, ingestImageAsset, loadProject, ProjectIoError } from "@toony/project-io";
 import {
   ComfyUIProvider,
   type ImageProvider,
@@ -128,14 +128,37 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     io.err('--slot must be "clean" or "final"');
     return EXIT_USAGE;
   }
-  if (prompt === undefined || prompt.trim().length === 0) {
-    io.err("generation requires --prompt <text>");
+  const root = resolve(io.cwd, parsed.positional[0] ?? ".");
+
+  // Resolve the effective prompt: an explicit --prompt wins; otherwise a cut
+  // falls back to its stored imagePrompt/negativePrompt (#38). Transitions carry
+  // no stored prompt, so --prompt stays required for them.
+  let effectivePrompt = prompt;
+  let effectiveNegative = negative;
+  if ((effectivePrompt === undefined || effectivePrompt.trim().length === 0) && cutId !== undefined) {
+    try {
+      const loaded = await loadProject(root);
+      const bundle = loaded.project.episodes.find((b) => b.episode.id === episodeId);
+      const cut = bundle?.cuts.find((c) => c.id === cutId);
+      if (cut) {
+        if (cut.imagePrompt.trim().length > 0) effectivePrompt = cut.imagePrompt;
+        if (effectiveNegative === undefined && cut.negativePrompt.trim().length > 0) {
+          effectiveNegative = cut.negativePrompt;
+        }
+      }
+    } catch (error) {
+      io.err(error instanceof ProjectIoError ? error.message : String(error));
+      return EXIT_USAGE;
+    }
+  }
+  if (effectivePrompt === undefined || effectivePrompt.trim().length === 0) {
+    io.err("generation requires --prompt <text> (or a non-empty cut imagePrompt)");
     io.err(USAGE);
     return EXIT_USAGE;
   }
 
   const options: Record<string, string | number> = {};
-  if (negative !== undefined) options.negativePrompt = negative;
+  if (effectiveNegative !== undefined) options.negativePrompt = effectiveNegative;
   for (const [flag, key] of [
     ["--width", "width"],
     ["--height", "height"],
@@ -172,13 +195,12 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     return EXIT_USAGE;
   }
 
-  const root = resolve(io.cwd, parsed.positional[0] ?? ".");
   const target: AssetTarget =
     cutId !== undefined
       ? { kind: "cut", episodeId, cutId, slot }
       : { kind: "transition", episodeId, transitionId: transitionId as string };
 
-  const request: ImageRequest = { prompt, options };
+  const request: ImageRequest = { prompt: effectivePrompt, options };
 
   try {
     const result = await provider.produce(request);
