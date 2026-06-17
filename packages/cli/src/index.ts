@@ -6,6 +6,7 @@
 // directly rather than through the CLI.
 
 export { runExport } from "./commands/export.js";
+export { runGenerate } from "./commands/generate.js";
 export { runImportImage } from "./commands/import-image.js";
 export { runInit } from "./commands/init.js";
 export { runLint, runLintEpisode } from "./commands/lint.js";
@@ -16,6 +17,7 @@ export { HELP_TEXT } from "./help.js";
 export { jsonReport, textReport, type ValidateJsonReport } from "./report.js";
 
 import { runExport } from "./commands/export.js";
+import { runGenerate } from "./commands/generate.js";
 import { runImportImage } from "./commands/import-image.js";
 import { runInit } from "./commands/init.js";
 import { runLint, runLintEpisode } from "./commands/lint.js";
@@ -28,6 +30,8 @@ export interface RunIo {
   cwd: string;
   out: (line: string) => void;
   err: (line: string) => void;
+  /** Process environment, used by providers configured via env (e.g. ComfyUI). */
+  env?: Record<string, string | undefined>;
 }
 
 /** Dispatch a full argv (without node/script) to the right command. */
@@ -48,6 +52,8 @@ export async function run(argv: string[], io: RunIo): Promise<number> {
       return runStudio(rest, io);
     case "import-image":
       return runImportImage(rest, io);
+    case "generate":
+      return runGenerate(rest, io);
     case "export":
       return runExport(rest, io);
     case "lint":
