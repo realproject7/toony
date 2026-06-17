@@ -21,7 +21,7 @@
 // root, turbopack root) into `server.js`. They are not used at runtime (the
 // server `chdir`s to its own dir and uses a relative `distDir`), but to keep the
 // published tarball free of private filesystem paths we rewrite them to a neutral
-// placeholder.
+// stand-in path.
 
 import {
   cpSync,
@@ -157,7 +157,7 @@ if (existsSync(join(studioApp, "public"))) {
 //    (`resolvedPagePath`, file-tracing root, turbopack root). None are used at
 //    runtime — the server `chdir`s to its own dir and uses a relative `distDir`,
 //    routes are resolved by bundlePath — so rewriting the root to a neutral
-//    placeholder is safe and keeps the published tarball free of private paths.
+//    stand-in is safe and keeps the published tarball free of private paths.
 const TEXT_EXT = new Set([".js", ".cjs", ".mjs", ".json", ".map"]);
 const NEUTRAL_ROOT = "/toony";
 let sanitizedCount = 0;
