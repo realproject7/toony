@@ -135,7 +135,10 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   // no stored prompt, so --prompt stays required for them.
   let effectivePrompt = prompt;
   let effectiveNegative = negative;
-  if ((effectivePrompt === undefined || effectivePrompt.trim().length === 0) && cutId !== undefined) {
+  if (
+    (effectivePrompt === undefined || effectivePrompt.trim().length === 0) &&
+    cutId !== undefined
+  ) {
     try {
       const loaded = await loadProject(root);
       const bundle = loaded.project.episodes.find((b) => b.episode.id === episodeId);
