@@ -281,3 +281,91 @@ test("attributed kinds still require a non-empty speaker", () => {
   assert.equal(result.valid, false);
   assert.ok(codes(result).includes("field.required"));
 });
+
+// --- Pro-lettering style fields (#54) --------------------------------------
+
+test("an overlay with no style fields is valid (back-compatible)", () => {
+  // The default fixture overlay carries none of the new fields.
+  const result = validateProject(validProject);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+});
+
+test("a fully populated style overlay validates", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.fontSize = 24;
+  overlay.fontWeight = 600;
+  overlay.lineHeight = 1.4;
+  overlay.textAlign = "left";
+  overlay.letterSpacing = 0.05;
+  overlay.textColor = "#223344";
+  overlay.cornerRadius = 18;
+  overlay.zIndex = 3;
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+});
+
+test("fontSize accepts null (auto-fit) and rejects out-of-range", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.fontSize = null;
+  assert.equal(validateProject(project).valid, true);
+  overlay.fontSize = 5; // below FONT_SIZE_MIN_PX
+  assert.ok(codes(validateProject(project)).includes("style.font-size"));
+  overlay.fontSize = 201; // above FONT_SIZE_MAX_PX
+  assert.ok(codes(validateProject(project)).includes("style.font-size"));
+});
+
+test("fontWeight must be one of the allowed weights", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.fontWeight = 500;
+  assert.equal(validateProject(project).valid, true);
+  overlay.fontWeight = 450 as unknown as typeof overlay.fontWeight;
+  assert.ok(codes(validateProject(project)).includes("style.font-weight"));
+});
+
+test("lineHeight, letterSpacing, and cornerRadius enforce their bounds", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.lineHeight = 0.5;
+  assert.ok(codes(validateProject(project)).includes("style.line-height"));
+  overlay.lineHeight = 1.2;
+  overlay.letterSpacing = 0.6;
+  assert.ok(codes(validateProject(project)).includes("style.letter-spacing"));
+  overlay.letterSpacing = 0;
+  overlay.cornerRadius = 300;
+  assert.ok(codes(validateProject(project)).includes("style.corner-radius"));
+  overlay.cornerRadius = -1;
+  assert.ok(codes(validateProject(project)).includes("style.corner-radius"));
+});
+
+test("textAlign must be an allowed enum value", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.textAlign = "justify" as unknown as typeof overlay.textAlign;
+  assert.ok(codes(validateProject(project)).includes("style.text-align"));
+});
+
+test("textColor must be a non-empty string when present", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.textColor = "";
+  assert.ok(codes(validateProject(project)).includes("style.text-color"));
+});
+
+test("zIndex must be a non-negative integer", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.zIndex = -1;
+  assert.ok(codes(validateProject(project)).includes("style.z-index"));
+  overlay.zIndex = 1.5;
+  assert.ok(codes(validateProject(project)).includes("style.z-index"));
+});

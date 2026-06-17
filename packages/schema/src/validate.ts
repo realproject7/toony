@@ -18,11 +18,21 @@ import {
 } from "./guards.js";
 import {
   BUBBLE_KINDS,
+  CORNER_RADIUS_MAX_PX,
+  CORNER_RADIUS_MIN_PX,
+  FONT_SIZE_MAX_PX,
+  FONT_SIZE_MIN_PX,
+  FONT_WEIGHTS,
   GUTTER_HEIGHT_MAX_PX,
   GUTTER_HEIGHT_MIN_PX,
+  LETTER_SPACING_MAX_EM,
+  LETTER_SPACING_MIN_EM,
+  LINE_HEIGHT_MAX,
+  LINE_HEIGHT_MIN,
   MANUAL_PROVIDER_ID,
   REVIEW_STATUSES,
   SCHEMA_VERSION,
+  TEXT_ALIGNS,
   TRANSITION_TYPES,
 } from "./types.js";
 
@@ -407,6 +417,95 @@ export function validateLetteringOverlayValue(
   validateBorder(value.border, joinPath(path, "border"), c);
   validateTail(value.tail, joinPath(path, "tail"), c);
   validateGeometry(value.geometry, joinPath(path, "geometry"), c);
+  validateLetteringStyle(value, path, c);
+}
+
+/**
+ * Validate the additive pro-lettering style fields (#54). Each is OPTIONAL:
+ * an absent field is valid and resolved to a default by the renderer, so older
+ * projects keep validating. A field that IS present must satisfy its bound/enum.
+ */
+function validateLetteringStyle(
+  value: Record<string, unknown>,
+  path: string,
+  c: IssueCollector,
+): void {
+  // fontSize: a number within bounds, OR null (explicit auto-fit).
+  if (value.fontSize !== undefined && value.fontSize !== null) {
+    if (
+      !isFiniteNumber(value.fontSize) ||
+      value.fontSize < FONT_SIZE_MIN_PX ||
+      value.fontSize > FONT_SIZE_MAX_PX
+    ) {
+      c.add(
+        joinPath(path, "fontSize"),
+        "style.font-size",
+        `fontSize must be a number in ${FONT_SIZE_MIN_PX}..${FONT_SIZE_MAX_PX} px, or null for auto-fit.`,
+      );
+    }
+  }
+  if (
+    value.fontWeight !== undefined &&
+    !(
+      typeof value.fontWeight === "number" &&
+      (FONT_WEIGHTS as readonly number[]).includes(value.fontWeight)
+    )
+  ) {
+    c.add(
+      joinPath(path, "fontWeight"),
+      "style.font-weight",
+      `fontWeight must be one of: ${FONT_WEIGHTS.join(", ")}.`,
+    );
+  }
+  if (
+    value.lineHeight !== undefined &&
+    (!isFiniteNumber(value.lineHeight) ||
+      value.lineHeight < LINE_HEIGHT_MIN ||
+      value.lineHeight > LINE_HEIGHT_MAX)
+  ) {
+    c.add(
+      joinPath(path, "lineHeight"),
+      "style.line-height",
+      `lineHeight must be a number in ${LINE_HEIGHT_MIN}..${LINE_HEIGHT_MAX}.`,
+    );
+  }
+  if (value.textAlign !== undefined && !isOneOf(value.textAlign, TEXT_ALIGNS)) {
+    c.add(
+      joinPath(path, "textAlign"),
+      "style.text-align",
+      `textAlign must be one of: ${TEXT_ALIGNS.join(", ")}.`,
+    );
+  }
+  if (
+    value.letterSpacing !== undefined &&
+    (!isFiniteNumber(value.letterSpacing) ||
+      value.letterSpacing < LETTER_SPACING_MIN_EM ||
+      value.letterSpacing > LETTER_SPACING_MAX_EM)
+  ) {
+    c.add(
+      joinPath(path, "letterSpacing"),
+      "style.letter-spacing",
+      `letterSpacing must be a number in ${LETTER_SPACING_MIN_EM}..${LETTER_SPACING_MAX_EM} em.`,
+    );
+  }
+  if (value.textColor !== undefined && !isNonEmptyString(value.textColor)) {
+    c.add(joinPath(path, "textColor"), "style.text-color", "textColor must be a non-empty string.");
+  }
+  if (
+    value.cornerRadius !== undefined &&
+    (!isFiniteNumber(value.cornerRadius) ||
+      value.cornerRadius < CORNER_RADIUS_MIN_PX ||
+      value.cornerRadius > CORNER_RADIUS_MAX_PX)
+  ) {
+    c.add(
+      joinPath(path, "cornerRadius"),
+      "style.corner-radius",
+      `cornerRadius must be a number in ${CORNER_RADIUS_MIN_PX}..${CORNER_RADIUS_MAX_PX} px.`,
+    );
+  }
+  if (value.zIndex !== undefined && (!isInteger(value.zIndex) || value.zIndex < 0)) {
+    c.add(joinPath(path, "zIndex"), "style.z-index", "zIndex must be an integer >= 0.");
+  }
 }
 
 // --- Episode sequence -------------------------------------------------------
