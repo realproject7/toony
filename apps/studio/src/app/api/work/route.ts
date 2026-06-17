@@ -11,9 +11,10 @@
 // workspace root and re-checked to be a direct child of it before any bytes are
 // written; an existing folder is refused rather than overwritten.
 
-import { stat } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { join, sep } from "node:path";
-import { buildInitialProject, ProjectIoError, slugify, writeProject } from "@toony/project-io";
+import { buildInitialProject, slugify, writeProject } from "@toony/project-io";
+import { safeErrorMessage } from "@/lib/errors";
 import { workspaceRoot } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -72,10 +73,17 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
+    // First-run: the workspace root (e.g. ~/Documents/Toony) may not exist yet.
+    // `writeProject` creates only the work folder non-recursively and requires
+    // its parent to exist, so ensure the workspace root first — otherwise a
+    // first-ever "New webtoon" would fail with ENOENT on a missing root (#75).
+    await mkdir(root, { recursive: true });
     await writeProject(target, buildInitialProject(name));
   } catch (cause) {
-    const reason = cause instanceof ProjectIoError ? cause.message : String(cause);
-    return Response.json({ ok: false, error: reason }, { status: 500 });
+    return Response.json(
+      { ok: false, error: safeErrorMessage(cause, "could not create the work") },
+      { status: 500 },
+    );
   }
 
   return Response.json({ ok: true, id });
