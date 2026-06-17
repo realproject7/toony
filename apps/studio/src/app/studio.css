@@ -1269,3 +1269,42 @@ button.transition-block {
   text-transform: none;
   letter-spacing: 0;
 }
+
+/* ---- Workspace settings (#52) ---- */
+.settings-card {
+  max-width: 44rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.settings-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.settings-card-head .card-title {
+  margin-bottom: var(--space-1);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+}
+
+.settings-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.settings-actions {
+  flex-wrap: wrap;
+}
+
+.settings-ok {
+  color: var(--color-success);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}

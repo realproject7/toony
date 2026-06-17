@@ -2,15 +2,18 @@
 //
 // SECRETS AND ENDPOINTS ARE RUNTIME-ONLY. The project's `webtoon.json` provider
 // entries stay neutral (kind/label) — they NEVER carry an endpoint or key. The
-// operator points Toony at their own ComfyUI install through:
+// operator points Toony at their own ComfyUI install through (highest precedence
+// first; each FIELD is resolved independently so e.g. an env URL can override the
+// file's URL while the file still supplies the checkpoint):
 //
-//   1. Environment variables (highest precedence):
+//   1. Inline overrides (programmatic callers / tests).
+//   2. Environment variables:
 //        TOONY_COMFYUI_URL          base URL of the operator's ComfyUI server
 //        TOONY_COMFYUI_WORKFLOW     path to a workflow-graph JSON template
 //        TOONY_COMFYUI_CHECKPOINT   checkpoint filename to load
 //        TOONY_COMFYUI_CONFIG       path to a JSON config file (see below)
 //        TOONY_COMFYUI_TIMEOUT_MS   overall generation timeout in ms
-//   2. A local JSON config file (path from TOONY_COMFYUI_CONFIG), e.g.:
+//   3. A local JSON config file (path from TOONY_COMFYUI_CONFIG), e.g.:
 //        {
 //          "url": "http://127.0.0.1:8188",
 //          "workflowPath": "./my-workflow.json",
@@ -18,6 +21,12 @@
 //          "timeoutMs": 180000,
 //          "injectionMap": { ... node/param mapping ... }
 //        }
+//   4. The shared workspace config `<root>/.toony/config.json` (the Studio
+//      settings page #52 edits it; the CLI reads it with @toony/project-io and
+//      passes the provider-neutral `{ endpoint, checkpoint, workflow }` here as
+//      `toonyConfig`). It is the LOWEST precedence so env always overrides the
+//      file, preserving the documented env-first behaviour. `workflow` is a path
+//      to a workflow-graph JSON template, like TOONY_COMFYUI_WORKFLOW.
 //
 // The example URL "http://127.0.0.1:8188" is the operator's OWN local instance
 // (ComfyUI's documented default address). Nothing here is committed for a real
@@ -60,11 +69,33 @@ interface ComfyUIConfigFile {
   injectionMap?: Partial<WorkflowInjectionMap>;
 }
 
+/**
+ * Provider-neutral workspace config (`.toony/config.json`) as the caller already
+ * read it. Structurally compatible with @toony/project-io's `ComfyUiConfig`, but
+ * declared here so this package keeps no dependency on project-io. Each field is
+ * null when the workspace has not configured it.
+ */
+export interface ToonyWorkspaceComfyConfig {
+  endpoint: string | null;
+  checkpoint: string | null;
+  workflow: string | null;
+}
+
 /** Inputs that drive config resolution (env + an explicit override hook). */
 export interface ComfyUIConfigSource {
   env?: Record<string, string | undefined>;
   /** Inline overrides (used by tests and callers that already hold values). */
   overrides?: ComfyUIConfigFile;
+  /**
+   * The shared workspace config (`.toony/config.json`), pre-read by the caller.
+   * Used as the LOWEST-precedence source so env vars still override it.
+   */
+  toonyConfig?: ToonyWorkspaceComfyConfig;
+}
+
+/** A non-empty string passes through; null/empty/undefined become undefined. */
+function nonEmpty(value: string | null | undefined): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function readConfigFile(text: string, path: string): ComfyUIConfigFile {
@@ -151,13 +182,20 @@ export async function resolveComfyUIConfig(
   }
 
   const overrides = source.overrides ?? {};
+  const ws = source.toonyConfig;
 
-  // Precedence: inline overrides > env > config file.
-  const url = overrides.url ?? env.TOONY_COMFYUI_URL ?? fromFile.url;
+  // Precedence (per field): inline overrides > env > TOONY_COMFYUI_CONFIG file >
+  // workspace .toony/config.json. Env always wins over the file, so configuring
+  // the Studio settings page is equivalent to the env vars but lower priority.
+  const url =
+    nonEmpty(overrides.url) ??
+    nonEmpty(env.TOONY_COMFYUI_URL) ??
+    nonEmpty(fromFile.url) ??
+    nonEmpty(ws?.endpoint);
   if (url === undefined || url.length === 0) {
     throw new ProviderError(
       "comfyui.no-endpoint",
-      `no ComfyUI endpoint configured. Set TOONY_COMFYUI_URL (e.g. ${COMFYUI_DEFAULT_LOCAL_URL} for a local install) or provide it via TOONY_COMFYUI_CONFIG.`,
+      `no ComfyUI endpoint configured. Set TOONY_COMFYUI_URL (e.g. ${COMFYUI_DEFAULT_LOCAL_URL} for a local install), provide it via TOONY_COMFYUI_CONFIG, or set the ComfyUI endpoint in Studio settings (.toony/config.json).`,
     );
   }
   try {
@@ -167,9 +205,13 @@ export async function resolveComfyUIConfig(
     throw new ProviderError("comfyui.bad-endpoint", "the ComfyUI endpoint URL is not a valid URL.");
   }
 
-  // Workflow: inline graph > env path > config path/inline > bundled default.
+  // Workflow: inline graph > env path > config path/inline > workspace path >
+  // bundled default.
   let workflow: ComfyWorkflowGraph;
-  const workflowPath = env.TOONY_COMFYUI_WORKFLOW ?? fromFile.workflowPath;
+  const workflowPath =
+    nonEmpty(env.TOONY_COMFYUI_WORKFLOW) ??
+    nonEmpty(fromFile.workflowPath) ??
+    nonEmpty(ws?.workflow);
   if (overrides.workflow !== undefined) {
     workflow = overrides.workflow;
   } else if (workflowPath !== undefined && workflowPath.length > 0) {
@@ -187,7 +229,10 @@ export async function resolveComfyUIConfig(
   };
 
   const checkpoint =
-    overrides.checkpoint ?? env.TOONY_COMFYUI_CHECKPOINT ?? fromFile.checkpoint ?? undefined;
+    nonEmpty(overrides.checkpoint) ??
+    nonEmpty(env.TOONY_COMFYUI_CHECKPOINT) ??
+    nonEmpty(fromFile.checkpoint) ??
+    nonEmpty(ws?.checkpoint);
 
   const timeoutMs =
     overrides.timeoutMs ??
