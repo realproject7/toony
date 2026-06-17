@@ -2,6 +2,10 @@ import type { ReactNode } from "react";
 import { Sidebar } from "@/components/sidebar";
 import "./tokens.css";
 import "./studio.css";
+// Self-hosted @font-face for the curated lettering faces (served from
+// /public/fonts, no CDN). Generated from the @toony/fonts registry so the SVG
+// preview/editor render the SAME faces the export canvas registers (#56).
+import "./lettering-fonts.css";
 
 export const metadata = {
   title: "Toony Studio",

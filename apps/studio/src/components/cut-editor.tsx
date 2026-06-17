@@ -17,6 +17,7 @@
 // `/api/lettering`, which validates and writes `lettering.json`; cancel returns
 // to the preview without writing.
 
+import { defaultFontFamilyForKind, FONT_FAMILIES, type FontFamilyId } from "@toony/fonts";
 import { bubbleKindStyle, kindSupportsTail, layoutCut } from "@toony/render";
 import {
   BUBBLE_KINDS,
@@ -462,8 +463,9 @@ export function CutEditor({
                           key={`${plan.id}-line-${i}`}
                           x={line.centerX}
                           y={line.y + fontSize}
+                          fontFamily={plan.fontStack}
                           fontSize={fontSize}
-                          fontWeight={plan.kind === "shout" || plan.kind === "sfx" ? 700 : 400}
+                          fontWeight={plan.fontWeight}
                           textAnchor="middle"
                           fill={plan.textColor}
                           stroke={plan.kind === "sfx" ? plan.stroke : undefined}
@@ -586,7 +588,9 @@ export function CutEditor({
                           key={`${plan.id}-eline-${i}`}
                           x={line.centerX}
                           y={line.y + plan.text.fontSize}
+                          fontFamily={plan.fontStack}
                           fontSize={plan.text.fontSize}
+                          fontWeight={plan.fontWeight}
                           textAnchor="middle"
                           fill={plan.textColor}
                         >
@@ -800,7 +804,29 @@ function BubbleInspector({
       </label>
 
       <label className="field">
-        <span>Font</span>
+        <span>Font family</span>
+        <select
+          value={overlay.fontFamily ?? ""}
+          onChange={(e) => {
+            const value = e.target.value;
+            // Empty option clears the override so the bubble resolves to the
+            // per-kind default family (back-compatible with overlays that never
+            // set one). A non-empty value is always a curated family id.
+            onChange({ fontFamily: value === "" ? undefined : (value as FontFamilyId) });
+          }}
+          data-testid="field-font-family"
+        >
+          <option value="">Default ({defaultFontFamilyForKind(overlay.kind)})</option>
+          {FONT_FAMILIES.map((family) => (
+            <option key={family.id} value={family.id} style={{ fontFamily: family.stack }}>
+              {family.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="field">
+        <span>Font label</span>
         <input
           type="text"
           value={overlay.font}

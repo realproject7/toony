@@ -20,6 +20,7 @@
     "test": "tsc -p tsconfig.json && node ../../scripts/run-tests.mjs dist"
   },
   "dependencies": {
+    "@toony/fonts": "workspace:*",
     "@toony/schema": "workspace:*"
   },
   "devDependencies": {

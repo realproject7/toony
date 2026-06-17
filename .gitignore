@@ -21,3 +21,7 @@ temp/
 
 # Local workspace runtime config (endpoints/settings) — never committed.
 .toony/
+
+# Studio font assets copied from packages/fonts/assets by the copy-fonts script
+# (predev/prebuild). The single committed copy lives in packages/fonts/assets.
+apps/studio/public/fonts/

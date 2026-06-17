@@ -13,6 +13,7 @@
 // in the caller's space (display px for the preview, natural px for export). The
 // tail point is image-space normalized; it is converted to pixel space here.
 
+import { type FontFamilyId, resolveFontFamily } from "@toony/fonts";
 import {
   type BubbleKind,
   type FontWeight,
@@ -82,6 +83,18 @@ export interface BubbleRender {
   cornerRadius: number;
   /** Resolved body font weight (override, else per-kind default). */
   fontWeight: FontWeight;
+  /**
+   * Resolved curated font-family id (#56): the overlay's `fontFamily`, or the
+   * per-kind default when absent/unknown. Export maps this to the registered
+   * canvas family so the raster uses the SAME face as the SVG preview.
+   */
+  fontFamily: FontFamilyId;
+  /**
+   * CSS `font-family` stack for the resolved family (quoted name + generic
+   * fallback). SVG/HTML consumers set this directly so the preview/editor render
+   * the selected face from the self-hosted woff2.
+   */
+  fontStack: string;
   /** Resolved horizontal text alignment. */
   textAlign: TextAlign;
   /** Resolved letter spacing in em. */
@@ -131,6 +144,13 @@ export function layoutBubble(
   // current behavior — per-kind weight/color/corner-radius, auto-fit size — so
   // overlays written before these fields existed render identically.
   const fontWeight: FontWeight = overlay.fontWeight ?? style.fontWeight;
+  // Resolve the curated font family (#56): the overlay's id, or the per-kind
+  // default when absent/unknown, via the shared @toony/fonts registry. Both the
+  // family id and its CSS stack are exposed so SVG sets `font-family` and export
+  // selects the matching registered canvas family — one resolution, no drift.
+  const family = resolveFontFamily(overlay.fontFamily, kind);
+  const fontFamily: FontFamilyId = family.id;
+  const fontStack = family.stack;
   const textAlign: TextAlign = overlay.textAlign ?? LETTERING_STYLE_DEFAULTS.textAlign;
   const lineHeightFactor = overlay.lineHeight ?? LETTERING_STYLE_DEFAULTS.lineHeight;
   const letterSpacing = overlay.letterSpacing ?? LETTERING_STYLE_DEFAULTS.letterSpacing;
@@ -221,6 +241,8 @@ export function layoutBubble(
     fillOpacity,
     cornerRadius: radius,
     fontWeight,
+    fontFamily,
+    fontStack,
     textAlign,
     letterSpacing,
     zIndex,

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { defaultFontFamilyForKind, getFontFamily } from "@toony/fonts";
 import { layoutBubble, layoutCut } from "../layout.js";
 import { narrationOverlay, overlay, sfxOverlay, speechOverlay } from "./fixtures.js";
 
@@ -144,6 +145,17 @@ test("fontWeight, textColor, lineHeight overrides are honored", () => {
   assert.equal(r.fontWeight, 600);
   assert.equal(r.textColor, "#2244ff");
   assert.equal(r.text.lineHeight, r.text.fontSize * 2);
+});
+
+test("fontFamily resolves to the curated family stack, with a per-kind default", () => {
+  // An explicit curated id resolves to that family's id + CSS stack.
+  const explicit = layoutBubble(overlay({ id: "ff", fontFamily: "bangers" }), W, H);
+  assert.equal(explicit.fontFamily, "bangers");
+  assert.equal(explicit.fontStack, getFontFamily("bangers")?.stack);
+  // An absent fontFamily falls back to the per-kind default (back-compatible).
+  const fallback = layoutBubble(overlay({ id: "ffd", kind: "shout", text: "HEY" }), W, H);
+  assert.equal(fallback.fontFamily, defaultFontFamilyForKind("shout"));
+  assert.equal(fallback.fontStack, getFontFamily(defaultFontFamilyForKind("shout"))?.stack);
 });
 
 test("textAlign controls each line's anchor x", () => {

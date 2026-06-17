@@ -20,6 +20,9 @@ importers:
 
   apps/studio:
     dependencies:
+      '@toony/fonts':
+        specifier: workspace:*
+        version: link:../../packages/fonts
       '@toony/lint':
         specifier: workspace:*
         version: link:../../packages/lint
@@ -85,12 +88,28 @@ importers:
       '@napi-rs/canvas':
         specifier: 1.0.0
         version: 1.0.0
+      '@toony/fonts':
+        specifier: workspace:*
+        version: link:../fonts
       '@toony/project-io':
         specifier: workspace:*
         version: link:../project-io
       '@toony/render':
         specifier: workspace:*
         version: link:../render
+      '@toony/schema':
+        specifier: workspace:*
+        version: link:../schema
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.2
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  packages/fonts:
+    dependencies:
       '@toony/schema':
         specifier: workspace:*
         version: link:../schema
@@ -151,6 +170,9 @@ importers:
 
   packages/render:
     dependencies:
+      '@toony/fonts':
+        specifier: workspace:*
+        version: link:../fonts
       '@toony/schema':
         specifier: workspace:*
         version: link:../schema

@@ -20,6 +20,7 @@ import {
   BUBBLE_KINDS,
   CORNER_RADIUS_MAX_PX,
   CORNER_RADIUS_MIN_PX,
+  FONT_FAMILY_IDS,
   FONT_SIZE_MAX_PX,
   FONT_SIZE_MIN_PX,
   FONT_WEIGHTS,
@@ -430,6 +431,16 @@ function validateLetteringStyle(
   path: string,
   c: IssueCollector,
 ): void {
+  // fontFamily (#56): when present, must be one of the curated family ids. Absent
+  // is valid and resolves to the per-kind default in @toony/render / @toony/export,
+  // so projects written before this field existed keep validating and rendering.
+  if (value.fontFamily !== undefined && !isOneOf(value.fontFamily, FONT_FAMILY_IDS)) {
+    c.add(
+      joinPath(path, "fontFamily"),
+      "style.font-family",
+      `fontFamily must be one of: ${FONT_FAMILY_IDS.join(", ")}.`,
+    );
+  }
   // fontSize: a number within bounds, OR null (explicit auto-fit).
   if (value.fontSize !== undefined && value.fontSize !== null) {
     if (

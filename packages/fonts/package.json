@@ -1,5 +1,5 @@
 {
-  "name": "@toony/export",
+  "name": "@toony/fonts",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,10 +9,16 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js"
+    },
+    "./assets/*": "./assets/*"
   },
   "files": [
-    "dist"
+    "dist",
+    "assets"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -20,10 +26,6 @@
     "test": "tsc -p tsconfig.json && node ../../scripts/run-tests.mjs dist"
   },
   "dependencies": {
-    "@napi-rs/canvas": "1.0.0",
-    "@toony/fonts": "workspace:*",
-    "@toony/project-io": "workspace:*",
-    "@toony/render": "workspace:*",
     "@toony/schema": "workspace:*"
   },
   "devDependencies": {
