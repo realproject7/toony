@@ -73,24 +73,31 @@ function drawBubble(ctx: SKRSContext2D, b: BubbleRender): void {
   // canvas family for the overlay's font family, so the raster matches the SVG.
   const fontWeight = b.fontWeight;
   const family = canvasFontFamily(b.fontFamily, fontWeight, b.kind);
-  ctx.textAlign = "center";
+  // Honor the render plan's resolved alignment (#54/#55): draw each line at its
+  // `anchorX` with the matching canvas textAlign so the raster matches the SVG.
+  ctx.textAlign = b.textAlign === "left" ? "left" : b.textAlign === "right" ? "right" : "center";
   ctx.textBaseline = "top";
+  // Letter spacing is expressed in em by the plan; @napi-rs/canvas takes a CSS
+  // length, so convert at the resolved font size. Reset afterward so the band
+  // labels and the next bubble are unaffected.
+  ctx.letterSpacing = `${b.letterSpacing * b.text.fontSize}px`;
 
   ctx.font = `${fontWeight} ${b.text.fontSize}px "${family}"`;
   for (const line of b.lines) {
     if (b.hasBubble) {
       ctx.fillStyle = b.textColor;
-      ctx.fillText(line.text, line.centerX, line.y);
+      ctx.fillText(line.text, line.anchorX, line.y);
     } else {
       // SFX: outline the bare text so it reads on any background.
       ctx.lineWidth = Math.max(1, b.text.fontSize * 0.12);
       ctx.strokeStyle = b.stroke;
       ctx.lineJoin = "round";
-      ctx.strokeText(line.text, line.centerX, line.y);
+      ctx.strokeText(line.text, line.anchorX, line.y);
       ctx.fillStyle = b.textColor;
-      ctx.fillText(line.text, line.centerX, line.y);
+      ctx.fillText(line.text, line.anchorX, line.y);
     }
   }
+  ctx.letterSpacing = "0px";
 }
 
 /**
