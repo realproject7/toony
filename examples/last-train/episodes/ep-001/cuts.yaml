@@ -1,0 +1,59 @@
+- id: cut-001
+  image: null
+  imagePrompt: 1girl, long dark hair, red scarf, navy coat, running, empty train
+    station platform at night, fluorescent ceiling lights, motion blur, wide
+    shot, atmospheric, cinematic lighting, masterpiece, best quality, highly
+    detailed
+  negativePrompt: lowres, bad anatomy, bad hands, text, error, missing fingers,
+    extra digit, cropped, worst quality, low quality, jpeg artifacts, signature,
+    watermark, username, blurry
+- id: cut-002
+  image: null
+  imagePrompt: 1girl, long dark hair, red scarf, navy coat, out of breath,
+    standing on a train platform, a train departing in the background, motion
+    blur train, night, disappointed expression, medium shot, masterpiece, best
+    quality
+  negativePrompt: lowres, bad anatomy, bad hands, text, error, missing fingers,
+    extra digit, cropped, worst quality, low quality, jpeg artifacts, signature,
+    watermark, username, blurry
+- id: cut-003
+  image: null
+  imagePrompt: 1girl, long dark hair, red scarf, sitting on a metal bench, vast
+    empty platform at night, a single mysterious hooded figure standing far in
+    the distance, eerie quiet atmosphere, cool blue lighting, wide shot,
+    masterpiece, best quality
+  negativePrompt: lowres, bad anatomy, bad hands, text, error, missing fingers,
+    extra digit, cropped, worst quality, low quality, jpeg artifacts, signature,
+    watermark, username, blurry
+- id: cut-004
+  image: null
+  imagePrompt: a mysterious person in a hooded coat, face in shadow, gently
+    holding out a smartphone toward the viewer, empty night platform, soft warm
+    glow from the screen, close shot, gentle mood, masterpiece, best quality
+  negativePrompt: lowres, bad anatomy, bad hands, text, error, missing fingers,
+    extra digit, cropped, worst quality, low quality, jpeg artifacts, signature,
+    watermark, username, blurry
+- id: cut-005
+  image: null
+  imagePrompt: 1girl, long dark hair, red scarf, surprised expression, extreme
+    close-up of face, wide eyes, screen light reflecting on her face, night,
+    masterpiece, best quality, highly detailed face
+  negativePrompt: lowres, bad anatomy, bad hands, text, error, missing fingers,
+    extra digit, cropped, worst quality, low quality, jpeg artifacts, signature,
+    watermark, username, blurry
+- id: cut-006
+  image: null
+  imagePrompt: 1girl, long dark hair, red scarf, standing alone holding a
+    smartphone to her chest, looking around a completely empty platform,
+    moonlight, quiet, melancholic, wide shot, masterpiece, best quality
+  negativePrompt: lowres, bad anatomy, bad hands, text, error, missing fingers,
+    extra digit, cropped, worst quality, low quality, jpeg artifacts, signature,
+    watermark, username, blurry
+- id: cut-007
+  image: null
+  imagePrompt: 1girl, long dark hair, red scarf, sitting beside a train window,
+    soft morning sunlight, faint gentle smile, looking down at a smartphone,
+    warm peaceful atmosphere, medium shot, masterpiece, best quality
+  negativePrompt: lowres, bad anatomy, bad hands, text, error, missing fingers,
+    extra digit, cropped, worst quality, low quality, jpeg artifacts, signature,
+    watermark, username, blurry
