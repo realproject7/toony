@@ -14,6 +14,7 @@ import { type BubbleRender, layoutCut } from "@toony/render";
 import type { Cut, LetteringOverlay } from "@toony/schema";
 import Link from "next/link";
 import type { CutArt } from "@/lib/project";
+import { svgLetterSpacing, svgTextAnchor } from "@/lib/text-anchor";
 
 export interface CutCanvasProps {
   cut: Cut;
@@ -54,12 +55,13 @@ function Bubble({ plan }: { plan: BubbleRender }) {
         <text
           // biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines are a positional, read-only layout output — the index is the stable identity within a single layout pass.
           key={`${plan.id}-line-${i}`}
-          x={line.centerX}
+          x={line.anchorX}
           y={line.y + fontSize}
           fontFamily={plan.fontStack}
           fontSize={fontSize}
           fontWeight={plan.fontWeight}
-          textAnchor="middle"
+          textAnchor={svgTextAnchor(plan.textAlign)}
+          letterSpacing={svgLetterSpacing(plan.letterSpacing, fontSize)}
           fill={plan.textColor}
           stroke={plan.kind === "sfx" ? plan.stroke : undefined}
           strokeWidth={plan.kind === "sfx" ? Math.max(1, fontSize * 0.06) : undefined}

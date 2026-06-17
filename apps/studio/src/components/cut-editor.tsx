@@ -17,18 +17,26 @@
 // `/api/lettering`, which validates and writes `lettering.json`; cancel returns
 // to the preview without writing.
 
-import { defaultFontFamilyForKind, FONT_FAMILIES, type FontFamilyId } from "@toony/fonts";
 import { bubbleKindStyle, kindSupportsTail, layoutCut } from "@toony/render";
-import {
-  BUBBLE_KINDS,
-  type BubbleKind,
-  type LetteringOverlay,
-  REVIEW_STATUSES,
-  type ReviewStatus,
-} from "@toony/schema";
+import { LETTERING_STYLE_DEFAULTS, type LetteringOverlay } from "@toony/schema";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { CutArt } from "@/lib/project";
+import { svgLetterSpacing, svgTextAnchor } from "@/lib/text-anchor";
+
+// The pro-lettering inspector (typography/color/styling/arrangement) and its
+// lightweight color picker are editor-only. Lazy-load them as a separate chunk
+// via next/dynamic so the library/reader bundles never pull in this control
+// surface — only the focused cut editor downloads it, on demand.
+const BubbleInspector = dynamic(() => import("./bubble-inspector").then((m) => m.BubbleInspector), {
+  ssr: false,
+  loading: () => (
+    <div className="inspector-form" data-testid="bubble-inspector-loading">
+      <p className="empty">Loading inspector…</p>
+    </div>
+  ),
+});
 
 export interface CutEditorProps {
   workId: string;
@@ -269,6 +277,97 @@ export function CutEditor({
     setMessage(null);
   }, [selectedId]);
 
+  // --- Arrangement: z-order + nudge ---------------------------------------
+  //
+  // The render core sorts overlays by `zIndex` (ascending, ties by input order),
+  // so changing a bubble's `zIndex` restacks it in the live preview, the reader,
+  // and the export. These helpers compute the next integer z that moves the
+  // selected bubble one step, or all the way, relative to its peers.
+
+  const updateZ = useCallback(
+    (next: number) => {
+      if (!selectedId) return;
+      update(selectedId, { zIndex: Math.max(0, Math.round(next)) });
+    },
+    [selectedId, update],
+  );
+
+  const zOf = useCallback((b: LetteringOverlay) => b.zIndex ?? LETTERING_STYLE_DEFAULTS.zIndex, []);
+
+  const bringForward = useCallback(() => {
+    if (!selected) return;
+    const current = zOf(selected);
+    // Step above the lowest peer that currently sits at or above this bubble.
+    const above = bubbles
+      .filter((b) => b.id !== selected.id && zOf(b) >= current)
+      .map((b) => zOf(b))
+      .sort((a, b) => a - b)[0];
+    updateZ(above === undefined ? current : above + 1);
+  }, [selected, bubbles, zOf, updateZ]);
+
+  const sendBackward = useCallback(() => {
+    if (!selected) return;
+    const current = zOf(selected);
+    const below = bubbles
+      .filter((b) => b.id !== selected.id && zOf(b) <= current)
+      .map((b) => zOf(b))
+      .sort((a, b) => b - a)[0];
+    updateZ(below === undefined ? current : Math.max(0, below - 1));
+  }, [selected, bubbles, zOf, updateZ]);
+
+  const bringToFront = useCallback(() => {
+    if (!selected) return;
+    const maxZ = bubbles.reduce((m, b) => Math.max(m, zOf(b)), 0);
+    updateZ(maxZ + 1);
+  }, [selected, bubbles, zOf, updateZ]);
+
+  const sendToBack = useCallback(() => {
+    if (!selected) return;
+    // Push every other bubble up by one and place this one at 0, so it sits below
+    // all peers while keeping their relative order.
+    const minZ = bubbles.reduce((m, b) => Math.min(m, zOf(b)), Number.POSITIVE_INFINITY);
+    if (minZ > 0) {
+      updateZ(0);
+      return;
+    }
+    setBubbles((prev) =>
+      prev.map((b) =>
+        b.id === selected.id
+          ? { ...b, zIndex: 0 }
+          : { ...b, zIndex: (b.zIndex ?? LETTERING_STYLE_DEFAULTS.zIndex) + 1 },
+      ),
+    );
+    setDirty(true);
+    setMessage(null);
+  }, [selected, bubbles, zOf, updateZ]);
+
+  const nudgeSelected = useCallback(
+    (dx: number, dy: number) => {
+      if (!selected) return;
+      const g = selected.geometry;
+      update(selected.id, {
+        geometry: {
+          ...g,
+          x: clamp(g.x + dx, 0, 1 - g.width),
+          y: clamp(g.y + dy, 0, 1 - g.height),
+        },
+      });
+    },
+    [selected, update],
+  );
+
+  // The cut's own colors (text / fill / border) form a small "project palette"
+  // the color picker surfaces so a letterer can reuse a consistent set.
+  const projectPalette = useMemo(() => {
+    const set = new Set<string>();
+    for (const b of bubbles) {
+      if (b.fill) set.add(b.fill);
+      if (b.textColor) set.add(b.textColor);
+      if (b.border?.color) set.add(b.border.color);
+    }
+    return [...set];
+  }, [bubbles]);
+
   const save = useCallback(async () => {
     setSaving(true);
     setMessage(null);
@@ -461,12 +560,13 @@ export function CutEditor({
                         <text
                           // biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines are a positional layout output; the index is the stable identity within one layout pass.
                           key={`${plan.id}-line-${i}`}
-                          x={line.centerX}
+                          x={line.anchorX}
                           y={line.y + fontSize}
                           fontFamily={plan.fontStack}
                           fontSize={fontSize}
                           fontWeight={plan.fontWeight}
-                          textAnchor="middle"
+                          textAnchor={svgTextAnchor(plan.textAlign)}
+                          letterSpacing={svgLetterSpacing(plan.letterSpacing, fontSize)}
                           fill={plan.textColor}
                           stroke={plan.kind === "sfx" ? plan.stroke : undefined}
                           strokeWidth={
@@ -586,12 +686,13 @@ export function CutEditor({
                         <text
                           // biome-ignore lint/suspicious/noArrayIndexKey: positional layout output.
                           key={`${plan.id}-eline-${i}`}
-                          x={line.centerX}
+                          x={line.anchorX}
                           y={line.y + plan.text.fontSize}
                           fontFamily={plan.fontStack}
                           fontSize={plan.text.fontSize}
                           fontWeight={plan.fontWeight}
-                          textAnchor="middle"
+                          textAnchor={svgTextAnchor(plan.textAlign)}
+                          letterSpacing={svgLetterSpacing(plan.letterSpacing, plan.text.fontSize)}
                           fill={plan.textColor}
                         >
                           {line.text}
@@ -643,6 +744,12 @@ export function CutEditor({
               overlay={selected}
               overflow={selectedPlan?.overflow ?? false}
               onChange={(patch) => update(selected.id, patch)}
+              onBringForward={bringForward}
+              onSendBackward={sendBackward}
+              onBringToFront={bringToFront}
+              onSendToBack={sendToBack}
+              onNudge={nudgeSelected}
+              projectPalette={projectPalette}
             />
           ) : (
             <div className="inspector-empty">
@@ -738,225 +845,6 @@ function CutPromptPanel({
       >
         {saving ? "Saving…" : dirty ? "Save cut prompts" : "Saved"}
       </button>
-    </div>
-  );
-}
-
-function BubbleInspector({
-  overlay,
-  overflow,
-  onChange,
-}: {
-  overlay: LetteringOverlay;
-  overflow: boolean;
-  onChange: (patch: Partial<LetteringOverlay>) => void;
-}) {
-  const supportsTail = kindSupportsTail(overlay.kind);
-  return (
-    <div className="inspector-form" data-testid="bubble-inspector">
-      <h2 className="card-title">Bubble</h2>
-
-      {overflow && (
-        <div className="editor-toast editor-toast-warn" data-testid="inspector-overflow">
-          Text overflows this bubble even at the minimum font. Enlarge the box or shorten the text.
-        </div>
-      )}
-
-      <label className="field">
-        <span>Speaker</span>
-        <input
-          type="text"
-          value={overlay.speaker}
-          onChange={(e) => onChange({ speaker: e.target.value })}
-          data-testid="field-speaker"
-        />
-      </label>
-
-      <label className="field">
-        <span>Kind</span>
-        <select
-          value={overlay.kind}
-          onChange={(e) => {
-            const kind = e.target.value as BubbleKind;
-            // A kind that cannot carry a tail drops any existing tail point.
-            const patch: Partial<LetteringOverlay> = { kind };
-            if (!kindSupportsTail(kind)) patch.tail = null;
-            onChange(patch);
-          }}
-          data-testid="field-kind"
-        >
-          {BUBBLE_KINDS.map((kind) => (
-            <option key={kind} value={kind}>
-              {kind}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="field">
-        <span>Text</span>
-        <textarea
-          rows={3}
-          value={overlay.text}
-          onChange={(e) => onChange({ text: e.target.value })}
-          data-testid="field-text"
-        />
-      </label>
-
-      <label className="field">
-        <span>Font family</span>
-        <select
-          value={overlay.fontFamily ?? ""}
-          onChange={(e) => {
-            const value = e.target.value;
-            // Empty option clears the override so the bubble resolves to the
-            // per-kind default family (back-compatible with overlays that never
-            // set one). A non-empty value is always a curated family id.
-            onChange({ fontFamily: value === "" ? undefined : (value as FontFamilyId) });
-          }}
-          data-testid="field-font-family"
-        >
-          <option value="">Default ({defaultFontFamilyForKind(overlay.kind)})</option>
-          {FONT_FAMILIES.map((family) => (
-            <option key={family.id} value={family.id} style={{ fontFamily: family.stack }}>
-              {family.name}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="field">
-        <span>Font label</span>
-        <input
-          type="text"
-          value={overlay.font}
-          onChange={(e) => onChange({ font: e.target.value })}
-          data-testid="field-font"
-        />
-      </label>
-
-      <fieldset className="field-group">
-        <legend>Style</legend>
-        <label className="field field-inline">
-          <span>Fill</span>
-          <input
-            type="text"
-            placeholder="#ffffff"
-            value={overlay.fill}
-            onChange={(e) => onChange({ fill: e.target.value })}
-            data-testid="field-fill"
-          />
-        </label>
-        <label className="field field-inline">
-          <span>Opacity</span>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={overlay.opacity}
-            onChange={(e) => onChange({ opacity: Number(e.target.value) })}
-            data-testid="field-opacity"
-          />
-          <output>{overlay.opacity.toFixed(2)}</output>
-        </label>
-      </fieldset>
-
-      <fieldset className="field-group">
-        <legend>Border</legend>
-        <label className="field field-inline">
-          <input
-            type="checkbox"
-            checked={overlay.border !== null}
-            onChange={(e) =>
-              onChange({ border: e.target.checked ? { width: 2, color: "#101010" } : null })
-            }
-            data-testid="field-border-toggle"
-          />
-          <span>Custom border</span>
-        </label>
-        {overlay.border !== null && (
-          <>
-            <label className="field field-inline">
-              <span>Width</span>
-              <input
-                type="number"
-                min={0}
-                step={0.5}
-                value={overlay.border.width}
-                onChange={(e) =>
-                  onChange({
-                    border: {
-                      width: Math.max(0, Number(e.target.value)),
-                      color: overlay.border?.color ?? "#101010",
-                    },
-                  })
-                }
-                data-testid="field-border-width"
-              />
-            </label>
-            <label className="field field-inline">
-              <span>Color</span>
-              <input
-                type="text"
-                value={overlay.border.color}
-                onChange={(e) =>
-                  onChange({
-                    border: { width: overlay.border?.width ?? 2, color: e.target.value },
-                  })
-                }
-                data-testid="field-border-color"
-              />
-            </label>
-          </>
-        )}
-      </fieldset>
-
-      <fieldset className="field-group">
-        <legend>Tail</legend>
-        {supportsTail ? (
-          <div className="field-inline">
-            <button
-              type="button"
-              className="btn"
-              onClick={() =>
-                onChange({
-                  tail: overlay.tail
-                    ? null
-                    : {
-                        // Default tip just below the box center, inside the image.
-                        x: clamp(overlay.geometry.x + overlay.geometry.width / 2, 0, 1),
-                        y: clamp(overlay.geometry.y + overlay.geometry.height + 0.06, 0, 1),
-                      },
-                })
-              }
-              data-testid="field-tail-toggle"
-            >
-              {overlay.tail ? "Clear tail" : "Add tail"}
-            </button>
-            <span className="field-hint">
-              {overlay.tail ? "Drag the tail handle on the canvas to aim it." : "No tail."}
-            </span>
-          </div>
-        ) : (
-          <span className="field-hint">This kind does not draw a tail.</span>
-        )}
-      </fieldset>
-
-      <label className="field">
-        <span>Review status</span>
-        <select
-          value={overlay.reviewStatus}
-          onChange={(e) => onChange({ reviewStatus: e.target.value as ReviewStatus })}
-          data-testid="field-review"
-        >
-          {REVIEW_STATUSES.map((status) => (
-            <option key={status} value={status}>
-              {status}
-            </option>
-          ))}
-        </select>
-      </label>
     </div>
   );
 }
