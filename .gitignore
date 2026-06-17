@@ -25,3 +25,6 @@ temp/
 # Studio font assets copied from packages/fonts/assets by the copy-fonts script
 # (predev/prebuild). The single committed copy lives in packages/fonts/assets.
 apps/studio/public/fonts/
+
+# Agent worktrees / local Claude Code state (keep biome + git out of these)
+.claude/
