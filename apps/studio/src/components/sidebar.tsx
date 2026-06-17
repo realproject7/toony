@@ -37,10 +37,14 @@ export function Sidebar() {
 
   return (
     <aside className="sidebar">
-      <div className="brand">
-        <span className="brand-mark" aria-hidden="true" />
-        <span>Toony Studio</span>
-      </div>
+      <Link href="/" className="brand" aria-label="Toony Studio — Library">
+        {/* The app icon: indigo Production Scroll + Pulse Coral speech bubble. */}
+        {/* biome-ignore lint/performance/noImgElement: static brand mark served from /public, not user content for the Next image optimizer. */}
+        <img className="brand-mark" src="/brand/app-icon.png" alt="" aria-hidden="true" />
+        <span>
+          Toony<span className="brand-dot">.</span>
+        </span>
+      </Link>
       <nav className="nav" aria-label="Primary">
         <p className="nav-section-title">Workspace</p>
         <Link
@@ -84,7 +88,9 @@ export function Sidebar() {
           </>
         )}
       </nav>
-      <p className="sidebar-foot">Local-first webtoon production</p>
+      <div className="sidebar-status">
+        <p className="sidebar-foot">Local-first webtoon production</p>
+      </div>
     </aside>
   );
 }
