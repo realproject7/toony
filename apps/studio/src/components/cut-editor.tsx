@@ -22,6 +22,7 @@ import { LETTERING_STYLE_DEFAULTS, type LetteringOverlay } from "@toony/schema";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useMemo, useRef, useState } from "react";
+import { clamp } from "@/lib/clamp";
 import type { CutArt } from "@/lib/project";
 import { svgLetterSpacing, svgTextAnchor } from "@/lib/text-anchor";
 
@@ -48,11 +49,6 @@ export interface CutEditorProps {
   initialBubbles: LetteringOverlay[];
   initialImagePrompt: string;
   initialNegativePrompt: string;
-}
-
-/** Clamp a value into [min, max]. */
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }
 
 /**

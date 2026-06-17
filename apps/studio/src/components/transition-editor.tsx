@@ -28,6 +28,7 @@ import {
 } from "@toony/schema";
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
+import { clamp } from "@/lib/clamp";
 
 export interface TransitionEditorProps {
   workId: string;
@@ -39,11 +40,6 @@ export interface TransitionEditorProps {
   initialSequence: SequenceItem[];
   /** Served asset URL for each transition's image (by transition id), or null. */
   imageUrls: Record<string, string | null>;
-}
-
-/** Clamp a value into [min, max]. */
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }
 
 /** A freshly inserted transition with schema-valid defaults. */
