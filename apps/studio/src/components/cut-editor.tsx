@@ -30,6 +30,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { CutArt } from "@/lib/project";
 
 export interface CutEditorProps {
+  workId: string;
   episodeId: string;
   episodeTitle: string;
   webtoonTitle: string;
@@ -74,6 +75,7 @@ type DragMode =
   | { kind: "tail"; id: string };
 
 export function CutEditor({
+  workId,
   episodeId,
   episodeTitle,
   webtoonTitle,
@@ -277,7 +279,7 @@ export function CutEditor({
       const response = await fetch("/api/lettering", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ episodeId, overlays: payload }),
+        body: JSON.stringify({ workId, episodeId, overlays: payload }),
       });
       const data = (await response.json()) as { ok: boolean; error?: string };
       if (!response.ok || !data.ok) {
@@ -292,7 +294,7 @@ export function CutEditor({
     } finally {
       setSaving(false);
     }
-  }, [bubbles, plans, episodeId]);
+  }, [bubbles, plans, workId, episodeId]);
 
   const savePrompts = useCallback(async () => {
     setPromptSaving(true);
@@ -301,7 +303,7 @@ export function CutEditor({
       const response = await fetch("/api/cut", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ episodeId, cutId, imagePrompt, negativePrompt }),
+        body: JSON.stringify({ workId, episodeId, cutId, imagePrompt, negativePrompt }),
       });
       const data = (await response.json()) as { ok: boolean; error?: string };
       if (!response.ok || !data.ok) {
@@ -318,7 +320,7 @@ export function CutEditor({
     } finally {
       setPromptSaving(false);
     }
-  }, [episodeId, cutId, imagePrompt, negativePrompt]);
+  }, [workId, episodeId, cutId, imagePrompt, negativePrompt]);
 
   return (
     <div className="editor" data-testid={`cut-editor-${cutId}`}>
@@ -341,7 +343,10 @@ export function CutEditor({
           </div>
         </div>
         <div className="editor-actions">
-          <Link href={`/episodes/${encodeURIComponent(episodeId)}`} className="btn btn-ghost">
+          <Link
+            href={`/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}`}
+            className="btn btn-ghost"
+          >
             Cancel
           </Link>
           <button

@@ -30,6 +30,7 @@ import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 
 export interface TransitionEditorProps {
+  workId: string;
   episodeId: string;
   episodeTitle: string;
   webtoonTitle: string;
@@ -68,6 +69,7 @@ function statusChipClass(status: ReviewStatus): string {
 }
 
 export function TransitionEditor({
+  workId,
   episodeId,
   episodeTitle,
   webtoonTitle,
@@ -128,7 +130,7 @@ export function TransitionEditor({
       const response = await fetch("/api/transitions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ episodeId, sequence, transitions }),
+        body: JSON.stringify({ workId, episodeId, sequence, transitions }),
       });
       const data = (await response.json()) as { ok: boolean; error?: string };
       if (!response.ok || !data.ok) {
@@ -142,7 +144,7 @@ export function TransitionEditor({
     } finally {
       setSaving(false);
     }
-  }, [episodeId, sequence, transitions]);
+  }, [workId, episodeId, sequence, transitions]);
 
   return (
     <div className="editor" data-testid="transition-editor">
@@ -158,7 +160,10 @@ export function TransitionEditor({
           </div>
         </div>
         <div className="editor-actions">
-          <Link href={`/episodes/${encodeURIComponent(episodeId)}`} className="btn btn-ghost">
+          <Link
+            href={`/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}`}
+            className="btn btn-ghost"
+          >
             Cancel
           </Link>
           <button

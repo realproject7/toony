@@ -1,21 +1,22 @@
-// Navigable episode list shared by the dashboard and the episodes route. Each
-// row links into the episode preview and shows cut/transition counts plus a
-// compact production status.
+// Navigable episode list shared by the per-work dashboard and the episodes
+// route. Each row links into the episode preview (scoped to its work) and shows
+// cut/transition counts plus a compact production status.
 
 import Link from "next/link";
 import type { EpisodeOverview } from "@/lib/project";
 import { StatusChip } from "./status-chip";
 
-export function EpisodeList({ episodes }: { episodes: EpisodeOverview[] }) {
+export function EpisodeList({ workId, episodes }: { workId: string; episodes: EpisodeOverview[] }) {
   if (episodes.length === 0) {
     return <p className="empty">No episodes yet. Create one with the Toony CLI to begin.</p>;
   }
+  const base = `/w/${encodeURIComponent(workId)}`;
   return (
     <ul className="episode-rows" data-testid="episode-list">
       {episodes.map((episode) => (
         <li key={episode.id}>
           <Link
-            href={`/episodes/${encodeURIComponent(episode.id)}`}
+            href={`${base}/episodes/${encodeURIComponent(episode.id)}`}
             className="episode-row"
             data-testid={`episode-${episode.id}`}
           >
