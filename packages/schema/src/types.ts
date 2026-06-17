@@ -107,10 +107,22 @@ export interface ImageAssetRef {
   final: string | null;
 }
 
-/** A cut record. Image assets are referenced project-relative, never absolute. */
+/**
+ * A cut record. Image assets are referenced project-relative, never absolute.
+ *
+ * `imagePrompt` is the positive generation prompt for the cut's artwork and
+ * `negativePrompt` is the exclusion prompt; both are author-authored text that
+ * downstream generation (#36's `toony generate`) defaults from. They are always
+ * present in the in-memory model (defaulting to "" when absent on disk), so
+ * consumers never branch on undefined. Older projects written before these
+ * fields existed remain valid: see `validateCutValue`, which treats a missing
+ * prompt as the empty string for back-compatibility.
+ */
 export interface Cut {
   id: string;
   image: ImageAssetRef | null;
+  imagePrompt: string;
+  negativePrompt: string;
 }
 
 /** A transition record placed between cuts in the canonical sequence. */

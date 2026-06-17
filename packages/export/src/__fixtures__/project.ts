@@ -116,7 +116,7 @@ export function buildManyCutsProject(count: number): Project {
   if (!bundle) throw new Error("fixture missing episode");
   const ids = Array.from({ length: count }, (_, i) => `cut-${String(i + 1).padStart(2, "0")}`);
   bundle.episode.sequence = ids.map((id) => ({ type: "cut", id }) as const);
-  bundle.cuts = ids.map((id) => ({ id, image: null }));
+  bundle.cuts = ids.map((id) => ({ id, image: null, imagePrompt: "", negativePrompt: "" }));
   bundle.transitions = [];
   bundle.lettering = [];
   return project;

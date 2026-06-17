@@ -145,7 +145,7 @@ test("a schema-valid but path-unsafe record id cannot escape the asset folder", 
   const bundle = project.episodes[0];
   assert.ok(bundle);
   const evilId = "../../pwned";
-  bundle.cuts.push({ id: evilId, image: null });
+  bundle.cuts.push({ id: evilId, image: null, imagePrompt: "", negativePrompt: "" });
   bundle.episode.sequence.push({ type: "cut", id: evilId }); // keep it referenced so the project is valid
   await writeProject(root, project);
 

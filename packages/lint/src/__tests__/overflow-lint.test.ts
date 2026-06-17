@@ -36,7 +36,7 @@ function bundle(cutId: string, overlays: LetteringOverlay[]): EpisodeBundle {
       title: "Ep",
       sequence: [{ type: "cut", id: cutId }],
     },
-    cuts: [{ id: cutId, image: null }],
+    cuts: [{ id: cutId, image: null, imagePrompt: "", negativePrompt: "" }],
     transitions: [],
     lettering: overlays,
   };

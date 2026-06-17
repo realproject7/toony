@@ -47,8 +47,8 @@ function starterEpisode(): EpisodeBundle {
     ],
   };
   const cuts: Cut[] = [
-    { id: "cut-001", image: null },
-    { id: "cut-002", image: null },
+    { id: "cut-001", image: null, imagePrompt: "", negativePrompt: "" },
+    { id: "cut-002", image: null, imagePrompt: "", negativePrompt: "" },
   ];
   const transitions: Transition[] = [
     {

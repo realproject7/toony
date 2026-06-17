@@ -26,7 +26,7 @@ test("the finding target id carries the validator path", () => {
   const project = makeValidProject();
   const bundle = project.episodes[0];
   assert.ok(bundle);
-  bundle.cuts.push({ id: "cut-001", image: null });
+  bundle.cuts.push({ id: "cut-001", image: null, imagePrompt: "", negativePrompt: "" });
   const findings = lintProjectSchema(project);
   const dup = findings.find((f) => f.code === "schema/cut.duplicate-id");
   assert.ok(dup);

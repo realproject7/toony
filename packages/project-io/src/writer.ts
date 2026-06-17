@@ -14,6 +14,7 @@ import {
   type LetteringOverlay,
   type Project,
   type Transition,
+  validateCutValue,
   validateEpisodeValue,
   validateLetteringOverlayValue,
   validateProject,
@@ -119,6 +120,39 @@ export async function writeLettering(
     throw new ProjectIoError(`refusing to write invalid lettering: ${detail}`, episodeId);
   }
   await writeFile(letteringFile(root, episodeId), encodeJson(overlays), "utf8");
+}
+
+/**
+ * Persist one episode's cut records to its `cuts.yaml`, validating the full set
+ * against `@toony/schema` first and refusing to write if any cut is invalid.
+ * This is the surgical write path the focused cut editor (#8) uses to save
+ * cut-level fields (e.g. `imagePrompt`/`negativePrompt`): it touches only the
+ * target episode's cuts file and leaves every other file byte-stable. Output is
+ * deterministic (sorted keys), so a no-op save re-emits identical bytes.
+ *
+ * Cut ids must be unique within the set so edits target deterministically.
+ * Image-asset references are left as supplied; the editor only mutates cut-level
+ * text fields, so the round-trip preserves existing image associations.
+ */
+export async function writeCuts(root: string, episodeId: string, cuts: Cut[]): Promise<void> {
+  const c = new IssueCollector();
+  const seen = new Set<string>();
+  for (let i = 0; i < cuts.length; i++) {
+    validateCutValue(cuts[i], `cuts[${i}]`, c);
+    const id = cuts[i]?.id;
+    if (typeof id === "string" && id.length > 0) {
+      if (seen.has(id)) {
+        c.add(`cuts[${i}].id`, "cut.duplicate-id", `duplicate cut id "${id}".`);
+      }
+      seen.add(id);
+    }
+  }
+  const result = c.result();
+  if (!result.valid) {
+    const detail = result.issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ");
+    throw new ProjectIoError(`refusing to write invalid cuts: ${detail}`, episodeId);
+  }
+  await writeFile(cutsFile(root, episodeId), encodeYaml(cuts), "utf8");
 }
 
 /**

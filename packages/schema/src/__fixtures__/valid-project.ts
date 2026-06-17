@@ -33,8 +33,18 @@ export const validProject: Project = {
         ],
       },
       cuts: [
-        { id: "cut-001", image: { clean: "assets/clean/cut-001.webp", final: null } },
-        { id: "cut-002", image: { clean: "assets/clean/cut-002.webp", final: null } },
+        {
+          id: "cut-001",
+          image: { clean: "assets/clean/cut-001.webp", final: null },
+          imagePrompt: "",
+          negativePrompt: "",
+        },
+        {
+          id: "cut-002",
+          image: { clean: "assets/clean/cut-002.webp", final: null },
+          imagePrompt: "",
+          negativePrompt: "",
+        },
       ],
       transitions: [
         {

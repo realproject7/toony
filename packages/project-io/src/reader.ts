@@ -54,6 +54,27 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+/**
+ * Back-compatibility normalization for cut records: ensure every cut carries
+ * `imagePrompt`/`negativePrompt` strings in the in-memory model. Projects written
+ * before these fields existed omit them on disk; treating a missing prompt as ""
+ * means consumers (the studio editor, future generation) never branch on
+ * undefined and a round-trip simply materializes the empty fields. A non-string
+ * value present on disk is left untouched so the validator can flag it.
+ */
+function normalizeCut(value: unknown): unknown {
+  if (typeof value !== "object" || value === null) return value;
+  const cut = value as Record<string, unknown>;
+  // Only fill in genuinely absent (undefined) prompts. A value that is present
+  // but the wrong type is preserved so `validateCutValue` can report it rather
+  // than the loader silently masking a malformed file.
+  return {
+    ...cut,
+    imagePrompt: cut.imagePrompt === undefined ? "" : cut.imagePrompt,
+    negativePrompt: cut.negativePrompt === undefined ? "" : cut.negativePrompt,
+  };
+}
+
 /** List episode directory names in deterministic (sorted) order. */
 async function listEpisodeIds(root: string): Promise<string[]> {
   let entries: Dirent[];
@@ -90,7 +111,7 @@ export async function loadProject(root: string): Promise<LoadedProject> {
       // The validator type-checks every field; parsed values are kept as-is so
       // structural problems surface as actionable issues rather than throws.
       episode: episode as EpisodeBundle["episode"],
-      cuts: asArray(cuts) as EpisodeBundle["cuts"],
+      cuts: asArray(cuts).map(normalizeCut) as EpisodeBundle["cuts"],
       transitions: asArray(transitions) as EpisodeBundle["transitions"],
       lettering: asArray(lettering) as EpisodeBundle["lettering"],
     });
