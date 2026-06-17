@@ -6,10 +6,11 @@
 // is configured from LOCAL runtime config/env only (TOONY_COMFYUI_URL etc.) —
 // `webtoon.json` provider entries stay neutral and never carry an endpoint/key.
 //
-// Prompts are supplied on the command line (--prompt / --negative): the project
-// schema's Cut record does not carry prompt text, so the operator/agent passes
-// it explicitly. When the endpoint is unset or unreachable the command fails
-// with a clear, actionable message — it never fabricates a result.
+// Prompts come from `--prompt`/`--negative` or, for a cut, fall back to the
+// stored `cut.imagePrompt`/`negativePrompt` (#38). For BOTH sources, the
+// referenced characters' lockstrings (#92) are prepended VERBATIM so a character
+// stays on-model across cuts. When the endpoint is unset or unreachable the
+// command fails with a clear, actionable message — it never fabricates a result.
 
 import { dirname, resolve } from "node:path";
 import {
@@ -28,6 +29,7 @@ import {
   resolveComfyUIConfig,
   type ToonyWorkspaceComfyConfig,
 } from "@toony/providers";
+import type { Character } from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 
 export interface GenerateIo {
@@ -86,6 +88,33 @@ function parsePositiveInt(raw: string, name: string): number | { error: string }
   const n = Number(raw);
   if (!Number.isInteger(n) || n <= 0) return { error: `${name} must be a positive integer` };
   return n;
+}
+
+/**
+ * Prepend the referenced characters' lockstrings VERBATIM to `basePrompt` (#92),
+ * so a character stays on-model across cuts. Order follows `characterIds` (the
+ * cut's order), deduplicated; ids not in the registry are skipped (lint flags
+ * them via `character/unknown-ref`), as are characters with a blank lockstring.
+ * Pure and deterministic: same inputs → same string, so it is unit-tested by
+ * asserting the composed prompt without a live provider.
+ */
+export function injectCharacterLockstrings(
+  basePrompt: string,
+  characterIds: readonly string[] | undefined,
+  registry: readonly Character[],
+): string {
+  if (characterIds === undefined || characterIds.length === 0) return basePrompt;
+  const byId = new Map(registry.map((character) => [character.id, character]));
+  const seen = new Set<string>();
+  const lockstrings: string[] = [];
+  for (const id of characterIds) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const lockstring = byId.get(id)?.lockstring.trim();
+    if (lockstring) lockstrings.push(lockstring);
+  }
+  if (lockstrings.length === 0) return basePrompt;
+  return `${lockstrings.join(", ")}, ${basePrompt}`;
 }
 
 /**
@@ -175,19 +204,27 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
 
   // Resolve the effective prompt: an explicit --prompt wins; otherwise a cut
   // falls back to its stored imagePrompt/negativePrompt (#38). Transitions carry
-  // no stored prompt, so --prompt stays required for them.
+  // no stored prompt, so --prompt stays required for them. For a cut we load the
+  // project regardless (even with --prompt) to read its `characters` refs and the
+  // project registry, so lockstrings (#92) inject for both prompt sources.
   let effectivePrompt = prompt;
   let effectiveNegative = negative;
-  if (
-    (effectivePrompt === undefined || effectivePrompt.trim().length === 0) &&
-    cutId !== undefined
-  ) {
+  let cutCharacters: readonly string[] | undefined;
+  let registry: readonly Character[] = [];
+  if (cutId !== undefined) {
     try {
       const loaded = await loadProject(root);
+      registry = loaded.project.webtoon.characters ?? [];
       const bundle = loaded.project.episodes.find((b) => b.episode.id === episodeId);
       const cut = bundle?.cuts.find((c) => c.id === cutId);
       if (cut) {
-        if (cut.imagePrompt.trim().length > 0) effectivePrompt = cut.imagePrompt;
+        cutCharacters = cut.characters;
+        if (
+          (effectivePrompt === undefined || effectivePrompt.trim().length === 0) &&
+          cut.imagePrompt.trim().length > 0
+        ) {
+          effectivePrompt = cut.imagePrompt;
+        }
         if (effectiveNegative === undefined && cut.negativePrompt.trim().length > 0) {
           effectiveNegative = cut.negativePrompt;
         }
@@ -202,6 +239,8 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     io.err(USAGE);
     return EXIT_USAGE;
   }
+  // Prepend referenced characters' lockstrings verbatim (#92) for either source.
+  effectivePrompt = injectCharacterLockstrings(effectivePrompt, cutCharacters, registry);
 
   const options: Record<string, string | number> = {};
   if (effectiveNegative !== undefined) options.negativePrompt = effectiveNegative;

@@ -20,6 +20,7 @@ import {
   type Finding,
   finding,
   lintBubbleOverflow,
+  lintCharacterRefs,
   lintManifestCompleteness,
   lintProjectSchema,
   type ManifestFileProbe,
@@ -189,6 +190,11 @@ async function lintAndReport(
     }
     bundles = [bundle];
   }
+
+  // Character-ref integrity (#92) is referential and cheap — run it regardless of
+  // full schema validity (it only reads each cut's `characters` + the registry).
+  const registry = loaded.project.webtoon.characters ?? [];
+  for (const bundle of bundles) findings.push(...lintCharacterRefs(bundle, registry));
 
   if (loaded.validation.valid) {
     for (const bundle of bundles) findings.push(...(await lintEpisode(root, bundle)));

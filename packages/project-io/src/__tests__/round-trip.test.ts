@@ -522,3 +522,36 @@ test("a fuller fixture with lettering round-trips", async () => {
   assert.equal(loaded.project.episodes[0]?.lettering.length, 1);
   assert.equal(loaded.project.episodes[0]?.lettering[0]?.speaker, "Mira");
 });
+
+test("character registry + cut.characters round-trip and validate (#92)", async () => {
+  const root = join(workdir, "chars");
+  const project = buildInitialProject("chars");
+  project.webtoon.characters = [
+    {
+      id: "mina",
+      name: "Mina",
+      lockstring: "short black bob, amber eyes, red scarf, flat cel style",
+    },
+  ];
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  cut.characters = ["mina"];
+  await writeProject(root, project);
+
+  const loaded = await loadProject(root);
+  assert.equal(loaded.validation.valid, true, JSON.stringify(loaded.validation.issues));
+  assert.equal(
+    loaded.project.webtoon.characters?.[0]?.lockstring,
+    "short black bob, amber eyes, red scarf, flat cel style",
+  );
+  assert.deepEqual(loaded.project.episodes[0]?.cuts[0]?.characters, ["mina"]);
+});
+
+test("a legacy project without characters loads and validates (back-compat)", async () => {
+  const root = join(workdir, "legacy-chars");
+  await writeProject(root, buildInitialProject("legacy-chars"));
+  const loaded = await loadProject(root);
+  assert.equal(loaded.validation.valid, true, JSON.stringify(loaded.validation.issues));
+  assert.equal(loaded.project.webtoon.characters, undefined);
+  assert.equal(loaded.project.episodes[0]?.cuts[0]?.characters, undefined);
+});
