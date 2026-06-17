@@ -103,3 +103,36 @@ test("an unknown option is a usage error", async () => {
   assert.equal(await runLint([dir, "--bogus"], c.io), EXIT_USAGE);
   assert.match(c.err.join("\n"), /unknown option/);
 });
+
+test("lint surfaces a craft finding (bubble density) via toony lint (#94)", async () => {
+  const dir = await scaffold();
+  // Three speech bubbles on one cut trips craft/bubble-density (max 2). Each is
+  // schema-valid (speaker set, short text) so only the craft lint fires.
+  const speech = (id: string) => ({
+    id,
+    cutId: "cut-001",
+    speaker: "Mina",
+    kind: "speech",
+    text: "Hi.",
+    font: "sans-serif",
+    fill: "#ffffff",
+    opacity: 1,
+    border: null,
+    tail: null,
+    geometry: { x: 0.1, y: 0.1, width: 0.3, height: 0.15 },
+    overflow: false,
+    reviewStatus: "draft",
+  });
+  await writeFile(
+    join(dir, "episodes/ep-001/lettering.json"),
+    JSON.stringify([speech("o1"), speech("o2"), speech("o3")]),
+  );
+  const c = capture();
+  const code = await runLint([dir, "--json"], c.io);
+  const report = JSON.parse(c.out.join("\n"));
+  assert.equal(code, EXIT_VALIDATION);
+  assert.ok(
+    report.findings.some((f: { code: string }) => f.code === "craft/bubble-density"),
+    JSON.stringify(report.findings),
+  );
+});

@@ -21,6 +21,7 @@ import {
   finding,
   lintBubbleOverflow,
   lintCharacterRefs,
+  lintCraft,
   lintManifestCompleteness,
   lintProjectSchema,
   type ManifestFileProbe,
@@ -197,7 +198,12 @@ async function lintAndReport(
   for (const bundle of bundles) findings.push(...lintCharacterRefs(bundle, registry));
 
   if (loaded.validation.valid) {
-    for (const bundle of bundles) findings.push(...(await lintEpisode(root, bundle)));
+    for (const bundle of bundles) {
+      // Craft lints (#94) reuse @toony/render text layout, so run them on
+      // structurally-valid bundles (alongside image/overflow/manifest checks).
+      findings.push(...lintCraft(bundle, registry));
+      findings.push(...(await lintEpisode(root, bundle)));
+    }
   }
 
   const sorted = sortFindings(findings);
