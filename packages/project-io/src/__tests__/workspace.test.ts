@@ -137,6 +137,26 @@ test("a folder with malformed webtoon.json stays listed under its folder id", as
   assert.equal(entries[0]?.coverImagePath, null);
 });
 
+test("cover falls back to a safe clean ref when final is path-unsafe", async () => {
+  // A malformed/in-progress work the tolerant scan must still summarize: `final`
+  // is an absolute (unsafe) path, but `clean` is project-relative and usable.
+  // writeProject would reject this, so the files are authored directly.
+  const work = join(root, "messy");
+  await mkdir(join(work, "episodes", "ep-001"), { recursive: true });
+  await writeFile(join(work, "webtoon.json"), JSON.stringify({ title: "Messy Work" }), "utf8");
+  await writeFile(
+    join(work, "episodes", "ep-001", "cuts.yaml"),
+    "- id: cut-001\n  image:\n    final: /tmp/out.png\n    clean: assets/clean/cut-001.webp\n",
+    "utf8",
+  );
+
+  const entries = await listWorkspace(root);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]?.title, "Messy Work");
+  assert.equal(entries[0]?.cutCount, 1);
+  assert.equal(entries[0]?.coverImagePath, "assets/clean/cut-001.webp");
+});
+
 test("a missing or empty workspace root scans as empty", async () => {
   assert.deepEqual(await listWorkspace(join(root, "does-not-exist")), []);
   assert.deepEqual(await listWorkspace(root), []);

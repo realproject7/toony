@@ -77,11 +77,14 @@ function pickCover(cuts: ScannedCut[]): string | null {
   for (const cut of cuts) {
     const image = cut?.image;
     if (typeof image !== "object" || image === null) continue;
-    const candidate = [image.final, image.clean].find(
-      (ref): ref is string => typeof ref === "string" && ref.length > 0,
-    );
-    // Only surface a path the rest of the app can safely resolve in-scope.
-    if (candidate && isProjectRelativePath(candidate)) return candidate;
+    // Try each preferred ref in turn so an unsafe `final` on a malformed work
+    // doesn't discard a perfectly good project-relative `clean`. Only surface a
+    // path the rest of the app can safely resolve in-scope.
+    for (const ref of [image.final, image.clean]) {
+      if (typeof ref === "string" && ref.length > 0 && isProjectRelativePath(ref)) {
+        return ref;
+      }
+    }
   }
   return null;
 }
