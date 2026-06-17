@@ -1,15 +1,17 @@
 // Local asset server for the studio preview.
 //
-// Cut images live in the selected project's `episodes/<id>/assets/` folders,
-// OUTSIDE the Next `public/` directory, so they cannot be served as static
-// files. This route streams a project-relative asset's bytes after resolving it
-// strictly inside `TOONY_PROJECT_DIR` (see `resolveProjectAsset`), rejecting any
-// path that would escape the project root. Read-only: it never writes, uploads,
+// Cut images live in a work's `episodes/<id>/assets/` folders, OUTSIDE the Next
+// `public/` directory, so they cannot be served as static files. This route
+// streams a project-relative asset's bytes after (1) resolving the `work` query
+// param to a work directory PATH-SAFELY against the workspace scan, and (2)
+// resolving the asset strictly inside that work root (see `resolveWorkAsset`),
+// rejecting any path that would escape it. Read-only: it never writes, uploads,
 // or publishes — consistent with the local-first, account-free product boundary.
 
 import { readFile, stat } from "node:fs/promises";
 import { extname } from "node:path";
-import { resolveProjectAsset } from "@/lib/project";
+import { resolveWorkAsset } from "@/lib/project";
+import { resolveWork } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
@@ -25,10 +27,15 @@ const CONTENT_TYPES: Record<string, string> = {
 
 export async function GET(request: Request): Promise<Response> {
   const { searchParams } = new URL(request.url);
+  const workId = searchParams.get("work");
   const relPath = searchParams.get("path");
+  if (!workId) return new Response("missing work", { status: 400 });
   if (!relPath) return new Response("missing path", { status: 400 });
 
-  const absolute = resolveProjectAsset(relPath);
+  const work = await resolveWork(workId);
+  if (work === null) return new Response("unknown work", { status: 404 });
+
+  const absolute = resolveWorkAsset(work.root, relPath);
   if (absolute === null) return new Response("invalid path", { status: 400 });
 
   const contentType = CONTENT_TYPES[extname(absolute).toLowerCase()];

@@ -5,7 +5,7 @@ export const HELP_TEXT = `toony — local-first webtoon production CLI
 usage:
   toony init <name>        scaffold a new project folder (passes \`toony validate\`)
   toony validate [path]    validate a project folder (default: current directory)
-  toony studio [path]      launch the local web studio for a project
+  toony studio [path]      launch the web studio over a workspace (or a single project)
   toony import-image ...   import/ingest an image asset for a cut or transition
   toony generate ...       generate a cut/transition image via a provider (comfyui)
   toony export <target> ...  export platform/stitched/plotlink for an episode

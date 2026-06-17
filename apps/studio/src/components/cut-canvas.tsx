@@ -21,6 +21,8 @@ export interface CutCanvasProps {
   bubbles: LetteringOverlay[];
   /** Resolved art src + natural dimensions (from `resolveCutArt`). */
   art: CutArt;
+  /** Owning work id, used to scope the link to the focused cut editor (#8). */
+  workId: string;
   /** Owning episode id, used to link to the focused cut editor (#8). */
   episodeId: string;
 }
@@ -61,7 +63,7 @@ function Bubble({ plan }: { plan: BubbleRender }) {
   );
 }
 
-export function CutCanvas({ cut, bubbles, art, episodeId }: CutCanvasProps) {
+export function CutCanvas({ cut, bubbles, art, workId, episodeId }: CutCanvasProps) {
   const hasArt = Boolean(art.src);
   const plans = layoutCut(bubbles, art.width, art.height);
   const aspectRatio = `${art.width} / ${art.height}`;
@@ -77,7 +79,7 @@ export function CutCanvas({ cut, bubbles, art, episodeId }: CutCanvasProps) {
           </span>
         )}
         <Link
-          href={`/episodes/${encodeURIComponent(episodeId)}/cuts/${encodeURIComponent(cut.id)}/edit`}
+          href={`/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}/cuts/${encodeURIComponent(cut.id)}/edit`}
           className="cut-edit-link"
           data-testid={`cut-edit-${cut.id}`}
         >

@@ -1,10 +1,13 @@
-// Server-side project access for the studio app.
+// Server-side per-work view-model helpers for the studio app.
 //
-// Thin wrapper over `@toony/project-io`'s shared loader so the app has a single,
-// server-only entry point for reading the selected project. The directory is
-// selected by `toony studio`, which sets `TOONY_PROJECT_DIR`. All on-disk IO and
-// YAML/JSON parsing lives in project-io; this module only derives view-model
-// shapes from the already-loaded, validated project.
+// A "work" is one Toony project directory inside the workspace. Every helper here
+// takes an explicit `workRoot` (an absolute directory resolved path-safely by
+// `@/lib/workspace`) and derives view-model shapes from the already-loaded,
+// validated project. All on-disk IO and YAML/JSON parsing lives in
+// `@toony/project-io`; this module never reads `process.env` and never joins raw
+// user input into a path — route handlers resolve the work root first, then pass
+// it here. This keeps the project-scoped routes (`/w/<id>/...`, issue #51) and
+// the write/asset APIs reading the same code.
 
 import { readFile } from "node:fs/promises";
 import { isAbsolute, normalize, resolve, sep } from "node:path";
@@ -21,14 +24,9 @@ import type { Cut, EpisodeBundle } from "@toony/schema";
 export type { EpisodeSummary, LoadedProject };
 export { ProjectIoError, summarizeEpisodes };
 
-/** The project directory chosen by `toony studio`, or the process cwd. */
-export function projectDir(): string {
-  return process.env.TOONY_PROJECT_DIR ?? process.cwd();
-}
-
-/** Load the selected project from disk and validate it. */
-export async function loadSelectedProject(): Promise<LoadedProject> {
-  return loadProject(projectDir());
+/** Load and validate one work's project from its absolute root directory. */
+export async function loadWork(workRoot: string): Promise<LoadedProject> {
+  return loadProject(workRoot);
 }
 
 /** Coarse production status for one episode, derived from loaded data. */
@@ -75,31 +73,35 @@ export function overviewEpisodes(loaded: LoadedProject): EpisodeOverview[] {
 }
 
 /**
- * Resolve a project-relative asset path to an absolute path INSIDE the selected
- * project directory, or null when the input is unsafe. Rejects absolute paths
- * and any `..` traversal that would escape the project root, so the asset route
- * (which streams file bytes) can never read outside the project tree. This is
- * the local-first analog of plotlink-ows's path-traversal-safe asset validation,
- * stripped of its server/auth coupling.
+ * Resolve a project-relative asset path to an absolute path INSIDE the given
+ * work directory, or null when the input is unsafe. Rejects absolute paths and
+ * any `..` traversal that would escape the work root, so the asset route (which
+ * streams file bytes) can never read outside the work tree. The work root itself
+ * is resolved path-safely upstream against the workspace scan.
  */
-export function resolveProjectAsset(relPath: string): string | null {
+export function resolveWorkAsset(workRoot: string, relPath: string): string | null {
   if (typeof relPath !== "string" || relPath.length === 0) return null;
   if (isAbsolute(relPath) || relPath.includes("\0")) return null;
-  const root = resolve(projectDir());
+  const root = resolve(workRoot);
   const target = resolve(root, normalize(relPath));
   if (target !== root && !target.startsWith(root + sep)) return null;
   return target;
 }
 
 /**
- * The studio URL that serves a project-relative asset, or null when the path is
- * unsafe. Used by the preview to point an `<img>`/SVG image at a cut's art
- * without copying it into `public/`.
+ * The studio URL that serves a project-relative asset for a given work, or null
+ * when the path is unsafe. Used by the preview/editors to point an `<img>`/SVG
+ * image at a cut's art without copying it into `public/`. The `workId` scopes the
+ * request so `/api/asset` resolves it inside the right work directory.
  */
-export function assetUrl(relPath: string | null | undefined): string | null {
+export function assetUrl(
+  workId: string,
+  workRoot: string,
+  relPath: string | null | undefined,
+): string | null {
   if (!relPath) return null;
-  if (resolveProjectAsset(relPath) === null) return null;
-  return `/api/asset?path=${encodeURIComponent(relPath)}`;
+  if (resolveWorkAsset(workRoot, relPath) === null) return null;
+  return `/api/asset?work=${encodeURIComponent(workId)}&path=${encodeURIComponent(relPath)}`;
 }
 
 /** Find a single episode bundle by id within the loaded project. */
@@ -131,11 +133,11 @@ const FALLBACK_ART: CutArt = { src: null, width: 1000, height: 1414 };
  * any IO/parse failure the cut still renders bubbles over a default-aspect stage
  * rather than throwing, keeping the sequence readable.
  */
-export async function resolveCutArt(cut: Cut): Promise<CutArt> {
+export async function resolveCutArt(workId: string, workRoot: string, cut: Cut): Promise<CutArt> {
   const rel = cut.image?.final ?? cut.image?.clean ?? null;
-  const src = assetUrl(rel);
+  const src = assetUrl(workId, workRoot, rel);
   if (!rel || !src) return FALLBACK_ART;
-  const absolute = resolveProjectAsset(rel);
+  const absolute = resolveWorkAsset(workRoot, rel);
   if (absolute === null) return FALLBACK_ART;
   try {
     const bytes = await readFile(absolute);

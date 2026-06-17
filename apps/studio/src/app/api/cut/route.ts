@@ -1,26 +1,30 @@
-// Cut-field write endpoint for the focused cut editor (issue #38).
+// Cut-field write endpoint for the focused cut editor (issue #38, scoped for #51).
 //
 // The studio is local-first and account-free: this route is the server write
 // path the editor uses to persist a cut's CUT-LEVEL fields (its `imagePrompt`
-// and `negativePrompt`). It loads the selected project from `TOONY_PROJECT_DIR`,
-// updates the prompt fields of ONE cut in ONE episode, validates the resulting
-// project with `@toony/schema`, and writes only that episode's `cuts.yaml`
-// deterministically through project-io. Invalid edits are rejected with an
-// actionable message and nothing is written. Existing image-asset references on
-// the cut are left untouched — only the two text fields are replaced.
+// and `negativePrompt`). It resolves the posted `workId` to a work directory
+// PATH-SAFELY against the workspace scan, loads that work's project, updates the
+// prompt fields of ONE cut in ONE episode, validates the resulting project with
+// `@toony/schema`, and writes only that episode's `cuts.yaml` deterministically
+// through project-io. Invalid edits are rejected and nothing is written. Existing
+// image-asset references on the cut are left untouched — only the text fields are
+// replaced.
 //
-// Path safety: the episode and cut ids are resolved by exact match against the
-// loaded project — they are never joined into a filesystem path from raw input,
-// so they cannot traverse outside the project tree. project-io derives the
-// concrete file path from the validated episode id, mirroring `/api/lettering`.
+// Path safety: the work id is matched exactly against the workspace scan and the
+// episode and cut ids are resolved by exact match against the loaded project —
+// none is ever joined into a filesystem path from raw input, so none can
+// traverse outside the work tree. project-io derives the concrete file path from
+// the validated ids, mirroring `/api/lettering`.
 
 import { writeCuts } from "@toony/project-io";
 import { type Project, validateProject } from "@toony/schema";
-import { loadSelectedProject, ProjectIoError, projectDir } from "@/lib/project";
+import { loadWork, ProjectIoError } from "@/lib/project";
+import { resolveWork } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
 interface SavePayload {
+  workId: string;
   episodeId: string;
   cutId: string;
   imagePrompt: string;
@@ -35,6 +39,7 @@ function isSavePayload(value: unknown): value is SavePayload {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
   return (
+    typeof v.workId === "string" &&
     typeof v.episodeId === "string" &&
     typeof v.cutId === "string" &&
     typeof v.imagePrompt === "string" &&
@@ -51,14 +56,19 @@ export async function POST(request: Request): Promise<Response> {
   }
   if (!isSavePayload(payload)) {
     return badRequest(
-      "request body must be { episodeId: string, cutId: string, imagePrompt: string, negativePrompt: string }",
+      "request body must be { workId: string, episodeId: string, cutId: string, imagePrompt: string, negativePrompt: string }",
     );
   }
-  const { episodeId, cutId, imagePrompt, negativePrompt } = payload;
+  const { workId, episodeId, cutId, imagePrompt, negativePrompt } = payload;
 
-  let loaded: Awaited<ReturnType<typeof loadSelectedProject>>;
+  const work = await resolveWork(workId);
+  if (work === null) {
+    return badRequest(`unknown work "${workId}"`);
+  }
+
+  let loaded: Awaited<ReturnType<typeof loadWork>>;
   try {
-    loaded = await loadSelectedProject();
+    loaded = await loadWork(work.root);
   } catch (cause) {
     const reason = cause instanceof ProjectIoError ? cause.message : String(cause);
     return Response.json({ ok: false, error: reason }, { status: 500 });
@@ -105,7 +115,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    await writeCuts(projectDir(), episodeId, nextCuts);
+    await writeCuts(work.root, episodeId, nextCuts);
   } catch (cause) {
     const reason = cause instanceof ProjectIoError ? cause.message : String(cause);
     return Response.json({ ok: false, error: reason }, { status: 500 });

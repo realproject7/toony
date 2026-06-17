@@ -1,13 +1,18 @@
-// `toony studio [path]` — launch the local web studio against a project.
+// `toony studio [path]` — launch the local web studio over a workspace.
 //
-// Resolves the project directory, confirms it loads via the shared loader, then
-// starts the Next.js dev server in `apps/studio`, handing it the project path
-// through the `TOONY_PROJECT_DIR` env var. No network account is involved.
+// Toony Studio v2 opens over a WORKSPACE root (a parent folder of many works)
+// and shows a library at `/`; each work's pages live under `/w/<id>/...`. This
+// command resolves what to open and starts the Next.js dev server in
+// `apps/studio`, handing it the path through env vars. No network account is
+// involved.
 //
-// Scope note: this command owns the launch/serve mechanism only. The full
-// Production Scroll studio UI (dashboard, episode preview, Open Design styling)
-// is issue #6; the served page here is the minimal real load proof in
-// `apps/studio`.
+// Resolution:
+//   - `toony studio` (no path) → opens the default/explicit workspace; the studio
+//     reads `TOONY_WORKSPACE_DIR` (default `~/Documents/Toony`).
+//   - `toony studio <workspace>` → opens that directory as the workspace.
+//   - `toony studio <project>` → BACK-COMPAT: if the path is itself a single
+//     project (has a readable `webtoon.json`), open it via `TOONY_PROJECT_DIR`;
+//     the studio treats the parent as the workspace and still lists/opens it.
 
 import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
@@ -24,6 +29,16 @@ export interface StudioIo {
 
 /** Default dev-server port; overridable with `--port`. */
 const DEFAULT_PORT = 4477;
+
+/** Whether a directory is itself a single Toony project (has a webtoon.json). */
+async function isProjectDir(dir: string): Promise<boolean> {
+  try {
+    await access(join(dir, "webtoon.json"));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** Walk up from a directory to find the monorepo root (has pnpm-workspace.yaml). */
 async function findRepoRoot(from: string): Promise<string | null> {
@@ -62,19 +77,36 @@ export async function runStudio(args: string[], io: StudioIo): Promise<number> {
     }
   }
 
-  const root = resolve(io.cwd, positional[0] ?? ".");
+  // A path argument is resolved; with no argument, default to opening the
+  // configured/default workspace (the studio resolves it from the environment).
+  const explicitPath = positional[0];
+  const studioEnv: Record<string, string> = {};
 
-  // Fail fast with an actionable message if the project cannot be read at all.
-  try {
-    const loaded = await loadProject(root);
-    io.out(`project: ${loaded.project.webtoon.title} (${loaded.project.webtoon.projectId})`);
-    if (!loaded.validation.valid) {
-      io.out(`note: project has ${loaded.validation.issues.length} validation issue(s)`);
+  if (explicitPath !== undefined) {
+    const target = resolve(io.cwd, explicitPath);
+    if (await isProjectDir(target)) {
+      // Back-compat: the path is a single project. Open just that one; the studio
+      // treats its parent as the workspace.
+      try {
+        const loaded = await loadProject(target);
+        io.out(`project: ${loaded.project.webtoon.title} (${loaded.project.webtoon.projectId})`);
+        if (!loaded.validation.valid) {
+          io.out(`note: project has ${loaded.validation.issues.length} validation issue(s)`);
+        }
+      } catch (cause) {
+        const reason = cause instanceof ProjectIoError ? cause.message : String(cause);
+        io.err(`cannot launch studio: ${reason}`);
+        return EXIT_USAGE;
+      }
+      studioEnv.TOONY_PROJECT_DIR = target;
+    } else {
+      // The path is a workspace root (a parent of many works). The studio scans
+      // it for works; a non-existent dir is treated as an empty workspace.
+      studioEnv.TOONY_WORKSPACE_DIR = target;
+      io.out(`workspace: ${target}`);
     }
-  } catch (cause) {
-    const reason = cause instanceof ProjectIoError ? cause.message : String(cause);
-    io.err(`cannot launch studio: ${reason}`);
-    return EXIT_USAGE;
+  } else {
+    io.out("workspace: (default — TOONY_WORKSPACE_DIR or ~/Documents/Toony)");
   }
 
   const repoRoot = await findRepoRoot(dirname(fileURLToPath(import.meta.url)));
@@ -94,7 +126,7 @@ export async function runStudio(args: string[], io: StudioIo): Promise<number> {
       {
         cwd: repoRoot,
         stdio: "inherit",
-        env: { ...process.env, TOONY_PROJECT_DIR: root },
+        env: { ...process.env, ...studioEnv },
       },
     );
     child.on("error", (cause) => {

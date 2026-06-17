@@ -1,10 +1,9 @@
-// Episode preview route.
+// Per-work episode preview route.
 //
 // Walks the episode's canonical `sequence` and renders cuts and transitions in
-// the exact reading order the reader experiences (Production Scroll hard rule
-// 1). This is the SHELL: a readable vertical sequence. The RICH rendering of cut
-// images, positioned bubble overlays, and transition rhythm visuals is issue #7,
-// which fills the `CutCanvas`/`TransitionBlock` seam without changing this route.
+// the exact reading order the reader experiences (Production Scroll hard rule 1),
+// scoped to the work resolved path-safely from `<workId>`. Cut images and bubble
+// overlays are resolved through `@toony/render` against this work's asset scope.
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -14,20 +13,28 @@ import { TransitionBlock } from "@/components/transition-block";
 import {
   type CutArt,
   findEpisodeBundle,
-  loadSelectedProject,
+  loadWork,
   ProjectIoError,
   resolveCutArt,
 } from "@/lib/project";
+import { resolveWork } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-export default async function EpisodePreviewPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export default async function EpisodePreviewPage({
+  params,
+}: {
+  params: Promise<{ workId: string; id: string }>;
+}) {
+  const { workId, id } = await params;
+  const work = await resolveWork(decodeURIComponent(workId));
+  if (!work) notFound();
   const episodeId = decodeURIComponent(id);
+  const base = `/w/${encodeURIComponent(work.id)}`;
 
-  let loaded: Awaited<ReturnType<typeof loadSelectedProject>>;
+  let loaded: Awaited<ReturnType<typeof loadWork>>;
   try {
-    loaded = await loadSelectedProject();
+    loaded = await loadWork(work.root);
   } catch (cause) {
     const reason = cause instanceof ProjectIoError ? cause.message : String(cause);
     return <LoadError reason={reason} />;
@@ -52,7 +59,7 @@ export default async function EpisodePreviewPage({ params }: { params: Promise<{
   // Resolve each cut's art (src + natural dimensions) once, in parallel, so the
   // synchronous sequence render below can place bubbles at the true aspect ratio.
   const artEntries = await Promise.all(
-    cuts.map(async (cut) => [cut.id, await resolveCutArt(cut)] as const),
+    cuts.map(async (cut) => [cut.id, await resolveCutArt(work.id, work.root, cut)] as const),
   );
   const artByCut = new Map<string, CutArt>(artEntries);
 
@@ -73,7 +80,7 @@ export default async function EpisodePreviewPage({ params }: { params: Promise<{
         </div>
         <div className="editor-actions">
           <Link
-            href={`/episodes/${encodeURIComponent(episode.id)}/transitions/edit`}
+            href={`${base}/episodes/${encodeURIComponent(episode.id)}/transitions/edit`}
             className="btn"
             data-testid="edit-transitions-link"
           >
@@ -105,6 +112,7 @@ export default async function EpisodePreviewPage({ params }: { params: Promise<{
                   cut={cut}
                   bubbles={bubblesByCut.get(cut.id) ?? []}
                   art={artByCut.get(cut.id) ?? { src: null, width: 1000, height: 1414 }}
+                  workId={work.id}
                   episodeId={episode.id}
                 />
               );
@@ -123,7 +131,7 @@ export default async function EpisodePreviewPage({ params }: { params: Promise<{
         </div>
 
         <aside className="inspector" data-testid="episode-inspector">
-          <Link href="/episodes" className="inspector-back">
+          <Link href={`${base}/episodes`} className="inspector-back">
             &larr; All episodes
           </Link>
           <div>

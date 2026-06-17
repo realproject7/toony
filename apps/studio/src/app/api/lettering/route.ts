@@ -1,26 +1,29 @@
-// Lettering write endpoint for the focused cut editor (issue #8).
+// Lettering write endpoint for the focused cut editor (issue #8, scoped for #51).
 //
 // The studio is local-first and account-free: this route is the single server
-// write path the editor uses to persist a cut's bubbles. It loads the selected
-// project from `TOONY_PROJECT_DIR`, replaces ONE episode's lettering with the
-// posted overlay set, validates the resulting project with `@toony/schema`
-// (per-overlay shape, unique ids, and cross-file integrity — every `cutId` must
-// match a real cut in the episode), and writes only that episode's
-// `lettering.json` deterministically through project-io. Invalid edits are
-// rejected with an actionable message and nothing is written.
+// write path the editor uses to persist a cut's bubbles. It resolves the posted
+// `workId` to a work directory PATH-SAFELY against the workspace scan, loads that
+// work's project, replaces ONE episode's lettering with the posted overlay set,
+// validates the resulting project with `@toony/schema` (per-overlay shape, unique
+// ids, and cross-file integrity — every `cutId` must match a real cut in the
+// episode), and writes only that episode's `lettering.json` deterministically
+// through project-io. Invalid edits are rejected and nothing is written.
 //
-// Path safety: the episode id is resolved by exact match against the loaded
-// project's episode ids — it is never joined into a filesystem path from raw
-// input, so it cannot traverse outside the project tree. project-io derives the
-// concrete file path from the validated id, mirroring the `/api/asset` guard.
+// Path safety: the work id is matched exactly against the workspace scan and the
+// episode id is resolved by exact match against the loaded project's episode ids
+// — neither is ever joined into a filesystem path from raw input, so neither can
+// traverse outside the work tree. project-io derives the concrete file path from
+// the validated ids, mirroring the `/api/asset` guard.
 
 import { writeLettering } from "@toony/project-io";
 import { type LetteringOverlay, type Project, validateProject } from "@toony/schema";
-import { loadSelectedProject, ProjectIoError, projectDir } from "@/lib/project";
+import { loadWork, ProjectIoError } from "@/lib/project";
+import { resolveWork } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
 interface SavePayload {
+  workId: string;
   episodeId: string;
   overlays: LetteringOverlay[];
 }
@@ -32,7 +35,9 @@ function badRequest(message: string): Response {
 function isSavePayload(value: unknown): value is SavePayload {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
-  return typeof v.episodeId === "string" && Array.isArray(v.overlays);
+  return (
+    typeof v.workId === "string" && typeof v.episodeId === "string" && Array.isArray(v.overlays)
+  );
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -43,13 +48,20 @@ export async function POST(request: Request): Promise<Response> {
     return badRequest("request body must be valid JSON");
   }
   if (!isSavePayload(payload)) {
-    return badRequest("request body must be { episodeId: string, overlays: array }");
+    return badRequest(
+      "request body must be { workId: string, episodeId: string, overlays: array }",
+    );
   }
-  const { episodeId, overlays } = payload;
+  const { workId, episodeId, overlays } = payload;
 
-  let loaded: Awaited<ReturnType<typeof loadSelectedProject>>;
+  const work = await resolveWork(workId);
+  if (work === null) {
+    return badRequest(`unknown work "${workId}"`);
+  }
+
+  let loaded: Awaited<ReturnType<typeof loadWork>>;
   try {
-    loaded = await loadSelectedProject();
+    loaded = await loadWork(work.root);
   } catch (cause) {
     const reason = cause instanceof ProjectIoError ? cause.message : String(cause);
     return Response.json({ ok: false, error: reason }, { status: 500 });
@@ -87,7 +99,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    await writeLettering(projectDir(), episodeId, overlays);
+    await writeLettering(work.root, episodeId, overlays);
   } catch (cause) {
     const reason = cause instanceof ProjectIoError ? cause.message : String(cause);
     return Response.json({ ok: false, error: reason }, { status: 500 });
