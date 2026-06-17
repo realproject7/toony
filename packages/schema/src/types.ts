@@ -224,6 +224,13 @@ export interface Cut {
   image: ImageAssetRef | null;
   imagePrompt: string;
   negativePrompt: string;
+  /**
+   * Ids of the project characters (#92) present in this cut. OPTIONAL and
+   * back-compatible: projects written before the character registry omit it.
+   * `toony generate` injects the referenced characters' lockstrings verbatim
+   * into the cut's prompt; an unknown id is flagged by lint, not the schema.
+   */
+  characters?: string[];
 }
 
 /** A transition record placed between cuts in the canonical sequence. */
@@ -273,6 +280,18 @@ export interface ImageProvidersConfig {
   providers: ProviderConfig[];
 }
 
+/**
+ * A reusable character in the project's registry (#92). The `lockstring` is a
+ * short FIXED phrase — a locked palette + 2–3 invariant shape cues + style (per
+ * `docs/TOONY-WEBTOON-CRAFT.md` §1) — injected VERBATIM into the image prompt of
+ * every cut the character appears in, so the character stays on-model across cuts.
+ */
+export interface Character {
+  id: string;
+  name: string;
+  lockstring: string;
+}
+
 /** The `webtoon.json` project root. */
 export interface Webtoon {
   schemaVersion: number;
@@ -280,6 +299,11 @@ export interface Webtoon {
   title: string;
   languages: LanguageConfig;
   imageProviders: ImageProvidersConfig;
+  /**
+   * Project character registry (#92). OPTIONAL and back-compatible: projects
+   * written before it existed simply omit it (treated as no characters).
+   */
+  characters?: Character[];
 }
 
 /** The records for a single episode, assembled from its files. */

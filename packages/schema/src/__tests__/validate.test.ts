@@ -396,3 +396,65 @@ test("fontFamily rejects an unknown family id", () => {
   overlay.fontFamily = "comic-sans" as unknown as typeof overlay.fontFamily;
   assert.ok(codes(validateProject(project)).includes("style.font-family"));
 });
+
+// --- Character registry + cut.characters (#92) -----------------------------
+
+test("a project without a character registry is valid (back-compat)", () => {
+  // validProject has no webtoon.characters and no cut.characters.
+  assert.equal(validateProject(validProject).valid, true);
+});
+
+test("a valid character registry validates", () => {
+  const project = cloneValidProject();
+  project.webtoon.characters = [
+    {
+      id: "mina",
+      name: "Mina",
+      lockstring: "short black bob, amber eyes, red scarf, flat cel style",
+    },
+    { id: "rex", name: "Rex", lockstring: "tall, grey hoodie, square jaw, flat cel style" },
+  ];
+  assert.equal(
+    validateProject(project).valid,
+    true,
+    JSON.stringify(validateProject(project).issues),
+  );
+});
+
+test("duplicate character ids are reported", () => {
+  const project = cloneValidProject();
+  project.webtoon.characters = [
+    { id: "dup", name: "A", lockstring: "x" },
+    { id: "dup", name: "B", lockstring: "y" },
+  ];
+  assert.ok(codes(validateProject(project)).includes("character.duplicate-id"));
+});
+
+test("a character with an empty lockstring/name/id is rejected", () => {
+  const project = cloneValidProject();
+  project.webtoon.characters = [{ id: "mina", name: "Mina", lockstring: "" }];
+  assert.ok(codes(validateProject(project)).includes("field.required"));
+});
+
+test("cut.characters must be an array of non-empty strings", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  cut.characters = ["" as string];
+  assert.ok(codes(validateProject(project)).includes("cut.character-ref"));
+  cut.characters = "mina" as unknown as string[];
+  assert.ok(codes(validateProject(project)).includes("cut.characters"));
+});
+
+test("a cut may reference characters; schema does not check refs exist (lint does)", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  cut.characters = ["not-in-registry"]; // no registry defined
+  // Structurally valid — an unknown ref is a lint warning, not a schema error.
+  assert.equal(
+    validateProject(project).valid,
+    true,
+    JSON.stringify(validateProject(project).issues),
+  );
+});

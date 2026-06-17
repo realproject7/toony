@@ -2,6 +2,7 @@
 // lints. Schema/sequence lints consume @toony/schema; image analysis is pure
 // (no cloud, no third-party codecs).
 
+export { lintCharacterRefs } from "./character-lint.js";
 export type { Finding, Severity } from "./findings.js";
 export { finding, isClean, sortFindings } from "./findings.js";
 export type { ImageAnalysisOptions } from "./image/analyze.js";

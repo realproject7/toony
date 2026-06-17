@@ -208,6 +208,60 @@ export function validateWebtoonValue(value: unknown, path: string, c: IssueColle
   }
   validateLanguageConfigValue(value.languages, joinPath(path, "languages"), c);
   validateImageProvidersValue(value.imageProviders, joinPath(path, "imageProviders"), c);
+  // Character registry (#92) is OPTIONAL + back-compat: absent → no characters.
+  if (value.characters !== undefined) {
+    validateCharactersValue(value.characters, joinPath(path, "characters"), c);
+  }
+}
+
+/**
+ * Validate the project character registry (#92): an array of `{id, name,
+ * lockstring}` with non-empty fields and unique ids. Only called when present.
+ */
+function validateCharactersValue(value: unknown, path: string, c: IssueCollector): void {
+  if (!isArray(value)) {
+    c.add(path, "characters.type", "characters must be an array.");
+    return;
+  }
+  const ids = new Set<string>();
+  for (let i = 0; i < value.length; i++) {
+    const character = value[i];
+    const characterPath = joinPath(path, i);
+    if (!isPlainObject(character)) {
+      c.add(characterPath, "character.type", "character must be an object.");
+      continue;
+    }
+    if (!isNonEmptyString(character.id)) {
+      c.add(
+        joinPath(characterPath, "id"),
+        "field.required",
+        "character id must be a non-empty string.",
+      );
+    } else {
+      if (ids.has(character.id)) {
+        c.add(
+          joinPath(characterPath, "id"),
+          "character.duplicate-id",
+          `duplicate character id "${character.id}".`,
+        );
+      }
+      ids.add(character.id);
+    }
+    if (!isNonEmptyString(character.name)) {
+      c.add(
+        joinPath(characterPath, "name"),
+        "field.required",
+        "character name must be a non-empty string.",
+      );
+    }
+    if (!isNonEmptyString(character.lockstring)) {
+      c.add(
+        joinPath(characterPath, "lockstring"),
+        "field.required",
+        "character lockstring must be a non-empty string.",
+      );
+    }
+  }
 }
 
 export function validateWebtoon(value: unknown): ValidationResult {
@@ -233,6 +287,26 @@ export function validateCutValue(value: unknown, path: string, c: IssueCollector
     const prompt = value[key];
     if (prompt !== undefined && !isString(prompt)) {
       c.add(joinPath(path, key), "cut.prompt", `${key} must be a string.`);
+    }
+  }
+  // Character refs (#92) are OPTIONAL + back-compat. The schema validates only
+  // the SHAPE (an array of non-empty id strings); whether each id resolves to a
+  // registry character is a referential LINT check (`character/unknown-ref`), so
+  // an in-progress project referencing a not-yet-defined character is not hard-
+  // invalid. Checked before the image early-return so it runs for imageless cuts.
+  if (value.characters !== undefined) {
+    if (!isArray(value.characters)) {
+      c.add(joinPath(path, "characters"), "cut.characters", "characters must be an array.");
+    } else {
+      value.characters.forEach((id, i) => {
+        if (!isNonEmptyString(id)) {
+          c.add(
+            joinPath(joinPath(path, "characters"), i),
+            "cut.character-ref",
+            "character ref must be a non-empty string.",
+          );
+        }
+      });
     }
   }
   const image = value.image;

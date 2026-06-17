@@ -18,6 +18,7 @@ export type {
   BubbleBorder,
   BubbleGeometry,
   BubbleKind,
+  Character,
   Cut,
   Episode,
   EpisodeBundle,
