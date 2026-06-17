@@ -1,0 +1,17 @@
+{
+  "imageProviders": {
+    "defaultProvider": "manual",
+    "providers": []
+  },
+  "languages": {
+    "defaultLanguage": "en",
+    "dialogueLanguage": "en",
+    "promptLanguage": "en",
+    "supportedLanguages": [
+      "en"
+    ]
+  },
+  "projectId": "last-train",
+  "schemaVersion": 1,
+  "title": "Last Train"
+}
