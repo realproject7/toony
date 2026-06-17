@@ -453,15 +453,17 @@ export function validateLetteringOverlayValue(
       c.add(joinPath(path, key), "field.required", `${key} must be a non-empty string.`);
     }
   }
-  // speaker is always a string, but only attributed kinds require it to be
-  // non-empty; narration and SFX are unattributed and may leave it empty.
+  // speaker is always a string, but only ATTRIBUTED kinds require it to be
+  // non-empty. Narration/SFX and the v3 beat (silence pause) / ambient
+  // (background noise) treatments are unattributed and may leave it empty.
+  const unattributed =
+    value.kind === "narration" ||
+    value.kind === "sfx" ||
+    value.kind === "beat" ||
+    value.kind === "ambient";
   if (!isString(value.speaker)) {
     c.add(joinPath(path, "speaker"), "field.type", "speaker must be a string.");
-  } else if (
-    value.speaker.trim().length === 0 &&
-    value.kind !== "narration" &&
-    value.kind !== "sfx"
-  ) {
+  } else if (value.speaker.trim().length === 0 && !unattributed) {
     c.add(
       joinPath(path, "speaker"),
       "field.required",

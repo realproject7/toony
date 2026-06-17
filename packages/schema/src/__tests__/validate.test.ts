@@ -461,19 +461,15 @@ test("a cut may reference characters; schema does not check refs exist (lint doe
 
 // --- Bubble grammar: kinds, tone, tailTarget (#93) -------------------------
 
-test("beat and ambient are valid bubble kinds", () => {
+test("beat and ambient are valid kinds and are unattributed (empty speaker ok)", () => {
   const project = cloneValidProject();
   const overlay = project.episodes[0]?.lettering[0];
   assert.ok(overlay);
   for (const kind of ["beat", "ambient"] as const) {
     overlay.kind = kind;
-    overlay.speaker = ""; // beat/ambient are unattributed-friendly; set non-empty if needed
-    overlay.speaker = "X";
-    assert.equal(
-      validateProject(project).valid,
-      true,
-      `${kind}: ${JSON.stringify(validateProject(project).issues)}`,
-    );
+    overlay.speaker = ""; // pause / background-noise: no speaker required
+    const result = validateProject(project);
+    assert.equal(result.valid, true, `${kind}: ${JSON.stringify(result.issues)}`);
   }
 });
 
