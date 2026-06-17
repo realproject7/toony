@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 
+import { writeConfig } from "@toony/project-io";
 import { runGenerate } from "../commands/generate.js";
 import { runInit } from "../commands/init.js";
 import { runValidate } from "../commands/validate.js";
@@ -154,6 +155,75 @@ test("missing endpoint config is a usage error with an actionable message", asyn
   );
   assert.equal(code, EXIT_USAGE);
   assert.match(c.err.join("\n"), /TOONY_COMFYUI_URL/);
+});
+
+test("generate reads the endpoint from .toony/config.json when env is unset", async () => {
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    // The Studio settings page writes this file; here we write it directly.
+    await writeConfig(projectDir, {
+      comfyui: { endpoint: comfy.url, checkpoint: null, workflow: null },
+    });
+    // No TOONY_COMFYUI_* env at all: resolution must come from the file.
+    const c = capture({});
+    const code = await runGenerate(
+      [
+        projectDir,
+        "--episode",
+        "ep-001",
+        "--cut",
+        "cut-001",
+        "--prompt",
+        "a hero on a rooftop",
+        "--allow-remote",
+      ],
+      c.io,
+    );
+    assert.equal(code, EXIT_OK, c.err.join("\n"));
+    assert.match(c.out.join("\n"), /generated episodes\/ep-001\/assets\/clean\/cut-001\.png/);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("generate reads .toony/config.json from the workspace root (parent of the work)", async () => {
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    // Studio writes config at the WORKSPACE root, which is the parent of a work.
+    await writeConfig(workdir, {
+      comfyui: { endpoint: comfy.url, checkpoint: null, workflow: null },
+    });
+    const c = capture({});
+    const code = await runGenerate(
+      [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--prompt", "x", "--allow-remote"],
+      c.io,
+    );
+    assert.equal(code, EXIT_OK, c.err.join("\n"));
+  } finally {
+    comfy.close();
+  }
+});
+
+test("env endpoint overrides the .toony/config.json endpoint", async () => {
+  const projectDir = await scaffold();
+  const live = await startFakeComfy(pngWithText());
+  try {
+    // The file points at a dead port; env points at the live fake server. The
+    // command must use the env endpoint (env precedence over the file).
+    await writeConfig(projectDir, {
+      comfyui: { endpoint: "http://127.0.0.1:1", checkpoint: null, workflow: null },
+    });
+    const c = capture({ TOONY_COMFYUI_URL: live.url });
+    const code = await runGenerate(
+      [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--prompt", "x", "--allow-remote"],
+      c.io,
+    );
+    assert.equal(code, EXIT_OK, c.err.join("\n"));
+  } finally {
+    live.close();
+  }
 });
 
 test("a remote provider requires --allow-remote", async () => {

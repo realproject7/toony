@@ -95,3 +95,78 @@ test("env overrides the config file for the endpoint", async () => {
   });
   assert.equal(config.url, COMFYUI_DEFAULT_LOCAL_URL);
 });
+
+test("workspace config (.toony/config.json) supplies the endpoint when env is unset", async () => {
+  const config = await resolveComfyUIConfig({
+    env: {},
+    toonyConfig: {
+      endpoint: COMFYUI_DEFAULT_LOCAL_URL,
+      checkpoint: "ws.safetensors",
+      workflow: null,
+    },
+  });
+  assert.equal(config.url, COMFYUI_DEFAULT_LOCAL_URL);
+  assert.equal(config.checkpoint, "ws.safetensors");
+});
+
+test("env overrides the workspace config endpoint and checkpoint", async () => {
+  const config = await resolveComfyUIConfig({
+    env: {
+      TOONY_COMFYUI_URL: "http://127.0.0.1:7777",
+      TOONY_COMFYUI_CHECKPOINT: "env.safetensors",
+    },
+    toonyConfig: {
+      endpoint: COMFYUI_DEFAULT_LOCAL_URL,
+      checkpoint: "ws.safetensors",
+      workflow: null,
+    },
+  });
+  assert.equal(config.url, "http://127.0.0.1:7777");
+  assert.equal(config.checkpoint, "env.safetensors");
+});
+
+test("per-field precedence: env url wins, workspace checkpoint still applies", async () => {
+  const config = await resolveComfyUIConfig({
+    env: { TOONY_COMFYUI_URL: "http://127.0.0.1:7777" },
+    toonyConfig: {
+      endpoint: COMFYUI_DEFAULT_LOCAL_URL,
+      checkpoint: "ws.safetensors",
+      workflow: null,
+    },
+  });
+  assert.equal(config.url, "http://127.0.0.1:7777");
+  assert.equal(config.checkpoint, "ws.safetensors");
+});
+
+test("the TOONY_COMFYUI_CONFIG file outranks the workspace config", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "toony-comfy-cfg-"));
+  const configPath = join(dir, "comfyui.json");
+  await writeFile(configPath, JSON.stringify({ url: "http://127.0.0.1:5555" }));
+  const config = await resolveComfyUIConfig({
+    env: { TOONY_COMFYUI_CONFIG: configPath },
+    toonyConfig: {
+      endpoint: COMFYUI_DEFAULT_LOCAL_URL,
+      checkpoint: null,
+      workflow: null,
+    },
+  });
+  assert.equal(config.url, "http://127.0.0.1:5555");
+});
+
+test("workspace config workflow path is loaded when no env/file workflow is set", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "toony-comfy-cfg-"));
+  const workflowPath = join(dir, "ws.json");
+  await writeFile(
+    workflowPath,
+    JSON.stringify({ "6": { class_type: "CLIPTextEncode", inputs: { text: "" } } }),
+  );
+  const config = await resolveComfyUIConfig({
+    env: {},
+    toonyConfig: {
+      endpoint: COMFYUI_DEFAULT_LOCAL_URL,
+      checkpoint: null,
+      workflow: workflowPath,
+    },
+  });
+  assert.equal(config.workflow["6"]?.class_type, "CLIPTextEncode");
+});

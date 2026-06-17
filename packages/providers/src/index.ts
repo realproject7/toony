@@ -13,6 +13,7 @@ export {
   type ComfyUIConfig,
   type ComfyUIConfigSource,
   resolveComfyUIConfig,
+  type ToonyWorkspaceComfyConfig,
 } from "./comfyui-config.js";
 export {
   buildPromptRequest,

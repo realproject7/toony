@@ -51,6 +51,14 @@ export function Sidebar() {
         >
           Library
         </Link>
+        <Link
+          href="/settings"
+          className="nav-link"
+          aria-current={isActive(pathname, "/settings") ? "page" : undefined}
+          data-testid="nav-settings"
+        >
+          Settings
+        </Link>
 
         {workBase && (
           <>

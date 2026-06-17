@@ -11,14 +11,22 @@
 // it explicitly. When the endpoint is unset or unreachable the command fails
 // with a clear, actionable message — it never fabricates a result.
 
-import { resolve } from "node:path";
-import { type AssetTarget, ingestImageAsset, loadProject, ProjectIoError } from "@toony/project-io";
+import { dirname, resolve } from "node:path";
+import {
+  type AssetTarget,
+  type ComfyUiConfig,
+  ingestImageAsset,
+  loadProject,
+  ProjectIoError,
+  readConfig,
+} from "@toony/project-io";
 import {
   ComfyUIProvider,
   type ImageProvider,
   type ImageRequest,
   ProviderError,
   resolveComfyUIConfig,
+  type ToonyWorkspaceComfyConfig,
 } from "@toony/providers";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 
@@ -80,13 +88,48 @@ function parsePositiveInt(raw: string, name: string): number | { error: string }
   return n;
 }
 
+/**
+ * Resolve the shared workspace ComfyUI settings for this project, with env-first
+ * precedence preserved by `resolveComfyUIConfig` (this is the lowest-priority
+ * source). The file is looked up at `<root>/.toony/config.json` and, if that one
+ * does not configure an endpoint, at the PARENT directory `<root>/../.toony/...`
+ * — because Studio v2 is workspace-scoped and writes the config at the workspace
+ * root (the parent of each work). A missing file yields all-null defaults. This
+ * read never fails the command on a malformed file: it is best-effort runtime
+ * config, so we fall back to env-only resolution if it cannot be read.
+ */
+async function readWorkspaceComfyConfig(root: string): Promise<ToonyWorkspaceComfyConfig> {
+  const pick = (cfg: ComfyUiConfig): ToonyWorkspaceComfyConfig => ({
+    endpoint: cfg.endpoint,
+    checkpoint: cfg.checkpoint,
+    workflow: cfg.workflow,
+  });
+  try {
+    const own = await readConfig(root);
+    if (own.comfyui.endpoint !== null) return pick(own.comfyui);
+    // No endpoint at the project root: try the workspace root (its parent).
+    const parent = dirname(root);
+    if (parent !== root) {
+      const workspace = await readConfig(parent);
+      if (workspace.comfyui.endpoint !== null) return pick(workspace.comfyui);
+    }
+    // Neither configured an endpoint: surface the project-root values (so a
+    // checkpoint/workflow set there without an endpoint still flows through).
+    return pick(own.comfyui);
+  } catch {
+    return { endpoint: null, checkpoint: null, workflow: null };
+  }
+}
+
 async function buildProvider(
   id: string,
+  root: string,
   io: GenerateIo,
 ): Promise<ImageProvider | { error: string }> {
   if (id === "comfyui") {
     try {
-      const config = await resolveComfyUIConfig({ env: io.env ?? {} });
+      const toonyConfig = await readWorkspaceComfyConfig(root);
+      const config = await resolveComfyUIConfig({ env: io.env ?? {}, toonyConfig });
       return new ComfyUIProvider(config);
     } catch (cause) {
       if (cause instanceof ProviderError) return { error: cause.message };
@@ -186,7 +229,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     options[key] = n;
   }
 
-  const provider = await buildProvider(providerId, io);
+  const provider = await buildProvider(providerId, root, io);
   if ("error" in provider) {
     io.err(provider.error);
     return EXIT_USAGE;
