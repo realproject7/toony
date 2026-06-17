@@ -18,8 +18,6 @@ export interface BubbleKindStyle {
   stroke: string;
   /** Body text color (CSS color). */
   text: string;
-  /** Speaker-label color (CSS color). */
-  speaker: string;
   /** Stroke width multiplier relative to the base stroke. */
   strokeScale: number;
   /** Corner-radius multiplier relative to defaultBalloonRadius. */
@@ -33,7 +31,6 @@ const KIND_STYLE: Record<BubbleKind, BubbleKindStyle> = {
     fill: "rgba(255, 255, 255, 0.96)",
     stroke: "#1a1a1a",
     text: "#1a1a1a",
-    speaker: "#3a3a3a",
     strokeScale: 1,
     radiusScale: 1,
     fontWeight: 400,
@@ -42,7 +39,6 @@ const KIND_STYLE: Record<BubbleKind, BubbleKindStyle> = {
     fill: "rgba(255, 255, 255, 0.86)",
     stroke: "#6f675c",
     text: "#1f1a16",
-    speaker: "#4f463b",
     strokeScale: 0.75,
     radiusScale: 1.3,
     fontWeight: 400,
@@ -51,7 +47,6 @@ const KIND_STYLE: Record<BubbleKind, BubbleKindStyle> = {
     fill: "rgba(244, 239, 230, 0.95)",
     stroke: "#6d6256",
     text: "#2a1b14",
-    speaker: "#5a4a3e",
     strokeScale: 0.75,
     radiusScale: 0.32,
     fontWeight: 400,
@@ -60,7 +55,6 @@ const KIND_STYLE: Record<BubbleKind, BubbleKindStyle> = {
     fill: "#ffffff",
     stroke: "#111111",
     text: "#111111",
-    speaker: "#2a2a2a",
     strokeScale: 1.45,
     radiusScale: 0.55,
     fontWeight: 700,
@@ -69,7 +63,6 @@ const KIND_STYLE: Record<BubbleKind, BubbleKindStyle> = {
     fill: "rgba(255, 255, 255, 0.78)",
     stroke: "#8a8177",
     text: "#3a332d",
-    speaker: "#675f56",
     strokeScale: 0.55,
     radiusScale: 1.1,
     fontWeight: 400,
@@ -78,7 +71,6 @@ const KIND_STYLE: Record<BubbleKind, BubbleKindStyle> = {
     fill: "transparent",
     stroke: "#ffffff",
     text: "#111111",
-    speaker: "#111111",
     strokeScale: 1,
     radiusScale: 0,
     fontWeight: 700,

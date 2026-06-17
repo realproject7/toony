@@ -50,12 +50,6 @@ test("layoutBubbleText flags overflow when text cannot fit at min font", () => {
   assert.equal(out.overflow, true);
 });
 
-test("layoutBubbleText reserves a speaker strip when hasSpeaker", () => {
-  const opts = { minFontSize: 8, maxFontSize: 40, hasSpeaker: true };
-  const out = layoutBubbleText(approximateMeasure, "Hi", 300, 120, opts);
-  assert.ok(out.speakerFontSize > 0);
-});
-
 test("defaultBubbleFontRange scales with render height", () => {
   const small = defaultBubbleFontRange(200);
   const big = defaultBubbleFontRange(800);

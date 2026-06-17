@@ -28,7 +28,6 @@ export interface CutCanvasProps {
 /** One bubble drawn as SVG from its geometry-core render plan. */
 function Bubble({ plan }: { plan: BubbleRender }) {
   const fontSize = plan.text.fontSize;
-  const speakerSize = plan.text.speakerFontSize;
   return (
     <g data-bubble-id={plan.id} data-overflow={plan.overflow ? "true" : undefined}>
       {plan.hasBubble && (
@@ -40,17 +39,6 @@ function Bubble({ plan }: { plan: BubbleRender }) {
           strokeWidth={plan.strokeWidth}
           strokeLinejoin="round"
         />
-      )}
-      {plan.speaker.trim().length > 0 && plan.hasBubble && (
-        <text
-          x={plan.box.x + Math.max(2, plan.box.width * 0.06)}
-          y={plan.box.y + Math.max(2, plan.box.height * 0.08) + speakerSize}
-          fontSize={speakerSize}
-          fontWeight={700}
-          fill={plan.speakerColor}
-        >
-          {plan.speaker}
-        </text>
       )}
       {plan.lines.map((line, i) => (
         <text

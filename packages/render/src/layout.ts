@@ -47,7 +47,6 @@ export interface RenderedTextLine {
 export interface BubbleRender {
   id: string;
   kind: BubbleKind;
-  speaker: string;
   /** The bubble body rect in pixel space. */
   box: { x: number; y: number; width: number; height: number };
   /** Whether this kind draws a filled/stroked body (false for SFX). */
@@ -62,7 +61,6 @@ export interface BubbleRender {
   fill: string;
   stroke: string;
   textColor: string;
-  speakerColor: string;
   /** Stroke width in pixels. */
   strokeWidth: number;
   /** Fill opacity 0..1. */
@@ -71,7 +69,7 @@ export interface BubbleRender {
   text: BubbleTextLayout;
   /** Positioned body lines (center-anchored), ready to place. */
   lines: RenderedTextLine[];
-  /** Text origin: top-left of the body text area (below the speaker strip). */
+  /** Text origin: top-left of the body text area. */
   textOrigin: { x: number; y: number };
   /** True when text overflows the box even at the minimum font. */
   overflow: boolean;
@@ -127,20 +125,17 @@ export function layoutBubble(
   const pathD = hasBubble ? balloonPathD(outline) : "";
 
   const { minFontSize, maxFontSize } = defaultBubbleFontRange(height);
-  const hasSpeaker = hasBubble && overlay.speaker.trim().length > 0;
   const text = layoutBubbleText(measure, overlay.text, ow, oh, {
     minFontSize,
     maxFontSize,
-    hasSpeaker,
     fontWeight: style.fontWeight,
   });
 
-  // Text origin: inside the box padding, below the speaker strip if present.
+  // Text origin: inside the box padding.
   const padX = Math.max(2, ow * 0.06);
   const padY = Math.max(2, oh * 0.08);
-  const speakerStrip = hasSpeaker ? text.speakerFontSize * (text.lineHeight / text.fontSize) : 0;
   const textOriginX = ox + padX;
-  const textOriginY = oy + padY + speakerStrip;
+  const textOriginY = oy + padY;
   const centerX = ox + ow / 2;
 
   const lines: RenderedTextLine[] = text.lines.map((line, i) => ({
@@ -165,7 +160,6 @@ export function layoutBubble(
   return {
     id: overlay.id,
     kind,
-    speaker: overlay.speaker,
     box: { x: ox, y: oy, width: ow, height: oh },
     hasBubble,
     outline,
@@ -174,7 +168,6 @@ export function layoutBubble(
     fill,
     stroke,
     textColor: style.text,
-    speakerColor: style.speaker,
     strokeWidth,
     fillOpacity,
     text,

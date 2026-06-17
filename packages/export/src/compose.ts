@@ -66,14 +66,6 @@ function drawBubble(ctx: SKRSContext2D, b: BubbleRender): void {
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
 
-  // Speaker label, when present, sits in the strip above the body text.
-  if (b.text.speakerFontSize > 0 && b.speaker.trim().length > 0) {
-    const padY = Math.max(2, b.box.height * 0.08);
-    ctx.font = `700 ${b.text.speakerFontSize}px ${FONT_FAMILY}`;
-    ctx.fillStyle = b.speakerColor;
-    ctx.fillText(b.speaker, b.box.x + b.box.width / 2, b.box.y + padY);
-  }
-
   ctx.font = `${fontWeight} ${b.text.fontSize}px ${FONT_FAMILY}`;
   for (const line of b.lines) {
     if (b.hasBubble) {
