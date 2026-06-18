@@ -10,7 +10,7 @@
 // aspect-ratio stage, so the overlay scales with the displayed image. When no
 // art is linked, the existing "No image yet" empty state is kept.
 
-import { type BubbleRender, layoutCut } from "@toony/render";
+import { type BubbleRender, cutPlacementFrame, layoutCut } from "@toony/render";
 import type { Cut, LetteringOverlay } from "@toony/schema";
 import Link from "next/link";
 import type { CutArt } from "@/lib/project";
@@ -78,6 +78,21 @@ export function CutCanvas({ cut, bubbles, art, workId, episodeId, readOnly }: Cu
   const hasArt = Boolean(art.src);
   const plans = layoutCut(bubbles, art.width, art.height);
   const aspectRatio = `${art.width} / ${art.height}`;
+  // Gutter placement (#98): reserve the strip(s) — the artwork occupies only the
+  // `art` rect (the band(s) become a white reading margin where gutter bubbles
+  // sit), using the SAME cut-frame the export canvas reserves → parity. With no
+  // gutter bubbles the art fills the whole stage (back-compat, unchanged).
+  const frame = cutPlacementFrame(bubbles, art.width, art.height);
+  const reserved = frame.bands.length > 0;
+  const artStyle = reserved
+    ? {
+        position: "absolute" as const,
+        left: `${(frame.art.x / art.width) * 100}%`,
+        top: 0,
+        width: `${(frame.art.width / art.width) * 100}%`,
+        height: "100%",
+      }
+    : undefined;
 
   return (
     <div className="cut-block" data-testid={`cut-${cut.id}`}>
@@ -101,10 +116,20 @@ export function CutCanvas({ cut, bubbles, art, workId, episodeId, readOnly }: Cu
       )}
 
       {hasArt ? (
-        <div className="cut-stage" style={{ aspectRatio }} data-testid={`cut-stage-${cut.id}`}>
+        <div
+          className="cut-stage"
+          style={reserved ? { aspectRatio, background: "#ffffff" } : { aspectRatio }}
+          data-reserved={reserved ? "true" : undefined}
+          data-testid={`cut-stage-${cut.id}`}
+        >
           {/* The cut artwork. Read-only preview; no upload/import happens here. */}
           {/* biome-ignore lint/performance/noImgElement: local-first studio serves project files directly, not via the Next image optimizer. */}
-          <img className="cut-art" src={art.src ?? undefined} alt={`Artwork for ${cut.id}`} />
+          <img
+            className="cut-art"
+            style={artStyle}
+            src={art.src ?? undefined}
+            alt={`Artwork for ${cut.id}`}
+          />
           {plans.length > 0 && (
             <svg
               className="cut-overlays"

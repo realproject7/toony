@@ -169,6 +169,37 @@ export interface Rect {
 }
 
 /**
+ * Cut-level placement frame (#98): from a cut's overlays, the reserved gutter
+ * band(s) and the remaining ART rect. A consumer draws the artwork into `art`
+ * and leaves each band as a reserved reading margin where gutter bubbles sit, so
+ * the strip is ACTUALLY reserved (not drawn over). With no gutter overlays the
+ * art is the whole frame (back-compat: full-bleed artwork). Single source so the
+ * studio preview and the canvas export reserve the SAME strip → parity.
+ */
+export function cutPlacementFrame(
+  overlays: readonly LetteringOverlay[],
+  width: number,
+  height: number,
+): { art: Rect; bands: Rect[] } {
+  const bandW = width * GUTTER_BAND_FRAC;
+  let left = 0;
+  let right = 0;
+  for (const overlay of overlays) {
+    if (overlay.placement === "gutter") {
+      if ((overlay.placementSide ?? "right") === "left") left = bandW;
+      else right = bandW;
+    }
+  }
+  const bands: Rect[] = [];
+  if (left > 0) bands.push({ x: 0, y: 0, width: left, height });
+  if (right > 0) bands.push({ x: width - right, y: 0, width: right, height });
+  return {
+    art: { x: left, y: 0, width: Math.max(1, width - left - right), height },
+    bands,
+  };
+}
+
+/**
  * Lay out a single overlay into a `BubbleRender`. Pure: same inputs → same plan.
  */
 export function layoutBubble(

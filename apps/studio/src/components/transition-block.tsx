@@ -21,7 +21,13 @@ export function TransitionBlock({ transition }: { transition: Transition }) {
       className="transition-block"
       data-testid={`transition-${transition.id}`}
       data-treatment={plan.treatment}
-      style={{ minHeight: `${reserved}px` }}
+      // #98: an explicit band color fills the band (same resolved plan color the
+      // export canvas uses), so studio and export bands match.
+      style={
+        plan.color
+          ? { minHeight: `${reserved}px`, background: plan.color }
+          : { minHeight: `${reserved}px` }
+      }
     >
       <div className="transition-rule" aria-hidden="true" />
       <div className="transition-band">

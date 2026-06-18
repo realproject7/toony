@@ -14,6 +14,7 @@ import {
 import {
   type BalloonCommand,
   type BubbleRender,
+  cutPlacementFrame,
   layoutCut,
   layoutTransition,
   type TransitionRender,
@@ -132,11 +133,19 @@ export async function composeCut(
 
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
+  // Reserve the gutter strip(s) (#98): the artwork fills only the `art` rect; the
+  // band(s) are a neutral reading margin where gutter bubbles sit. No gutter
+  // overlays → art == the whole canvas (full-bleed, byte-identical to before).
+  const { art, bands } = cutPlacementFrame(overlays, width, height);
+  if (bands.length > 0) {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+  }
   if (image) {
-    ctx.drawImage(image, 0, 0, width, height);
+    ctx.drawImage(image, art.x, art.y, art.width, art.height);
   } else {
     ctx.fillStyle = "#eceae6";
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(art.x, art.y, art.width, art.height);
   }
 
   const measure = createCanvasMeasure();

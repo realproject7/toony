@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { defaultFontFamilyForKind, getFontFamily } from "@toony/fonts";
-import { GUTTER_BAND_FRAC, layoutBubble, layoutCut } from "../layout.js";
+import { cutPlacementFrame, GUTTER_BAND_FRAC, layoutBubble, layoutCut } from "../layout.js";
 import { narrationOverlay, overlay, sfxOverlay, speechOverlay } from "./fixtures.js";
 
 const W = 800;
@@ -374,4 +374,20 @@ test("a gutter bubble's tailTarget is normalized in ART space and clamped to the
   // tip x = art.x + 0.5*art.width = 0 + 0.5*(W-bandW) → inside the art, left of the band.
   assert.equal(r.tail.tip.x, 0.5 * (W - bandW));
   assert.ok(r.tail.tip.x < (r.band?.x ?? W));
+});
+
+test("cutPlacementFrame reserves bands and yields the remaining art rect (#98)", () => {
+  const none = cutPlacementFrame([speechOverlay], W, H);
+  assert.deepEqual(none.bands, []);
+  assert.deepEqual(none.art, { x: 0, y: 0, width: W, height: H });
+  const bandW = W * GUTTER_BAND_FRAC;
+  const right = cutPlacementFrame([overlay({ id: "g", placement: "gutter" })], W, H);
+  assert.equal(right.bands.length, 1);
+  assert.deepEqual(right.art, { x: 0, y: 0, width: W - bandW, height: H });
+  const left = cutPlacementFrame(
+    [overlay({ id: "g", placement: "gutter", placementSide: "left" })],
+    W,
+    H,
+  );
+  assert.deepEqual(left.art, { x: bandW, y: 0, width: W - bandW, height: H });
 });
