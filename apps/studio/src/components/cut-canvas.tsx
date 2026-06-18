@@ -96,8 +96,11 @@ function Bubble({ plan }: { plan: BubbleRender }) {
           textAnchor={svgTextAnchor(plan.textAlign)}
           letterSpacing={svgLetterSpacing(plan.letterSpacing, fontSize)}
           fill={plan.textColor}
-          stroke={plan.kind === "sfx" ? plan.stroke : undefined}
-          strokeWidth={plan.kind === "sfx" ? Math.max(1, fontSize * 0.06) : undefined}
+          // SFX bare text is outlined so it reads on any background. Width comes
+          // from the render plan (single source: `textOutlineWidth`, >0 ⟺ SFX),
+          // so the SVG preview and the export raster stroke it identically (#112).
+          stroke={plan.textOutlineWidth > 0 ? plan.stroke : undefined}
+          strokeWidth={plan.textOutlineWidth > 0 ? plan.textOutlineWidth : undefined}
           paintOrder="stroke"
         >
           {line.text}
