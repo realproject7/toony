@@ -20,9 +20,10 @@ export {
 export type {
   BubbleRender,
   LayoutOptions,
+  Rect,
   RenderedTextLine,
 } from "./layout.js";
-export { layoutBubble, layoutCut } from "./layout.js";
+export { cutPlacementFrame, GUTTER_BAND_FRAC, layoutBubble, layoutCut } from "./layout.js";
 
 export { approximateMeasure } from "./measure.js";
 

@@ -33,8 +33,11 @@ import {
   LINE_HEIGHT_MAX,
   LINE_HEIGHT_MIN,
   MANUAL_PROVIDER_ID,
+  PLACEMENT_SIDES,
+  PLACEMENTS,
   REVIEW_STATUSES,
   SCHEMA_VERSION,
+  SHOT_TYPES,
   TEXT_ALIGNS,
   TRANSITION_TYPES,
 } from "./types.js";
@@ -310,6 +313,19 @@ export function validateCutValue(value: unknown, path: string, c: IssueCollector
       });
     }
   }
+  // Craft metadata (#98) — OPTIONAL; validated only when present. METADATA ONLY.
+  if (value.shotType !== undefined && !isOneOf(value.shotType, SHOT_TYPES)) {
+    c.add(
+      joinPath(path, "shotType"),
+      "cut.shot-type",
+      `shotType must be one of: ${SHOT_TYPES.join(", ")}.`,
+    );
+  }
+  for (const key of ["palette", "layer", "styleTag"] as const) {
+    if (value[key] !== undefined && !isNonEmptyString(value[key])) {
+      c.add(joinPath(path, key), "cut.craft-meta", `${key} must be a non-empty string.`);
+    }
+  }
   const image = value.image;
   if (image === null) return;
   if (!isPlainObject(image)) {
@@ -381,6 +397,10 @@ export function validateTransitionValue(value: unknown, path: string, c: IssueCo
       "review-status.invalid",
       `reviewStatus must be one of: ${REVIEW_STATUSES.join(", ")}.`,
     );
+  }
+  // Band color (#98) — OPTIONAL: null/absent uses the default treatment color.
+  if (value.color !== undefined && value.color !== null && !isNonEmptyString(value.color)) {
+    c.add(joinPath(path, "color"), "transition.color", "color must be a non-empty string or null.");
   }
 }
 
@@ -506,6 +526,21 @@ export function validateLetteringOverlayValue(
     );
   }
   validateTailTarget(value.tailTarget, joinPath(path, "tailTarget"), c);
+  // Placement (#98), both OPTIONAL + back-compat (absent → in_panel / right).
+  if (value.placement !== undefined && !isOneOf(value.placement, PLACEMENTS)) {
+    c.add(
+      joinPath(path, "placement"),
+      "overlay.placement",
+      `placement must be one of: ${PLACEMENTS.join(", ")}.`,
+    );
+  }
+  if (value.placementSide !== undefined && !isOneOf(value.placementSide, PLACEMENT_SIDES)) {
+    c.add(
+      joinPath(path, "placementSide"),
+      "overlay.placement-side",
+      `placementSide must be one of: ${PLACEMENT_SIDES.join(", ")}.`,
+    );
+  }
 }
 
 /**

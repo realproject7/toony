@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { defaultFontFamilyForKind, getFontFamily } from "@toony/fonts";
-import { layoutBubble, layoutCut } from "../layout.js";
+import { cutPlacementFrame, GUTTER_BAND_FRAC, layoutBubble, layoutCut } from "../layout.js";
 import { narrationOverlay, overlay, sfxOverlay, speechOverlay } from "./fixtures.js";
 
 const W = 800;
@@ -315,4 +315,79 @@ test("tailTarget takes precedence over tail", () => {
   );
   assert.ok(r.tail);
   assert.equal(r.tail.tip.x, W); // used tailTarget (right), not tail (left)
+});
+
+// --- Gutter placement: in-bounds reserved strip (#98) ----------------------
+
+test("in_panel placement is back-compat: band null, frame == art == full canvas", () => {
+  const r = layoutBubble(speechOverlay, W, H);
+  assert.equal(r.band, null);
+  assert.deepEqual(r.frame, { x: 0, y: 0, width: W, height: H });
+  assert.deepEqual(r.art, { x: 0, y: 0, width: W, height: H });
+  // Box maps geometry over the whole canvas (unchanged).
+  assert.equal(r.box.x, speechOverlay.geometry.x * W);
+  assert.equal(r.box.width, speechOverlay.geometry.width * W);
+});
+
+test("gutter placement lays the bubble inside the reserved strip (right side)", () => {
+  const r = layoutBubble(
+    overlay({
+      id: "g",
+      placement: "gutter",
+      geometry: { x: 0.1, y: 0.1, width: 0.6, height: 0.3 },
+    }),
+    W,
+    H,
+  );
+  const bandW = W * GUTTER_BAND_FRAC;
+  assert.ok(r.band);
+  assert.deepEqual(r.band, { x: W - bandW, y: 0, width: bandW, height: H });
+  assert.deepEqual(r.art, { x: 0, y: 0, width: W - bandW, height: H });
+  // Box is mapped WITHIN the band, never over the art.
+  assert.equal(r.box.x, W - bandW + 0.1 * bandW);
+  assert.equal(r.box.width, 0.6 * bandW);
+  assert.ok(r.box.x >= r.band.x);
+});
+
+test("gutter placement on the left reserves the strip on the left", () => {
+  const r = layoutBubble(overlay({ id: "gl", placement: "gutter", placementSide: "left" }), W, H);
+  const bandW = W * GUTTER_BAND_FRAC;
+  assert.deepEqual(r.band, { x: 0, y: 0, width: bandW, height: H });
+  assert.deepEqual(r.art, { x: bandW, y: 0, width: W - bandW, height: H });
+});
+
+test("a gutter bubble's tailTarget is normalized in ART space and clamped to the art edge", () => {
+  const r = layoutBubble(
+    overlay({
+      id: "gt",
+      placement: "gutter",
+      placementSide: "right",
+      tail: null,
+      tailTarget: { x: 0.5, y: 0.5 }, // mid-art
+      geometry: { x: 0.2, y: 0.1, width: 0.6, height: 0.3 },
+    }),
+    W,
+    H,
+  );
+  const bandW = W * GUTTER_BAND_FRAC;
+  assert.ok(r.tail);
+  // tip x = art.x + 0.5*art.width = 0 + 0.5*(W-bandW) → inside the art, left of the band.
+  assert.equal(r.tail.tip.x, 0.5 * (W - bandW));
+  assert.ok(r.tail.tip.x < (r.band?.x ?? W));
+});
+
+test("cutPlacementFrame reserves bands and yields the remaining art rect (#98)", () => {
+  const none = cutPlacementFrame([speechOverlay], W, H);
+  assert.deepEqual(none.bands, []);
+  assert.deepEqual(none.art, { x: 0, y: 0, width: W, height: H });
+  const bandW = W * GUTTER_BAND_FRAC;
+  const right = cutPlacementFrame([overlay({ id: "g", placement: "gutter" })], W, H);
+  assert.equal(right.bands.length, 1);
+  assert.deepEqual(right.art, { x: 0, y: 0, width: W - bandW, height: H });
+  const left = cutPlacementFrame(
+    [overlay({ id: "g", placement: "gutter", placementSide: "left" })],
+    W,
+    H,
+  );
+  assert.deepEqual(left.art, { x: bandW, y: 0, width: W - bandW, height: H });
 });

@@ -33,6 +33,8 @@ export interface TransitionRender {
   isSfx: boolean;
   /** True when the band should read as a solid card rather than empty space. */
   isCard: boolean;
+  /** Band fill color override (#98), or null to use the treatment's default. */
+  color: string | null;
 }
 
 const TREATMENT: Record<TransitionType, TransitionTreatment> = {
@@ -65,5 +67,6 @@ export function layoutTransition(transition: Transition): TransitionRender {
     detail: detail && detail.trim().length > 0 ? detail : null,
     isSfx,
     isCard: treatment === "card" || treatment === "break",
+    color: transition.color?.trim() ? transition.color : null,
   };
 }

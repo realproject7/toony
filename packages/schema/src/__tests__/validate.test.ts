@@ -503,3 +503,55 @@ test("an overlay without tone/tailTarget is valid (back-compat)", () => {
   // The default fixture overlay carries neither field.
   assert.equal(validateProject(validProject).valid, true);
 });
+
+// --- Cut craft fields + Transition.color + placement (#98) ------------------
+
+test("an overlay/cut/transition without the #98 fields is valid (back-compat)", () => {
+  assert.equal(validateProject(validProject).valid, true);
+});
+
+test("cut craft metadata validates (shotType enum, palette/layer/styleTag strings)", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  cut.shotType = "establishing_wide";
+  cut.palette = "#2a3b4c";
+  cut.layer = "metaphor";
+  cut.styleTag = "noir";
+  assert.equal(
+    validateProject(project).valid,
+    true,
+    JSON.stringify(validateProject(project).issues),
+  );
+  cut.shotType = "huge" as unknown as typeof cut.shotType;
+  assert.ok(codes(validateProject(project)).includes("cut.shot-type"));
+  cut.shotType = "medium";
+  cut.palette = "";
+  assert.ok(codes(validateProject(project)).includes("cut.craft-meta"));
+});
+
+test("transition color must be a non-empty string or null", () => {
+  const project = cloneValidProject();
+  const transition = project.episodes[0]?.transitions[0];
+  assert.ok(transition);
+  transition.color = "#101010";
+  assert.equal(validateProject(project).valid, true);
+  transition.color = null;
+  assert.equal(validateProject(project).valid, true);
+  transition.color = "" as unknown as string;
+  assert.ok(codes(validateProject(project)).includes("transition.color"));
+});
+
+test("overlay placement/placementSide validate against their enums", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.placement = "gutter";
+  overlay.placementSide = "left";
+  assert.equal(validateProject(project).valid, true);
+  overlay.placement = "sidebar" as unknown as typeof overlay.placement;
+  assert.ok(codes(validateProject(project)).includes("overlay.placement"));
+  overlay.placement = "gutter";
+  overlay.placementSide = "top" as unknown as typeof overlay.placementSide;
+  assert.ok(codes(validateProject(project)).includes("overlay.placement-side"));
+});

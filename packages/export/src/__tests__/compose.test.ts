@@ -210,3 +210,69 @@ test("export composes the new bubble kinds/tones without error", async () => {
   assert.equal(composed.width, 480);
   assert.ok(composed.height > 0);
 });
+
+// --- Transition band color (#98) -------------------------------------------
+
+test("composeTransitionBand fills the band with Transition.color when set", async () => {
+  const { composeTransitionBand } = await import("../compose.js");
+  const band = composeTransitionBand(
+    {
+      id: "t",
+      type: "gutter",
+      gutterHeight: 60,
+      text: null,
+      sfx: null,
+      agentNote: null,
+      humanNote: null,
+      image: null,
+      reviewStatus: "draft",
+      color: "#3366cc",
+    },
+    300,
+  );
+  assert.ok(band);
+  const ctx = band.canvas.getContext("2d");
+  const { data } = ctx.getImageData(Math.round(band.width / 2), Math.round(band.height / 2), 1, 1);
+  // #3366cc = (51, 102, 204), opaque.
+  assert.equal(data[3], 255);
+  const near = (got: number | undefined, want: number) => Math.abs((got ?? -999) - want) <= 2;
+  assert.ok(
+    near(data[0], 51) && near(data[1], 102) && near(data[2], 204),
+    `got [${data[0]},${data[1]},${data[2]}]`,
+  );
+});
+
+test("a gutter bubble reserves a white strip; art is not drawn there (#98)", async () => {
+  const fixture = buildSolidColorPngFixture(240, 336);
+  const gutter: LetteringOverlay = {
+    id: "gb",
+    cutId: "c",
+    speaker: "Mina",
+    kind: "speech",
+    text: "Hi",
+    font: "sans-serif",
+    fill: "#ffffff",
+    opacity: 1,
+    border: null,
+    tail: null,
+    placement: "gutter",
+    placementSide: "right",
+    geometry: { x: 0.2, y: 0.7, width: 0.6, height: 0.15 },
+    overflow: false,
+    reviewStatus: "draft",
+  };
+  const composed = await composeCut([gutter], fixture, 480);
+  const ctx = composed.canvas.getContext("2d");
+  // Left (art) sample at the very top should be the source fill (distinctive green).
+  const a = ctx.getImageData(4, 4, 1, 1).data;
+  assert.ok(
+    Math.abs((a[0] ?? 0) - FIXTURE_RGB.r) <= 4 && Math.abs((a[1] ?? 0) - FIXTURE_RGB.g) <= 4,
+    `art pixel should be source fill, got [${a[0]},${a[1]},${a[2]}]`,
+  );
+  // Right band (top, clear of the bubble) is reserved white margin — NOT source art.
+  const b = ctx.getImageData(composed.width - 4, 4, 1, 1).data;
+  assert.ok(
+    (b[0] ?? 0) > 240 && (b[1] ?? 0) > 240 && (b[2] ?? 0) > 240,
+    `reserved band should be white margin, got [${b[0]},${b[1]},${b[2]}]`,
+  );
+});

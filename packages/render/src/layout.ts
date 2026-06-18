@@ -64,6 +64,16 @@ export interface BubbleRender {
   kind: BubbleKind;
   /** The bubble body rect in pixel space. */
   box: { x: number; y: number; width: number; height: number };
+  /**
+   * Placement rects (#98), all in the caller's pixel space: `frame` = the whole
+   * cut canvas; `art` = the artwork region (== frame for `in_panel`, the non-strip
+   * portion for `gutter`); `band` = the reserved gutter strip, or null for
+   * `in_panel`. Studio SVG and export canvas consume these identically so a gutter
+   * bubble lands in the same place in both.
+   */
+  frame: Rect;
+  art: Rect;
+  band: Rect | null;
   /** Whether this kind draws a filled/stroked body (false for SFX). */
   hasBubble: boolean;
   /** Balloon outline command list (canvas/SVG-agnostic). */
@@ -143,6 +153,53 @@ function baseStroke(height: number): number {
 const SFX_TEXT_OUTLINE_FACTOR = 0.12;
 
 /**
+ * Width of the reserved gutter strip (#98) as a fraction of the cut canvas width.
+ * A `gutter`-placed bubble lays out inside this in-bounds strip; the remaining
+ * width is the art. The canvas dimensions never change, so studio and export
+ * agree without any per-consumer adjustment.
+ */
+export const GUTTER_BAND_FRAC = 0.18;
+
+/** An axis-aligned rect in the caller's pixel space. */
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Cut-level placement frame (#98): from a cut's overlays, the reserved gutter
+ * band(s) and the remaining ART rect. A consumer draws the artwork into `art`
+ * and leaves each band as a reserved reading margin where gutter bubbles sit, so
+ * the strip is ACTUALLY reserved (not drawn over). With no gutter overlays the
+ * art is the whole frame (back-compat: full-bleed artwork). Single source so the
+ * studio preview and the canvas export reserve the SAME strip → parity.
+ */
+export function cutPlacementFrame(
+  overlays: readonly LetteringOverlay[],
+  width: number,
+  height: number,
+): { art: Rect; bands: Rect[] } {
+  const bandW = width * GUTTER_BAND_FRAC;
+  let left = 0;
+  let right = 0;
+  for (const overlay of overlays) {
+    if (overlay.placement === "gutter") {
+      if ((overlay.placementSide ?? "right") === "left") left = bandW;
+      else right = bandW;
+    }
+  }
+  const bands: Rect[] = [];
+  if (left > 0) bands.push({ x: 0, y: 0, width: left, height });
+  if (right > 0) bands.push({ x: width - right, y: 0, width: right, height });
+  return {
+    art: { x: left, y: 0, width: Math.max(1, width - left - right), height },
+    bands,
+  };
+}
+
+/**
  * Lay out a single overlay into a `BubbleRender`. Pure: same inputs → same plan.
  */
 export function layoutBubble(
@@ -179,11 +236,35 @@ export function layoutBubble(
   // wrap/auto-fit reflect the weight actually drawn.
   const measureWeight: 400 | 700 = fontWeight >= 600 ? 700 : 400;
 
-  // Body rect → pixel space, clamped to a sane positive size.
-  const ow = Math.max(1, overlay.geometry.width * width);
-  const oh = Math.max(1, overlay.geometry.height * height);
-  const ox = overlay.geometry.x * width;
-  const oy = overlay.geometry.y * height;
+  // Placement (#98): `in_panel` uses the whole cut canvas (back-compat); `gutter`
+  // reserves an in-bounds strip of `GUTTER_BAND_FRAC` width on `placementSide`.
+  // The bubble geometry maps WITHIN the placement rect (the strip for gutter); its
+  // tailTarget is normalized in the remaining ART rect and clamped to the art edge.
+  // Canvas dimensions never change → studio SVG and export canvas use the same
+  // rects (the plan exposes frame/art/band) and stay pixel-consistent.
+  const placement = overlay.placement ?? "in_panel";
+  const placementSide = overlay.placementSide ?? "right";
+  const frame: Rect = { x: 0, y: 0, width, height };
+  let band: Rect | null = null;
+  let art: Rect = frame;
+  if (placement === "gutter") {
+    const bandW = width * GUTTER_BAND_FRAC;
+    band =
+      placementSide === "left"
+        ? { x: 0, y: 0, width: bandW, height }
+        : { x: width - bandW, y: 0, width: bandW, height };
+    art =
+      placementSide === "left"
+        ? { x: bandW, y: 0, width: width - bandW, height }
+        : { x: 0, y: 0, width: width - bandW, height };
+  }
+  const geomRect = band ?? frame;
+
+  // Body rect → pixel space within the placement rect, clamped to positive size.
+  const ow = Math.max(1, overlay.geometry.width * geomRect.width);
+  const oh = Math.max(1, overlay.geometry.height * geomRect.height);
+  const ox = geomRect.x + overlay.geometry.x * geomRect.width;
+  const oy = geomRect.y + overlay.geometry.y * geomRect.height;
 
   // Corner radius: a stored override (clamped so arcs never overrun the body)
   // takes precedence; otherwise the per-kind default scale.
@@ -204,9 +285,11 @@ export function layoutBubble(
   const tailPoint = overlay.tailTarget ?? overlay.tail;
   let tail: TailGeometry | null = null;
   if (hasBubble && kindSupportsTail(kind) && tailPoint) {
+    // tailTarget is normalized in ART space (the whole cut for in_panel); clamp
+    // the drawn tip to the art edge so a gutter bubble's tail crosses into the art.
     const tip = {
-      x: clamp(tailPoint.x * width, 0, width),
-      y: clamp(tailPoint.y * height, 0, height),
+      x: clamp(art.x + tailPoint.x * art.width, art.x, art.x + art.width),
+      y: clamp(art.y + tailPoint.y * art.height, art.y, art.y + art.height),
     };
     tail = speechTailGeometry(ox, oy, ow, oh, tip, radius);
   }
@@ -273,6 +356,9 @@ export function layoutBubble(
     id: overlay.id,
     kind,
     box: { x: ox, y: oy, width: ow, height: oh },
+    frame,
+    art,
+    band,
     hasBubble,
     outline,
     pathD,

@@ -555,3 +555,40 @@ test("a legacy project without characters loads and validates (back-compat)", as
   assert.equal(loaded.project.webtoon.characters, undefined);
   assert.equal(loaded.project.episodes[0]?.cuts[0]?.characters, undefined);
 });
+
+test("cut craft fields + transition.color round-trip and validate (#98)", async () => {
+  const root = join(workdir, "craft98");
+  const project = buildInitialProject("craft98");
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  cut.shotType = "establishing_wide";
+  cut.palette = "#2a3b4c";
+  cut.layer = "metaphor";
+  cut.styleTag = "noir";
+  const transition = project.episodes[0]?.transitions[0];
+  assert.ok(transition);
+  transition.color = "#101820";
+  await writeProject(root, project);
+
+  const loaded = await loadProject(root);
+  assert.equal(loaded.validation.valid, true, JSON.stringify(loaded.validation.issues));
+  const rc = loaded.project.episodes[0]?.cuts[0];
+  assert.equal(rc?.shotType, "establishing_wide");
+  assert.equal(rc?.palette, "#2a3b4c");
+  assert.equal(rc?.layer, "metaphor");
+  assert.equal(rc?.styleTag, "noir");
+  assert.equal(loaded.project.episodes[0]?.transitions[0]?.color, "#101820");
+});
+
+test("overlay placement/placementSide round-trip (#98)", async () => {
+  const root = join(workdir, "place98");
+  await writeProject(root, buildInitialProject("place98"));
+  await writeLettering(root, "ep-001", [
+    overlay({ id: "ov-1", placement: "gutter", placementSide: "left" }),
+  ]);
+  const loaded = await loadProject(root);
+  assert.equal(loaded.validation.valid, true, JSON.stringify(loaded.validation.issues));
+  const ov = loaded.project.episodes[0]?.lettering[0];
+  assert.equal(ov?.placement, "gutter");
+  assert.equal(ov?.placementSide, "left");
+});
