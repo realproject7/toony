@@ -188,14 +188,30 @@ export function composeTransitionBand(
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
 
-  if (render.treatment === "card") {
+  // Band background: an explicit #98 `color` fills the whole band; otherwise the
+  // per-treatment default (card dark, fade gradient, others white reading space).
+  if (render.color) {
+    ctx.fillStyle = render.color;
+    ctx.fillRect(0, 0, width, height);
+  } else if (render.treatment === "card") {
     ctx.fillStyle = "#15110d";
     ctx.fillRect(0, 0, width, height);
+  } else if (render.treatment === "fade") {
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, "#ffffff");
+    gradient.addColorStop(1, "#d9d4cc");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+  } else {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  // Foreground per treatment (text/divider), drawn over the background.
+  if (render.treatment === "card") {
     ctx.fillStyle = "#f3ece0";
     drawBandText(ctx, render, width, height);
   } else if (render.treatment === "break") {
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, width, height);
     ctx.strokeStyle = "#2a2a2a";
     ctx.lineWidth = Math.max(1, Math.round(height * 0.04));
     ctx.beginPath();
@@ -204,16 +220,6 @@ export function composeTransitionBand(
     ctx.stroke();
     ctx.fillStyle = "#2a2a2a";
     if (render.detail) drawBandText(ctx, render, width, height);
-  } else if (render.treatment === "fade") {
-    const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, "#ffffff");
-    gradient.addColorStop(1, "#d9d4cc");
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, width, height);
-  } else {
-    // Plain gutter: white reading space.
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, width, height);
   }
 
   return { canvas, width, height };

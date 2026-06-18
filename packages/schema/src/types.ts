@@ -42,6 +42,31 @@ export const BUBBLE_TONES = ["neutral", "shout", "aggressive"] as const;
 export type BubbleTone = (typeof BUBBLE_TONES)[number];
 
 /**
+ * Cut shot-type (#98), a vertical-rhythm/composition hint. In Phase 2 this is
+ * METADATA ONLY — it does not change rendering; lint (#100 rhythm-monotony),
+ * planning, and the editor consume it. P3 may map it to sizing.
+ */
+export const SHOT_TYPES = [
+  "establishing_wide",
+  "medium",
+  "close_up",
+  "impact_splash",
+  "small_centered",
+] as const;
+export type ShotType = (typeof SHOT_TYPES)[number];
+
+/**
+ * Where a lettering bubble sits (#98). `in_panel` (default) places it over the
+ * art as before; `gutter` places it in a reserved in-bounds strip on one side
+ * (`placementSide`), with its tail crossing into the art via `tailTarget`. The
+ * canvas dimensions do NOT change — the strip is reserved WITHIN the cut canvas.
+ */
+export const PLACEMENTS = ["in_panel", "gutter"] as const;
+export type Placement = (typeof PLACEMENTS)[number];
+export const PLACEMENT_SIDES = ["left", "right"] as const;
+export type PlacementSide = (typeof PLACEMENT_SIDES)[number];
+
+/**
  * Transition type vocabulary between cuts. `gutter` is plain vertical spacing;
  * the others describe reading-rhythm beats. MVP vocabulary, extended here.
  */
@@ -196,12 +221,21 @@ export interface LetteringOverlay {
    */
   tone?: BubbleTone;
   /**
-   * Off-panel speaker target for the tail (#93), a point in the SAME cut-image
-   * 0..1 space as `geometry`. UNLIKE `tail`, it MAY lie outside [0,1] (the
-   * speaker is off-panel); the renderer clamps the drawn tail tip to the art
-   * edge. `null`/absent → the tail uses `tail` (current behavior).
+   * Off-panel speaker target for the tail (#93), a point in ART space (the cut's
+   * art region; for an in-panel bubble that is the whole cut). UNLIKE `tail`, it
+   * MAY lie outside [0,1] (the speaker is off-panel); the renderer clamps the
+   * drawn tip to the art edge. `null`/absent → the tail uses `tail`.
    */
   tailTarget?: NormalizedPoint | null;
+  /**
+   * Bubble placement (#98): `in_panel` (default) over the art, or `gutter` in a
+   * reserved in-bounds strip on `placementSide`. A `gutter` bubble's `geometry`
+   * is interpreted WITHIN the strip; its tail crosses into the art via
+   * `tailTarget`. Back-compatible: absent → `in_panel` (current behavior).
+   */
+  placement?: Placement;
+  /** Side of the reserved gutter strip (#98); absent → `right`. Only for `gutter`. */
+  placementSide?: PlacementSide;
   // Additive pro-lettering style overrides (#54, #56). All OPTIONAL and back-
   // compatible: absent fields fall back to the renderer's current behavior. See
   // the bounds/defaults constants above.
@@ -262,6 +296,16 @@ export interface Cut {
    * into the cut's prompt; an unknown id is flagged by lint, not the schema.
    */
   characters?: string[];
+  // Craft metadata (#98) — all OPTIONAL + back-compat, and METADATA ONLY in P2
+  // (they do NOT change rendering; lint/planning/editor consume them).
+  /** Composition/shot hint (#98), one of `SHOT_TYPES`. */
+  shotType?: ShotType;
+  /** Dominant palette color for the cut, a CSS color string (#98). */
+  palette?: string;
+  /** World layer (#98), e.g. "reality" | "metaphor"; a free string is allowed. */
+  layer?: string;
+  /** Free-form visual style tag for the cut (#98). */
+  styleTag?: string;
 }
 
 /** A transition record placed between cuts in the canonical sequence. */
@@ -275,6 +319,13 @@ export interface Transition {
   humanNote: string | null;
   image: string | null;
   reviewStatus: ReviewStatus;
+  /**
+   * Band fill color (#98), a CSS color string, or null/absent for the default
+   * treatment color. The transition band — not the cut — carries the color;
+   * render fills the band with it (studio + export). The v3 craft transition
+   * kinds (#99) reuse this.
+   */
+  color?: string | null;
 }
 
 /** An item in the canonical episode reading sequence. */

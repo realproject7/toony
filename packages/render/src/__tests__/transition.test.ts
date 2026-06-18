@@ -56,3 +56,13 @@ test("layoutTransition is deterministic", () => {
   const t = transition({ id: "d", type: "beat", text: "A pause." });
   assert.deepEqual(layoutTransition(t), layoutTransition(t));
 });
+
+test("transition color override is exposed on the plan; absent → null (#98)", () => {
+  assert.equal(layoutTransition(transition({ id: "c1", type: "gutter" })).color, null);
+  assert.equal(
+    layoutTransition(transition({ id: "c2", type: "gutter", color: "#102030" })).color,
+    "#102030",
+  );
+  // A blank color resolves to null (use the treatment default).
+  assert.equal(layoutTransition(transition({ id: "c3", type: "gutter", color: "  " })).color, null);
+});

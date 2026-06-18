@@ -210,3 +210,34 @@ test("export composes the new bubble kinds/tones without error", async () => {
   assert.equal(composed.width, 480);
   assert.ok(composed.height > 0);
 });
+
+// --- Transition band color (#98) -------------------------------------------
+
+test("composeTransitionBand fills the band with Transition.color when set", async () => {
+  const { composeTransitionBand } = await import("../compose.js");
+  const band = composeTransitionBand(
+    {
+      id: "t",
+      type: "gutter",
+      gutterHeight: 60,
+      text: null,
+      sfx: null,
+      agentNote: null,
+      humanNote: null,
+      image: null,
+      reviewStatus: "draft",
+      color: "#3366cc",
+    },
+    300,
+  );
+  assert.ok(band);
+  const ctx = band.canvas.getContext("2d");
+  const { data } = ctx.getImageData(Math.round(band.width / 2), Math.round(band.height / 2), 1, 1);
+  // #3366cc = (51, 102, 204), opaque.
+  assert.equal(data[3], 255);
+  const near = (got: number | undefined, want: number) => Math.abs((got ?? -999) - want) <= 2;
+  assert.ok(
+    near(data[0], 51) && near(data[1], 102) && near(data[2], 204),
+    `got [${data[0]},${data[1]},${data[2]}]`,
+  );
+});
