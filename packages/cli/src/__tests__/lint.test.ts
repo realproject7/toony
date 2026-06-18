@@ -136,3 +136,42 @@ test("lint surfaces a craft finding (bubble density) via toony lint (#94)", asyn
     JSON.stringify(report.findings),
   );
 });
+
+test("lint surfaces craft/rhythm-monotony via toony lint (#100)", async () => {
+  const dir = await scaffold();
+  // Four cuts that all share shotType "medium", with only the scaffold's plain
+  // gutter transition between them — a gutter does NOT break the run, so the run
+  // reaches the threshold and trips craft/rhythm-monotony. cuts.yaml + episode.yaml
+  // are written as JSON (valid YAML) so the loader parses them.
+  const cuts = [1, 2, 3, 4].map((n) => ({
+    id: `cut-00${n}`,
+    image: null,
+    imagePrompt: "",
+    negativePrompt: "",
+    shotType: "medium",
+  }));
+  await writeFile(join(dir, "episodes/ep-001/cuts.yaml"), JSON.stringify(cuts));
+  await writeFile(
+    join(dir, "episodes/ep-001/episode.yaml"),
+    JSON.stringify({
+      schemaVersion: 1,
+      id: "ep-001",
+      title: "Episode 1",
+      sequence: [
+        { type: "cut", id: "cut-001" },
+        { type: "transition", id: "tr-001" },
+        { type: "cut", id: "cut-002" },
+        { type: "cut", id: "cut-003" },
+        { type: "cut", id: "cut-004" },
+      ],
+    }),
+  );
+  const c = capture();
+  const code = await runLint([dir, "--json"], c.io);
+  const report = JSON.parse(c.out.join("\n"));
+  assert.equal(code, EXIT_VALIDATION, c.err.join("\n"));
+  assert.ok(
+    report.findings.some((f: { code: string }) => f.code === "craft/rhythm-monotony"),
+    JSON.stringify(report.findings),
+  );
+});
