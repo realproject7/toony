@@ -66,3 +66,47 @@ test("transition color override is exposed on the plan; absent → null (#98)", 
   // A blank color resolves to null (use the treatment default).
   assert.equal(layoutTransition(transition({ id: "c3", type: "gutter", color: "  " })).color, null);
 });
+
+// --- v3 craft transition kinds (#99) ---------------------------------------
+
+test("black_band resolves to a solid black band by default", () => {
+  const r = layoutTransition(transition({ id: "bb", type: "black_band" }));
+  assert.equal(r.treatment, "band");
+  assert.equal(r.bandFill, "#0d0d0d");
+  assert.equal(r.label, "black band");
+});
+
+test("palette_shift and desaturate_repeat are solid bands with their defaults", () => {
+  const ps = layoutTransition(transition({ id: "ps", type: "palette_shift" }));
+  assert.equal(ps.treatment, "band");
+  assert.equal(ps.bandFill, "#5a6b7a");
+  const dr = layoutTransition(transition({ id: "dr", type: "desaturate_repeat" }));
+  assert.equal(dr.treatment, "band");
+  // desaturate_repeat is a neutral gray band (the true cross-cut version is deferred).
+  assert.equal(dr.bandFill, "#9a958c");
+});
+
+test("title_card is a card treatment that centers the transition text", () => {
+  const r = layoutTransition(
+    transition({ id: "tc", type: "title_card", text: "Three days later" }),
+  );
+  assert.equal(r.treatment, "card");
+  assert.equal(r.isCard, true);
+  assert.equal(r.detail, "Three days later");
+  assert.equal(r.bandFill, "#15110d");
+  assert.equal(r.label, "title card");
+});
+
+test("Transition.color overrides the craft band default fill (#98 reuse)", () => {
+  const r = layoutTransition(transition({ id: "ps2", type: "palette_shift", color: "#ff8800" }));
+  assert.equal(r.bandFill, "#ff8800");
+  // Blank color falls back to the per-kind default.
+  const blank = layoutTransition(transition({ id: "ps3", type: "palette_shift", color: "  " }));
+  assert.equal(blank.bandFill, "#5a6b7a");
+});
+
+test("legacy transition kinds have no solid bandFill (back-compat)", () => {
+  for (const type of ["gutter", "fade", "beat", "scene-break", "time-skip", "hard-cut"] as const) {
+    assert.equal(layoutTransition(transition({ id: type, type })).bandFill, null);
+  }
+});

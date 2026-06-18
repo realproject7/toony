@@ -15,6 +15,9 @@ import {
   type BalloonCommand,
   type BubbleRender,
   cutPlacementFrame,
+  IMPACT_BURST_FILL,
+  IMPACT_BURST_STROKE,
+  IMPACT_RAY_COLOR,
   layoutCut,
   layoutTransition,
   type TransitionRender,
@@ -68,6 +71,32 @@ function drawBubble(ctx: SKRSContext2D, b: BubbleRender): void {
       ctx.lineJoin = "round";
       ctx.stroke();
     }
+  }
+
+  // impact_band SFX (#99): radial speed-lines + a burst star behind the text,
+  // traced from the render plan's pure straight segments so the raster matches the
+  // studio SVG exactly. Drawn before the bare text so the lettering reads on top.
+  if (b.impact) {
+    ctx.strokeStyle = IMPACT_RAY_COLOR;
+    ctx.lineWidth = b.impact.rayWidth;
+    for (const ray of b.impact.rays) {
+      ctx.beginPath();
+      ctx.moveTo(ray.x1, ray.y1);
+      ctx.lineTo(ray.x2, ray.y2);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    b.impact.burst.forEach((p, i) => {
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.closePath();
+    ctx.fillStyle = IMPACT_BURST_FILL;
+    ctx.fill();
+    ctx.lineWidth = b.impact.burstStrokeWidth;
+    ctx.strokeStyle = IMPACT_BURST_STROKE;
+    ctx.lineJoin = "round";
+    ctx.stroke();
   }
 
   // Use the SAME face the render plan resolved (#56): the per-weight registered
@@ -187,7 +216,10 @@ export function composeTransitionBand(
 ): { canvas: Canvas; width: number; height: number } | null {
   const render = layoutTransition(transition);
   const width = Math.max(1, Math.round(targetWidth));
-  const floor = render.isCard ? Math.round(width * 0.1) : 0;
+  // Cards/breaks and the v3 solid bands (#99) get a floor so they stay legible/
+  // visible even when authored with a small gutter; plain gutters honor the exact
+  // height.
+  const floor = render.isCard || render.treatment === "band" ? Math.round(width * 0.1) : 0;
   const height = Math.max(render.gutterHeight, floor);
   if (height <= 0) return null;
 
@@ -197,9 +229,14 @@ export function composeTransitionBand(
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
 
-  // Band background: an explicit #98 `color` fills the whole band; otherwise the
-  // per-treatment default (card dark, fade gradient, others white reading space).
-  if (render.color) {
+  // Band background: the resolved v3 solid-band fill (#99 — black_band/title_card/
+  // palette_shift/desaturate_repeat, already folding in any #98 `color`) wins;
+  // otherwise an explicit #98 `color` on a legacy kind; otherwise the per-treatment
+  // default (card dark, fade gradient, others white reading space).
+  if (render.bandFill) {
+    ctx.fillStyle = render.bandFill;
+    ctx.fillRect(0, 0, width, height);
+  } else if (render.color) {
     ctx.fillStyle = render.color;
     ctx.fillRect(0, 0, width, height);
   } else if (render.treatment === "card") {

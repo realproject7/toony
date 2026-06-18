@@ -124,6 +124,107 @@ export function speechTailGeometry(
   };
 }
 
+// --- Impact-band SFX decoration (#99) ---------------------------------------
+//
+// `impact_band` SFX draws a large full-width impact: radial speed-lines + a
+// jagged burst behind the lettering. Every primitive here is a PURE straight
+// segment (no arcs, no gradients) so the SVG preview and the canvas export trace
+// the identical shapes and stay pixel-consistent (the #88/#93 parity rule).
+
+/** A straight speed-line segment in the caller's pixel space. */
+export interface ImpactLine {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+/** Shared colors for the impact decoration, so studio and export never drift. */
+export const IMPACT_RAY_COLOR = "#111111";
+export const IMPACT_BURST_FILL = "#ffffff";
+export const IMPACT_BURST_STROKE = "#111111";
+
+/** Number of star spikes in the impact burst polygon. */
+const IMPACT_BURST_SPIKES = 16;
+/** Number of radial speed-lines. */
+const IMPACT_RAY_COUNT = 28;
+
+/**
+ * The geometry of an `impact_band` SFX decoration (#99) for a box in pixel space:
+ * a jagged burst polygon (a closed star, drawn behind the text) plus radial
+ * speed-lines that fan out from the center to the box edges. All pure straight
+ * segments; the resolved stroke widths are returned so both consumers stroke them
+ * identically. Deterministic: same box → same geometry.
+ */
+export interface ImpactDecoration {
+  /** Closed star polygon (draw as M, L…, Z). */
+  burst: Point[];
+  /** Stroke width in px for the burst outline. */
+  burstStrokeWidth: number;
+  /** Radial speed-lines. */
+  rays: ImpactLine[];
+  /** Stroke width in px for the speed-lines. */
+  rayWidth: number;
+}
+
+/** Intersect the ray from `(cx,cy)` in direction `(dx,dy)` with the box edges. */
+function rayBoxEdge(
+  cx: number,
+  cy: number,
+  dx: number,
+  dy: number,
+  halfW: number,
+  halfH: number,
+): Point {
+  const tx = Math.abs(dx) > 1e-9 ? halfW / Math.abs(dx) : Number.POSITIVE_INFINITY;
+  const ty = Math.abs(dy) > 1e-9 ? halfH / Math.abs(dy) : Number.POSITIVE_INFINITY;
+  const t = Math.min(tx, ty);
+  return { x: cx + dx * t, y: cy + dy * t };
+}
+
+/** Build the impact-band decoration for a box rect (pixel space). */
+export function impactDecoration(box: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}): ImpactDecoration {
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  const halfW = box.width / 2;
+  const halfH = box.height / 2;
+  const minHalf = Math.max(1, Math.min(halfW, halfH));
+
+  // Burst: a closed star alternating outer/inner radius around the center.
+  const outer = minHalf * 0.92;
+  const inner = outer * 0.5;
+  const burst: Point[] = [];
+  const points = IMPACT_BURST_SPIKES * 2;
+  for (let i = 0; i < points; i++) {
+    const angle = (Math.PI * 2 * i) / points - Math.PI / 2;
+    const radius = i % 2 === 0 ? outer : inner;
+    burst.push({ x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius });
+  }
+
+  // Speed-lines: fan from a ring just inside the burst out to the box edges.
+  const rayStart = minHalf * 0.5;
+  const rays: ImpactLine[] = [];
+  for (let i = 0; i < IMPACT_RAY_COUNT; i++) {
+    const angle = (Math.PI * 2 * i) / IMPACT_RAY_COUNT;
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    const end = rayBoxEdge(cx, cy, dx, dy, halfW, halfH);
+    rays.push({ x1: cx + dx * rayStart, y1: cy + dy * rayStart, x2: end.x, y2: end.y });
+  }
+
+  return {
+    burst,
+    burstStrokeWidth: Math.max(1, minHalf * 0.03),
+    rays,
+    rayWidth: Math.max(1, minHalf * 0.02),
+  };
+}
+
 /**
  * Outline decoration for a straight edge span (#93): the body silhouette that
  * encodes a bubble's kind/tone. `rounded` is a plain straight edge (current

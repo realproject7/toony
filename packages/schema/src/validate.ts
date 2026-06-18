@@ -37,6 +37,7 @@ import {
   PLACEMENTS,
   REVIEW_STATUSES,
   SCHEMA_VERSION,
+  SFX_MODES,
   SHOT_TYPES,
   TEXT_ALIGNS,
   TRANSITION_TYPES,
@@ -539,6 +540,15 @@ export function validateLetteringOverlayValue(
       joinPath(path, "placementSide"),
       "overlay.placement-side",
       `placementSide must be one of: ${PLACEMENT_SIDES.join(", ")}.`,
+    );
+  }
+  // SFX render mode (#99), OPTIONAL + back-compat (absent → typeset). Only
+  // meaningful for kind=sfx, but the enum is validated whenever present.
+  if (value.sfxMode !== undefined && !isOneOf(value.sfxMode, SFX_MODES)) {
+    c.add(
+      joinPath(path, "sfxMode"),
+      "overlay.sfx-mode",
+      `sfxMode must be one of: ${SFX_MODES.join(", ")}.`,
     );
   }
 }

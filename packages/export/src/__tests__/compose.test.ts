@@ -276,3 +276,117 @@ test("a gutter bubble reserves a white strip; art is not drawn there (#98)", asy
     `reserved band should be white margin, got [${b[0]},${b[1]},${b[2]}]`,
   );
 });
+
+// --- v3 transitions & SFX render modes (#99) -------------------------------
+
+function craftTransition(over: Partial<import("@toony/schema").Transition>) {
+  return {
+    id: "t",
+    type: "gutter" as const,
+    gutterHeight: 8,
+    text: null,
+    sfx: null,
+    agentNote: null,
+    humanNote: null,
+    image: null,
+    reviewStatus: "draft" as const,
+    ...over,
+  };
+}
+
+test("black_band composes a solid black band (#99)", async () => {
+  const { composeTransitionBand } = await import("../compose.js");
+  const band = composeTransitionBand(craftTransition({ type: "black_band" }), 300);
+  assert.ok(band);
+  // The floor keeps a small-gutter band visible.
+  assert.ok(band.height > 0);
+  const ctx = band.canvas.getContext("2d");
+  const { data } = ctx.getImageData(Math.round(band.width / 2), Math.round(band.height / 2), 1, 1);
+  assert.equal(data[3], 255);
+  assert.ok((data[0] ?? 255) < 30 && (data[1] ?? 255) < 30 && (data[2] ?? 255) < 30);
+});
+
+test("palette_shift fills the band with Transition.color (#99)", async () => {
+  const { composeTransitionBand } = await import("../compose.js");
+  const band = composeTransitionBand(
+    craftTransition({ type: "palette_shift", color: "#3366cc" }),
+    300,
+  );
+  assert.ok(band);
+  const ctx = band.canvas.getContext("2d");
+  const { data } = ctx.getImageData(Math.round(band.width / 2), Math.round(band.height / 2), 1, 1);
+  const near = (got: number | undefined, want: number) => Math.abs((got ?? -999) - want) <= 2;
+  assert.ok(near(data[0], 51) && near(data[1], 102) && near(data[2], 204), `got [${data}]`);
+});
+
+test("desaturate_repeat composes a neutral gray band (#99 — true cross-cut deferred)", async () => {
+  const { composeTransitionBand } = await import("../compose.js");
+  const band = composeTransitionBand(craftTransition({ type: "desaturate_repeat" }), 300);
+  assert.ok(band);
+  const ctx = band.canvas.getContext("2d");
+  const { data } = ctx.getImageData(Math.round(band.width / 2), Math.round(band.height / 2), 1, 1);
+  // #9a958c — gray (channels close together, mid-range).
+  const [r, g, b] = data;
+  assert.equal(data[3], 255);
+  assert.ok(Math.abs((r ?? 0) - (g ?? 0)) < 25 && Math.abs((g ?? 0) - (b ?? 0)) < 25);
+  assert.ok((r ?? 0) > 100 && (r ?? 0) < 200);
+});
+
+/** A bare, large SFX overlay for impact-band sampling. */
+function sfxImpactOverlay(over: Partial<LetteringOverlay> = {}): LetteringOverlay {
+  return {
+    id: "sfx-impact",
+    cutId: "c",
+    speaker: "",
+    kind: "sfx",
+    text: "BOOM",
+    font: "sans-serif",
+    fill: "transparent",
+    opacity: 1,
+    border: null,
+    tail: null,
+    geometry: { x: 0.3, y: 0.35, width: 0.3, height: 0.3 },
+    overflow: false,
+    reviewStatus: "draft",
+    ...over,
+  };
+}
+
+/** Count clearly-dark pixels (speed-lines + burst stroke ink). */
+function darkInk(canvas: Canvas): number {
+  const ctx = canvas.getContext("2d");
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let n = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if ((data[i] ?? 255) < 60 && (data[i + 1] ?? 255) < 60 && (data[i + 2] ?? 255) < 60) n++;
+  }
+  return n;
+}
+
+test("impact_band adds speed-lines + burst that typeset SFX does not (#99)", async () => {
+  const typeset = await composeCut([sfxImpactOverlay({ sfxMode: "typeset" })], null, 480);
+  const impact = await composeCut([sfxImpactOverlay({ sfxMode: "impact_band" })], null, 480);
+  assert.equal(impact.width, 480);
+  // The impact decoration paints substantially more dark ink (rays + burst) than
+  // the same SFX rendered as plain typeset text.
+  assert.ok(
+    darkInk(impact.canvas) > darkInk(typeset.canvas) + 200,
+    `impact ink ${darkInk(impact.canvas)} should exceed typeset ${darkInk(typeset.canvas)}`,
+  );
+});
+
+test("impact_band speed-lines reach the panel edges (full-width band)", async () => {
+  const impact = await composeCut([sfxImpactOverlay({ sfxMode: "impact_band" })], null, 480);
+  const ctx = impact.canvas.getContext("2d");
+  // A horizontal ray fans to the left/right edge at the vertical center: sample a
+  // column near the left edge across the mid band and expect some dark ink.
+  const midY = Math.round(impact.height / 2);
+  let edgeInk = 0;
+  for (let x = 0; x < 12; x++) {
+    for (let dy = -8; dy <= 8; dy++) {
+      const { data } = ctx.getImageData(x, midY + dy, 1, 1);
+      if ((data[0] ?? 255) < 80 && (data[1] ?? 255) < 80 && (data[2] ?? 255) < 80) edgeInk++;
+    }
+  }
+  assert.ok(edgeInk > 0, "expected speed-line ink near the panel edge");
+});

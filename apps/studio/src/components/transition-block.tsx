@@ -12,21 +12,23 @@ export function TransitionBlock({ transition }: { transition: Transition }) {
   const plan = layoutTransition(transition);
 
   // The band reserves its real gutter height so the scroll rhythm is literal.
-  // Cards/breaks get a visible minimum so their label/detail is legible even
-  // when authored with a small gutter; plain gutters honor the exact height.
-  const reserved = plan.isCard ? Math.max(plan.gutterHeight, 56) : plan.gutterHeight;
+  // Cards/breaks and the v3 solid bands (#99) get a visible minimum so their
+  // label/detail is legible even when authored with a small gutter; plain gutters
+  // honor the exact height.
+  const reserved =
+    plan.isCard || plan.treatment === "band" ? Math.max(plan.gutterHeight, 56) : plan.gutterHeight;
+  // The resolved solid-band fill (#99, folds in any #98 color) wins; otherwise a
+  // legacy explicit #98 color. Same resolved color the export canvas uses, so the
+  // studio and export bands match.
+  const background = plan.bandFill ?? plan.color;
 
   return (
     <div
       className="transition-block"
       data-testid={`transition-${transition.id}`}
       data-treatment={plan.treatment}
-      // #98: an explicit band color fills the band (same resolved plan color the
-      // export canvas uses), so studio and export bands match.
       style={
-        plan.color
-          ? { minHeight: `${reserved}px`, background: plan.color }
-          : { minHeight: `${reserved}px` }
+        background ? { minHeight: `${reserved}px`, background } : { minHeight: `${reserved}px` }
       }
     >
       <div className="transition-rule" aria-hidden="true" />

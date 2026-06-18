@@ -555,3 +555,35 @@ test("overlay placement/placementSide validate against their enums", () => {
   overlay.placementSide = "top" as unknown as typeof overlay.placementSide;
   assert.ok(codes(validateProject(project)).includes("overlay.placement-side"));
 });
+
+// --- v3 transitions & SFX modes (#99) --------------------------------------
+
+test("the v3 craft transition kinds are accepted (#99)", () => {
+  const project = cloneValidProject();
+  const transition = project.episodes[0]?.transitions[0];
+  assert.ok(transition);
+  for (const type of ["black_band", "title_card", "palette_shift", "desaturate_repeat"] as const) {
+    transition.type = type;
+    assert.equal(
+      validateProject(project).valid,
+      true,
+      `${type}: ${JSON.stringify(validateProject(project).issues)}`,
+    );
+  }
+  transition.type = "wormhole" as unknown as typeof transition.type;
+  assert.ok(codes(validateProject(project)).includes("transition.kind"));
+});
+
+test("overlay sfxMode validates against its enum and is optional (#99)", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  // Absent → valid (back-compat).
+  assert.equal(validateProject(project).valid, true);
+  for (const mode of ["typeset", "hand_lettered", "impact_band"] as const) {
+    overlay.sfxMode = mode;
+    assert.equal(validateProject(project).valid, true, mode);
+  }
+  overlay.sfxMode = "graffiti" as unknown as typeof overlay.sfxMode;
+  assert.ok(codes(validateProject(project)).includes("overlay.sfx-mode"));
+});

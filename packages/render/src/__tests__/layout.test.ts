@@ -391,3 +391,68 @@ test("cutPlacementFrame reserves bands and yields the remaining art rect (#98)",
   );
   assert.deepEqual(left.art, { x: bandW, y: 0, width: W - bandW, height: H });
 });
+
+// --- SFX render modes (#99) -------------------------------------------------
+
+test("typeset is the default SFX mode and leaves the plan unchanged (back-compat)", () => {
+  const plain = layoutBubble(sfxOverlay, W, H);
+  const typeset = layoutBubble({ ...sfxOverlay, sfxMode: "typeset" }, W, H);
+  // An absent sfxMode renders identically to an explicit typeset, and neither
+  // produces an impact decoration (the legacy SFX path is untouched).
+  assert.equal(plain.impact, null);
+  assert.equal(typeset.impact, null);
+  assert.deepEqual(typeset, plain);
+  // typeset keeps the per-kind default SFX face.
+  assert.equal(plain.fontFamily, defaultFontFamilyForKind("sfx"));
+});
+
+test("hand_lettered swaps to a loose hand face without mutating the text", () => {
+  const r = layoutBubble({ ...sfxOverlay, sfxMode: "hand_lettered" }, W, H);
+  assert.equal(r.fontFamily, "patrick-hand");
+  // The stored text is preserved verbatim — only the face changed.
+  assert.equal(r.text.lines.join(" ").replace(/\s+/g, ""), sfxOverlay.text.replace(/\s+/g, ""));
+  assert.equal(r.impact, null);
+  // An explicit fontFamily still wins over the hand-lettered swap.
+  const explicit = layoutBubble(
+    { ...sfxOverlay, sfxMode: "hand_lettered", fontFamily: "anton" },
+    W,
+    H,
+  );
+  assert.equal(explicit.fontFamily, "anton");
+});
+
+test("hand_lettered only swaps the face for SFX, not other kinds", () => {
+  // sfxMode is meaningless on non-sfx kinds: the speech face is unchanged.
+  const speech = layoutBubble({ ...speechOverlay, sfxMode: "hand_lettered" }, W, H);
+  assert.equal(speech.fontFamily, defaultFontFamilyForKind("speech"));
+});
+
+test("impact_band makes the SFX box full-width over the art and adds a pure-segment burst", () => {
+  const r = layoutBubble({ ...sfxOverlay, sfxMode: "impact_band" }, W, H);
+  // Full-width band: the box spans the whole art width regardless of the authored
+  // geometry x/width.
+  assert.equal(r.box.x, 0);
+  assert.equal(r.box.width, W);
+  assert.ok(r.impact, "expected an impact decoration");
+  // Speed-lines and burst are PURE straight segments — only finite numeric coords,
+  // no arcs/curves (parity with the canvas trace).
+  assert.ok(r.impact.rays.length > 0);
+  for (const ray of r.impact.rays) {
+    for (const v of [ray.x1, ray.y1, ray.x2, ray.y2]) assert.ok(Number.isFinite(v));
+  }
+  assert.ok(r.impact.burst.length >= 6);
+  for (const p of r.impact.burst) {
+    assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y));
+  }
+  assert.ok(r.impact.rayWidth > 0 && r.impact.burstStrokeWidth > 0);
+});
+
+test("impact_band stays within the art rect when a gutter strip is reserved", () => {
+  const r = layoutBubble({ ...sfxOverlay, sfxMode: "impact_band" }, W, H);
+  // With no gutter overlay present, the art is the whole frame, so the band fills
+  // the full width; the burst points all sit inside the box bounds.
+  for (const p of r.impact?.burst ?? []) {
+    assert.ok(p.x >= r.box.x - 1 && p.x <= r.box.x + r.box.width + 1);
+    assert.ok(p.y >= r.box.y - 1 && p.y <= r.box.y + r.box.height + 1);
+  }
+});

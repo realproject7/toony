@@ -10,7 +10,14 @@
 // aspect-ratio stage, so the overlay scales with the displayed image. When no
 // art is linked, the existing "No image yet" empty state is kept.
 
-import { type BubbleRender, cutPlacementFrame, layoutCut } from "@toony/render";
+import {
+  type BubbleRender,
+  cutPlacementFrame,
+  IMPACT_BURST_FILL,
+  IMPACT_BURST_STROKE,
+  IMPACT_RAY_COLOR,
+  layoutCut,
+} from "@toony/render";
 import type { Cut, LetteringOverlay } from "@toony/schema";
 import Link from "next/link";
 import type { CutArt } from "@/lib/project";
@@ -39,6 +46,7 @@ export interface CutCanvasProps {
 /** One bubble drawn as SVG from its geometry-core render plan. */
 function Bubble({ plan }: { plan: BubbleRender }) {
   const fontSize = plan.text.fontSize;
+  const impact = plan.impact;
   return (
     <g data-bubble-id={plan.id} data-overflow={plan.overflow ? "true" : undefined}>
       {plan.hasBubble && (
@@ -50,6 +58,31 @@ function Bubble({ plan }: { plan: BubbleRender }) {
           strokeWidth={plan.strokeWidth}
           strokeLinejoin="round"
         />
+      )}
+      {/* impact_band SFX (#99): speed-lines + burst behind the text, from the
+          SAME pure-segment plan the export canvas traces → pixel parity. */}
+      {impact && (
+        <g data-testid={`impact-${plan.id}`}>
+          {impact.rays.map((ray, i) => (
+            <line
+              // biome-ignore lint/suspicious/noArrayIndexKey: rays are a positional, read-only layout output — the index is the stable identity within one layout pass.
+              key={`${plan.id}-ray-${i}`}
+              x1={ray.x1}
+              y1={ray.y1}
+              x2={ray.x2}
+              y2={ray.y2}
+              stroke={IMPACT_RAY_COLOR}
+              strokeWidth={impact.rayWidth}
+            />
+          ))}
+          <polygon
+            points={impact.burst.map((p) => `${p.x},${p.y}`).join(" ")}
+            fill={IMPACT_BURST_FILL}
+            stroke={IMPACT_BURST_STROKE}
+            strokeWidth={impact.burstStrokeWidth}
+            strokeLinejoin="round"
+          />
+        </g>
       )}
       {plan.lines.map((line, i) => (
         <text
