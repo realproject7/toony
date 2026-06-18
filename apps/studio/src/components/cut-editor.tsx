@@ -17,7 +17,9 @@
 // `/api/lettering`, which validates and writes `lettering.json`; cancel returns
 // to the preview without writing.
 
+import type { Finding } from "@toony/lint";
 import { bubbleKindStyle, kindSupportsTail, layoutCut } from "@toony/render";
+import type { Character, Cut } from "@toony/schema";
 import { LETTERING_STYLE_DEFAULTS, type LetteringOverlay } from "@toony/schema";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -39,6 +41,27 @@ const BubbleInspector = dynamic(() => import("./bubble-inspector").then((m) => m
   ),
 });
 
+// The cut craft panel (shot/palette/layer/styleTag, character registry +
+// assignment, and the craft-lint findings list) is editor-only too, so it is
+// lazy-loaded as its own chunk — the library/reader never pull in these controls.
+const CutCraftPanel = dynamic(() => import("./cut-craft-panel").then((m) => m.CutCraftPanel), {
+  ssr: false,
+  loading: () => (
+    <div className="inspector-form" data-testid="cut-craft-panel-loading">
+      <p className="empty">Loading craft controls…</p>
+    </div>
+  ),
+});
+
+/** The cut's craft metadata (#98) the editor surfaces, in one prop object. */
+export interface CutCraftFields {
+  shotType: Cut["shotType"];
+  palette: Cut["palette"];
+  layer: Cut["layer"];
+  styleTag: Cut["styleTag"];
+  characters: string[];
+}
+
 export interface CutEditorProps {
   workId: string;
   episodeId: string;
@@ -49,6 +72,12 @@ export interface CutEditorProps {
   initialBubbles: LetteringOverlay[];
   initialImagePrompt: string;
   initialNegativePrompt: string;
+  /** The cut's craft metadata + character assignment (#98/#92). */
+  initialCraft: CutCraftFields;
+  /** The project character registry (#92), for the registry + assignment UI. */
+  initialCharacters: Character[];
+  /** Initial craft/character/overflow lint findings for this episode (#94). */
+  initialFindings: Finding[];
 }
 
 /**
@@ -89,6 +118,9 @@ export function CutEditor({
   initialBubbles,
   initialImagePrompt,
   initialNegativePrompt,
+  initialCraft,
+  initialCharacters,
+  initialFindings,
 }: CutEditorProps) {
   const [bubbles, setBubbles] = useState<LetteringOverlay[]>(initialBubbles);
   const [selectedId, setSelectedId] = useState<string | null>(initialBubbles[0]?.id ?? null);
@@ -734,6 +766,14 @@ export function CutEditor({
               setPromptMessage(null);
             }}
             onSave={savePrompts}
+          />
+          <CutCraftPanel
+            workId={workId}
+            episodeId={episodeId}
+            cutId={cutId}
+            initialCraft={initialCraft}
+            initialCharacters={initialCharacters}
+            initialFindings={initialFindings}
           />
           {selected ? (
             <BubbleInspector

@@ -55,4 +55,10 @@ export {
 } from "./reader.js";
 export { buildInitialProject, slugify } from "./scaffold.js";
 export { listWorkspace, type WorkspaceEntry } from "./workspace.js";
-export { writeCuts, writeLettering, writeProject, writeTransitions } from "./writer.js";
+export {
+  writeCuts,
+  writeLettering,
+  writeProject,
+  writeTransitions,
+  writeWebtoon,
+} from "./writer.js";

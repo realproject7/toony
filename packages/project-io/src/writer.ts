@@ -19,6 +19,8 @@ import {
   validateLetteringOverlayValue,
   validateProject,
   validateTransitionValue,
+  validateWebtoonValue,
+  type Webtoon,
 } from "@toony/schema";
 import { ProjectIoError } from "./errors.js";
 import { encodeJson, encodeYaml } from "./format.js";
@@ -82,6 +84,30 @@ export async function writeProject(root: string, project: Project): Promise<void
     await writeFile(transitionsFile(root, id), encodeYaml(bundle.transitions), "utf8");
     await writeFile(letteringFile(root, id), encodeJson(bundle.lettering), "utf8");
   }
+}
+
+/**
+ * Persist the project root `webtoon.json`, validating it against `@toony/schema`
+ * first and refusing to write if it is invalid. This is the surgical write path
+ * the studio's character-registry UI (#102) uses to save `webtoon.characters`:
+ * it touches only `webtoon.json` and leaves every episode file byte-stable.
+ * Output is deterministic (sorted keys), so a no-op save re-emits identical bytes.
+ *
+ * Mirrors `writeCuts`/`writeLettering`: per-record schema conformance is enforced
+ * here (the webtoon shape, including the character registry's id/name/lockstring
+ * fields and unique character ids), which are the invariants `webtoon.json` alone
+ * can own. Cross-file checks (e.g. whether a cut's character ref resolves) stay a
+ * lint concern, not a write-time hard error.
+ */
+export async function writeWebtoon(root: string, webtoon: Webtoon): Promise<void> {
+  const c = new IssueCollector();
+  validateWebtoonValue(webtoon, "webtoon", c);
+  const result = c.result();
+  if (!result.valid) {
+    const detail = result.issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ");
+    throw new ProjectIoError(`refusing to write invalid webtoon: ${detail}`, webtoon.projectId);
+  }
+  await writeFile(webtoonPath(root), encodeJson(webtoon), "utf8");
 }
 
 /**
