@@ -14,6 +14,7 @@ import {
   type Transition,
   type Webtoon,
 } from "@toony/schema";
+import { buildGenreEpisodeBundle, type Genre } from "./genres.js";
 
 /** Lowercase, hyphenate, and trim a name into a safe folder/project id. */
 export function slugify(name: string): string {
@@ -67,8 +68,13 @@ function starterEpisode(): EpisodeBundle {
   return { episode, cuts, transitions, lettering };
 }
 
-/** Build the full in-memory project model for a new project. */
-export function buildInitialProject(name: string): Project {
+/**
+ * Build the full in-memory project model for a new project. With no `genre` the
+ * neutral starter episode is used (back-compat); a `genre` seeds a genre-tuned
+ * cold-open + beat scaffold (#101) via `@toony/project-io`'s genre templates.
+ * Either way the result is a valid, lint-clean project.
+ */
+export function buildInitialProject(name: string, genre?: Genre): Project {
   const projectId = slugify(name);
   const webtoon: Webtoon = {
     schemaVersion: SCHEMA_VERSION,
@@ -85,5 +91,6 @@ export function buildInitialProject(name: string): Project {
       providers: [],
     },
   };
-  return { webtoon, episodes: [starterEpisode()] };
+  const episode = genre ? buildGenreEpisodeBundle(genre) : starterEpisode();
+  return { webtoon, episodes: [episode] };
 }

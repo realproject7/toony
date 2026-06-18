@@ -3,7 +3,8 @@
 export const HELP_TEXT = `toony — local-first webtoon production CLI
 
 usage:
-  toony init <name>        scaffold a new project folder (passes \`toony validate\`)
+  toony init <name> [--genre <romance|comedy|action|thriller|slice-of-life>]
+                           scaffold a new project folder (passes \`toony validate\`); --genre seeds a genre-tuned starter
   toony validate [path]    validate a project folder (default: current directory)
   toony studio [path]      launch the web studio over a workspace (or a single project)
   toony import-image ...   import/ingest an image asset for a cut or transition
