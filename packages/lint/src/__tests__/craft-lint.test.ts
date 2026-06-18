@@ -8,8 +8,12 @@ import type {
   Cut,
   EpisodeBundle,
   LetteringOverlay,
+  SequenceItem,
+  ShotType,
+  Transition,
+  TransitionType,
 } from "@toony/schema";
-import { lintCraft } from "../craft-lint.js";
+import { lintCraft, RHYTHM_RUN_MAX } from "../craft-lint.js";
 import { type Finding, sortFindings } from "../findings.js";
 
 const WIDE: BubbleGeometry = { x: 0.05, y: 0.05, width: 0.9, height: 0.18 };
@@ -152,5 +156,137 @@ test("lintCraft is deterministic for the same inputs", () => {
     [cut("c1")],
     [overlay({ id: "a", speaker: "" }), overlay({ id: "b", text: "ok" })],
   );
+  assert.deepEqual(lintCraft(b, []), lintCraft(b, []));
+});
+
+// --- Rhythm monotony (#100) -------------------------------------------------
+
+function shotCut(id: string, shotType?: ShotType): Cut {
+  return {
+    id,
+    image: null,
+    imagePrompt: "",
+    negativePrompt: "",
+    ...(shotType ? { shotType } : {}),
+  };
+}
+
+function transition(id: string, type: TransitionType): Transition {
+  return {
+    id,
+    type,
+    gutterHeight: 48,
+    text: null,
+    sfx: null,
+    agentNote: null,
+    humanNote: null,
+    image: null,
+    reviewStatus: "draft",
+  };
+}
+
+/**
+ * Build a bundle from an ordered list of shotTypes (null = unclassified cut).
+ * `between[i]`, when set, inserts a transition of that type between cut i and i+1.
+ */
+function rhythmBundle(
+  shots: Array<ShotType | null>,
+  between: Array<TransitionType | null> = [],
+): EpisodeBundle {
+  const cuts: Cut[] = shots.map((s, i) => shotCut(`c${i}`, s ?? undefined));
+  const transitions: Transition[] = [];
+  const sequence: SequenceItem[] = [];
+  shots.forEach((_, i) => {
+    sequence.push({ type: "cut", id: `c${i}` });
+    const t = between[i];
+    if (t && i < shots.length - 1) {
+      const id = `t${i}`;
+      transitions.push(transition(id, t));
+      sequence.push({ type: "transition", id });
+    }
+  });
+  return {
+    episode: { schemaVersion: 1, id: "ep", title: "Ep", sequence },
+    cuts,
+    transitions,
+    lettering: [],
+  };
+}
+
+function rhythmFindings(b: EpisodeBundle): Finding[] {
+  return lintCraft(b, []).filter((f) => f.code === "craft/rhythm-monotony");
+}
+
+test("craft/rhythm-monotony warns on a run of >= RHYTHM_RUN_MAX same-shotType cuts", () => {
+  const b = rhythmBundle(Array.from({ length: RHYTHM_RUN_MAX }, () => "medium" as ShotType));
+  const found = rhythmFindings(b);
+  assert.equal(found.length, 1);
+  assert.equal(found[0]?.severity, "warning");
+  // Payload: run length, the shotType, and the cut ids, targeted at the first cut.
+  assert.equal(found[0]?.targetId, "c0");
+  assert.match(found[0]?.message ?? "", new RegExp(`${RHYTHM_RUN_MAX} consecutive`));
+  assert.match(found[0]?.message ?? "", /medium/);
+  for (let i = 0; i < RHYTHM_RUN_MAX; i++) {
+    assert.match(found[0]?.message ?? "", new RegExp(`c${i}`));
+  }
+});
+
+test("craft/rhythm-monotony is clean just below the threshold", () => {
+  const b = rhythmBundle(Array.from({ length: RHYTHM_RUN_MAX - 1 }, () => "close_up" as ShotType));
+  assert.deepEqual(rhythmFindings(b), []);
+});
+
+test("craft/rhythm-monotony is clean on a varied episode", () => {
+  const b = rhythmBundle([
+    "establishing_wide",
+    "close_up",
+    "medium",
+    "impact_splash",
+    "small_centered",
+  ]);
+  assert.deepEqual(rhythmFindings(b), []);
+});
+
+test("a different shotType resets the run", () => {
+  // 3 medium, one close_up, 3 medium → no run reaches 4.
+  const b = rhythmBundle(["medium", "medium", "medium", "close_up", "medium", "medium", "medium"]);
+  assert.deepEqual(rhythmFindings(b), []);
+});
+
+test("a non-gutter transition between same-shotType cuts resets the run", () => {
+  // 4 medium cuts, but a scene-break after c1 splits the run into 2 + 2.
+  const b = rhythmBundle(["medium", "medium", "medium", "medium"], [null, "scene-break", null]);
+  assert.deepEqual(rhythmFindings(b), []);
+});
+
+test("a plain gutter transition does NOT reset the run", () => {
+  // Same 4 medium cuts with gutters between them → still one run of 4.
+  const b = rhythmBundle(["medium", "medium", "medium", "medium"], ["gutter", "gutter", "gutter"]);
+  assert.equal(rhythmFindings(b).length, 1);
+});
+
+test("an unclassified cut (no shotType) breaks the run (graceful degrade)", () => {
+  // Would be 4 medium, but the absent-shotType cut splits it into 2 + 2.
+  const b = rhythmBundle(["medium", "medium", null, "medium", "medium"]);
+  assert.deepEqual(rhythmFindings(b), []);
+  // And a fully unclassified episode never crashes or fires.
+  const none = rhythmBundle([null, null, null, null, null]);
+  assert.deepEqual(rhythmFindings(none), []);
+});
+
+test("a run that resumes after a break still fires when long enough", () => {
+  // null breaks, then a fresh run of RHYTHM_RUN_MAX impact_splash cuts triggers.
+  const b = rhythmBundle([
+    "medium",
+    null,
+    ...Array.from({ length: RHYTHM_RUN_MAX }, () => "impact_splash" as ShotType),
+  ]);
+  const found = rhythmFindings(b);
+  assert.equal(found.length, 1);
+  assert.equal(found[0]?.targetId, "c2");
+});
+
+test("craft/rhythm-monotony is deterministic", () => {
+  const b = rhythmBundle(["medium", "medium", "medium", "medium"], ["gutter", "gutter", "gutter"]);
   assert.deepEqual(lintCraft(b, []), lintCraft(b, []));
 });

@@ -4,7 +4,7 @@
 // length counts reuse @toony/render's text layout — the single source of wrapping.
 
 import { layoutBubble } from "@toony/render";
-import type { Character, EpisodeBundle } from "@toony/schema";
+import type { Character, EpisodeBundle, ShotType } from "@toony/schema";
 import { type Finding, finding } from "./findings.js";
 
 /** > this many speech/thought bubbles in a cut → density warning. */
@@ -19,6 +19,12 @@ export const CRAFT_MAX_LINES = 4;
 export const CRAFT_MAX_ALLCAPS_LINE_CHARS = 16;
 /** A narration/caption longer than this many words → fragmentation info. */
 export const CRAFT_MAX_NARRATION_WORDS = 30;
+/**
+ * ≥ this many CONSECUTIVE cuts sharing the same `shotType` with nothing breaking
+ * the rhythm → rhythm-monotony warning (#100). docs/TOONY-WEBTOON-CRAFT.md §5:
+ * monotony kills the read; alternate splash/small/void shots.
+ */
+export const RHYTHM_RUN_MAX = 4;
 
 /**
  * Reference render size for counting wrapped lines. Wrapping depends on the box
@@ -152,6 +158,55 @@ export function lintCraft(bundle: EpisodeBundle, characters: readonly Character[
       }
     }
   }
+
+  // --- Rhythm monotony (#100) ---
+  // Walk the episode's reading SEQUENCE and flag a long RUN of consecutive cuts
+  // that share the same `shotType` with nothing breaking the rhythm. The run
+  // resets when (a) the next cut has a different `shotType`, (b) a NON-`gutter`
+  // transition occurs between cuts (a scene-break/fade/etc. is a deliberate beat
+  // change), or (c) a cut has no `shotType` (graceful degrade — an unclassified
+  // cut breaks the run rather than extending it). Plain `gutter` transitions do
+  // NOT reset. Deterministic: the sequence order is the single source.
+  const transitionById = new Map(
+    bundle.transitions.map((transition) => [transition.id, transition]),
+  );
+  let run: { shotType: ShotType; cutIds: string[] } | null = null;
+  const flushRun = (): void => {
+    const current = run;
+    run = null;
+    if (current && current.cutIds.length >= RHYTHM_RUN_MAX) {
+      const [firstId = ""] = current.cutIds;
+      findings.push(
+        finding(
+          "warning",
+          "craft/rhythm-monotony",
+          firstId,
+          `${current.cutIds.length} consecutive cuts share shotType "${current.shotType}" (max ${RHYTHM_RUN_MAX - 1}): ${current.cutIds.join(", ")}; alternate splash/small/void shots to keep the scroll moving.`,
+        ),
+      );
+    }
+  };
+  for (const item of bundle.episode.sequence) {
+    if (item.type === "transition") {
+      // A non-gutter (or unresolved) transition is a deliberate rhythm break; a
+      // plain gutter keeps the run going.
+      if (transitionById.get(item.id)?.type !== "gutter") flushRun();
+      continue;
+    }
+    const shotType = cutById.get(item.id)?.shotType;
+    if (!shotType) {
+      // Unclassified/missing cut breaks the run and does not start a new one.
+      flushRun();
+      continue;
+    }
+    if (run && run.shotType === shotType) {
+      run.cutIds.push(item.id);
+    } else {
+      flushRun();
+      run = { shotType, cutIds: [item.id] };
+    }
+  }
+  flushRun();
 
   return findings;
 }

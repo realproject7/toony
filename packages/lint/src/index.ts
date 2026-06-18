@@ -11,6 +11,7 @@ export {
   CRAFT_MAX_LINES,
   CRAFT_MAX_NARRATION_WORDS,
   lintCraft,
+  RHYTHM_RUN_MAX,
 } from "./craft-lint.js";
 export type { Finding, Severity } from "./findings.js";
 export { finding, isClean, sortFindings } from "./findings.js";
