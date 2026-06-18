@@ -284,7 +284,11 @@ function TransitionRow({
   onSelect: () => void;
 }) {
   const plan = layoutTransition(transition);
-  const reserved = plan.isCard ? Math.max(plan.gutterHeight, 56) : plan.gutterHeight;
+  const reserved =
+    plan.isCard || plan.treatment === "band" ? Math.max(plan.gutterHeight, 56) : plan.gutterHeight;
+  // Same resolved band fill the read-only preview + export use (#98/#99), so the
+  // editor row previews the actual band color.
+  const background = plan.bandFill ?? plan.color;
   return (
     <button
       type="button"
@@ -292,7 +296,9 @@ function TransitionRow({
       data-testid={`transition-${transition.id}`}
       data-treatment={plan.treatment}
       data-selected={selected ? "true" : undefined}
-      style={{ minHeight: `${reserved}px` }}
+      style={
+        background ? { minHeight: `${reserved}px`, background } : { minHeight: `${reserved}px` }
+      }
       onClick={onSelect}
     >
       <div className="transition-rule" aria-hidden="true" />

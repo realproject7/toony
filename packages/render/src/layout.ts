@@ -28,6 +28,8 @@ import {
   buildBalloonOutline,
   clamp,
   defaultBalloonRadius,
+  type ImpactDecoration,
+  impactDecoration,
   speechTailGeometry,
   type TailGeometry,
 } from "./geometry.js";
@@ -95,6 +97,12 @@ export interface BubbleRender {
    * source for SVG + canvas so they match (#83); 0 when the bubble has a body.
    */
   textOutlineWidth: number;
+  /**
+   * Impact-band SFX decoration (#99): radial speed-lines + a burst star drawn
+   * behind the lettering, as pure straight segments so the studio SVG and the
+   * export canvas match. Non-null only for `kind=sfx` with `sfxMode=impact_band`.
+   */
+  impact: ImpactDecoration | null;
   /** Resolved corner radius in px (override clamped, else per-kind default). */
   cornerRadius: number;
   /** Resolved body font weight (override, else per-kind default). */
@@ -136,6 +144,15 @@ export interface LayoutOptions {
   measure?: MeasureWidth;
   /** Base stroke width in px at this render height (default: 0.4% of height). */
   baseStrokeWidth?: number;
+  /**
+   * The CUT-LEVEL art rect (#99): the artwork region reserved from ALL of the
+   * cut's overlays via {@link cutPlacementFrame}, not just this one. `layoutCut`
+   * supplies it so a full-width `impact_band` SFX spans the shared art and never
+   * bleeds into a sibling gutter bubble's reserved strip. Absent (a standalone
+   * `layoutBubble` call) → this overlay's own art rect, which is the full frame
+   * for an in-panel bubble (back-compat).
+   */
+  cutArt?: Rect;
 }
 
 /** Base stroke width derived from render height when not supplied. */
@@ -216,11 +233,20 @@ export function layoutBubble(
   // current behavior — per-kind weight/color/corner-radius, auto-fit size — so
   // overlays written before these fields existed render identically.
   const fontWeight: FontWeight = overlay.fontWeight ?? style.fontWeight;
+  // SFX render mode (#99): only meaningful for kind=sfx; absent → typeset.
+  // `hand_lettered` swaps to a loose hand face WITHOUT mutating the stored text,
+  // but an explicit `fontFamily` still wins; `impact_band` adds the full-width
+  // radial-burst decoration below. typeset keeps the current behavior.
+  const sfxMode = kind === "sfx" ? (overlay.sfxMode ?? "typeset") : "typeset";
+  const effectiveFamilyId =
+    sfxMode === "hand_lettered" && overlay.fontFamily === undefined
+      ? "patrick-hand"
+      : overlay.fontFamily;
   // Resolve the curated font family (#56): the overlay's id, or the per-kind
   // default when absent/unknown, via the shared @toony/fonts registry. Both the
   // family id and its CSS stack are exposed so SVG sets `font-family` and export
   // selects the matching registered canvas family — one resolution, no drift.
-  const family = resolveFontFamily(overlay.fontFamily, kind);
+  const family = resolveFontFamily(effectiveFamilyId, kind);
   const fontFamily: FontFamilyId = family.id;
   const fontStack = family.stack;
   const textAlign: TextAlign = overlay.textAlign ?? LETTERING_STYLE_DEFAULTS.textAlign;
@@ -261,10 +287,22 @@ export function layoutBubble(
   const geomRect = band ?? frame;
 
   // Body rect → pixel space within the placement rect, clamped to positive size.
-  const ow = Math.max(1, overlay.geometry.width * geomRect.width);
+  let ow = Math.max(1, overlay.geometry.width * geomRect.width);
   const oh = Math.max(1, overlay.geometry.height * geomRect.height);
-  const ox = geomRect.x + overlay.geometry.x * geomRect.width;
+  let ox = geomRect.x + overlay.geometry.x * geomRect.width;
   const oy = geomRect.y + overlay.geometry.y * geomRect.height;
+  // impact_band SFX (#99) is a FULL-WIDTH band over the art: the box spans the
+  // whole art width (the authored y/height set its vertical placement), so the
+  // burst + speed-lines fill the panel. The art it spans is the CUT-LEVEL art
+  // rect (reserved from every overlay), so a sibling gutter bubble's strip stays
+  // clear; absent (standalone call) it falls back to this overlay's art. Other
+  // modes keep the authored box.
+  const isImpact = sfxMode === "impact_band";
+  const impactArt = opts.cutArt ?? art;
+  if (isImpact) {
+    ox = impactArt.x;
+    ow = impactArt.width;
+  }
 
   // Corner radius: a stored override (clamped so arcs never overrun the body)
   // takes precedence; otherwise the per-kind default scale.
@@ -352,6 +390,10 @@ export function layoutBubble(
   // bubble body (no bare-text outline).
   const textOutlineWidth = hasBubble ? 0 : Math.max(1, text.fontSize * SFX_TEXT_OUTLINE_FACTOR);
 
+  // impact_band (#99): the radial speed-lines + burst behind the text, as pure
+  // straight segments (parity). Built from the resolved full-width box.
+  const impact = isImpact ? impactDecoration({ x: ox, y: oy, width: ow, height: oh }) : null;
+
   return {
     id: overlay.id,
     kind,
@@ -370,6 +412,7 @@ export function layoutBubble(
     fillOpacity,
     cornerRadius: radius,
     textOutlineWidth,
+    impact,
     fontWeight,
     fontFamily,
     fontStack,
@@ -396,6 +439,10 @@ export function layoutCut(
   height: number,
   opts: LayoutOptions = {},
 ): BubbleRender[] {
+  // Reserve the cut-level art rect from ALL overlays once (#98/#99) and pass it
+  // down, so a full-width impact_band SFX spans the shared art and never enters a
+  // sibling gutter bubble's reserved strip. An explicit opts.cutArt wins.
+  const cutArt = opts.cutArt ?? cutPlacementFrame(overlays, width, height).art;
   return overlays
     .map((overlay, index) => ({ overlay, index }))
     .sort(
@@ -403,5 +450,5 @@ export function layoutCut(
         (a.overlay.zIndex ?? LETTERING_STYLE_DEFAULTS.zIndex) -
           (b.overlay.zIndex ?? LETTERING_STYLE_DEFAULTS.zIndex) || a.index - b.index,
     )
-    .map(({ overlay }) => layoutBubble(overlay, width, height, opts));
+    .map(({ overlay }) => layoutBubble(overlay, width, height, { ...opts, cutArt }));
 }

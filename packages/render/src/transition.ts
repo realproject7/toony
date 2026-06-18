@@ -15,8 +15,11 @@ import {
 } from "@toony/schema";
 import { clamp } from "./geometry.js";
 
-/** Visual treatment of a transition band, derived from its type. */
-export type TransitionTreatment = "gutter" | "fade" | "card" | "break";
+/**
+ * Visual treatment of a transition band, derived from its type. `band` (#99) is
+ * a solid full-width color band (the craft scene-break kinds).
+ */
+export type TransitionTreatment = "gutter" | "fade" | "card" | "break" | "band";
 
 export interface TransitionRender {
   id: string;
@@ -35,6 +38,14 @@ export interface TransitionRender {
   isCard: boolean;
   /** Band fill color override (#98), or null to use the treatment's default. */
   color: string | null;
+  /**
+   * Resolved solid-band background fill (#99) for the v3 craft kinds, or null for
+   * the legacy kinds (which keep their per-treatment default rendering). For a
+   * craft kind this is `Transition.color` when set, else the per-kind default —
+   * so both the studio band and the export canvas fill the band with the SAME
+   * solid color. A solid fill (no gradient) keeps studio↔export parity.
+   */
+  bandFill: string | null;
 }
 
 const TREATMENT: Record<TransitionType, TransitionTreatment> = {
@@ -44,6 +55,25 @@ const TREATMENT: Record<TransitionType, TransitionTreatment> = {
   beat: "card",
   "scene-break": "break",
   "time-skip": "card",
+  // v3 craft kinds (#99): solid bands; title_card reuses the card text treatment.
+  black_band: "band",
+  palette_shift: "band",
+  desaturate_repeat: "band",
+  title_card: "card",
+};
+
+/**
+ * Per-kind default solid-band fill for the v3 craft transition kinds (#99). A
+ * craft transition with no explicit `Transition.color` falls back to these so the
+ * band still reads; `desaturate_repeat` is a neutral GRAY band standing in for a
+ * true cross-cut desaturate (deferred — see #99 / docs §8). Legacy kinds are
+ * absent here and keep their existing treatment rendering (bandFill = null).
+ */
+const CRAFT_BAND_DEFAULTS: Partial<Record<TransitionType, string>> = {
+  black_band: "#0d0d0d",
+  title_card: "#15110d",
+  palette_shift: "#5a6b7a",
+  desaturate_repeat: "#9a958c",
 };
 
 /** Resolve a transition into a render plan. */
@@ -54,6 +84,11 @@ export function layoutTransition(transition: Transition): TransitionRender {
     transition.text ?? transition.sfx ?? transition.humanNote ?? transition.agentNote ?? null;
   const isSfx =
     transition.text === null && transition.sfx !== null && transition.sfx.trim().length > 0;
+  const color = transition.color?.trim() ? transition.color : null;
+  // Craft kinds (#99) resolve a solid band fill: the explicit color, else the
+  // per-kind default. Legacy kinds have no default → bandFill stays null.
+  const craftDefault = CRAFT_BAND_DEFAULTS[transition.type] ?? null;
+  const bandFill = craftDefault !== null ? (color ?? craftDefault) : null;
   return {
     id: transition.id,
     type: transition.type,
@@ -63,10 +98,11 @@ export function layoutTransition(transition: Transition): TransitionRender {
       GUTTER_HEIGHT_MAX_PX,
     ),
     treatment,
-    label: transition.type.replace(/-/g, " "),
+    label: transition.type.replace(/[-_]/g, " "),
     detail: detail && detail.trim().length > 0 ? detail : null,
     isSfx,
     isCard: treatment === "card" || treatment === "break",
-    color: transition.color?.trim() ? transition.color : null,
+    color,
+    bandFill,
   };
 }

@@ -69,6 +69,14 @@ export type PlacementSide = (typeof PLACEMENT_SIDES)[number];
 /**
  * Transition type vocabulary between cuts. `gutter` is plain vertical spacing;
  * the others describe reading-rhythm beats. MVP vocabulary, extended here.
+ *
+ * The v3 craft kinds (#99) are solid-band scene breaks that reuse
+ * `Transition.color` as the band fill: `black_band` (full-width black band),
+ * `title_card` (band with the transition's text centered), `palette_shift` (band
+ * filled with `Transition.color`), and `desaturate_repeat` (a neutral gray band
+ * standing in for a true cross-cut desaturate — the full prior-cut desaturation
+ * is deferred). All are back-compatible additions; the existing kinds render
+ * unchanged at their defaults.
  */
 export const TRANSITION_TYPES = [
   "hard-cut",
@@ -77,8 +85,24 @@ export const TRANSITION_TYPES = [
   "beat",
   "scene-break",
   "time-skip",
+  // v3 craft transitions (#99) — solid-band scene breaks.
+  "black_band",
+  "title_card",
+  "palette_shift",
+  "desaturate_repeat",
 ] as const;
 export type TransitionType = (typeof TRANSITION_TYPES)[number];
+
+/**
+ * SFX render mode (#99) for a `kind=sfx` lettering overlay. `typeset` (default)
+ * is the current clean, atmospheric outlined text; `hand_lettered` swaps to a
+ * loose hand face WITHOUT mutating the stored text; `impact_band` draws a large
+ * full-width impact with radial speed-lines + a burst, all as pure straight
+ * segments so the studio SVG and the export canvas match pixel-for-pixel. Only
+ * meaningful for `kind=sfx`; absent → `typeset` (back-compatible).
+ */
+export const SFX_MODES = ["typeset", "hand_lettered", "impact_band"] as const;
+export type SfxMode = (typeof SFX_MODES)[number];
 
 /** Review/human-edit status shared by lettering overlays and transitions. */
 export const REVIEW_STATUSES = ["draft", "human-edited", "final"] as const;
@@ -236,6 +260,12 @@ export interface LetteringOverlay {
   placement?: Placement;
   /** Side of the reserved gutter strip (#98); absent → `right`. Only for `gutter`. */
   placementSide?: PlacementSide;
+  /**
+   * SFX render mode (#99), one of `SFX_MODES`. Only meaningful for `kind=sfx`;
+   * absent → `typeset` (the current behavior). `hand_lettered` swaps the face
+   * only; `impact_band` adds a full-width radial-burst treatment. Back-compatible.
+   */
+  sfxMode?: SfxMode;
   // Additive pro-lettering style overrides (#54, #56). All OPTIONAL and back-
   // compatible: absent fields fall back to the renderer's current behavior. See
   // the bounds/defaults constants above.

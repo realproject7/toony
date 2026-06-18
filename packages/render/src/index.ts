@@ -8,12 +8,22 @@
 //
 // See README.md for the full API contract and usage from SVG and canvas.
 
-export type { BalloonCommand, Point, TailGeometry } from "./geometry.js";
+export type {
+  BalloonCommand,
+  ImpactDecoration,
+  ImpactLine,
+  Point,
+  TailGeometry,
+} from "./geometry.js";
 export {
   balloonOutline,
   balloonPathD,
   clamp,
   defaultBalloonRadius,
+  IMPACT_BURST_FILL,
+  IMPACT_BURST_STROKE,
+  IMPACT_RAY_COLOR,
+  impactDecoration,
   speechTailGeometry,
 } from "./geometry.js";
 
