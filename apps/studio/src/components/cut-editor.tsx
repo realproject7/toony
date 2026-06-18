@@ -18,7 +18,15 @@
 // to the preview without writing.
 
 import type { Finding } from "@toony/lint";
-import { bubbleKindStyle, kindSupportsTail, layoutCut } from "@toony/render";
+import {
+  bubbleKindStyle,
+  cutPlacementFrame,
+  IMPACT_BURST_FILL,
+  IMPACT_BURST_STROKE,
+  IMPACT_RAY_COLOR,
+  kindSupportsTail,
+  layoutCut,
+} from "@toony/render";
 import type { Character, Cut } from "@toony/schema";
 import { LETTERING_STYLE_DEFAULTS, type LetteringOverlay } from "@toony/schema";
 import dynamic from "next/dynamic";
@@ -149,6 +157,22 @@ export function CutEditor({
   // Lay out every bubble through the render core at natural pixel dimensions.
   const plans = useMemo(() => layoutCut(bubbles, width, height), [bubbles, width, height]);
   const overflowCount = plans.filter((plan) => plan.overflow).length;
+
+  // Gutter placement (#98/#111): reserve the strip(s) so the focused editor's
+  // artwork occupies only the `art` rect — the SAME cut-frame the preview and
+  // export reserve — and gutter-aware overlay geometry sits over the inset art,
+  // not full-bleed. With no gutter bubbles the art fills the stage (back-compat).
+  const frame = useMemo(() => cutPlacementFrame(bubbles, width, height), [bubbles, width, height]);
+  const reserved = frame.bands.length > 0;
+  const artStyle = reserved
+    ? {
+        position: "absolute" as const,
+        left: `${(frame.art.x / width) * 100}%`,
+        top: 0,
+        width: `${(frame.art.width / width) * 100}%`,
+        height: "100%",
+      }
+    : undefined;
   const selected = bubbles.find((b) => b.id === selectedId) ?? null;
   const selectedPlan = plans.find((plan) => plan.id === selectedId) ?? null;
 
@@ -532,11 +556,17 @@ export function CutEditor({
           {hasArt ? (
             <div
               className="editor-stage"
-              style={{ aspectRatio }}
+              style={reserved ? { aspectRatio, background: "#ffffff" } : { aspectRatio }}
+              data-reserved={reserved ? "true" : undefined}
               data-testid={`editor-stage-${cutId}`}
             >
               {/* biome-ignore lint/performance/noImgElement: local-first studio serves project files directly, not via the Next image optimizer. */}
-              <img className="cut-art" src={art.src ?? undefined} alt={`Artwork for ${cutId}`} />
+              <img
+                className="cut-art"
+                style={artStyle}
+                src={art.src ?? undefined}
+                alt={`Artwork for ${cutId}`}
+              />
               <svg
                 ref={svgRef}
                 className="editor-overlays"
@@ -560,6 +590,7 @@ export function CutEditor({
                   const bh = b.geometry.height * height;
                   const fontSize = plan.text.fontSize;
                   const handle = Math.max(width, height) * 0.012;
+                  const impact = plan.impact;
                   return (
                     <g key={plan.id} data-bubble-id={plan.id}>
                       {plan.tail && (
@@ -584,6 +615,32 @@ export function CutEditor({
                           strokeLinejoin="round"
                         />
                       )}
+                      {/* impact_band SFX (#99/#110): speed-lines + burst behind the
+                          text, from the SAME pure-segment plan the preview and
+                          export trace → the editor surface matches what renders. */}
+                      {impact && (
+                        <g data-testid={`impact-${plan.id}`}>
+                          {impact.rays.map((ray, i) => (
+                            <line
+                              // biome-ignore lint/suspicious/noArrayIndexKey: rays are a positional, read-only layout output — the index is the stable identity within one layout pass.
+                              key={`${plan.id}-ray-${i}`}
+                              x1={ray.x1}
+                              y1={ray.y1}
+                              x2={ray.x2}
+                              y2={ray.y2}
+                              stroke={IMPACT_RAY_COLOR}
+                              strokeWidth={impact.rayWidth}
+                            />
+                          ))}
+                          <polygon
+                            points={impact.burst.map((p) => `${p.x},${p.y}`).join(" ")}
+                            fill={IMPACT_BURST_FILL}
+                            stroke={IMPACT_BURST_STROKE}
+                            strokeWidth={impact.burstStrokeWidth}
+                            strokeLinejoin="round"
+                          />
+                        </g>
+                      )}
                       {plan.lines.map((line, i) => (
                         <text
                           // biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines are a positional layout output; the index is the stable identity within one layout pass.
@@ -596,9 +653,12 @@ export function CutEditor({
                           textAnchor={svgTextAnchor(plan.textAlign)}
                           letterSpacing={svgLetterSpacing(plan.letterSpacing, fontSize)}
                           fill={plan.textColor}
-                          stroke={plan.kind === "sfx" ? plan.stroke : undefined}
+                          // SFX outline width comes from the render plan (single
+                          // source: `textOutlineWidth`, >0 ⟺ SFX) so the editor,
+                          // preview, and export stroke it identically (#112).
+                          stroke={plan.textOutlineWidth > 0 ? plan.stroke : undefined}
                           strokeWidth={
-                            plan.kind === "sfx" ? Math.max(1, fontSize * 0.06) : undefined
+                            plan.textOutlineWidth > 0 ? plan.textOutlineWidth : undefined
                           }
                           paintOrder="stroke"
                         >
