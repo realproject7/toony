@@ -144,6 +144,15 @@ export interface LayoutOptions {
   measure?: MeasureWidth;
   /** Base stroke width in px at this render height (default: 0.4% of height). */
   baseStrokeWidth?: number;
+  /**
+   * The CUT-LEVEL art rect (#99): the artwork region reserved from ALL of the
+   * cut's overlays via {@link cutPlacementFrame}, not just this one. `layoutCut`
+   * supplies it so a full-width `impact_band` SFX spans the shared art and never
+   * bleeds into a sibling gutter bubble's reserved strip. Absent (a standalone
+   * `layoutBubble` call) → this overlay's own art rect, which is the full frame
+   * for an in-panel bubble (back-compat).
+   */
+  cutArt?: Rect;
 }
 
 /** Base stroke width derived from render height when not supplied. */
@@ -284,11 +293,15 @@ export function layoutBubble(
   const oy = geomRect.y + overlay.geometry.y * geomRect.height;
   // impact_band SFX (#99) is a FULL-WIDTH band over the art: the box spans the
   // whole art width (the authored y/height set its vertical placement), so the
-  // burst + speed-lines fill the panel. Other modes keep the authored box.
+  // burst + speed-lines fill the panel. The art it spans is the CUT-LEVEL art
+  // rect (reserved from every overlay), so a sibling gutter bubble's strip stays
+  // clear; absent (standalone call) it falls back to this overlay's art. Other
+  // modes keep the authored box.
   const isImpact = sfxMode === "impact_band";
+  const impactArt = opts.cutArt ?? art;
   if (isImpact) {
-    ox = art.x;
-    ow = art.width;
+    ox = impactArt.x;
+    ow = impactArt.width;
   }
 
   // Corner radius: a stored override (clamped so arcs never overrun the body)
@@ -426,6 +439,10 @@ export function layoutCut(
   height: number,
   opts: LayoutOptions = {},
 ): BubbleRender[] {
+  // Reserve the cut-level art rect from ALL overlays once (#98/#99) and pass it
+  // down, so a full-width impact_band SFX spans the shared art and never enters a
+  // sibling gutter bubble's reserved strip. An explicit opts.cutArt wins.
+  const cutArt = opts.cutArt ?? cutPlacementFrame(overlays, width, height).art;
   return overlays
     .map((overlay, index) => ({ overlay, index }))
     .sort(
@@ -433,5 +450,5 @@ export function layoutCut(
         (a.overlay.zIndex ?? LETTERING_STYLE_DEFAULTS.zIndex) -
           (b.overlay.zIndex ?? LETTERING_STYLE_DEFAULTS.zIndex) || a.index - b.index,
     )
-    .map(({ overlay }) => layoutBubble(overlay, width, height, opts));
+    .map(({ overlay }) => layoutBubble(overlay, width, height, { ...opts, cutArt }));
 }

@@ -390,3 +390,41 @@ test("impact_band speed-lines reach the panel edges (full-width band)", async ()
   }
   assert.ok(edgeInk > 0, "expected speed-line ink near the panel edge");
 });
+
+test("impact_band does not paint into a sibling gutter bubble's reserved strip (#99)", async () => {
+  // An impact_band SFX plus a right-side gutter bubble on the same cut: the
+  // reserved right band must stay clean white margin — the rays/burst span only
+  // the inset art, never the strip.
+  const gutter: LetteringOverlay = {
+    id: "gb",
+    cutId: "c",
+    speaker: "Mina",
+    kind: "speech",
+    text: "Hi",
+    font: "sans-serif",
+    fill: "#ffffff",
+    opacity: 1,
+    border: null,
+    tail: null,
+    placement: "gutter",
+    placementSide: "right",
+    geometry: { x: 0.2, y: 0.05, width: 0.6, height: 0.12 },
+    overflow: false,
+    reviewStatus: "draft",
+  };
+  const composed = await composeCut(
+    [sfxImpactOverlay({ sfxMode: "impact_band" }), gutter],
+    null,
+    480,
+  );
+  const ctx = composed.canvas.getContext("2d");
+  // Sample deep in the reserved band, low down (clear of the gutter bubble at top):
+  // it must be white margin, not impact ink.
+  const x = composed.width - 3;
+  const y = Math.round(composed.height * 0.85);
+  const { data } = ctx.getImageData(x, y, 1, 1);
+  assert.ok(
+    (data[0] ?? 0) > 240 && (data[1] ?? 0) > 240 && (data[2] ?? 0) > 240,
+    `reserved band should be white, got [${data[0]},${data[1]},${data[2]}]`,
+  );
+});

@@ -456,3 +456,38 @@ test("impact_band stays within the art rect when a gutter strip is reserved", ()
     assert.ok(p.y >= r.box.y - 1 && p.y <= r.box.y + r.box.height + 1);
   }
 });
+
+test("via layoutCut, an impact_band SFX spans the cut art and clears a sibling gutter strip (#99)", () => {
+  // A right-side gutter bubble insets the cut's art to [0, W-bandW]; an in-panel
+  // impact_band SFX on the SAME cut must span only that shared art rect, never the
+  // reserved strip — layoutCut threads the cut-level art frame into each bubble.
+  const bandW = W * GUTTER_BAND_FRAC;
+  const artRight = W - bandW;
+  const plans = layoutCut(
+    [
+      { ...sfxOverlay, id: "impact", sfxMode: "impact_band" },
+      overlay({ id: "g", placement: "gutter", placementSide: "right" }),
+    ],
+    W,
+    H,
+  );
+  const impact = plans.find((p) => p.id === "impact");
+  assert.ok(impact?.impact, "expected the impact plan");
+  // The impact box spans the art rect, not the full frame.
+  assert.equal(impact.box.x, 0);
+  assert.equal(impact.box.width, artRight);
+  // Every ray endpoint and burst point stays left of the reserved band.
+  for (const ray of impact.impact.rays) {
+    assert.ok(ray.x1 <= artRight + 1 && ray.x2 <= artRight + 1, `ray into band: ${ray.x2}`);
+  }
+  for (const p of impact.impact.burst) {
+    assert.ok(p.x <= artRight + 1, `burst point into band: ${p.x}`);
+  }
+});
+
+test("layoutCut without a gutter sibling keeps impact_band full-width (back-compat)", () => {
+  const plans = layoutCut([{ ...sfxOverlay, id: "impact", sfxMode: "impact_band" }], W, H);
+  const impact = plans.find((p) => p.id === "impact");
+  assert.equal(impact?.box.x, 0);
+  assert.equal(impact?.box.width, W);
+});
