@@ -29,6 +29,22 @@ import {
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { clamp } from "@/lib/clamp";
+import { ColorPicker } from "./color-picker";
+
+/**
+ * Transition kinds whose treatment reuses `Transition.color` as the band fill
+ * (#98/#99). The color control is shown for these so a letterer can set the band
+ * tint; for the others (plain gutter/fade/etc.) it has no visual effect, so it
+ * stays hidden to keep the inspector focused.
+ */
+const COLOR_AWARE_TYPES = new Set<TransitionType>([
+  "black_band",
+  "title_card",
+  "palette_shift",
+  "desaturate_repeat",
+  "scene-break",
+  "beat",
+]);
 
 export interface TransitionEditorProps {
   workId: string;
@@ -350,6 +366,34 @@ function TransitionInspector({
           ))}
         </select>
       </label>
+
+      {COLOR_AWARE_TYPES.has(transition.type) && (
+        <div className="field">
+          <span>Band color</span>
+          <div className="field-inline">
+            <ColorPicker
+              label="Fill"
+              value={transition.color ?? "#101010"}
+              onChange={(hex) => onChange({ color: hex })}
+              testId="field-color"
+            />
+            {transition.color != null && (
+              <button
+                type="button"
+                className="btn btn-chip"
+                onClick={() => onChange({ color: null })}
+                data-testid="field-color-clear"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <span className="field-hint">
+            Fills the transition band (e.g. black_band, palette_shift). The rhythm preview updates
+            live.
+          </span>
+        </div>
+      )}
 
       <label className="field">
         <span>Gutter height (px)</span>

@@ -18,7 +18,7 @@ import { ProjectIoError } from "../index.js";
 import { cutsFile, episodeFile, letteringFile, transitionsFile, webtoonPath } from "../paths.js";
 import { loadProject } from "../reader.js";
 import { buildInitialProject, slugify } from "../scaffold.js";
-import { writeLettering, writeProject, writeTransitions } from "../writer.js";
+import { writeLettering, writeProject, writeTransitions, writeWebtoon } from "../writer.js";
 
 function transition(over: Partial<Transition> = {}): Transition {
   return {
@@ -126,6 +126,45 @@ test("writeProject output is deterministic", async () => {
       `${rel} should be byte-stable`,
     );
   }
+});
+
+test("writeWebtoon persists the character registry and round-trips", async () => {
+  const root = join(workdir, "demo");
+  await writeProject(root, buildInitialProject("demo"));
+
+  const loaded = await loadProject(root);
+  const next = {
+    ...loaded.project.webtoon,
+    characters: [
+      { id: "rin", name: "Rin", lockstring: "locked palette: teal + ash; round glasses; bob cut" },
+    ],
+  };
+  await writeWebtoon(root, next);
+
+  const reloaded = await loadProject(root);
+  assert.equal(reloaded.validation.valid, true, JSON.stringify(reloaded.validation.issues));
+  assert.deepEqual(reloaded.project.webtoon.characters, next.characters);
+
+  // Only webtoon.json changes — the episode files stay byte-stable.
+  const before = await readFile(cutsFile(root, "ep-001"), "utf8");
+  await writeWebtoon(root, next);
+  assert.equal(await readFile(cutsFile(root, "ep-001"), "utf8"), before);
+});
+
+test("writeWebtoon refuses to write an invalid registry", async () => {
+  const root = join(workdir, "demo");
+  await writeProject(root, buildInitialProject("demo"));
+  const loaded = await loadProject(root);
+  const bad = {
+    ...loaded.project.webtoon,
+    // Empty lockstring is invalid per the schema.
+    characters: [{ id: "rin", name: "Rin", lockstring: "" }],
+  };
+  await assert.rejects(writeWebtoon(root, bad), (error: unknown) => {
+    assert.ok(error instanceof ProjectIoError);
+    assert.match(error.message, /refusing to write invalid webtoon/);
+    return true;
+  });
 });
 
 test("corrupted YAML content fails with an actionable IO error", async () => {

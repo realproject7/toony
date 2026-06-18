@@ -11,7 +11,14 @@
 
 import { readFile } from "node:fs/promises";
 import { isAbsolute, normalize, resolve, sep } from "node:path";
-import { readImageDimensions } from "@toony/lint";
+import {
+  type Finding,
+  lintBubbleOverflow,
+  lintCharacterRefs,
+  lintCraft,
+  readImageDimensions,
+  sortFindings,
+} from "@toony/lint";
 import {
   type EpisodeSummary,
   type LoadedProject,
@@ -19,9 +26,9 @@ import {
   ProjectIoError,
   summarizeEpisodes,
 } from "@toony/project-io";
-import type { Cut, EpisodeBundle } from "@toony/schema";
+import type { Character, Cut, EpisodeBundle } from "@toony/schema";
 
-export type { EpisodeSummary, LoadedProject };
+export type { EpisodeSummary, Finding, LoadedProject };
 export { ProjectIoError, summarizeEpisodes };
 
 /** Load and validate one work's project from its absolute root directory. */
@@ -147,4 +154,41 @@ export async function resolveCutArt(workId: string, workRoot: string, cut: Cut):
   } catch {
     return { ...FALLBACK_ART, src };
   }
+}
+
+/**
+ * Run every editor-relevant `@toony/lint` over one episode bundle (#102): the
+ * pure craft and character-ref lints plus the image-aware overflow lint. Cut art
+ * is read only through `resolveWorkAsset` (path-safe), so the resolver can never
+ * read outside the work tree; an unreadable/unsafe/missing image simply falls
+ * back to the lint's default dimensions. Findings are returned in deterministic
+ * order. This is the single place the editor route and the editor page share, so
+ * the inline panel and the on-demand refresh produce identical results.
+ */
+export async function lintEpisodeBundle(
+  workRoot: string,
+  bundle: EpisodeBundle,
+  characters: readonly Character[],
+): Promise<Finding[]> {
+  const imageBytes = new Map<string, Uint8Array>();
+  await Promise.all(
+    bundle.cuts.map(async (cut) => {
+      const rel = cut.image?.final ?? cut.image?.clean ?? null;
+      if (!rel) return;
+      const absolute = resolveWorkAsset(workRoot, rel);
+      if (absolute === null) return;
+      try {
+        imageBytes.set(cut.id, new Uint8Array(await readFile(absolute)));
+      } catch {
+        // Unreadable art → fall back to default dimensions in the lint.
+      }
+    }),
+  );
+
+  const findings: Finding[] = [
+    ...lintCraft(bundle, characters),
+    ...lintCharacterRefs(bundle, characters),
+    ...lintBubbleOverflow(bundle, (cutId) => imageBytes.get(cutId) ?? null),
+  ];
+  return sortFindings(findings);
 }

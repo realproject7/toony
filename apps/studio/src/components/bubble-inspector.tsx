@@ -21,7 +21,9 @@ import { defaultFontFamilyForKind, FONT_FAMILIES, type FontFamilyId } from "@too
 import { kindSupportsTail } from "@toony/render";
 import {
   BUBBLE_KINDS,
+  BUBBLE_TONES,
   type BubbleKind,
+  type BubbleTone,
   CORNER_RADIUS_MAX_PX,
   CORNER_RADIUS_MIN_PX,
   FONT_SIZE_MAX_PX,
@@ -34,8 +36,14 @@ import {
   type LetteringOverlay,
   LINE_HEIGHT_MAX,
   LINE_HEIGHT_MIN,
+  PLACEMENT_SIDES,
+  PLACEMENTS,
+  type Placement,
+  type PlacementSide,
   REVIEW_STATUSES,
   type ReviewStatus,
+  SFX_MODES,
+  type SfxMode,
   TEXT_ALIGNS,
   type TextAlign,
 } from "@toony/schema";
@@ -89,6 +97,14 @@ export function BubbleInspector({
   const letterSpacing = overlay.letterSpacing ?? LETTERING_STYLE_DEFAULTS.letterSpacing;
   const textColor = overlay.textColor ?? LETTERING_STYLE_DEFAULTS.textColor;
   const zIndex = overlay.zIndex ?? LETTERING_STYLE_DEFAULTS.zIndex;
+  // v3 craft fields (#93/#98/#99): show the renderer's effective default until
+  // the user sets the field. tone → "neutral"; placement → "in_panel" with side
+  // "right"; sfxMode → "typeset" (only meaningful for kind=sfx).
+  const tone: BubbleTone = overlay.tone ?? "neutral";
+  const placement: Placement = overlay.placement ?? "in_panel";
+  const placementSide: PlacementSide = overlay.placementSide ?? "right";
+  const sfxMode: SfxMode = overlay.sfxMode ?? "typeset";
+  const isSfx = overlay.kind === "sfx";
   const NUDGE = 0.01;
 
   return (
@@ -141,6 +157,161 @@ export function BubbleInspector({
           data-testid="field-text"
         />
       </label>
+
+      {/* --- Craft (#93/#98/#99) -------------------------------------------- */}
+      <fieldset className="field-group" data-testid="group-craft">
+        <legend>Craft</legend>
+
+        <div className="field">
+          <span>Tone</span>
+          <div className="chip-row">
+            {BUBBLE_TONES.map((value) => (
+              <button
+                key={value}
+                type="button"
+                className={tone === value ? "btn btn-chip btn-chip-active" : "btn btn-chip"}
+                aria-pressed={tone === value}
+                // tone refines the outline SHAPE (scalloped/jagged); the renderer
+                // reads it from the overlay. "neutral" clears the override.
+                onClick={() => onChange({ tone: value })}
+                data-testid={`field-tone-${value}`}
+              >
+                {value}
+              </button>
+            ))}
+          </div>
+          <span className="field-hint">Refines the bubble silhouette to encode emotion.</span>
+        </div>
+
+        {isSfx && (
+          <label className="field">
+            <span>SFX mode</span>
+            <select
+              value={sfxMode}
+              onChange={(e) => onChange({ sfxMode: e.target.value as SfxMode })}
+              data-testid="field-sfx-mode"
+            >
+              {SFX_MODES.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        <div className="field">
+          <span>Placement</span>
+          <div className="chip-row">
+            {PLACEMENTS.map((value) => (
+              <button
+                key={value}
+                type="button"
+                className={placement === value ? "btn btn-chip btn-chip-active" : "btn btn-chip"}
+                aria-pressed={placement === value}
+                onClick={() => onChange({ placement: value })}
+                data-testid={`field-placement-${value}`}
+              >
+                {value}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {placement === "gutter" && (
+          <div className="field">
+            <span>Gutter side</span>
+            <div className="chip-row">
+              {PLACEMENT_SIDES.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={
+                    placementSide === value ? "btn btn-chip btn-chip-active" : "btn btn-chip"
+                  }
+                  aria-pressed={placementSide === value}
+                  onClick={() => onChange({ placementSide: value })}
+                  data-testid={`field-placement-side-${value}`}
+                >
+                  {value}
+                </button>
+              ))}
+            </div>
+            <span className="field-hint">
+              The bubble sits in a reserved strip on this side; its tail crosses into the art via
+              the off-panel target below.
+            </span>
+          </div>
+        )}
+
+        {/* Off-panel speaker target (#93): an art-space point that MAY lie outside
+            [0,1] (the speaker is off-panel). Editable as two numbers; the toggle
+            adds/clears it. */}
+        <div className="field">
+          <span>Off-panel tail target</span>
+          {overlay.tailTarget ? (
+            <>
+              <div className="field-inline">
+                <label className="field-inline">
+                  <span>x</span>
+                  <input
+                    type="number"
+                    step={0.05}
+                    value={overlay.tailTarget.x}
+                    onChange={(e) =>
+                      onChange({
+                        tailTarget: {
+                          x: Number(e.target.value),
+                          y: overlay.tailTarget?.y ?? 0,
+                        },
+                      })
+                    }
+                    data-testid="field-tail-target-x"
+                  />
+                </label>
+                <label className="field-inline">
+                  <span>y</span>
+                  <input
+                    type="number"
+                    step={0.05}
+                    value={overlay.tailTarget.y}
+                    onChange={(e) =>
+                      onChange({
+                        tailTarget: {
+                          x: overlay.tailTarget?.x ?? 0,
+                          y: Number(e.target.value),
+                        },
+                      })
+                    }
+                    data-testid="field-tail-target-y"
+                  />
+                </label>
+              </div>
+              <button
+                type="button"
+                className="btn btn-chip"
+                onClick={() => onChange({ tailTarget: null })}
+                data-testid="field-tail-target-clear"
+              >
+                Clear target
+              </button>
+              <span className="field-hint">
+                Art-space point; may lie outside 0–1 for an off-panel speaker. The drawn tip clamps
+                to the art edge.
+              </span>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-chip"
+              onClick={() => onChange({ tailTarget: { x: -0.1, y: 0.5 } })}
+              data-testid="field-tail-target-add"
+            >
+              Add off-panel target
+            </button>
+          )}
+        </div>
+      </fieldset>
 
       {/* --- Typography ------------------------------------------------------ */}
       <fieldset className="field-group" data-testid="group-typography">
