@@ -75,3 +75,11 @@ prompts, agent planning, editor defaults, and lint rules.
 | Editor/Studio | bubble tone→shape presets; narration distinct type; beat-spacer + gutter-color + SFX-promote; cut-size/shot-type presets; character-lockstring UI; scene palette | Direct |
 
 These become a "craft-informed authoring" EPIC; see the GitHub issues.
+
+---
+
+## See also
+
+- [TOONY-PLANNING-HEURISTICS.md](./TOONY-PLANNING-HEURISTICS.md) — the concise,
+  actionable per-genre cold-open + tension-arc guidance an author/planning agent
+  follows, embodied by the `toony init --genre` starter templates (#101).

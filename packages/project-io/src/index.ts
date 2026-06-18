@@ -21,6 +21,12 @@ export {
   encodeYaml,
 } from "./format.js";
 export {
+  buildGenreEpisodeBundle,
+  GENRES,
+  type Genre,
+  isGenre,
+} from "./genres.js";
+export {
   type AssetSlot,
   type AssetTarget,
   type CutAssetTarget,

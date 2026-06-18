@@ -6,8 +6,9 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { cutsFile, transitionsFile } from "@toony/project-io";
+import { cutsFile, GENRES, slugify, transitionsFile } from "@toony/project-io";
 import { runInit } from "../commands/init.js";
+import { runLint } from "../commands/lint.js";
 import { runValidate } from "../commands/validate.js";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 
@@ -121,4 +122,48 @@ test("validate reports an IO error (exit 2) for a missing project", async () => 
   const code = await runValidate([join(workdir, "does-not-exist")], c.io);
   assert.equal(code, EXIT_USAGE);
   assert.match(c.err.join("\n"), /load error/);
+});
+
+// --- Genre init templates (#101) -------------------------------------------
+
+test("init --genre seeds a project that passes both validate AND lint, for every genre", async () => {
+  for (const genre of GENRES) {
+    const name = `demo-${genre}`;
+    const init = capture();
+    assert.equal(await runInit([name, "--genre", genre], init.io), EXIT_OK, init.err.join("\n"));
+    // The success line names the genre template.
+    assert.match(init.out.join("\n"), new RegExp(`${genre} template`));
+
+    const projectDir = join(workdir, slugify(name));
+    const validate = capture();
+    assert.equal(
+      await runValidate([projectDir], validate.io),
+      EXIT_OK,
+      `${genre} validate: ${validate.out.concat(validate.err).join("\n")}`,
+    );
+    // Lint must be clean (no warnings/errors) — the scaffold is craft-correct.
+    const lint = capture();
+    const lintCode = await runLint([projectDir, "--json"], lint.io);
+    assert.equal(lintCode, EXIT_OK, `${genre} lint not clean: ${lint.out.join("\n")}`);
+    const report = JSON.parse(lint.out.join("\n"));
+    assert.equal(report.clean, true, `${genre}: ${JSON.stringify(report.findings)}`);
+  }
+});
+
+test("init --genre with an unknown genre is a usage error", async () => {
+  const c = capture();
+  assert.equal(await runInit(["demo", "--genre", "horror"], c.io), EXIT_USAGE);
+  assert.match(c.err.join("\n"), /unknown genre/);
+});
+
+test("init --genre with no value is a usage error", async () => {
+  const c = capture();
+  assert.equal(await runInit(["demo", "--genre"], c.io), EXIT_USAGE);
+  assert.match(c.err.join("\n"), /missing value for --genre/);
+});
+
+test("init rejects an unknown option", async () => {
+  const c = capture();
+  assert.equal(await runInit(["demo", "--bogus"], c.io), EXIT_USAGE);
+  assert.match(c.err.join("\n"), /unknown option/);
 });

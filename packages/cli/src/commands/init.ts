@@ -2,8 +2,17 @@
 
 import { stat } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
-import { buildInitialProject, slugify, writeProject } from "@toony/project-io";
+import {
+  buildInitialProject,
+  GENRES,
+  type Genre,
+  isGenre,
+  slugify,
+  writeProject,
+} from "@toony/project-io";
 import { EXIT_OK, EXIT_USAGE } from "../exit.js";
+
+const USAGE = `usage: toony init <name> [--genre <${GENRES.join("|")}>]`;
 
 export interface InitIo {
   cwd: string;
@@ -22,9 +31,41 @@ async function exists(path: string): Promise<boolean> {
 
 /** Run `toony init`. Returns the process exit code. */
 export async function runInit(args: string[], io: InitIo): Promise<number> {
-  const name = args[0];
+  // Parse a single positional <name> plus an optional `--genre <g>` flag. Unknown
+  // flags are a usage error (consistent with the other commands).
+  let name: string | undefined;
+  let genre: Genre | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === undefined) continue;
+    if (arg === "--genre") {
+      const value = args[i + 1];
+      if (value === undefined) {
+        io.err(`missing value for --genre; expected one of: ${GENRES.join(", ")}`);
+        return EXIT_USAGE;
+      }
+      if (!isGenre(value)) {
+        io.err(`unknown genre "${value}"; expected one of: ${GENRES.join(", ")}`);
+        return EXIT_USAGE;
+      }
+      genre = value;
+      i++;
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      io.err(`unknown option: ${arg}\n${USAGE}`);
+      return EXIT_USAGE;
+    }
+    if (name === undefined) {
+      name = arg;
+      continue;
+    }
+    io.err(`unexpected argument: ${arg}\n${USAGE}`);
+    return EXIT_USAGE;
+  }
+
   if (name === undefined || name.length === 0) {
-    io.err("usage: toony init <name>");
+    io.err(USAGE);
     return EXIT_USAGE;
   }
 
@@ -38,7 +79,7 @@ export async function runInit(args: string[], io: InitIo): Promise<number> {
     return EXIT_USAGE;
   }
 
-  const project = buildInitialProject(name);
+  const project = buildInitialProject(name, genre);
   try {
     await writeProject(target, project);
   } catch (cause) {
@@ -47,7 +88,8 @@ export async function runInit(args: string[], io: InitIo): Promise<number> {
     return EXIT_USAGE;
   }
 
-  io.out(`created project "${project.webtoon.projectId}" at ${target}`);
+  const flavor = genre ? ` (${genre} template)` : "";
+  io.out(`created project "${project.webtoon.projectId}"${flavor} at ${target}`);
   io.out(`next: cd ${target} && toony validate`);
   return EXIT_OK;
 }
