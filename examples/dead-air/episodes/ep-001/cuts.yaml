@@ -1,0 +1,81 @@
+- id: cut-001
+  image: null
+  imagePrompt: Wide establishing shot of a small late-night radio station booth,
+    one desk lamp, a red "ON AIR" sign glowing on the wall, rain streaking the
+    dark window, empty swivel chair, moody teal shadows, cinematic, masterpiece,
+    best quality, highly detailed
+  negativePrompt: lowres, bad anatomy, text, watermark, signature, worst quality,
+    low quality, jpeg artifacts, blurry, extra limbs
+  shotType: establishing_wide
+  palette: "#1d2a2e"
+  layer: reality
+  styleTag: noir
+- id: cut-002
+  image: null
+  imagePrompt: medium shot, leaning toward a vintage broadcast microphone, warm
+    amber desk lamp, faint smile, calm, headphones on, dark radio booth at night,
+    masterpiece, best quality, highly detailed
+  negativePrompt: lowres, bad anatomy, text, watermark, signature, worst quality,
+    low quality, jpeg artifacts, blurry, extra limbs
+  characters:
+    - wren
+  shotType: medium
+  palette: "#2c3a36"
+  layer: reality
+- id: cut-003
+  image: null
+  imagePrompt: extreme close-up of a blinking call-line button on a mixing desk,
+    a single line glowing red, dust in the lamp light, shallow depth of field,
+    tense, masterpiece, best quality, highly detailed
+  negativePrompt: lowres, bad anatomy, text, watermark, signature, worst quality,
+    low quality, jpeg artifacts, blurry, extra limbs
+  shotType: close_up
+  palette: "#3a2622"
+  layer: reality
+- id: cut-004
+  image: null
+  imagePrompt: small centered composition, a hand hovering over a glowing line
+    button, hesitation, dark booth, single warm light, lots of negative space,
+    masterpiece, best quality, highly detailed
+  negativePrompt: lowres, bad anatomy, text, watermark, signature, worst quality,
+    low quality, jpeg artifacts, blurry, extra limbs
+  characters:
+    - wren
+  shotType: small_centered
+  palette: "#202a2c"
+  layer: reality
+- id: cut-005
+  image: null
+  imagePrompt: medium shot from the listener's side, standing in a doorway of a
+    dark hallway, only a phone screen lighting the lower face, menacing, rain on
+    a window behind, masterpiece, best quality, highly detailed
+  negativePrompt: lowres, bad anatomy, text, watermark, signature, worst quality,
+    low quality, jpeg artifacts, blurry, extra limbs
+  characters:
+    - caller
+  shotType: medium
+  palette: "#16181c"
+  layer: reality
+- id: cut-006
+  image: null
+  imagePrompt: extreme close-up of a face, wide frightened eyes, headphones on,
+    cold blue screen light reflected in the eyes, sweat, dread, dark booth,
+    masterpiece, best quality, highly detailed face
+  negativePrompt: lowres, bad anatomy, text, watermark, signature, worst quality,
+    low quality, jpeg artifacts, blurry, extra limbs
+  characters:
+    - wren
+  shotType: close_up
+  palette: "#1a2430"
+  layer: reality
+- id: cut-007
+  image: null
+  imagePrompt: full-bleed impact shot, the red "ON AIR" sign going dark, sudden
+    blackout in a radio booth, sparks of light, dramatic, high contrast,
+    masterpiece, best quality, highly detailed
+  negativePrompt: lowres, bad anatomy, text, watermark, signature, worst quality,
+    low quality, jpeg artifacts, blurry, extra limbs
+  shotType: impact_splash
+  palette: "#0e0f12"
+  layer: metaphor
+  styleTag: noir

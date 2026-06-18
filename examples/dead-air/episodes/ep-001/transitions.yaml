@@ -1,0 +1,57 @@
+- id: tr-001
+  type: title_card
+  gutterHeight: 160
+  text: 2:14 AM — LIVE
+  sfx: null
+  agentNote: null
+  humanNote: cold-open station card, set the hour
+  image: null
+  reviewStatus: human-edited
+  color: "#101618"
+- id: tr-002
+  type: gutter
+  gutterHeight: 72
+  text: null
+  sfx: null
+  agentNote: null
+  humanNote: small beat before the line lights up
+  image: null
+  reviewStatus: human-edited
+- id: tr-003
+  type: scene-break
+  gutterHeight: 140
+  text: One unknown caller.
+  sfx: null
+  agentNote: null
+  humanNote: name the threat, settle the dread
+  image: null
+  reviewStatus: human-edited
+- id: tr-004
+  type: palette_shift
+  gutterHeight: 120
+  text: null
+  sfx: null
+  agentNote: null
+  humanNote: shift cold as we cut to the caller
+  image: null
+  reviewStatus: human-edited
+  color: "#16181c"
+- id: tr-005
+  type: black_band
+  gutterHeight: 150
+  text: null
+  sfx: null
+  agentNote: null
+  humanNote: hard drop into dread before the reveal
+  image: null
+  reviewStatus: human-edited
+  color: "#000000"
+- id: tr-006
+  type: fade
+  gutterHeight: 120
+  text: null
+  sfx: null
+  agentNote: null
+  humanNote: fade to the blackout payoff
+  image: null
+  reviewStatus: human-edited

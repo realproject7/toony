@@ -1,0 +1,29 @@
+{
+  "characters": [
+    {
+      "id": "wren",
+      "name": "Wren",
+      "lockstring": "1girl, Wren, late-night radio host, short choppy auburn bob, thin silver headphones around neck, oversized charcoal cardigan over a black tee, small star stud earring, muted teal-and-amber palette, clean modern webtoon lineart, soft cel shading"
+    },
+    {
+      "id": "caller",
+      "name": "The Caller",
+      "lockstring": "a shadowed figure in a dark hooded raincoat, face hidden in deep shadow, single faint red glow where a phone screen lights the jaw, desaturated near-monochrome palette, high-contrast noir webtoon lineart, heavy rim light"
+    }
+  ],
+  "imageProviders": {
+    "defaultProvider": "manual",
+    "providers": []
+  },
+  "languages": {
+    "defaultLanguage": "en",
+    "dialogueLanguage": "en",
+    "promptLanguage": "en",
+    "supportedLanguages": [
+      "en"
+    ]
+  },
+  "projectId": "dead-air",
+  "schemaVersion": 1,
+  "title": "Dead Air"
+}
