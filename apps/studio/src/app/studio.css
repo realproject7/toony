@@ -561,6 +561,79 @@ input[type="radio"] {
   color: var(--color-muted);
 }
 
+/* ---- Transition editor (#119): selectable real-panel rows + preset controls ---- */
+.transition-row-edit {
+  position: relative;
+  border-radius: var(--radius-3);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition: outline-color var(--dur-fast) var(--ease-standard);
+}
+
+.transition-row-edit:hover {
+  outline-color: var(--color-line-strong);
+}
+
+.transition-row-edit:focus-within {
+  outline-color: var(--color-accent);
+}
+
+.transition-row-edit[data-selected="true"] {
+  outline-color: var(--color-accent);
+}
+
+/* Transparent full-bleed click target over the panel preview. */
+.transition-row-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* Review-status chip pinned to the panel's top-left in the editor. */
+.transition-row-status {
+  position: absolute;
+  left: var(--space-2);
+  top: var(--space-2);
+  z-index: 2;
+}
+
+.mood-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.mood-swatch {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--radius-round);
+  border: 1px solid var(--color-line-strong);
+  cursor: pointer;
+  padding: 0;
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+
+.mood-swatch:hover {
+  transform: scale(1.12);
+}
+
+.preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.field-warn {
+  color: var(--color-warning);
+}
+
 /* ---- Preview inspector (compact, secondary) ---- */
 .inspector {
   position: sticky;
@@ -1737,4 +1810,22 @@ button.transition-block {
   margin: 0;
   font-size: var(--text-sm);
   color: var(--color-ink);
+}
+
+/* Inline two-up field row (#119) — placed after the base .field rules so the
+   direct-child overrides don't precede them (avoids descending specificity). */
+.field-row {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.field-row > .field {
+  flex: 1 1 8rem;
+}
+
+.field-row > select,
+.field-row > input {
+  flex: 1 1 6rem;
+  min-width: 0;
 }
