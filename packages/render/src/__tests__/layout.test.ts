@@ -491,3 +491,33 @@ test("layoutCut without a gutter sibling keeps impact_band full-width (back-comp
   assert.equal(impact?.box.x, 0);
   assert.equal(impact?.box.width, W);
 });
+
+// --- Bubble vertical align (#115) -------------------------------------------
+
+test("verticalAlign absent defaults to top — byte-identical to before (back-compat)", () => {
+  const base = layoutBubble(narrationOverlay, W, H);
+  const top = layoutBubble({ ...narrationOverlay, verticalAlign: "top" }, W, H);
+  assert.equal(base.verticalAlign, "top");
+  assert.deepEqual(top.lines, base.lines);
+  assert.deepEqual(top.textOrigin, base.textOrigin);
+});
+
+test("verticalAlign middle/bottom shift the text block down within the box", () => {
+  // A short text in a tall box so there's room to move.
+  const tall = overlay({
+    id: "v",
+    kind: "narration",
+    text: "one line",
+    geometry: { x: 0.1, y: 0.1, width: 0.6, height: 0.6 },
+  });
+  const top = layoutBubble({ ...tall, verticalAlign: "top" }, W, H);
+  const middle = layoutBubble({ ...tall, verticalAlign: "middle" }, W, H);
+  const bottom = layoutBubble({ ...tall, verticalAlign: "bottom" }, W, H);
+  const firstY = (p: typeof top) => p.lines[0]?.y ?? Number.NaN;
+  assert.ok(firstY(middle) > firstY(top), "middle sits below top");
+  assert.ok(firstY(bottom) > firstY(middle), "bottom sits below middle");
+  assert.equal(middle.verticalAlign, "middle");
+  // Bottom text block stays inside the box.
+  const lastBottom = bottom.lines[bottom.lines.length - 1]?.y ?? 0;
+  assert.ok(lastBottom <= bottom.box.y + bottom.box.height + 1);
+});

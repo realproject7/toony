@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { layoutTransition } from "../transition.js";
+import { layoutPanelText, layoutTransition } from "../transition.js";
 import { transition } from "./fixtures.js";
 
 test("gutter transition resolves to a gutter treatment with its height", () => {
@@ -109,4 +109,151 @@ test("legacy transition kinds have no solid bandFill (back-compat)", () => {
   for (const type of ["gutter", "fade", "beat", "scene-break", "time-skip", "hard-cut"] as const) {
     assert.equal(layoutTransition(transition({ id: type, type })).bandFill, null);
   }
+});
+
+// --- v4 interstitial kinds + verticalAlign + fade (#115) --------------------
+
+test("v4 color_field and void resolve to solid bands with their defaults", () => {
+  const cf = layoutTransition(transition({ id: "cf", type: "color_field" }));
+  assert.equal(cf.treatment, "band");
+  assert.equal(cf.bandFill, "#5a6b7a");
+  const vd = layoutTransition(transition({ id: "vd", type: "void" }));
+  assert.equal(vd.treatment, "band");
+  assert.equal(vd.bandFill, "#0a0a0a"); // near-black dread
+});
+
+test("v4 narration/dialogue/time cards are card treatments with dark fills", () => {
+  for (const type of ["narration_card", "dialogue_card", "time_card"] as const) {
+    const r = layoutTransition(transition({ id: type, type }));
+    assert.equal(r.treatment, "card", type);
+    assert.equal(r.isCard, true, type);
+    assert.equal(r.bandFill, "#15110d", type);
+  }
+});
+
+test("v4 panels resolve text anchoring with center/middle defaults; explicit wins", () => {
+  const def = layoutTransition(transition({ id: "d", type: "narration_card" }));
+  assert.equal(def.textAlign, "center");
+  assert.equal(def.verticalAlign, "middle");
+  const set = layoutTransition(
+    transition({ id: "s", type: "narration_card", textAlign: "left", verticalAlign: "bottom" }),
+  );
+  assert.equal(set.textAlign, "left");
+  assert.equal(set.verticalAlign, "bottom");
+});
+
+test("Transition.color overrides a v4 panel's default fill", () => {
+  const r = layoutTransition(transition({ id: "c", type: "color_field", color: "#112233" }));
+  assert.equal(r.bandFill, "#112233");
+});
+
+test("fade resolves the end color per type and clamps length to the panel height", () => {
+  const black = layoutTransition(
+    transition({
+      id: "fb",
+      type: "void",
+      gutterHeight: 800,
+      fade: { type: "to_black", direction: "top_bottom", length: 300 },
+    }),
+  );
+  assert.deepEqual(black.fade, {
+    type: "to_black",
+    direction: "top_bottom",
+    length: 300,
+    color: "#000000",
+  });
+  const white = layoutTransition(
+    transition({
+      id: "fw",
+      type: "color_field",
+      fade: { type: "to_white", direction: "bottom_up", length: 50 },
+    }),
+  );
+  assert.equal(white.fade?.color, "#ffffff");
+  // to_color uses Transition.color (falls back to black when absent).
+  const col = layoutTransition(
+    transition({
+      id: "fc",
+      type: "color_field",
+      color: "#abcdef",
+      fade: { type: "to_color", direction: "top_bottom", length: 40 },
+    }),
+  );
+  assert.equal(col.fade?.color, "#abcdef");
+  // length is clamped to the resolved gutterHeight.
+  const clamped = layoutTransition(
+    transition({
+      id: "cl",
+      type: "void",
+      gutterHeight: 100,
+      fade: { type: "to_black", direction: "top_bottom", length: 9999 },
+    }),
+  );
+  assert.equal(clamped.fade?.length, 100);
+});
+
+test("legacy transition kinds keep null bandFill and no fade (back-compat, #115)", () => {
+  for (const type of ["gutter", "fade", "beat", "scene-break", "time-skip", "hard-cut"] as const) {
+    const r = layoutTransition(transition({ id: type, type }));
+    assert.equal(r.bandFill, null, `${type} bandFill`);
+    assert.equal(r.fade, null, `${type} fade`);
+    // existing treatments unchanged.
+  }
+  assert.equal(layoutTransition(transition({ id: "b", type: "beat" })).treatment, "card");
+  assert.equal(layoutTransition(transition({ id: "g", type: "gutter" })).treatment, "gutter");
+});
+
+test("gradient resolves on the plan; absent → null (#115)", () => {
+  const none = layoutTransition(transition({ id: "g0", type: "color_field" }));
+  assert.equal(none.gradient, null);
+  const g = layoutTransition(
+    transition({
+      id: "g1",
+      type: "color_field",
+      gradient: { from: "#102030", to: "#a0b0c0", direction: "bottom_up" },
+    }),
+  );
+  assert.deepEqual(g.gradient, { from: "#102030", to: "#a0b0c0", direction: "bottom_up" });
+});
+
+test("layoutPanelText resolves a single-source text block for the v4 cards (#115)", () => {
+  const plan = (over: Parameters<typeof transition>[0]) => layoutTransition(transition(over));
+  // No text → null.
+  assert.equal(layoutPanelText(plan({ id: "n", type: "color_field" }), 800, 400), null);
+  // center/middle defaults: x = width/2, y = height/2, baseline middle.
+  const mid = layoutPanelText(plan({ id: "m", type: "narration_card", text: "Hello" }), 800, 400);
+  assert.ok(mid);
+  assert.equal(mid.text, "Hello");
+  assert.equal(mid.x, 400);
+  assert.equal(mid.y, 200);
+  assert.equal(mid.align, "center");
+  assert.equal(mid.baseline, "middle");
+  assert.equal(mid.fontSize, Math.max(12, Math.round(400 * 0.14)));
+  // left + top: x at left pad, y at top pad, baseline top.
+  const tl = layoutPanelText(
+    plan({ id: "tl", type: "narration_card", text: "x", textAlign: "left", verticalAlign: "top" }),
+    800,
+    400,
+  );
+  assert.ok(tl);
+  assert.equal(tl.x, 800 * 0.08);
+  assert.equal(tl.y, 400 * 0.1);
+  assert.equal(tl.align, "left");
+  assert.equal(tl.baseline, "top");
+  // right + bottom.
+  const rb = layoutPanelText(
+    plan({
+      id: "rb",
+      type: "dialogue_card",
+      text: "y",
+      textAlign: "right",
+      verticalAlign: "bottom",
+    }),
+    800,
+    400,
+  );
+  assert.ok(rb);
+  assert.equal(rb.x, 800 - 800 * 0.08);
+  assert.equal(rb.y, 400 - 400 * 0.1);
+  assert.equal(rb.baseline, "bottom");
 });

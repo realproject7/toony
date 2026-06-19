@@ -42,6 +42,8 @@ export type {
   Cut,
   Episode,
   EpisodeBundle,
+  FadeDirection,
+  FadeType,
   FontFamilyId,
   FontWeight,
   ImageAssetRef,
@@ -59,7 +61,10 @@ export type {
   ShotType,
   TextAlign,
   Transition,
+  TransitionFade,
+  TransitionGradient,
   TransitionType,
+  VerticalAlign,
   Webtoon,
 } from "./types.js";
 export {
@@ -67,6 +72,8 @@ export {
   BUBBLE_TONES,
   CORNER_RADIUS_MAX_PX,
   CORNER_RADIUS_MIN_PX,
+  FADE_DIRECTIONS,
+  FADE_TYPES,
   FONT_FAMILY_IDS,
   FONT_SIZE_MAX_PX,
   FONT_SIZE_MIN_PX,
@@ -87,6 +94,7 @@ export {
   SHOT_TYPES,
   TEXT_ALIGNS,
   TRANSITION_TYPES,
+  VERTICAL_ALIGNS,
 } from "./types.js";
 export {
   isProjectRelativePath,
