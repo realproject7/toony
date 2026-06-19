@@ -38,9 +38,9 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <Link href="/" className="brand" aria-label="Toony Studio — Library">
-        {/* The app icon: indigo Production Scroll + Pulse Coral speech bubble. */}
+        {/* The app icon: the operator's Toony tuxedo-cat mark (v4). */}
         {/* biome-ignore lint/performance/noImgElement: static brand mark served from /public, not user content for the Next image optimizer. */}
-        <img className="brand-mark" src="/brand/app-icon.png" alt="" aria-hidden="true" />
+        <img className="brand-mark" src="/brand/toony-icon.png" alt="" aria-hidden="true" />
         <span>
           Toony<span className="brand-dot">.</span>
         </span>

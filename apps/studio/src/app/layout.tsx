@@ -10,8 +10,8 @@ import "./lettering-fonts.css";
 export const metadata = {
   title: "Toony Studio",
   description: "Local-first webtoon production studio",
-  // Brand mark (Studio Pulse): indigo webtoon scroll + Pulse Coral speech
-  // bubble. Served from /public so the real favicon/app icon load.
+  // Brand mark (v4): the operator's Toony tuxedo-cat icon. Served from /public
+  // so the real favicon/app icon load.
   icons: {
     icon: [
       { url: "/icon.png", type: "image/png", sizes: "32x32" },
