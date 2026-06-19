@@ -236,3 +236,52 @@ toony export plotlink  --episode ep-001
 Browser evidence (workspace library with the real cover, and the reader rendering
 the full episode with real art + craft bubbles + transition bands) is in
 [`docs/capstone-v3/`](./capstone-v3).
+
+---
+
+# v4 Capstone — "Dead Air" interstitial pass (transitions as real panels)
+
+The v4 capstone validates the headline v4 change end-to-end: **transitions are real
+interstitial panels in the scroll**, rendered identically in the studio Read view and
+the export raster, plus the human-first editor and the cute cat brand.
+
+Seed: [`examples/dead-air`](../examples/dead-air) — its `transitions.yaml` was upgraded
+to the v4 interstitial vocabulary (skills from [`docs/TOONY-INTERSTITIAL-CRAFT.md`](./TOONY-INTERSTITIAL-CRAFT.md)):
+
+| # | Kind | Role in the horror beat |
+|---|---|---|
+| tr-001 | `time_card` | cold-open slate "2:14 AM — LIVE" |
+| tr-002 | `color_field` | cold mood field before the line lights up |
+| tr-003 | `narration_card` | "One unknown caller. No name. No number." |
+| tr-004 | `dialogue_card` | a voice before we see the speaker — "…is someone there?" |
+| tr-005 | `void` | a long pure-black drop into dread before the reveal |
+| tr-006 | `color_field` + `fade` (to_black) | fade to the blackout payoff |
+
+Heights follow the clock-ladder (#117): the `void` runs 300px (a held dread beat), the
+cards 180–220px, calibrated so each panel fills the reading viewport.
+
+## Validations (all green)
+
+```
+toony validate examples/dead-air      # valid
+toony lint examples/dead-air          # clean
+toony export plotlink  --episode ep-001   # 7 webp (≤22KB each, <1MB) + episode.md (769 chars, in 500–10k) + manifest
+toony export stitched  --episode ep-001   # one tall episode.png
+```
+
+- **Read = export parity:** both the studio Read panel (`TransitionBlock`, #118) and the
+  export canvas (`composeTransitionBand`) consume the SAME `@toony/render` `layoutTransition`
+  plan, so the interstitial panels are pixel-faithful across surfaces. The stitched raster
+  shows the time card, color field, narration/dialogue cards, the black void, and the
+  fade-to-black interleaved with the cut bubbles (scalloped shout "DON'T LOOK UP.", SFX
+  "BZZT"/"CLACK", narration captions) — i.e. it reads as a finished vertical-scroll webtoon.
+- **PlotLink constraints:** ≤20 images (7), each WebP <1MB (max ~22KB), markdown 500–10k (769).
+- **Human-first editor (#121):** the cut editor surfaces only bubbles; the transition editor
+  (#119) authors the interstitial kinds with mood-color swatches, clock-ladder height presets,
+  fades, and H/V text align — each row previewing the real panel.
+- **Brand (#123):** the operator's tuxedo-cat logo + the 3-color doodle-modern system applied
+  across the studio.
+
+Cut artwork is generated locally via the provider-neutral ComfyUI flow (as in the v3 capstone);
+the committed seed keeps `image: null`, and the v4 focus — the no-art interstitial panels — needs
+no artwork to render.

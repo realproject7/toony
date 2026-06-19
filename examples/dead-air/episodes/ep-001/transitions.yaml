@@ -1,57 +1,67 @@
 - id: tr-001
-  type: title_card
-  gutterHeight: 160
+  type: time_card
+  gutterHeight: 150
   text: 2:14 AM — LIVE
   sfx: null
   agentNote: null
-  humanNote: cold-open station card, set the hour
+  humanNote: cold-open time slate, set the hour
+  textAlign: center
+  verticalAlign: middle
+  color: "#101618"
   image: null
   reviewStatus: human-edited
-  color: "#101618"
 - id: tr-002
-  type: gutter
-  gutterHeight: 72
+  type: color_field
+  gutterHeight: 200
   text: null
   sfx: null
   agentNote: null
-  humanNote: small beat before the line lights up
+  humanNote: cold mood field before the line lights up
+  color: "#16222b"
   image: null
   reviewStatus: human-edited
 - id: tr-003
-  type: scene-break
-  gutterHeight: 140
-  text: One unknown caller.
+  type: narration_card
+  gutterHeight: 220
+  text: One unknown caller. No name. No number.
   sfx: null
   agentNote: null
   humanNote: name the threat, settle the dread
+  textAlign: center
+  verticalAlign: middle
   image: null
   reviewStatus: human-edited
 - id: tr-004
-  type: palette_shift
-  gutterHeight: 120
-  text: null
+  type: dialogue_card
+  gutterHeight: 180
+  text: "...is someone there?"
   sfx: null
   agentNote: null
-  humanNote: shift cold as we cut to the caller
+  humanNote: a voice before we see the speaker
+  textAlign: center
+  verticalAlign: middle
   image: null
   reviewStatus: human-edited
-  color: "#16181c"
 - id: tr-005
-  type: black_band
-  gutterHeight: 150
+  type: void
+  gutterHeight: 300
   text: null
   sfx: null
   agentNote: null
-  humanNote: hard drop into dread before the reveal
+  humanNote: hard drop into dread — long black void before the reveal
   image: null
   reviewStatus: human-edited
-  color: "#000000"
 - id: tr-006
-  type: fade
-  gutterHeight: 120
+  type: color_field
+  gutterHeight: 200
   text: null
   sfx: null
   agentNote: null
   humanNote: fade to the blackout payoff
+  color: "#0a0a0a"
+  fade:
+    type: to_black
+    direction: top_bottom
+    length: 160
   image: null
   reviewStatus: human-edited
