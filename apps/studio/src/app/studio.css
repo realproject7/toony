@@ -736,16 +736,17 @@ input[type="radio"] {
   box-shadow: var(--shadow-accent);
 }
 
-/* Pulse Coral secondary — the energetic "save"/decisive moment. */
+/* Pink secondary — the energetic "save"/decisive moment. Uses the darker solid
+   shade so white label text clears WCAG AA (#142); brand pink stays for accents. */
 .btn-accent2 {
-  background: var(--color-accent-2);
-  border-color: var(--color-accent-2);
+  background: var(--color-accent-2-strong);
+  border-color: var(--color-accent-2-strong);
   color: var(--color-accent-2-on);
 }
 
 .btn-accent2:hover:not(:disabled) {
-  background: var(--color-accent-2-hover);
-  border-color: var(--color-accent-2-hover);
+  background: var(--color-accent-2-strong-hover);
+  border-color: var(--color-accent-2-strong-hover);
   color: var(--color-accent-2-on);
 }
 
