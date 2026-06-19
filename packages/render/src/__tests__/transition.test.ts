@@ -1,7 +1,35 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { layoutPanelText, layoutTransition } from "../transition.js";
+import { layoutCardText, layoutPanelText, layoutTransition } from "../transition.js";
 import { transition } from "./fixtures.js";
+
+test("layoutCardText resolves legacy card text geometry (shared by export + studio Read)", () => {
+  const r = layoutTransition(
+    transition({ id: "c1", type: "title_card", gutterHeight: 400, text: "One caller." }),
+  );
+  const card = layoutCardText(r, 800, 400);
+  assert.ok(card);
+  // Detail line: bold, 0.22h, at y = 0.42h, centered.
+  assert.equal(card.lines.length, 2);
+  assert.equal(card.lines[0]?.text, "One caller.");
+  assert.equal(card.lines[0]?.fontSize, Math.max(10, Math.round(400 * 0.22)));
+  assert.equal(card.lines[0]?.y, 400 * 0.42);
+  assert.equal(card.lines[0]?.weight, 700);
+  assert.equal(card.lines[0]?.x, 400); // width/2
+  // Small type label under it at y = 0.68h.
+  assert.equal(card.lines[1]?.y, 400 * 0.68);
+  assert.equal(card.lines[1]?.weight, 400);
+  assert.equal(card.color, "#f3ece0");
+});
+
+test("layoutCardText with no detail centers the type label; break uses dark ink", () => {
+  const r = layoutTransition(transition({ id: "b1", type: "scene-break", gutterHeight: 200 }));
+  const card = layoutCardText(r, 800, 200);
+  assert.ok(card);
+  assert.equal(card.lines.length, 1);
+  assert.equal(card.lines[0]?.y, 100); // height/2
+  assert.equal(card.color, "#2a2a2a"); // break ground is light → dark ink
+});
 
 test("gutter transition resolves to a gutter treatment with its height", () => {
   const r = layoutTransition(transition({ id: "tr-1", type: "gutter", gutterHeight: 64 }));

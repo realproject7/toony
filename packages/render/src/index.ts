@@ -48,10 +48,12 @@ export type {
 export { defaultBubbleFontRange, layoutBubbleText, wrapText } from "./text.js";
 
 export type {
+  CardTextLayout,
+  CardTextLine,
   PanelTextLayout,
   ResolvedFade,
   ResolvedGradient,
   TransitionRender,
   TransitionTreatment,
 } from "./transition.js";
-export { layoutPanelText, layoutTransition } from "./transition.js";
+export { layoutCardText, layoutPanelText, layoutTransition } from "./transition.js";

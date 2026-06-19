@@ -80,7 +80,8 @@
   --color-ink: #2b2b2b;
   --color-ink-strong: #14120c;
   --color-muted: #6b655a;
-  --color-faint: #aaa494;
+  /* Faint text still meaningful → keep ≥4.5:1 on white/cream (was #aaa494, 2.49:1). */
+  --color-faint: #7a7468;
   --color-line: #ece7db;
   --color-line-strong: #ddd6c7;
 
@@ -108,7 +109,8 @@
 
   --color-success: var(--teal-500);
   --color-success-soft: #d7f6f1;
-  --color-warning: #c79400;
+  /* Darkened so warning TEXT clears ≥4.5:1 on white (was #c79400, 2.74:1). */
+  --color-warning: #8a6a00;
   --color-warning-soft: var(--color-highlight-soft);
   --color-danger: var(--coral-600);
   --color-danger-soft: var(--coral-50);

@@ -18,7 +18,13 @@ import { ProjectIoError } from "../index.js";
 import { cutsFile, episodeFile, letteringFile, transitionsFile, webtoonPath } from "../paths.js";
 import { loadProject } from "../reader.js";
 import { buildInitialProject, slugify } from "../scaffold.js";
-import { writeLettering, writeProject, writeTransitions, writeWebtoon } from "../writer.js";
+import {
+  writeCuts,
+  writeLettering,
+  writeProject,
+  writeTransitions,
+  writeWebtoon,
+} from "../writer.js";
 
 function transition(over: Partial<Transition> = {}): Transition {
   return {
@@ -149,6 +155,58 @@ test("writeWebtoon persists the character registry and round-trips", async () =>
   const before = await readFile(cutsFile(root, "ep-001"), "utf8");
   await writeWebtoon(root, next);
   assert.equal(await readFile(cutsFile(root, "ep-001"), "utf8"), before);
+});
+
+test("writeLettering preserves agent-owned cut + registry data byte-stable (#137/#121)", async () => {
+  const root = join(workdir, "demo");
+  await writeProject(root, buildInitialProject("demo"));
+
+  // Seed agent-owned fields: a cut with prompts + craft, and a character registry.
+  const cuts = decodeYaml(await readFile(cutsFile(root, "ep-001"), "utf8")) as Cut[];
+  const target = cuts.find((c) => c.id === "cut-001");
+  assert.ok(target);
+  target.imagePrompt = "rain-soaked alley, neon reflections";
+  target.negativePrompt = "lowres";
+  target.shotType = "medium";
+  target.palette = "#3a4a5a";
+  target.styleTag = "noir";
+  target.characters = ["rin"];
+  await writeCuts(root, "ep-001", cuts);
+
+  const loaded = await loadProject(root);
+  await writeWebtoon(root, {
+    ...loaded.project.webtoon,
+    characters: [{ id: "rin", name: "Rin", lockstring: "teal + ash; round glasses; bob" }],
+  });
+
+  // Snapshot the agent-owned files BEFORE a lettering-only save (the editor's only write, #121).
+  const cutsBefore = await readFile(cutsFile(root, "ep-001"), "utf8");
+  const webtoonBefore = await readFile(webtoonPath(root), "utf8");
+
+  await writeLettering(root, "ep-001", [overlay({ id: "ov-1", text: "Hello?" })]);
+
+  // Agent-owned files are byte-identical; only lettering.json changed.
+  assert.equal(
+    await readFile(cutsFile(root, "ep-001"), "utf8"),
+    cutsBefore,
+    "cuts.yaml must survive a lettering save byte-stable",
+  );
+  assert.equal(
+    await readFile(webtoonPath(root), "utf8"),
+    webtoonBefore,
+    "webtoon.json must survive a lettering save byte-stable",
+  );
+
+  const after = await loadProject(root);
+  assert.equal(after.validation.valid, true, JSON.stringify(after.validation.issues));
+  const cut = after.project.episodes[0]?.cuts.find((c) => c.id === "cut-001");
+  assert.equal(cut?.imagePrompt, "rain-soaked alley, neon reflections");
+  assert.equal(cut?.shotType, "medium");
+  assert.deepEqual(cut?.characters, ["rin"]);
+  assert.equal(after.project.webtoon.characters?.[0]?.id, "rin");
+  const lettering = JSON.parse(await readFile(letteringFile(root, "ep-001"), "utf8"));
+  assert.equal(lettering.length, 1);
+  assert.equal(lettering[0]?.text, "Hello?");
 });
 
 test("writeWebtoon refuses to write an invalid registry", async () => {
