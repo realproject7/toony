@@ -13,6 +13,25 @@ export {
   validateExportWidth,
 } from "./export-options.js";
 export { isPathSafeId } from "./path-safe-id.js";
+export {
+  isMoodColor,
+  isPanelHeightPreset,
+  isSpacingPreset,
+  MOOD_COLOR_NAMES,
+  MOOD_COLORS,
+  type MoodColor,
+  moodColorHex,
+  PANEL_FOLD_SLICE_PX,
+  PANEL_HEIGHT_PRESET_NAMES,
+  PANEL_HEIGHT_PRESETS,
+  type PanelHeightPreset,
+  panelHeightPx,
+  SPACING_PRESET_NAMES,
+  SPACING_PRESETS,
+  type SpacingPreset,
+  STANDARD_CANVAS_WIDTH_PX,
+  spacingPx,
+} from "./presets.js";
 export { parseProject, serializeProject } from "./serialize.js";
 export type {
   BubbleBorder,
