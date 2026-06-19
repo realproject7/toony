@@ -22,6 +22,8 @@ import {
   BUBBLE_TONES,
   CORNER_RADIUS_MAX_PX,
   CORNER_RADIUS_MIN_PX,
+  FADE_DIRECTIONS,
+  FADE_TYPES,
   FONT_FAMILY_IDS,
   FONT_SIZE_MAX_PX,
   FONT_SIZE_MIN_PX,
@@ -41,6 +43,7 @@ import {
   SHOT_TYPES,
   TEXT_ALIGNS,
   TRANSITION_TYPES,
+  VERTICAL_ALIGNS,
 } from "./types.js";
 
 function isOneOf(value: unknown, allowed: readonly string[]): value is string {
@@ -403,6 +406,57 @@ export function validateTransitionValue(value: unknown, path: string, c: IssueCo
   if (value.color !== undefined && value.color !== null && !isNonEmptyString(value.color)) {
     c.add(joinPath(path, "color"), "transition.color", "color must be a non-empty string or null.");
   }
+  // Interstitial panel text alignment (#115), both OPTIONAL + back-compat.
+  if (value.textAlign !== undefined && !isOneOf(value.textAlign, TEXT_ALIGNS)) {
+    c.add(
+      joinPath(path, "textAlign"),
+      "transition.text-align",
+      `textAlign must be one of: ${TEXT_ALIGNS.join(", ")}.`,
+    );
+  }
+  if (value.verticalAlign !== undefined && !isOneOf(value.verticalAlign, VERTICAL_ALIGNS)) {
+    c.add(
+      joinPath(path, "verticalAlign"),
+      "transition.vertical-align",
+      `verticalAlign must be one of: ${VERTICAL_ALIGNS.join(", ")}.`,
+    );
+  }
+  // Panel fade (#115) — OPTIONAL: null/absent → no fade.
+  validateTransitionFade(value.fade, joinPath(path, "fade"), c);
+}
+
+/**
+ * Validate an optional `Transition.fade` (#115). `null`/absent is valid (no fade).
+ * When present it must be an object with a valid `type`/`direction` enum and a
+ * finite positive `length` (px).
+ */
+function validateTransitionFade(value: unknown, path: string, c: IssueCollector): void {
+  if (value === undefined || value === null) return;
+  if (!isPlainObject(value)) {
+    c.add(path, "transition.fade", "fade must be an object or null.");
+    return;
+  }
+  if (!isOneOf(value.type, FADE_TYPES)) {
+    c.add(
+      joinPath(path, "type"),
+      "transition.fade-type",
+      `fade.type must be one of: ${FADE_TYPES.join(", ")}.`,
+    );
+  }
+  if (!isOneOf(value.direction, FADE_DIRECTIONS)) {
+    c.add(
+      joinPath(path, "direction"),
+      "transition.fade-direction",
+      `fade.direction must be one of: ${FADE_DIRECTIONS.join(", ")}.`,
+    );
+  }
+  if (!isFiniteNumber(value.length) || value.length <= 0) {
+    c.add(
+      joinPath(path, "length"),
+      "transition.fade-length",
+      "fade.length must be a positive number of pixels.",
+    );
+  }
 }
 
 // --- Lettering overlay ------------------------------------------------------
@@ -633,6 +687,14 @@ function validateLetteringStyle(
       joinPath(path, "textAlign"),
       "style.text-align",
       `textAlign must be one of: ${TEXT_ALIGNS.join(", ")}.`,
+    );
+  }
+  // Vertical text anchoring (#115), OPTIONAL + back-compat (absent → top).
+  if (value.verticalAlign !== undefined && !isOneOf(value.verticalAlign, VERTICAL_ALIGNS)) {
+    c.add(
+      joinPath(path, "verticalAlign"),
+      "style.vertical-align",
+      `verticalAlign must be one of: ${VERTICAL_ALIGNS.join(", ")}.`,
     );
   }
   if (

@@ -110,3 +110,95 @@ test("legacy transition kinds have no solid bandFill (back-compat)", () => {
     assert.equal(layoutTransition(transition({ id: type, type })).bandFill, null);
   }
 });
+
+// --- v4 interstitial kinds + verticalAlign + fade (#115) --------------------
+
+test("v4 color_field and void resolve to solid bands with their defaults", () => {
+  const cf = layoutTransition(transition({ id: "cf", type: "color_field" }));
+  assert.equal(cf.treatment, "band");
+  assert.equal(cf.bandFill, "#5a6b7a");
+  const vd = layoutTransition(transition({ id: "vd", type: "void" }));
+  assert.equal(vd.treatment, "band");
+  assert.equal(vd.bandFill, "#0a0a0a"); // near-black dread
+});
+
+test("v4 narration/dialogue/time cards are card treatments with dark fills", () => {
+  for (const type of ["narration_card", "dialogue_card", "time_card"] as const) {
+    const r = layoutTransition(transition({ id: type, type }));
+    assert.equal(r.treatment, "card", type);
+    assert.equal(r.isCard, true, type);
+    assert.equal(r.bandFill, "#15110d", type);
+  }
+});
+
+test("v4 panels resolve text anchoring with center/middle defaults; explicit wins", () => {
+  const def = layoutTransition(transition({ id: "d", type: "narration_card" }));
+  assert.equal(def.textAlign, "center");
+  assert.equal(def.verticalAlign, "middle");
+  const set = layoutTransition(
+    transition({ id: "s", type: "narration_card", textAlign: "left", verticalAlign: "bottom" }),
+  );
+  assert.equal(set.textAlign, "left");
+  assert.equal(set.verticalAlign, "bottom");
+});
+
+test("Transition.color overrides a v4 panel's default fill", () => {
+  const r = layoutTransition(transition({ id: "c", type: "color_field", color: "#112233" }));
+  assert.equal(r.bandFill, "#112233");
+});
+
+test("fade resolves the end color per type and clamps length to the panel height", () => {
+  const black = layoutTransition(
+    transition({
+      id: "fb",
+      type: "void",
+      gutterHeight: 800,
+      fade: { type: "to_black", direction: "top_bottom", length: 300 },
+    }),
+  );
+  assert.deepEqual(black.fade, {
+    type: "to_black",
+    direction: "top_bottom",
+    length: 300,
+    color: "#000000",
+  });
+  const white = layoutTransition(
+    transition({
+      id: "fw",
+      type: "color_field",
+      fade: { type: "to_white", direction: "bottom_up", length: 50 },
+    }),
+  );
+  assert.equal(white.fade?.color, "#ffffff");
+  // to_color uses Transition.color (falls back to black when absent).
+  const col = layoutTransition(
+    transition({
+      id: "fc",
+      type: "color_field",
+      color: "#abcdef",
+      fade: { type: "to_color", direction: "top_bottom", length: 40 },
+    }),
+  );
+  assert.equal(col.fade?.color, "#abcdef");
+  // length is clamped to the resolved gutterHeight.
+  const clamped = layoutTransition(
+    transition({
+      id: "cl",
+      type: "void",
+      gutterHeight: 100,
+      fade: { type: "to_black", direction: "top_bottom", length: 9999 },
+    }),
+  );
+  assert.equal(clamped.fade?.length, 100);
+});
+
+test("legacy transition kinds keep null bandFill and no fade (back-compat, #115)", () => {
+  for (const type of ["gutter", "fade", "beat", "scene-break", "time-skip", "hard-cut"] as const) {
+    const r = layoutTransition(transition({ id: type, type }));
+    assert.equal(r.bandFill, null, `${type} bandFill`);
+    assert.equal(r.fade, null, `${type} fade`);
+    // existing treatments unchanged.
+  }
+  assert.equal(layoutTransition(transition({ id: "b", type: "beat" })).treatment, "card");
+  assert.equal(layoutTransition(transition({ id: "g", type: "gutter" })).treatment, "gutter");
+});

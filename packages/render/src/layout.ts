@@ -21,6 +21,7 @@ import {
   LETTERING_STYLE_DEFAULTS,
   type LetteringOverlay,
   type TextAlign,
+  type VerticalAlign,
 } from "@toony/schema";
 import {
   type BalloonCommand,
@@ -121,6 +122,12 @@ export interface BubbleRender {
   fontStack: string;
   /** Resolved horizontal text alignment. */
   textAlign: TextAlign;
+  /**
+   * Resolved vertical text anchoring (#115); absent → `"top"` (current behavior).
+   * Already baked into each line's `y`, so any consumer drawing `lines` honors it
+   * by construction — render, export, and studio stay in lockstep.
+   */
+  verticalAlign: VerticalAlign;
   /** Resolved letter spacing in em. */
   letterSpacing: number;
   /** Resolved stacking order; layoutCut returns plans in ascending z (then input order). */
@@ -360,7 +367,19 @@ export function layoutBubble(
   const padX = Math.max(2, ow * 0.06);
   const padY = Math.max(2, oh * 0.08);
   const textOriginX = ox + padX;
-  const textOriginY = oy + padY;
+  // Vertical anchoring (#115): `top` (default) keeps the text at the top padding
+  // (byte-identical to before); `middle`/`bottom` offset the whole block within
+  // the box's inner height. Baked into line.y so every consumer honors it.
+  const verticalAlign: VerticalAlign = overlay.verticalAlign ?? "top";
+  const innerHeight = Math.max(0, oh - 2 * padY);
+  const blockHeight = text.lines.length * text.lineHeight;
+  const vOffset =
+    verticalAlign === "middle"
+      ? Math.max(0, (innerHeight - blockHeight) / 2)
+      : verticalAlign === "bottom"
+        ? Math.max(0, innerHeight - blockHeight)
+        : 0;
+  const textOriginY = oy + padY + vOffset;
   const centerX = ox + ow / 2;
   const rightX = ox + ow - padX;
   const anchorX = textAlign === "left" ? textOriginX : textAlign === "right" ? rightX : centerX;
@@ -417,6 +436,7 @@ export function layoutBubble(
     fontFamily,
     fontStack,
     textAlign,
+    verticalAlign,
     letterSpacing,
     zIndex,
     text,

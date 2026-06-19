@@ -428,3 +428,129 @@ test("impact_band does not paint into a sibling gutter bubble's reserved strip (
     `reserved band should be white, got [${data[0]},${data[1]},${data[2]}]`,
   );
 });
+
+// --- v4 interstitial panels + fades + bubble verticalAlign (#115) -----------
+
+function avg(canvas: Canvas, x: number, y: number): [number, number, number] {
+  const { data } = canvas.getContext("2d").getImageData(x, y, 1, 1);
+  return [data[0] ?? 0, data[1] ?? 0, data[2] ?? 0];
+}
+
+test("color_field composes a solid mood fill; void is near-black (#115)", async () => {
+  const { composeTransitionBand } = await import("../compose.js");
+  const cf = composeTransitionBand(craftTransition({ type: "color_field", color: "#3366cc" }), 300);
+  assert.ok(cf);
+  const [r, g, b] = avg(cf.canvas, Math.round(cf.width / 2), Math.round(cf.height / 2));
+  const near = (got: number, want: number) => Math.abs(got - want) <= 2;
+  assert.ok(near(r, 51) && near(g, 102) && near(b, 204), `color_field got [${r},${g},${b}]`);
+  const vd = composeTransitionBand(craftTransition({ type: "void" }), 300);
+  assert.ok(vd);
+  const [vr, vg, vb] = avg(vd.canvas, Math.round(vd.width / 2), Math.round(vd.height / 2));
+  assert.ok(vr < 20 && vg < 20 && vb < 20, `void got [${vr},${vg},${vb}]`);
+});
+
+test("a v4 text card renders light text and honors verticalAlign (#115)", async () => {
+  const { composeTransitionBand } = await import("../compose.js");
+  // Light-ink mean Y on the dark card: top-aligned text sits higher than bottom.
+  const meanY = (canvas: Canvas): number => {
+    const ctx = canvas.getContext("2d");
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let sum = 0;
+    let n = 0;
+    for (let y = 0; y < canvas.height; y++) {
+      for (let x = 0; x < canvas.width; x++) {
+        const i = (y * canvas.width + x) * 4;
+        if ((data[i] ?? 0) > 180 && (data[i + 1] ?? 0) > 180 && (data[i + 2] ?? 0) > 150) {
+          sum += y;
+          n++;
+        }
+      }
+    }
+    return n > 0 ? sum / n : Number.NaN;
+  };
+  const top = composeTransitionBand(
+    craftTransition({
+      type: "narration_card",
+      text: "Later that night",
+      verticalAlign: "top",
+      gutterHeight: 400,
+    }),
+    400,
+  );
+  const bottom = composeTransitionBand(
+    craftTransition({
+      type: "narration_card",
+      text: "Later that night",
+      verticalAlign: "bottom",
+      gutterHeight: 400,
+    }),
+    400,
+  );
+  assert.ok(top && bottom);
+  const topY = meanY(top.canvas);
+  const bottomY = meanY(bottom.canvas);
+  assert.ok(!Number.isNaN(topY) && !Number.isNaN(bottomY), "expected light text ink in both");
+  assert.ok(bottomY - topY > 40, `bottom text (${bottomY}) must sit below top text (${topY})`);
+});
+
+test("a to_white top_bottom fade lightens the bottom edge of a void panel (#115)", async () => {
+  const { composeTransitionBand } = await import("../compose.js");
+  const band = composeTransitionBand(
+    craftTransition({
+      type: "void",
+      gutterHeight: 600,
+      fade: { type: "to_white", direction: "top_bottom", length: 300 },
+    }),
+    300,
+  );
+  assert.ok(band);
+  const [tr] = avg(band.canvas, Math.round(band.width / 2), 5); // top: still dark
+  const bottom = avg(band.canvas, Math.round(band.width / 2), band.height - 3); // bottom: faded to white
+  assert.ok(tr < 30, `top should stay dark, got ${tr}`);
+  assert.ok(
+    bottom[0] > 200 && bottom[1] > 200 && bottom[2] > 200,
+    `bottom should be white, got [${bottom}]`,
+  );
+});
+
+test("composeCut bubble text honors verticalAlign (#115)", async () => {
+  const tall = (v: "top" | "bottom"): LetteringOverlay => ({
+    id: "vb",
+    cutId: "c",
+    speaker: "",
+    kind: "narration",
+    text: "one",
+    font: "sans-serif",
+    fill: "#ffffff",
+    opacity: 1,
+    border: null,
+    tail: null,
+    fontSize: 32,
+    verticalAlign: v,
+    geometry: { x: 0.1, y: 0.1, width: 0.8, height: 0.7 },
+    overflow: false,
+    reviewStatus: "draft",
+  });
+  const darkInkMeanY = (canvas: Canvas): number => {
+    const ctx = canvas.getContext("2d");
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let sum = 0;
+    let n = 0;
+    for (let y = 0; y < canvas.height; y++) {
+      for (let x = 0; x < canvas.width; x++) {
+        const i = (y * canvas.width + x) * 4;
+        if ((data[i] ?? 255) < 90 && (data[i + 1] ?? 255) < 90 && (data[i + 2] ?? 255) < 90) {
+          sum += y;
+          n++;
+        }
+      }
+    }
+    return n > 0 ? sum / n : Number.NaN;
+  };
+  const top = await composeCut([tall("top")], null, 400);
+  const bottom = await composeCut([tall("bottom")], null, 400);
+  const topY = darkInkMeanY(top.canvas);
+  const bottomY = darkInkMeanY(bottom.canvas);
+  assert.ok(!Number.isNaN(topY) && !Number.isNaN(bottomY), "expected text ink in both");
+  assert.ok(bottomY - topY > 40, `bottom-aligned text (${bottomY}) must sit below top (${topY})`);
+});

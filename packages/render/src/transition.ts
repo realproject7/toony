@@ -8,18 +8,38 @@
 // can reuse the same band geometry/treatment.
 
 import {
+  type FadeDirection,
+  type FadeType,
   GUTTER_HEIGHT_MAX_PX,
   GUTTER_HEIGHT_MIN_PX,
+  type TextAlign,
   type Transition,
   type TransitionType,
+  type VerticalAlign,
 } from "@toony/schema";
 import { clamp } from "./geometry.js";
 
 /**
  * Visual treatment of a transition band, derived from its type. `band` (#99) is
- * a solid full-width color band (the craft scene-break kinds).
+ * a solid full-width color band (the craft scene-break kinds); the v4 interstitial
+ * card kinds (#115, narration/dialogue/time) reuse the `card` treatment but with
+ * the plan's resolved H+V text anchoring.
  */
 export type TransitionTreatment = "gutter" | "fade" | "card" | "break" | "band";
+
+/**
+ * Resolved panel fade (#115): the concrete end `color` the panel fades into over
+ * `length` px from the leading edge per `direction`. Both consumers draw the
+ * identical gradient from these resolved fields.
+ */
+export interface ResolvedFade {
+  type: FadeType;
+  direction: FadeDirection;
+  /** Fade span in px, clamped to [1, panel height]. */
+  length: number;
+  /** Concrete end color the panel fades into. */
+  color: string;
+}
 
 export interface TransitionRender {
   id: string;
@@ -39,13 +59,23 @@ export interface TransitionRender {
   /** Band fill color override (#98), or null to use the treatment's default. */
   color: string | null;
   /**
-   * Resolved solid-band background fill (#99) for the v3 craft kinds, or null for
-   * the legacy kinds (which keep their per-treatment default rendering). For a
-   * craft kind this is `Transition.color` when set, else the per-kind default —
-   * so both the studio band and the export canvas fill the band with the SAME
-   * solid color. A solid fill (no gradient) keeps studio↔export parity.
+   * Resolved solid-band background fill (#99) for the v3 craft kinds and the v4
+   * interstitial panels (#115), or null for the legacy kinds (which keep their
+   * per-treatment default rendering). For a panel kind this is `Transition.color`
+   * when set, else the per-kind default — so both the studio band and the export
+   * canvas fill the band with the SAME solid color. Solid fill keeps parity.
    */
   bandFill: string | null;
+  /**
+   * Resolved horizontal/vertical text anchoring for the v4 interstitial card
+   * kinds (#115). Defaults (`center`/`middle`) are resolved ONCE here so render,
+   * export, and studio anchor panel text identically (the #112 single-source
+   * lesson). Legacy card kinds keep their own fixed text layout and ignore these.
+   */
+  textAlign: TextAlign;
+  verticalAlign: VerticalAlign;
+  /** Resolved panel fade (#115), or null when the transition has none. */
+  fade: ResolvedFade | null;
 }
 
 const TREATMENT: Record<TransitionType, TransitionTreatment> = {
@@ -60,6 +90,13 @@ const TREATMENT: Record<TransitionType, TransitionTreatment> = {
   palette_shift: "band",
   desaturate_repeat: "band",
   title_card: "card",
+  // v4 interstitial kinds (#115): solid color/void fills are `band`; the text
+  // panels (narration/dialogue/time) are `card` but use the resolved H+V anchor.
+  color_field: "band",
+  void: "band",
+  narration_card: "card",
+  dialogue_card: "card",
+  time_card: "card",
 };
 
 /**
@@ -74,6 +111,13 @@ const CRAFT_BAND_DEFAULTS: Partial<Record<TransitionType, string>> = {
   title_card: "#15110d",
   palette_shift: "#5a6b7a",
   desaturate_repeat: "#9a958c",
+  // v4 interstitial panels (#115): solid mood field, near-black void, and the
+  // dark cards the text panels sit on (text is drawn light over these).
+  color_field: "#5a6b7a",
+  void: "#0a0a0a",
+  narration_card: "#15110d",
+  dialogue_card: "#15110d",
+  time_card: "#15110d",
 };
 
 /** Resolve a transition into a render plan. */
@@ -85,18 +129,38 @@ export function layoutTransition(transition: Transition): TransitionRender {
   const isSfx =
     transition.text === null && transition.sfx !== null && transition.sfx.trim().length > 0;
   const color = transition.color?.trim() ? transition.color : null;
-  // Craft kinds (#99) resolve a solid band fill: the explicit color, else the
-  // per-kind default. Legacy kinds have no default → bandFill stays null.
+  // Craft (#99) + v4 interstitial (#115) kinds resolve a solid band fill: the
+  // explicit color, else the per-kind default. Legacy kinds have no default →
+  // bandFill stays null.
   const craftDefault = CRAFT_BAND_DEFAULTS[transition.type] ?? null;
   const bandFill = craftDefault !== null ? (color ?? craftDefault) : null;
+  const gutterHeight = clamp(
+    Math.round(transition.gutterHeight),
+    GUTTER_HEIGHT_MIN_PX,
+    GUTTER_HEIGHT_MAX_PX,
+  );
+  // Panel text anchoring (#115): resolve defaults ONCE. center/middle is the v4
+  // panel default; legacy card kinds ignore these and keep their fixed layout.
+  const textAlign: TextAlign = transition.textAlign ?? "center";
+  const verticalAlign: VerticalAlign = transition.verticalAlign ?? "middle";
+  // Panel fade (#115): resolve the concrete end color + clamp the span to the
+  // panel height so both consumers draw the identical gradient.
+  let fade: ResolvedFade | null = null;
+  if (transition.fade) {
+    const f = transition.fade;
+    const endColor =
+      f.type === "to_black" ? "#000000" : f.type === "to_white" ? "#ffffff" : (color ?? "#000000");
+    fade = {
+      type: f.type,
+      direction: f.direction,
+      length: clamp(Math.round(f.length), 1, Math.max(1, gutterHeight)),
+      color: endColor,
+    };
+  }
   return {
     id: transition.id,
     type: transition.type,
-    gutterHeight: clamp(
-      Math.round(transition.gutterHeight),
-      GUTTER_HEIGHT_MIN_PX,
-      GUTTER_HEIGHT_MAX_PX,
-    ),
+    gutterHeight,
     treatment,
     label: transition.type.replace(/[-_]/g, " "),
     detail: detail && detail.trim().length > 0 ? detail : null,
@@ -104,5 +168,8 @@ export function layoutTransition(transition: Transition): TransitionRender {
     isCard: treatment === "card" || treatment === "break",
     color,
     bandFill,
+    textAlign,
+    verticalAlign,
+    fade,
   };
 }

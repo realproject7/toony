@@ -90,8 +90,49 @@ export const TRANSITION_TYPES = [
   "title_card",
   "palette_shift",
   "desaturate_repeat",
+  // v4 interstitial no-art panels (#115). ADDED, not renames — every existing
+  // kind keeps its behavior. Closest existing relative for each:
+  //  - color_field: solid mood-color fill (§2#2), renders like palette_shift but
+  //    is the v4-named first-class kind; palette_shift retained for back-compat.
+  //  - void: full-black hard stop (§2#3), like black_band but near-black + long.
+  //  - narration_card: caption block on a field (§2#4), distinct from title_card.
+  //  - dialogue_card: a single dialogue line on a field (§2#5).
+  //  - time_card: a time/place slate (§2#7), distinct from legacy time-skip.
+  // The v4 "beat/silence gap" (§2#1) is a plain `gutter` at a clock-ladder height,
+  // NOT the existing `beat` kind (which keeps its card treatment — no collision).
+  "color_field",
+  "void",
+  "narration_card",
+  "dialogue_card",
+  "time_card",
 ] as const;
 export type TransitionType = (typeof TRANSITION_TYPES)[number];
+
+/**
+ * Vertical text anchoring within a box/panel (#115): the genuinely-missing
+ * counterpart to horizontal `TEXT_ALIGNS`. `top` preserves the current rendering
+ * (text starts at the top padding), so an absent value is back-compatible.
+ */
+export const VERTICAL_ALIGNS = ["top", "middle", "bottom"] as const;
+export type VerticalAlign = (typeof VERTICAL_ALIGNS)[number];
+
+/**
+ * Fade gradient for an interstitial panel (#115, docs §2): blends the panel into
+ * black/white/its color over `length` PIXELS from the fade's leading edge.
+ * `top_bottom` fades downward INTO the end color (descent/ending); `bottom_up`
+ * fades upward OUT of it (waking/arrival). Optional + additive — absent → no fade.
+ */
+export const FADE_TYPES = ["to_black", "to_white", "to_color"] as const;
+export type FadeType = (typeof FADE_TYPES)[number];
+export const FADE_DIRECTIONS = ["top_bottom", "bottom_up"] as const;
+export type FadeDirection = (typeof FADE_DIRECTIONS)[number];
+
+/** A panel fade: end color (`type`), `direction`, and `length` in px (> 0). */
+export interface TransitionFade {
+  type: FadeType;
+  direction: FadeDirection;
+  length: number;
+}
 
 /**
  * SFX render mode (#99) for a `kind=sfx` lettering overlay. `typeset` (default)
@@ -284,6 +325,13 @@ export interface LetteringOverlay {
   lineHeight?: number;
   /** Horizontal text alignment; absent → "center". */
   textAlign?: TextAlign;
+  /**
+   * Vertical text anchoring within the bubble box (#115), one of `VERTICAL_ALIGNS`.
+   * Absent → `"top"`, which preserves the current rendering (text starts at the
+   * top padding). The renderer offsets the whole text block accordingly, and the
+   * SAME resolved line positions feed the studio SVG and the export canvas.
+   */
+  verticalAlign?: VerticalAlign;
   /** Letter spacing in em (-0.1–0.5); absent → 0. */
   letterSpacing?: number;
   /** Body text color (CSS color); absent → per-kind default. */
@@ -356,6 +404,21 @@ export interface Transition {
    * kinds (#99) reuse this.
    */
   color?: string | null;
+  /**
+   * Interstitial panel text alignment (#115). `textAlign` is horizontal (absent →
+   * `"center"`); `verticalAlign` is vertical (absent → `"middle"` for the v4
+   * card/panel kinds). Used by the v4 no-art card kinds (narration/dialogue/time);
+   * legacy card kinds keep their existing fixed text layout. The panel TEXT is the
+   * existing `text` field. Fill is the existing `color` field (no separate `fill`).
+   */
+  textAlign?: TextAlign;
+  verticalAlign?: VerticalAlign;
+  /**
+   * Optional fade gradient for the panel (#115): blends into black/white/its color
+   * over `fade.length` px from the leading edge per `direction`. Absent/null → no
+   * fade (back-compat). Additive on top of the panel fill.
+   */
+  fade?: TransitionFade | null;
 }
 
 /** An item in the canonical episode reading sequence. */

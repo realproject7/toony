@@ -20,6 +20,7 @@ import {
   IMPACT_RAY_COLOR,
   layoutCut,
   layoutTransition,
+  type ResolvedFade,
   type TransitionRender,
 } from "@toony/render";
 import type { LetteringOverlay, Transition } from "@toony/schema";
@@ -205,6 +206,92 @@ function drawBandText(
   }
 }
 
+// The v4 interstitial text panels (#115) — narration/dialogue/time cards — draw
+// their `text` with the render plan's resolved H+V anchoring (not the legacy
+// fixed `drawBandText` layout, which beat/time-skip/title_card keep).
+const V4_TEXT_PANELS = new Set<TransitionRender["type"]>([
+  "narration_card",
+  "dialogue_card",
+  "time_card",
+]);
+
+/** Parse `#rgb`/`#rrggbb` to `[r,g,b]`, or null for any other color string. */
+function hexToRgb(color: string): [number, number, number] | null {
+  const m3 = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(color);
+  if (m3) {
+    return [
+      Number.parseInt(`${m3[1]}${m3[1]}`, 16),
+      Number.parseInt(`${m3[2]}${m3[2]}`, 16),
+      Number.parseInt(`${m3[3]}${m3[3]}`, 16),
+    ];
+  }
+  const m6 = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color);
+  if (m6) {
+    return [
+      Number.parseInt(m6[1] as string, 16),
+      Number.parseInt(m6[2] as string, 16),
+      Number.parseInt(m6[3] as string, 16),
+    ];
+  }
+  return null;
+}
+
+/** A gradient-safe `rgba()` for a color at `alpha`, so the transparent stop of a
+ * fade doesn't darken toward black at the midpoint. Falls back to the raw color. */
+function rgba(color: string, alpha: number): string {
+  const rgb = hexToRgb(color);
+  return rgb ? `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})` : color;
+}
+
+/**
+ * Draw an interstitial panel fade (#115): blends into `fade.color` over
+ * `fade.length` px. `top_bottom` fades downward into the color at the BOTTOM edge;
+ * `bottom_up` starts at the color on the TOP edge and clears downward. Resolved
+ * length/color come from the render plan so the export and studio match.
+ */
+function drawFade(ctx: SKRSContext2D, fade: ResolvedFade, width: number, height: number): void {
+  const len = Math.min(fade.length, height);
+  if (fade.direction === "top_bottom") {
+    const g = ctx.createLinearGradient(0, height - len, 0, height);
+    g.addColorStop(0, rgba(fade.color, 0));
+    g.addColorStop(1, rgba(fade.color, 1));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, height - len, width, len);
+  } else {
+    const g = ctx.createLinearGradient(0, 0, 0, len);
+    g.addColorStop(0, rgba(fade.color, 1));
+    g.addColorStop(1, rgba(fade.color, 0));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, width, len);
+  }
+}
+
+/**
+ * Draw a v4 text-panel's `detail` honoring the plan's resolved `textAlign` (H) and
+ * `verticalAlign` (V) — the SAME resolved fields the studio panel uses (#112
+ * single-source discipline). Light text on the dark card fill.
+ */
+function drawPanelText(
+  ctx: SKRSContext2D,
+  render: TransitionRender,
+  width: number,
+  height: number,
+): void {
+  if (!render.detail) return;
+  const size = Math.max(12, Math.round(height * 0.14));
+  ctx.font = `400 ${size}px "${BAND_FONT_REGULAR}"`;
+  ctx.fillStyle = "#f3ece0";
+  const padX = width * 0.08;
+  const padY = height * 0.1;
+  const align = render.textAlign;
+  const x = align === "left" ? padX : align === "right" ? width - padX : width / 2;
+  ctx.textAlign = align === "left" ? "left" : align === "right" ? "right" : "center";
+  const v = render.verticalAlign;
+  const y = v === "top" ? padY : v === "bottom" ? height - padY : height / 2;
+  ctx.textBaseline = v === "top" ? "top" : v === "bottom" ? "bottom" : "middle";
+  ctx.fillText(render.detail, x, y);
+}
+
 /**
  * Compose a transition into a band of `targetWidth` × its gutter height. Card and
  * break treatments get a floor height so their label/detail is legible; a plain
@@ -253,8 +340,14 @@ export function composeTransitionBand(
     ctx.fillRect(0, 0, width, height);
   }
 
-  // Foreground per treatment (text/divider), drawn over the background.
-  if (render.treatment === "card") {
+  // Panel fade (#115): an additive gradient over the fill, under any text.
+  if (render.fade) drawFade(ctx, render.fade, width, height);
+
+  // Foreground per treatment (text/divider), drawn over the background. The v4
+  // text panels honor the plan's H+V anchoring; legacy cards keep drawBandText.
+  if (V4_TEXT_PANELS.has(render.type)) {
+    drawPanelText(ctx, render, width, height);
+  } else if (render.treatment === "card") {
     ctx.fillStyle = "#f3ece0";
     drawBandText(ctx, render, width, height);
   } else if (render.treatment === "break") {

@@ -587,3 +587,81 @@ test("overlay sfxMode validates against its enum and is optional (#99)", () => {
   overlay.sfxMode = "graffiti" as unknown as typeof overlay.sfxMode;
   assert.ok(codes(validateProject(project)).includes("overlay.sfx-mode"));
 });
+
+// --- v4 interstitial kinds + verticalAlign + fade (#115) --------------------
+
+test("the v4 interstitial transition kinds are accepted (#115)", () => {
+  const project = cloneValidProject();
+  const transition = project.episodes[0]?.transitions[0];
+  assert.ok(transition);
+  for (const type of [
+    "color_field",
+    "void",
+    "narration_card",
+    "dialogue_card",
+    "time_card",
+  ] as const) {
+    transition.type = type;
+    assert.equal(
+      validateProject(project).valid,
+      true,
+      `${type}: ${JSON.stringify(validateProject(project).issues)}`,
+    );
+  }
+});
+
+test("transition textAlign/verticalAlign validate against their enums (#115)", () => {
+  const project = cloneValidProject();
+  const transition = project.episodes[0]?.transitions[0];
+  assert.ok(transition);
+  transition.type = "narration_card";
+  transition.textAlign = "left";
+  transition.verticalAlign = "bottom";
+  assert.equal(validateProject(project).valid, true);
+  transition.textAlign = "justified" as unknown as typeof transition.textAlign;
+  assert.ok(codes(validateProject(project)).includes("transition.text-align"));
+  transition.textAlign = "center";
+  transition.verticalAlign = "baseline" as unknown as typeof transition.verticalAlign;
+  assert.ok(codes(validateProject(project)).includes("transition.vertical-align"));
+});
+
+test("transition fade validates type/direction/length when present (#115)", () => {
+  const project = cloneValidProject();
+  const transition = project.episodes[0]?.transitions[0];
+  assert.ok(transition);
+  transition.fade = { type: "to_black", direction: "top_bottom", length: 200 };
+  assert.equal(validateProject(project).valid, true);
+  transition.fade = null;
+  assert.equal(validateProject(project).valid, true);
+  transition.fade = {
+    type: "to_pink",
+    direction: "top_bottom",
+    length: 200,
+  } as unknown as typeof transition.fade;
+  assert.ok(codes(validateProject(project)).includes("transition.fade-type"));
+  transition.fade = {
+    type: "to_black",
+    direction: "sideways",
+    length: 200,
+  } as unknown as typeof transition.fade;
+  assert.ok(codes(validateProject(project)).includes("transition.fade-direction"));
+  transition.fade = {
+    type: "to_black",
+    direction: "top_bottom",
+    length: 0,
+  } as unknown as typeof transition.fade;
+  assert.ok(codes(validateProject(project)).includes("transition.fade-length"));
+});
+
+test("overlay verticalAlign validates against its enum and is optional (#115)", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  assert.equal(validateProject(project).valid, true); // absent → valid
+  for (const v of ["top", "middle", "bottom"] as const) {
+    overlay.verticalAlign = v;
+    assert.equal(validateProject(project).valid, true, v);
+  }
+  overlay.verticalAlign = "centre" as unknown as typeof overlay.verticalAlign;
+  assert.ok(codes(validateProject(project)).includes("style.vertical-align"));
+});
