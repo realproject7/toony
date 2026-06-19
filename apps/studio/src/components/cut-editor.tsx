@@ -17,7 +17,6 @@
 // `/api/lettering`, which validates and writes `lettering.json`; cancel returns
 // to the preview without writing.
 
-import type { Finding } from "@toony/lint";
 import {
   bubbleKindStyle,
   cutPlacementFrame,
@@ -27,7 +26,6 @@ import {
   kindSupportsTail,
   layoutCut,
 } from "@toony/render";
-import type { Character, Cut } from "@toony/schema";
 import { LETTERING_STYLE_DEFAULTS, type LetteringOverlay } from "@toony/schema";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -49,27 +47,6 @@ const BubbleInspector = dynamic(() => import("./bubble-inspector").then((m) => m
   ),
 });
 
-// The cut craft panel (shot/palette/layer/styleTag, character registry +
-// assignment, and the craft-lint findings list) is editor-only too, so it is
-// lazy-loaded as its own chunk — the library/reader never pull in these controls.
-const CutCraftPanel = dynamic(() => import("./cut-craft-panel").then((m) => m.CutCraftPanel), {
-  ssr: false,
-  loading: () => (
-    <div className="inspector-form" data-testid="cut-craft-panel-loading">
-      <p className="empty">Loading craft controls…</p>
-    </div>
-  ),
-});
-
-/** The cut's craft metadata (#98) the editor surfaces, in one prop object. */
-export interface CutCraftFields {
-  shotType: Cut["shotType"];
-  palette: Cut["palette"];
-  layer: Cut["layer"];
-  styleTag: Cut["styleTag"];
-  characters: string[];
-}
-
 export interface CutEditorProps {
   workId: string;
   episodeId: string;
@@ -78,14 +55,6 @@ export interface CutEditorProps {
   cutId: string;
   art: CutArt;
   initialBubbles: LetteringOverlay[];
-  initialImagePrompt: string;
-  initialNegativePrompt: string;
-  /** The cut's craft metadata + character assignment (#98/#92). */
-  initialCraft: CutCraftFields;
-  /** The project character registry (#92), for the registry + assignment UI. */
-  initialCharacters: Character[];
-  /** Initial craft/character/overflow lint findings for this episode (#94). */
-  initialFindings: Finding[];
 }
 
 /**
@@ -124,28 +93,12 @@ export function CutEditor({
   cutId,
   art,
   initialBubbles,
-  initialImagePrompt,
-  initialNegativePrompt,
-  initialCraft,
-  initialCharacters,
-  initialFindings,
 }: CutEditorProps) {
   const [bubbles, setBubbles] = useState<LetteringOverlay[]>(initialBubbles);
   const [selectedId, setSelectedId] = useState<string | null>(initialBubbles[0]?.id ?? null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
-
-  // Cut-level prompt fields (issue #38) are persisted separately from bubbles
-  // via /api/cut, so they carry their own state, dirty flag, and save status.
-  const [imagePrompt, setImagePrompt] = useState(initialImagePrompt);
-  const [negativePrompt, setNegativePrompt] = useState(initialNegativePrompt);
-  const [promptDirty, setPromptDirty] = useState(false);
-  const [promptSaving, setPromptSaving] = useState(false);
-  const [promptMessage, setPromptMessage] = useState<{
-    kind: "ok" | "error";
-    text: string;
-  } | null>(null);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragRef = useRef<DragMode | null>(null);
@@ -449,32 +402,6 @@ export function CutEditor({
       setSaving(false);
     }
   }, [bubbles, plans, workId, episodeId]);
-
-  const savePrompts = useCallback(async () => {
-    setPromptSaving(true);
-    setPromptMessage(null);
-    try {
-      const response = await fetch("/api/cut", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ workId, episodeId, cutId, imagePrompt, negativePrompt }),
-      });
-      const data = (await response.json()) as { ok: boolean; error?: string };
-      if (!response.ok || !data.ok) {
-        setPromptMessage({ kind: "error", text: data.error ?? "Save failed." });
-      } else {
-        setPromptDirty(false);
-        setPromptMessage({ kind: "ok", text: "Saved to cuts.yaml." });
-      }
-    } catch (cause) {
-      setPromptMessage({
-        kind: "error",
-        text: cause instanceof Error ? cause.message : String(cause),
-      });
-    } finally {
-      setPromptSaving(false);
-    }
-  }, [workId, episodeId, cutId, imagePrompt, negativePrompt]);
 
   return (
     <div className="editor" data-testid={`cut-editor-${cutId}`}>
@@ -820,33 +747,10 @@ export function CutEditor({
         </div>
 
         <aside className="editor-inspector" data-testid="editor-inspector">
-          <CutPromptPanel
-            cutId={cutId}
-            imagePrompt={imagePrompt}
-            negativePrompt={negativePrompt}
-            dirty={promptDirty}
-            saving={promptSaving}
-            message={promptMessage}
-            onImagePromptChange={(value) => {
-              setImagePrompt(value);
-              setPromptDirty(true);
-              setPromptMessage(null);
-            }}
-            onNegativePromptChange={(value) => {
-              setNegativePrompt(value);
-              setPromptDirty(true);
-              setPromptMessage(null);
-            }}
-            onSave={savePrompts}
-          />
-          <CutCraftPanel
-            workId={workId}
-            episodeId={episodeId}
-            cutId={cutId}
-            initialCraft={initialCraft}
-            initialCharacters={initialCharacters}
-            initialFindings={initialFindings}
-          />
+          {/* v4 scope reset (#121): the human editor surfaces only bubble editing.
+              Cut prompts, craft fields (shot/palette/layer/style tag), the
+              character registry, and lint are the agent/CLI's domain — they stay
+              on disk (this editor never writes them) and are not re-shown here. */}
           {selected ? (
             <BubbleInspector
               overlay={selected}
@@ -869,90 +773,6 @@ export function CutEditor({
           )}
         </aside>
       </div>
-    </div>
-  );
-}
-
-/**
- * Cut-level prompt panel (issue #38). Edits the cut's `imagePrompt` and
- * `negativePrompt` — author-authored generation prompts that live on the cut
- * record, distinct from per-bubble lettering. Saves through `/api/cut`, which
- * validates and writes only this episode's `cuts.yaml`.
- */
-function CutPromptPanel({
-  cutId,
-  imagePrompt,
-  negativePrompt,
-  dirty,
-  saving,
-  message,
-  onImagePromptChange,
-  onNegativePromptChange,
-  onSave,
-}: {
-  cutId: string;
-  imagePrompt: string;
-  negativePrompt: string;
-  dirty: boolean;
-  saving: boolean;
-  message: { kind: "ok" | "error"; text: string } | null;
-  onImagePromptChange: (value: string) => void;
-  onNegativePromptChange: (value: string) => void;
-  onSave: () => void;
-}) {
-  return (
-    <div className="inspector-form" data-testid="cut-prompt-panel">
-      <h2 className="card-title">Cut prompts</h2>
-      <p className="field-hint">
-        Generation prompts for cut <code>{cutId}</code>. These describe the artwork itself, separate
-        from speech bubbles.
-      </p>
-
-      {message && (
-        <div
-          className={
-            message.kind === "ok"
-              ? "editor-toast editor-toast-ok"
-              : "editor-toast editor-toast-error"
-          }
-          role="status"
-          data-testid="cut-prompt-message"
-        >
-          {message.text}
-        </div>
-      )}
-
-      <label className="field">
-        <span>Image prompt</span>
-        <textarea
-          rows={4}
-          value={imagePrompt}
-          placeholder="Describe the artwork to generate for this cut."
-          onChange={(e) => onImagePromptChange(e.target.value)}
-          data-testid="field-image-prompt"
-        />
-      </label>
-
-      <label className="field">
-        <span>Negative prompt</span>
-        <textarea
-          rows={3}
-          value={negativePrompt}
-          placeholder="Describe what to avoid (e.g. blurry, watermark)."
-          onChange={(e) => onNegativePromptChange(e.target.value)}
-          data-testid="field-negative-prompt"
-        />
-      </label>
-
-      <button
-        type="button"
-        className="btn btn-primary"
-        onClick={onSave}
-        disabled={saving || !dirty}
-        data-testid="cut-prompt-save"
-      >
-        {saving ? "Saving…" : dirty ? "Save cut prompts" : "Saved"}
-      </button>
     </div>
   );
 }

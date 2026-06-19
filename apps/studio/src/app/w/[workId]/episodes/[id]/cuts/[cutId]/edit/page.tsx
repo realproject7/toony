@@ -9,13 +9,7 @@
 import { notFound } from "next/navigation";
 import { CutEditor } from "@/components/cut-editor";
 import { LoadError } from "@/components/load-error";
-import {
-  findEpisodeBundle,
-  lintEpisodeBundle,
-  loadWork,
-  ProjectIoError,
-  resolveCutArt,
-} from "@/lib/project";
+import { findEpisodeBundle, loadWork, ProjectIoError, resolveCutArt } from "@/lib/project";
 import { resolveWork } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -48,9 +42,10 @@ export default async function CutEditorPage({
   const art = await resolveCutArt(work.id, work.root, cut);
   const bubbles = bundle.lettering.filter((overlay) => overlay.cutId === cut.id);
 
-  const characters = loaded.project.webtoon.characters ?? [];
-  const findings = await lintEpisodeBundle(work.root, bundle, characters);
-
+  // v4 scope reset (#121): the focused editor is bubbles-only. Cut prompts, craft
+  // fields, characters, and lint are the agent/CLI's domain — not loaded or
+  // surfaced here. They stay on disk untouched (this editor only writes
+  // lettering.json via /api/lettering).
   return (
     <CutEditor
       workId={work.id}
@@ -60,17 +55,6 @@ export default async function CutEditorPage({
       cutId={cut.id}
       art={art}
       initialBubbles={bubbles}
-      initialImagePrompt={cut.imagePrompt}
-      initialNegativePrompt={cut.negativePrompt}
-      initialCraft={{
-        shotType: cut.shotType,
-        palette: cut.palette,
-        layer: cut.layer,
-        styleTag: cut.styleTag,
-        characters: cut.characters ?? [],
-      }}
-      initialCharacters={characters}
-      initialFindings={findings}
     />
   );
 }
