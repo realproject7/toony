@@ -198,3 +198,50 @@ export function layoutTransition(transition: Transition): TransitionRender {
     fade,
   };
 }
+
+/**
+ * Resolved pixel geometry for an interstitial panel's text block (#115). The
+ * SINGLE source both the export canvas and the studio Read panel (#118) consume,
+ * so they position the panel text identically (the #112 single-source parity
+ * rule — do not re-derive these constants per consumer). `baseline` doubles as a
+ * canvas `textBaseline` and maps 1:1 to the schema vertical-align values.
+ */
+export interface PanelTextLayout {
+  text: string;
+  /** Font size in px, derived from the panel height. */
+  fontSize: number;
+  /** Anchor x in px for the resolved horizontal alignment. */
+  x: number;
+  /** Anchor y in px for the resolved vertical alignment. */
+  y: number;
+  /** Horizontal text alignment. */
+  align: TextAlign;
+  /** Vertical baseline (top | middle | bottom). */
+  baseline: VerticalAlign;
+  /** Text color (light, for the dark card fills). */
+  color: string;
+}
+
+/** Light panel-text color drawn over the dark card fills (#115). */
+const PANEL_TEXT_COLOR = "#f3ece0";
+
+/**
+ * Resolve the panel text geometry for a transition render plan at the panel's
+ * drawn `width`×`height`. Returns null when the panel has no text. Pure — export
+ * and studio call it with their own dimensions and get identical placement.
+ */
+export function layoutPanelText(
+  render: TransitionRender,
+  width: number,
+  height: number,
+): PanelTextLayout | null {
+  if (!render.detail) return null;
+  const fontSize = Math.max(12, Math.round(height * 0.14));
+  const padX = width * 0.08;
+  const padY = height * 0.1;
+  const align = render.textAlign;
+  const x = align === "left" ? padX : align === "right" ? width - padX : width / 2;
+  const v = render.verticalAlign;
+  const y = v === "top" ? padY : v === "bottom" ? height - padY : height / 2;
+  return { text: render.detail, fontSize, x, y, align, baseline: v, color: PANEL_TEXT_COLOR };
+}

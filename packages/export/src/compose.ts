@@ -19,6 +19,7 @@ import {
   IMPACT_BURST_STROKE,
   IMPACT_RAY_COLOR,
   layoutCut,
+  layoutPanelText,
   layoutTransition,
   type ResolvedFade,
   type ResolvedGradient,
@@ -290,9 +291,9 @@ function drawFade(ctx: SKRSContext2D, fade: ResolvedFade, width: number, height:
 }
 
 /**
- * Draw a v4 text-panel's `detail` honoring the plan's resolved `textAlign` (H) and
- * `verticalAlign` (V) — the SAME resolved fields the studio panel uses (#112
- * single-source discipline). Light text on the dark card fill.
+ * Draw a v4 text-panel's `detail` from the SHARED `layoutPanelText` geometry (#115)
+ * — the same resolved block the studio Read panel (#118) consumes, so neither
+ * re-derives the size/padding/anchoring constants (the #112 single-source rule).
  */
 function drawPanelText(
   ctx: SKRSContext2D,
@@ -300,19 +301,13 @@ function drawPanelText(
   width: number,
   height: number,
 ): void {
-  if (!render.detail) return;
-  const size = Math.max(12, Math.round(height * 0.14));
-  ctx.font = `400 ${size}px "${BAND_FONT_REGULAR}"`;
-  ctx.fillStyle = "#f3ece0";
-  const padX = width * 0.08;
-  const padY = height * 0.1;
-  const align = render.textAlign;
-  const x = align === "left" ? padX : align === "right" ? width - padX : width / 2;
-  ctx.textAlign = align === "left" ? "left" : align === "right" ? "right" : "center";
-  const v = render.verticalAlign;
-  const y = v === "top" ? padY : v === "bottom" ? height - padY : height / 2;
-  ctx.textBaseline = v === "top" ? "top" : v === "bottom" ? "bottom" : "middle";
-  ctx.fillText(render.detail, x, y);
+  const t = layoutPanelText(render, width, height);
+  if (!t) return;
+  ctx.font = `400 ${t.fontSize}px "${BAND_FONT_REGULAR}"`;
+  ctx.fillStyle = t.color;
+  ctx.textAlign = t.align === "left" ? "left" : t.align === "right" ? "right" : "center";
+  ctx.textBaseline = t.baseline;
+  ctx.fillText(t.text, t.x, t.y);
 }
 
 /**

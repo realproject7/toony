@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { layoutTransition } from "../transition.js";
+import { layoutPanelText, layoutTransition } from "../transition.js";
 import { transition } from "./fixtures.js";
 
 test("gutter transition resolves to a gutter treatment with its height", () => {
@@ -214,4 +214,46 @@ test("gradient resolves on the plan; absent → null (#115)", () => {
     }),
   );
   assert.deepEqual(g.gradient, { from: "#102030", to: "#a0b0c0", direction: "bottom_up" });
+});
+
+test("layoutPanelText resolves a single-source text block for the v4 cards (#115)", () => {
+  const plan = (over: Parameters<typeof transition>[0]) => layoutTransition(transition(over));
+  // No text → null.
+  assert.equal(layoutPanelText(plan({ id: "n", type: "color_field" }), 800, 400), null);
+  // center/middle defaults: x = width/2, y = height/2, baseline middle.
+  const mid = layoutPanelText(plan({ id: "m", type: "narration_card", text: "Hello" }), 800, 400);
+  assert.ok(mid);
+  assert.equal(mid.text, "Hello");
+  assert.equal(mid.x, 400);
+  assert.equal(mid.y, 200);
+  assert.equal(mid.align, "center");
+  assert.equal(mid.baseline, "middle");
+  assert.equal(mid.fontSize, Math.max(12, Math.round(400 * 0.14)));
+  // left + top: x at left pad, y at top pad, baseline top.
+  const tl = layoutPanelText(
+    plan({ id: "tl", type: "narration_card", text: "x", textAlign: "left", verticalAlign: "top" }),
+    800,
+    400,
+  );
+  assert.ok(tl);
+  assert.equal(tl.x, 800 * 0.08);
+  assert.equal(tl.y, 400 * 0.1);
+  assert.equal(tl.align, "left");
+  assert.equal(tl.baseline, "top");
+  // right + bottom.
+  const rb = layoutPanelText(
+    plan({
+      id: "rb",
+      type: "dialogue_card",
+      text: "y",
+      textAlign: "right",
+      verticalAlign: "bottom",
+    }),
+    800,
+    400,
+  );
+  assert.ok(rb);
+  assert.equal(rb.x, 800 - 800 * 0.08);
+  assert.equal(rb.y, 400 - 400 * 0.1);
+  assert.equal(rb.baseline, "bottom");
 });
