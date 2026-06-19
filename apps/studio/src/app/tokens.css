@@ -33,6 +33,11 @@
   --color-accent-2-hover: #e00a42;
   --color-accent-2-soft: #ffe2e9;
   --color-accent-2-on: #ffffff;
+  /* A darker pink for SOLID fills behind white text (buttons): white on the
+     brand #fc0e4c is only 3.96:1, so solid accent-2 buttons use this (≥4.5:1)
+     while the brand pink stays for accents/dots/chips. */
+  --color-accent-2-strong: #d10a3f;
+  --color-accent-2-strong-hover: #b00836;
 
   /* Gold highlight — active nav pill, secondary CTAs, doodle accents. Dark ink
      sits on gold for contrast. */
@@ -238,6 +243,10 @@
   --color-accent-2-hover: #ff85a0;
   --color-accent-2-soft: rgba(252, 14, 76, 0.22);
   --color-accent-2-on: #14120c;
+  /* Dark theme uses dark ink on the bright pink, which already passes; the
+     solid-button shade tracks the same pair. */
+  --color-accent-2-strong: #ff5c7f;
+  --color-accent-2-strong-hover: #ff85a0;
 
   --color-highlight: #f4ce42;
   --color-highlight-soft: rgba(244, 206, 66, 0.18);
