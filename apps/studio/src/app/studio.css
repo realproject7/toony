@@ -807,6 +807,14 @@ input[type="radio"] {
   flex-direction: column;
   gap: var(--space-3);
   min-width: 0;
+  /* Keep the artwork in view while the (often longer) inspector scrolls (#120):
+     pin the image column; if the stage itself exceeds the viewport, the column
+     scrolls internally rather than dragging the image off-screen. */
+  position: sticky;
+  top: var(--space-6);
+  align-self: start;
+  max-height: calc(100vh - 2 * var(--space-6));
+  overflow: auto;
 }
 
 .editor-toolbar {

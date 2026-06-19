@@ -46,6 +46,8 @@ import {
   type SfxMode,
   TEXT_ALIGNS,
   type TextAlign,
+  VERTICAL_ALIGNS,
+  type VerticalAlign,
 } from "@toony/schema";
 import { clamp } from "@/lib/clamp";
 import { ColorPicker } from "./color-picker";
@@ -94,6 +96,9 @@ export function BubbleInspector({
   const fontWeight: FontWeight = overlay.fontWeight ?? LETTERING_STYLE_DEFAULTS.fontWeight;
   const lineHeight = overlay.lineHeight ?? LETTERING_STYLE_DEFAULTS.lineHeight;
   const textAlign: TextAlign = overlay.textAlign ?? LETTERING_STYLE_DEFAULTS.textAlign;
+  // Vertical anchoring within the bubble box (#115); absent → "top" (the render
+  // default, preserving legacy layout).
+  const verticalAlign: VerticalAlign = overlay.verticalAlign ?? "top";
   const letterSpacing = overlay.letterSpacing ?? LETTERING_STYLE_DEFAULTS.letterSpacing;
   const textColor = overlay.textColor ?? LETTERING_STYLE_DEFAULTS.textColor;
   const zIndex = overlay.zIndex ?? LETTERING_STYLE_DEFAULTS.zIndex;
@@ -416,6 +421,26 @@ export function BubbleInspector({
                 aria-pressed={textAlign === align}
                 onClick={() => onChange({ textAlign: align })}
                 data-testid={`field-align-${align}`}
+              >
+                {align}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="field">
+          <span>Vertical align</span>
+          <div className="chip-row">
+            {VERTICAL_ALIGNS.map((align) => (
+              <button
+                key={align}
+                type="button"
+                className={
+                  verticalAlign === align ? "btn btn-chip btn-chip-active" : "btn btn-chip"
+                }
+                aria-pressed={verticalAlign === align}
+                onClick={() => onChange({ verticalAlign: align })}
+                data-testid={`field-valign-${align}`}
               >
                 {align}
               </button>
