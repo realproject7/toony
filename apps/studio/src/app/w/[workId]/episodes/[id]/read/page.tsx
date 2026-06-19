@@ -112,7 +112,7 @@ export default async function EpisodeReaderPage({
           }
           const transition = transitionById.get(item.id);
           if (!transition) return null;
-          return <TransitionBlock key={key} transition={transition} />;
+          return <TransitionBlock key={key} transition={transition} readOnly />;
         })}
       </div>
 
