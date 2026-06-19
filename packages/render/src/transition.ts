@@ -41,6 +41,16 @@ export interface ResolvedFade {
   color: string;
 }
 
+/**
+ * Resolved full-panel gradient (#115): the panel fill spans `from` → `to` per
+ * `direction`. Both consumers draw the identical gradient from these fields.
+ */
+export interface ResolvedGradient {
+  from: string;
+  to: string;
+  direction: FadeDirection;
+}
+
 export interface TransitionRender {
   id: string;
   type: TransitionType;
@@ -74,7 +84,12 @@ export interface TransitionRender {
    */
   textAlign: TextAlign;
   verticalAlign: VerticalAlign;
-  /** Resolved panel fade (#115), or null when the transition has none. */
+  /**
+   * Resolved full-panel gradient fill (#115), or null for a solid fill. When set,
+   * consumers fill the panel with this instead of the solid `bandFill`/`color`.
+   */
+  gradient: ResolvedGradient | null;
+  /** Resolved panel fade (#115) overlay, or null when the transition has none. */
   fade: ResolvedFade | null;
 }
 
@@ -143,6 +158,15 @@ export function layoutTransition(transition: Transition): TransitionRender {
   // panel default; legacy card kinds ignore these and keep their fixed layout.
   const textAlign: TextAlign = transition.textAlign ?? "center";
   const verticalAlign: VerticalAlign = transition.verticalAlign ?? "middle";
+  // Panel gradient (#115): a full-panel fill from `from`→`to`. Colors pass through
+  // (validated non-empty); both consumers draw the identical gradient.
+  const gradient: ResolvedGradient | null = transition.gradient
+    ? {
+        from: transition.gradient.from,
+        to: transition.gradient.to,
+        direction: transition.gradient.direction,
+      }
+    : null;
   // Panel fade (#115): resolve the concrete end color + clamp the span to the
   // panel height so both consumers draw the identical gradient.
   let fade: ResolvedFade | null = null;
@@ -170,6 +194,7 @@ export function layoutTransition(transition: Transition): TransitionRender {
     bandFill,
     textAlign,
     verticalAlign,
+    gradient,
     fade,
   };
 }

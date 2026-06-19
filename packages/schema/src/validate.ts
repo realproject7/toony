@@ -421,8 +421,43 @@ export function validateTransitionValue(value: unknown, path: string, c: IssueCo
       `verticalAlign must be one of: ${VERTICAL_ALIGNS.join(", ")}.`,
     );
   }
-  // Panel fade (#115) — OPTIONAL: null/absent → no fade.
+  // Panel gradient/fade (#115) — OPTIONAL: null/absent → solid fill / no fade.
+  validateTransitionGradient(value.gradient, joinPath(path, "gradient"), c);
   validateTransitionFade(value.fade, joinPath(path, "fade"), c);
+}
+
+/**
+ * Validate an optional `Transition.gradient` (#115). `null`/absent is valid (solid
+ * fill). When present it must have non-empty `from`/`to` color strings and a valid
+ * `direction` enum.
+ */
+function validateTransitionGradient(value: unknown, path: string, c: IssueCollector): void {
+  if (value === undefined || value === null) return;
+  if (!isPlainObject(value)) {
+    c.add(path, "transition.gradient", "gradient must be an object or null.");
+    return;
+  }
+  if (!isNonEmptyString(value.from)) {
+    c.add(
+      joinPath(path, "from"),
+      "transition.gradient-from",
+      "gradient.from must be a non-empty color string.",
+    );
+  }
+  if (!isNonEmptyString(value.to)) {
+    c.add(
+      joinPath(path, "to"),
+      "transition.gradient-to",
+      "gradient.to must be a non-empty color string.",
+    );
+  }
+  if (!isOneOf(value.direction, FADE_DIRECTIONS)) {
+    c.add(
+      joinPath(path, "direction"),
+      "transition.gradient-direction",
+      `gradient.direction must be one of: ${FADE_DIRECTIONS.join(", ")}.`,
+    );
+  }
 }
 
 /**

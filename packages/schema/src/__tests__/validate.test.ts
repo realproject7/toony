@@ -665,3 +665,31 @@ test("overlay verticalAlign validates against its enum and is optional (#115)", 
   overlay.verticalAlign = "centre" as unknown as typeof overlay.verticalAlign;
   assert.ok(codes(validateProject(project)).includes("style.vertical-align"));
 });
+
+test("transition gradient validates from/to/direction when present (#115)", () => {
+  const project = cloneValidProject();
+  const transition = project.episodes[0]?.transitions[0];
+  assert.ok(transition);
+  transition.gradient = { from: "#000000", to: "#ffffff", direction: "top_bottom" };
+  assert.equal(validateProject(project).valid, true);
+  transition.gradient = null;
+  assert.equal(validateProject(project).valid, true);
+  transition.gradient = {
+    from: "",
+    to: "#fff",
+    direction: "top_bottom",
+  } as unknown as typeof transition.gradient;
+  assert.ok(codes(validateProject(project)).includes("transition.gradient-from"));
+  transition.gradient = {
+    from: "#000",
+    to: "",
+    direction: "top_bottom",
+  } as unknown as typeof transition.gradient;
+  assert.ok(codes(validateProject(project)).includes("transition.gradient-to"));
+  transition.gradient = {
+    from: "#000",
+    to: "#fff",
+    direction: "diagonal",
+  } as unknown as typeof transition.gradient;
+  assert.ok(codes(validateProject(project)).includes("transition.gradient-direction"));
+});

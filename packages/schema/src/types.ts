@@ -135,6 +135,19 @@ export interface TransitionFade {
 }
 
 /**
+ * A full-panel vertical gradient fill (#115, docs §5 "no-art panel block:
+ * solid | gradient | fade"). Distinct from `TransitionFade` (an edge blend over
+ * `length` px): a gradient spans the WHOLE panel from `from` to `to`. `direction`
+ * `top_bottom` puts `from` at the top → `to` at the bottom; `bottom_up` flips it.
+ * When set it is the panel fill (taking precedence over the solid `color`).
+ */
+export interface TransitionGradient {
+  from: string;
+  to: string;
+  direction: FadeDirection;
+}
+
+/**
  * SFX render mode (#99) for a `kind=sfx` lettering overlay. `typeset` (default)
  * is the current clean, atmospheric outlined text; `hand_lettered` swaps to a
  * loose hand face WITHOUT mutating the stored text; `impact_band` draws a large
@@ -414,9 +427,14 @@ export interface Transition {
   textAlign?: TextAlign;
   verticalAlign?: VerticalAlign;
   /**
+   * Optional full-panel gradient fill (#115). When set it is the panel fill (over
+   * the solid `color`); absent/null → solid fill. Additive + back-compat.
+   */
+  gradient?: TransitionGradient | null;
+  /**
    * Optional fade gradient for the panel (#115): blends into black/white/its color
    * over `fade.length` px from the leading edge per `direction`. Absent/null → no
-   * fade (back-compat). Additive on top of the panel fill.
+   * fade (back-compat). Additive OVERLAY on top of the panel fill/gradient.
    */
   fade?: TransitionFade | null;
 }

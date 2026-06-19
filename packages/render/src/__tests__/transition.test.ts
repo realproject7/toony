@@ -202,3 +202,16 @@ test("legacy transition kinds keep null bandFill and no fade (back-compat, #115)
   assert.equal(layoutTransition(transition({ id: "b", type: "beat" })).treatment, "card");
   assert.equal(layoutTransition(transition({ id: "g", type: "gutter" })).treatment, "gutter");
 });
+
+test("gradient resolves on the plan; absent → null (#115)", () => {
+  const none = layoutTransition(transition({ id: "g0", type: "color_field" }));
+  assert.equal(none.gradient, null);
+  const g = layoutTransition(
+    transition({
+      id: "g1",
+      type: "color_field",
+      gradient: { from: "#102030", to: "#a0b0c0", direction: "bottom_up" },
+    }),
+  );
+  assert.deepEqual(g.gradient, { from: "#102030", to: "#a0b0c0", direction: "bottom_up" });
+});

@@ -21,6 +21,7 @@ import {
   layoutCut,
   layoutTransition,
   type ResolvedFade,
+  type ResolvedGradient,
   type TransitionRender,
 } from "@toony/render";
 import type { LetteringOverlay, Transition } from "@toony/schema";
@@ -244,6 +245,28 @@ function rgba(color: string, alpha: number): string {
 }
 
 /**
+ * Fill the whole panel with a full-panel gradient (#115). `top_bottom` puts
+ * `from` at the top → `to` at the bottom; `bottom_up` flips it. Resolved colors
+ * come from the render plan so export and studio match.
+ */
+function drawGradient(
+  ctx: SKRSContext2D,
+  gradient: ResolvedGradient,
+  width: number,
+  height: number,
+): void {
+  const g = ctx.createLinearGradient(0, 0, 0, height);
+  const [top, bottom] =
+    gradient.direction === "top_bottom"
+      ? [gradient.from, gradient.to]
+      : [gradient.to, gradient.from];
+  g.addColorStop(0, top);
+  g.addColorStop(1, bottom);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, width, height);
+}
+
+/**
  * Draw an interstitial panel fade (#115): blends into `fade.color` over
  * `fade.length` px. `top_bottom` fades downward into the color at the BOTTOM edge;
  * `bottom_up` starts at the color on the TOP edge and clears downward. Resolved
@@ -316,11 +339,14 @@ export function composeTransitionBand(
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
 
-  // Band background: the resolved v3 solid-band fill (#99 — black_band/title_card/
-  // palette_shift/desaturate_repeat, already folding in any #98 `color`) wins;
-  // otherwise an explicit #98 `color` on a legacy kind; otherwise the per-treatment
-  // default (card dark, fade gradient, others white reading space).
-  if (render.bandFill) {
+  // Band background: a full-panel #115 gradient fill wins; then the resolved v3
+  // solid-band fill (#99 — black_band/title_card/palette_shift/desaturate_repeat
+  // + v4 color_field/void, already folding in any #98 `color`); then an explicit
+  // #98 `color` on a legacy kind; otherwise the per-treatment default (card dark,
+  // fade gradient, others white reading space).
+  if (render.gradient) {
+    drawGradient(ctx, render.gradient, width, height);
+  } else if (render.bandFill) {
     ctx.fillStyle = render.bandFill;
     ctx.fillRect(0, 0, width, height);
   } else if (render.color) {

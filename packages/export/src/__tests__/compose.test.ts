@@ -554,3 +554,36 @@ test("composeCut bubble text honors verticalAlign (#115)", async () => {
   assert.ok(!Number.isNaN(topY) && !Number.isNaN(bottomY), "expected text ink in both");
   assert.ok(bottomY - topY > 40, `bottom-aligned text (${bottomY}) must sit below top (${topY})`);
 });
+
+test("a full-panel gradient fills top→bottom from the plan (#115)", async () => {
+  const { composeTransitionBand } = await import("../compose.js");
+  const band = composeTransitionBand(
+    craftTransition({
+      type: "color_field",
+      gradient: { from: "#000000", to: "#ffffff", direction: "top_bottom" },
+      gutterHeight: 400,
+    }),
+    300,
+  );
+  assert.ok(band);
+  const top = avg(band.canvas, Math.round(band.width / 2), 3);
+  const bottom = avg(band.canvas, Math.round(band.width / 2), band.height - 3);
+  // top_bottom: from(#000) at top → to(#fff) at bottom.
+  assert.ok(top[0] < 40 && top[1] < 40 && top[2] < 40, `top should be dark, got [${top}]`);
+  assert.ok(
+    bottom[0] > 215 && bottom[1] > 215 && bottom[2] > 215,
+    `bottom should be light, got [${bottom}]`,
+  );
+  // bottom_up flips it.
+  const flip = composeTransitionBand(
+    craftTransition({
+      type: "color_field",
+      gradient: { from: "#000000", to: "#ffffff", direction: "bottom_up" },
+      gutterHeight: 400,
+    }),
+    300,
+  );
+  assert.ok(flip);
+  const ftop = avg(flip.canvas, Math.round(flip.width / 2), 3);
+  assert.ok(ftop[0] > 215, `bottom_up top should be light, got [${ftop}]`);
+});

@@ -62,6 +62,7 @@ export type {
   TextAlign,
   Transition,
   TransitionFade,
+  TransitionGradient,
   TransitionType,
   VerticalAlign,
   Webtoon,
