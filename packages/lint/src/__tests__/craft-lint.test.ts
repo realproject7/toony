@@ -13,7 +13,7 @@ import type {
   Transition,
   TransitionType,
 } from "@toony/schema";
-import { lintCraft, RHYTHM_RUN_MAX } from "../craft-lint.js";
+import { lintCraft, RHYTHM_RUN_MAX, TRANSITION_MONOTONY_RUN_MAX } from "../craft-lint.js";
 import { type Finding, sortFindings } from "../findings.js";
 
 const WIDE: BubbleGeometry = { x: 0.05, y: 0.05, width: 0.9, height: 0.18 };
@@ -289,4 +289,138 @@ test("a run that resumes after a break still fires when long enough", () => {
 test("craft/rhythm-monotony is deterministic", () => {
   const b = rhythmBundle(["medium", "medium", "medium", "medium"], ["gutter", "gutter", "gutter"]);
   assert.deepEqual(lintCraft(b, []), lintCraft(b, []));
+});
+
+// --- v4 transition lints (#116) ---------------------------------------------
+
+interface TrSpec {
+  type: TransitionType;
+  gutterHeight: number;
+  color?: string;
+}
+
+/** Build a bundle whose transitions have the given type/height, interleaved with cuts. */
+function panelBundle(specs: TrSpec[]): EpisodeBundle {
+  const cuts: Cut[] = Array.from({ length: specs.length + 1 }, (_, i) => shotCut(`c${i}`));
+  const transitions: Transition[] = specs.map((s, i) => ({
+    ...transition(`t${i}`, s.type),
+    gutterHeight: s.gutterHeight,
+    ...(s.color ? { color: s.color } : {}),
+  }));
+  const sequence: SequenceItem[] = [];
+  cuts.forEach((c, i) => {
+    sequence.push({ type: "cut", id: c.id });
+    if (i < transitions.length) sequence.push({ type: "transition", id: `t${i}` });
+  });
+  return {
+    episode: { schemaVersion: 1, id: "ep", title: "Ep", sequence },
+    cuts,
+    transitions,
+    lettering: [],
+  };
+}
+
+const monotony = (b: EpisodeBundle) =>
+  lintCraft(b, []).filter((f) => f.code === "craft/transition-monotony");
+const panelSlice = (b: EpisodeBundle) =>
+  lintCraft(b, []).filter((f) => f.code === "craft/panel-slice");
+
+test("craft/transition-monotony warns on >= RUN_MAX near-identical transition heights", () => {
+  const b = panelBundle(
+    Array.from({ length: TRANSITION_MONOTONY_RUN_MAX }, () => ({
+      type: "gutter" as const,
+      gutterHeight: 100,
+    })),
+  );
+  const found = monotony(b);
+  assert.equal(found.length, 1);
+  assert.equal(found[0]?.severity, "warning");
+  assert.equal(found[0]?.targetId, "t0");
+  assert.match(found[0]?.message ?? "", new RegExp(`${TRANSITION_MONOTONY_RUN_MAX} consecutive`));
+});
+
+test("craft/transition-monotony groups heights within the tolerance band", () => {
+  // 100, 108, 95, 104 are all within ±12 of the run's first (100) → run of 4.
+  const within = panelBundle([
+    { type: "gutter", gutterHeight: 100 },
+    { type: "gutter", gutterHeight: 108 },
+    { type: "gutter", gutterHeight: 95 },
+    { type: "gutter", gutterHeight: 104 },
+  ]);
+  assert.equal(monotony(within).length, 1);
+  // Exactly at tolerance (±12) still groups; one past it resets.
+  const edge = panelBundle([
+    { type: "gutter", gutterHeight: 100 },
+    { type: "gutter", gutterHeight: 112 }, // diff 12 → grouped
+    { type: "gutter", gutterHeight: 100 },
+    { type: "gutter", gutterHeight: 113 }, // diff 13 from 100 → breaks
+  ]);
+  assert.equal(monotony(edge).length, 0, "13px from ref breaks the run");
+});
+
+test("craft/transition-monotony is clean below threshold and on varied heights", () => {
+  assert.deepEqual(
+    monotony(
+      panelBundle([
+        { type: "gutter", gutterHeight: 100 },
+        { type: "gutter", gutterHeight: 100 },
+        { type: "gutter", gutterHeight: 100 },
+      ]),
+    ),
+    [],
+  );
+  // Clock-ladder variation resets every step.
+  assert.deepEqual(
+    monotony(
+      panelBundle([
+        { type: "gutter", gutterHeight: 120 },
+        { type: "gutter", gutterHeight: 250 },
+        { type: "gutter", gutterHeight: 500 },
+        { type: "gutter", gutterHeight: 120 },
+        { type: "gutter", gutterHeight: 700 },
+      ]),
+    ),
+    [],
+  );
+});
+
+test("craft/panel-slice flags a no-art panel taller than the fold (info)", () => {
+  const tall = panelBundle([{ type: "void", gutterHeight: 1400 }]);
+  const found = panelSlice(tall);
+  assert.equal(found.length, 1);
+  assert.equal(found[0]?.severity, "info");
+  assert.equal(found[0]?.targetId, "t0");
+  // A short panel and a tall PLAIN gutter (not a no-art panel) are clean.
+  assert.deepEqual(panelSlice(panelBundle([{ type: "void", gutterHeight: 1000 }])), []);
+  assert.deepEqual(panelSlice(panelBundle([{ type: "gutter", gutterHeight: 1400 }])), []);
+});
+
+test("craft/transition-monotony is deterministic", () => {
+  const b = panelBundle(
+    Array.from({ length: 4 }, () => ({ type: "gutter" as const, gutterHeight: 100 })),
+  );
+  assert.deepEqual(lintCraft(b, []), lintCraft(b, []));
+});
+
+test("no false positives on the existing example episodes (#116 AC)", () => {
+  // Reconstructed transition sequences from examples/last-train + examples/dead-air.
+  const lastTrain = panelBundle([
+    { type: "gutter", gutterHeight: 64 },
+    { type: "scene-break", gutterHeight: 140 },
+    { type: "fade", gutterHeight: 120 },
+    { type: "gutter", gutterHeight: 88 },
+    { type: "scene-break", gutterHeight: 140 },
+  ]);
+  const deadAir = panelBundle([
+    { type: "title_card", gutterHeight: 160 },
+    { type: "gutter", gutterHeight: 72 },
+    { type: "scene-break", gutterHeight: 140 },
+    { type: "palette_shift", gutterHeight: 120 },
+    { type: "black_band", gutterHeight: 150 },
+    { type: "fade", gutterHeight: 120 },
+  ]);
+  for (const b of [lastTrain, deadAir]) {
+    assert.deepEqual(monotony(b), [], "no transition-monotony false positive");
+    assert.deepEqual(panelSlice(b), [], "no panel-slice false positive");
+  }
 });

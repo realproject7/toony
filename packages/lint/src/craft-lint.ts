@@ -3,8 +3,13 @@
 // named constants below so they are documented and tunable in one place. Line/
 // length counts reuse @toony/render's text layout — the single source of wrapping.
 
-import { layoutBubble } from "@toony/render";
-import type { Character, EpisodeBundle, ShotType } from "@toony/schema";
+import { layoutBubble, layoutTransition } from "@toony/render";
+import {
+  type Character,
+  type EpisodeBundle,
+  PANEL_FOLD_SLICE_PX,
+  type ShotType,
+} from "@toony/schema";
 import { type Finding, finding } from "./findings.js";
 
 /** > this many speech/thought bubbles in a cut → density warning. */
@@ -25,6 +30,19 @@ export const CRAFT_MAX_NARRATION_WORDS = 30;
  * monotony kills the read; alternate splash/small/void shots.
  */
 export const RHYTHM_RUN_MAX = 4;
+/**
+ * ≥ this many CONSECUTIVE transitions whose heights are all near-identical →
+ * transition-monotony warning (#116). Mirrors `RHYTHM_RUN_MAX`; monotone gutter/
+ * panel spacing flattens pacing (docs/TOONY-INTERSTITIAL-CRAFT.md §1: pacing is
+ * contrast — vary the gutters).
+ */
+export const TRANSITION_MONOTONY_RUN_MAX = 4;
+/**
+ * Two transition heights within this many px count as "near-identical" for
+ * transition-monotony (#116). Deliberately small — well below intentional
+ * clock-ladder variation — so genuinely varied pacing never trips it.
+ */
+export const TRANSITION_HEIGHT_TOLERANCE_PX = 12;
 
 /**
  * Reference render size for counting wrapped lines. Wrapping depends on the box
@@ -207,6 +225,66 @@ export function lintCraft(bundle: EpisodeBundle, characters: readonly Character[
     }
   }
   flushRun();
+
+  // --- v4 transition craft lints (#116) ---
+  // Resolve each transition in SEQUENCE order to its render plan (height + whether
+  // it is a real no-art panel via bandFill). `craft/co-visibility` is DEFERRED:
+  // #115 introduced no read-together metadata source, and the ticket forbids
+  // inventing a heuristic — so it is intentionally not implemented here.
+  const orderedTransitions = bundle.episode.sequence
+    .filter((item) => item.type === "transition")
+    .map((item) => transitionById.get(item.id))
+    .filter((t): t is NonNullable<typeof t> => t !== undefined)
+    .map((t) => ({ id: t.id, plan: layoutTransition(t) }));
+
+  // craft/transition-monotony (warning): a run of ≥ RUN_MAX consecutive
+  // transitions whose heights are all within TRANSITION_HEIGHT_TOLERANCE_PX of
+  // the run's first — extends the #100 rhythm-monotony walk (deterministic order,
+  // reset on out-of-tolerance height, stable first-id target).
+  let heightRun: { refHeight: number; ids: string[] } | null = null;
+  const flushHeightRun = (): void => {
+    const current = heightRun;
+    heightRun = null;
+    if (current && current.ids.length >= TRANSITION_MONOTONY_RUN_MAX) {
+      const [firstId = ""] = current.ids;
+      findings.push(
+        finding(
+          "warning",
+          "craft/transition-monotony",
+          firstId,
+          `${current.ids.length} consecutive transitions share a near-identical height (~${current.refHeight}px, ±${TRANSITION_HEIGHT_TOLERANCE_PX}): ${current.ids.join(", ")}; vary the gutter/panel heights — pacing is contrast.`,
+        ),
+      );
+    }
+  };
+  for (const { id, plan } of orderedTransitions) {
+    if (
+      heightRun &&
+      Math.abs(plan.gutterHeight - heightRun.refHeight) <= TRANSITION_HEIGHT_TOLERANCE_PX
+    ) {
+      heightRun.ids.push(id);
+    } else {
+      flushHeightRun();
+      heightRun = { refHeight: plan.gutterHeight, ids: [id] };
+    }
+  }
+  flushHeightRun();
+
+  // craft/panel-slice (info hint): a real no-art panel (bandFill set by the v3/v4
+  // interstitial kinds) taller than the mobile fold (PANEL_FOLD_SLICE_PX) is
+  // sliced across screens, so it can't read as one beat (docs §1/§5).
+  for (const { id, plan } of orderedTransitions) {
+    if (plan.bandFill !== null && plan.gutterHeight > PANEL_FOLD_SLICE_PX) {
+      findings.push(
+        finding(
+          "info",
+          "craft/panel-slice",
+          id,
+          `transition panel "${id}" is ${plan.gutterHeight}px tall (> ${PANEL_FOLD_SLICE_PX}px mobile fold); it will be sliced across screens — split it or cap the height.`,
+        ),
+      );
+    }
+  }
 
   return findings;
 }
