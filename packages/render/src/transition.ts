@@ -245,3 +245,67 @@ export function layoutPanelText(
   const y = v === "top" ? padY : v === "bottom" ? height - padY : height / 2;
   return { text: render.detail, fontSize, x, y, align, baseline: v, color: PANEL_TEXT_COLOR };
 }
+
+/** One drawn line of a legacy card/break panel (#118 parity), middle-baselined. */
+export interface CardTextLine {
+  text: string;
+  /** Anchor x (px) — always horizontally centered. */
+  x: number;
+  /** Anchor y (px) of the line's vertical MIDDLE. */
+  y: number;
+  fontSize: number;
+  /** 700 for the bold detail line, 400 for the small type label. */
+  weight: number;
+}
+
+/** Resolved text for a legacy `card`/`break` panel: detail + small type label. */
+export interface CardTextLayout {
+  lines: CardTextLine[];
+  /** Light over dark cards (#f3ece0); dark over the break's light/divider ground. */
+  color: string;
+}
+
+/**
+ * Resolve the legacy card/break panel text geometry (`beat`/`time-skip`/
+ * `title_card`/`scene-break`) at the drawn `width`×`height`. This is the SINGLE
+ * source both the export canvas (`drawBandText`) and the studio Read panel (#118)
+ * consume, so neither re-derives the size/position constants (the #112 single-
+ * source rule). Mirrors the original `drawBandText` layout exactly. Returns null
+ * when there is nothing to draw.
+ */
+export function layoutCardText(
+  render: TransitionRender,
+  width: number,
+  height: number,
+): CardTextLayout | null {
+  const labelSize = Math.max(10, Math.round(height * 0.22));
+  const cx = width / 2;
+  const color = render.treatment === "break" ? "#2a2a2a" : PANEL_TEXT_COLOR;
+  if (render.detail) {
+    return {
+      color,
+      lines: [
+        { text: render.detail, x: cx, y: height * 0.42, fontSize: labelSize, weight: 700 },
+        {
+          text: render.label,
+          x: cx,
+          y: height * 0.68,
+          fontSize: Math.max(8, Math.round(labelSize * 0.6)),
+          weight: 400,
+        },
+      ],
+    };
+  }
+  return {
+    color,
+    lines: [
+      {
+        text: render.label,
+        x: cx,
+        y: height / 2,
+        fontSize: Math.max(8, Math.round(labelSize * 0.7)),
+        weight: 400,
+      },
+    ],
+  };
+}

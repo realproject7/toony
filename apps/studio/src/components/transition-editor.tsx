@@ -517,6 +517,79 @@ function TransitionInspector({
         </div>
       )}
 
+      {COLOR_AWARE_TYPES.has(transition.type) && (
+        <div className="field">
+          <span>Gradient fill</span>
+          {transition.gradient ? (
+            <>
+              <div className="field-row">
+                <ColorPicker
+                  label="From"
+                  value={transition.gradient.from}
+                  onChange={(hex) => {
+                    const g = transition.gradient;
+                    if (g) onChange({ gradient: { ...g, from: hex } });
+                  }}
+                  testId="field-gradient-from"
+                />
+                <ColorPicker
+                  label="To"
+                  value={transition.gradient.to}
+                  onChange={(hex) => {
+                    const g = transition.gradient;
+                    if (g) onChange({ gradient: { ...g, to: hex } });
+                  }}
+                  testId="field-gradient-to"
+                />
+                <select
+                  value={transition.gradient.direction}
+                  onChange={(e) => {
+                    const g = transition.gradient;
+                    if (g)
+                      onChange({ gradient: { ...g, direction: e.target.value as FadeDirection } });
+                  }}
+                  data-testid="field-gradient-direction"
+                >
+                  {FADE_DIRECTIONS.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                className="btn btn-chip"
+                onClick={() => onChange({ gradient: null })}
+                data-testid="field-gradient-clear"
+              >
+                Clear gradient
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-chip"
+              onClick={() =>
+                onChange({
+                  gradient: {
+                    from: transition.color ?? "#1b2a3a",
+                    to: "#0a0a0a",
+                    direction: "top_bottom",
+                  },
+                })
+              }
+              data-testid="field-gradient-add"
+            >
+              + Add gradient
+            </button>
+          )}
+          <span className="field-hint">
+            A full-panel vertical gradient fill (overrides the solid color).
+          </span>
+        </div>
+      )}
+
       <div className="field">
         <span>Fade</span>
         <div className="field-row">

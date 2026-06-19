@@ -18,6 +18,7 @@ import {
   IMPACT_BURST_FILL,
   IMPACT_BURST_STROKE,
   IMPACT_RAY_COLOR,
+  layoutCardText,
   layoutCut,
   layoutPanelText,
   layoutTransition,
@@ -193,18 +194,16 @@ function drawBandText(
   width: number,
   height: number,
 ): void {
+  // Geometry comes from the shared `layoutCardText` (#118 parity) so the studio
+  // Read panel and this canvas place legacy card/break text from one source.
+  const layout = layoutCardText(render, width, height);
+  if (!layout) return;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  const labelSize = Math.max(10, Math.round(height * 0.22));
-  const cx = width / 2;
-  if (render.detail) {
-    ctx.font = `700 ${labelSize}px "${BAND_FONT_BOLD}"`;
-    ctx.fillText(render.detail, cx, height * 0.42);
-    ctx.font = `400 ${Math.max(8, Math.round(labelSize * 0.6))}px "${BAND_FONT_REGULAR}"`;
-    ctx.fillText(render.label, cx, height * 0.68);
-  } else {
-    ctx.font = `400 ${Math.max(8, Math.round(labelSize * 0.7))}px "${BAND_FONT_REGULAR}"`;
-    ctx.fillText(render.label, cx, height / 2);
+  for (const line of layout.lines) {
+    const face = line.weight >= 700 ? BAND_FONT_BOLD : BAND_FONT_REGULAR;
+    ctx.font = `${line.weight} ${line.fontSize}px "${face}"`;
+    ctx.fillText(line.text, line.x, line.y);
   }
 }
 

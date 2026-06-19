@@ -3,8 +3,8 @@
 // Loads ONE cut of an episode in the work resolved path-safely from `<workId>` —
 // its art (src + natural dimensions) and the lettering overlays scoped to it —
 // and hands them to the client editor (`CutEditor`). The editor renders bubbles
-// through `@toony/render` and persists edits through `/api/lettering` and
-// `/api/cut`, both scoped to this work.
+// through `@toony/render` and persists edits through `/api/lettering` (scoped to
+// this work). Cut prompts/craft/characters are the agent/CLI's domain (#121).
 
 import { notFound } from "next/navigation";
 import { CutEditor } from "@/components/cut-editor";
