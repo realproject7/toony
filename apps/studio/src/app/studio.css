@@ -68,8 +68,8 @@ input[type="radio"] {
 
 .nav-link {
   display: block;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-round);
   color: var(--color-muted);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
@@ -83,14 +83,15 @@ input[type="radio"] {
   color: var(--color-ink);
 }
 
+/* Active nav reads as a bright gold doodle pill (matches the v4 mocks). */
 .nav-link[aria-current="page"] {
-  background: var(--color-accent-soft);
-  color: var(--color-accent-press);
-  font-weight: 600;
+  background: var(--color-highlight);
+  color: var(--color-highlight-on);
+  font-weight: 700;
 }
 
 .nav-link[aria-current="page"]:hover {
-  background: var(--color-accent-soft);
+  background: var(--color-highlight-hover);
 }
 
 /* A calm status pill at the foot of the rail, mirroring the design mocks'
@@ -646,9 +647,9 @@ input[type="radio"] {
   align-items: center;
   gap: var(--space-1);
   font-size: var(--text-sm);
-  font-weight: 600;
-  padding: var(--space-2) var(--space-4);
-  border-radius: var(--radius-2);
+  font-weight: 700;
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-round);
   border: 1px solid var(--color-line-strong);
   background: var(--color-surface);
   color: var(--color-ink);
@@ -656,7 +657,12 @@ input[type="radio"] {
   transition:
     border-color var(--dur-fast) var(--ease-standard),
     background var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard),
     box-shadow var(--dur-fast) var(--ease-standard);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .btn:hover:not(:disabled) {
