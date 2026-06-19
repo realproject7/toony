@@ -14,28 +14,41 @@
 // sequence to `/api/transitions`, which validates and writes `transitions.yaml`
 // + `episode.yaml`; cancel returns to the preview without writing.
 
-import { layoutTransition } from "@toony/render";
+import type { Cut } from "@toony/schema";
 import {
-  type Cut,
+  FADE_DIRECTIONS,
+  FADE_TYPES,
+  type FadeDirection,
+  type FadeType,
   GUTTER_HEIGHT_MAX_PX,
   GUTTER_HEIGHT_MIN_PX,
+  MOOD_COLOR_NAMES,
+  MOOD_COLORS,
+  PANEL_FOLD_SLICE_PX,
   REVIEW_STATUSES,
   type ReviewStatus,
   type SequenceItem,
+  SPACING_PRESET_NAMES,
+  SPACING_PRESETS,
+  TEXT_ALIGNS,
+  type TextAlign,
   TRANSITION_TYPES,
   type Transition,
   type TransitionType,
+  VERTICAL_ALIGNS,
+  type VerticalAlign,
 } from "@toony/schema";
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { clamp } from "@/lib/clamp";
 import { ColorPicker } from "./color-picker";
+import { TransitionBlock } from "./transition-block";
 
 /**
  * Transition kinds whose treatment reuses `Transition.color` as the band fill
- * (#98/#99). The color control is shown for these so a letterer can set the band
- * tint; for the others (plain gutter/fade/etc.) it has no visual effect, so it
- * stays hidden to keep the inspector focused.
+ * (#98/#99/#115). The color + mood-swatch controls are shown for these so a
+ * letterer can set the panel tint; for the others (plain gutter/fade) it has no
+ * visual effect, so it stays hidden to keep the inspector focused.
  */
 const COLOR_AWARE_TYPES = new Set<TransitionType>([
   "black_band",
@@ -44,7 +57,20 @@ const COLOR_AWARE_TYPES = new Set<TransitionType>([
   "desaturate_repeat",
   "scene-break",
   "beat",
+  // v4 interstitial fill panels (#115).
+  "color_field",
+  "void",
+  "narration_card",
+  "dialogue_card",
+  "time_card",
 ]);
+
+/**
+ * The v4 text-panel kinds (#115) that honor the plan's resolved horizontal +
+ * vertical text anchoring, so the editor exposes the H/V align controls only for
+ * these (legacy cards keep their fixed centered layout and ignore them).
+ */
+const TEXT_PANEL_TYPES = new Set<TransitionType>(["narration_card", "dialogue_card", "time_card"]);
 
 export interface TransitionEditorProps {
   workId: string;
@@ -285,10 +311,10 @@ export function TransitionEditor({
 }
 
 /**
- * One transition row in the editor sequence: a real rhythm preview rendered
- * through `@toony/render`'s `layoutTransition`, occupying its actual gutter
- * height so the scroll rhythm is literal — the identical treatment the read-only
- * preview shows. Clicking selects it for editing.
+ * One transition row in the editor sequence: the REAL interstitial panel rendered
+ * by the shared `TransitionBlock` (#118) — the identical panel the reader and
+ * export produce, so editing is WYSIWYG. Wrapped in a selectable control with a
+ * selection ring + review-status chip overlay. Clicking selects it for editing.
  */
 function TransitionRow({
   transition,
@@ -299,34 +325,27 @@ function TransitionRow({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const plan = layoutTransition(transition);
-  const reserved =
-    plan.isCard || plan.treatment === "band" ? Math.max(plan.gutterHeight, 56) : plan.gutterHeight;
-  // Same resolved band fill the read-only preview + export use (#98/#99), so the
-  // editor row previews the actual band color.
-  const background = plan.bandFill ?? plan.color;
   return (
-    <button
-      type="button"
-      className={selected ? "transition-block transition-block-selected" : "transition-block"}
-      data-testid={`transition-${transition.id}`}
-      data-treatment={plan.treatment}
+    <div
+      className="transition-row-edit"
       data-selected={selected ? "true" : undefined}
-      style={
-        background ? { minHeight: `${reserved}px`, background } : { minHeight: `${reserved}px` }
-      }
-      onClick={onSelect}
+      data-testid={`transition-row-${transition.id}`}
     >
-      <div className="transition-rule" aria-hidden="true" />
-      <div className="transition-band">
-        <span className="transition-type">{plan.label}</span>
-        {plan.detail && (
-          <span className={plan.isSfx ? "transition-sfx" : "transition-detail"}>{plan.detail}</span>
-        )}
-        <span className={statusChipClass(transition.reviewStatus)}>{transition.reviewStatus}</span>
-      </div>
-      <span className="transition-gutter">{plan.gutterHeight}px</span>
-    </button>
+      <TransitionBlock transition={transition} />
+      {/* Transparent full-bleed hit target keeps the panel preview (a <div>) intact
+          while giving the row real <button> semantics + keyboard support. */}
+      <button
+        type="button"
+        className="transition-row-hit"
+        onClick={onSelect}
+        aria-label={`Select transition ${transition.id}`}
+        aria-pressed={selected}
+        data-testid={`transition-select-${transition.id}`}
+      />
+      <span className={`transition-row-status ${statusChipClass(transition.reviewStatus)}`}>
+        {transition.reviewStatus}
+      </span>
+    </div>
   );
 }
 
@@ -388,15 +407,29 @@ function TransitionInspector({
               </button>
             )}
           </div>
+          <div className="mood-swatches" data-testid="mood-swatches">
+            {MOOD_COLOR_NAMES.map((name) => (
+              <button
+                key={name}
+                type="button"
+                className="mood-swatch"
+                style={{ background: MOOD_COLORS[name] }}
+                title={name}
+                aria-label={`Mood color ${name}`}
+                onClick={() => onChange({ color: MOOD_COLORS[name] })}
+                data-testid={`mood-${name}`}
+              />
+            ))}
+          </div>
           <span className="field-hint">
-            Fills the transition band (e.g. black_band, palette_shift). The rhythm preview updates
-            live.
+            Fills the panel (e.g. color_field, narration_card). Pick a mood swatch or a custom
+            color. The panel preview updates live.
           </span>
         </div>
       )}
 
       <label className="field">
-        <span>Gutter height (px)</span>
+        <span>Panel height (px)</span>
         <input
           type="number"
           min={GUTTER_HEIGHT_MIN_PX}
@@ -418,6 +451,29 @@ function TransitionInspector({
         />
       </label>
 
+      <div className="field">
+        <span>Height presets (clock ladder)</span>
+        <div className="preset-row" data-testid="spacing-presets">
+          {SPACING_PRESET_NAMES.map((name) => (
+            <button
+              key={name}
+              type="button"
+              className="btn btn-chip"
+              onClick={() => onChange({ gutterHeight: SPACING_PRESETS[name] })}
+              data-testid={`spacing-${name}`}
+            >
+              {name} · {SPACING_PRESETS[name]}
+            </button>
+          ))}
+        </div>
+        {transition.gutterHeight > PANEL_FOLD_SLICE_PX && (
+          <span className="field-hint field-warn" data-testid="slice-warning">
+            Over {PANEL_FOLD_SLICE_PX}px — this panel will be sliced across the mobile fold and may
+            not read as one beat.
+          </span>
+        )}
+      </div>
+
       <label className="field">
         <span>Text</span>
         <textarea
@@ -427,6 +483,114 @@ function TransitionInspector({
           data-testid="field-text"
         />
       </label>
+
+      {TEXT_PANEL_TYPES.has(transition.type) && (
+        <div className="field-row">
+          <label className="field">
+            <span>Text align</span>
+            <select
+              value={transition.textAlign ?? "center"}
+              onChange={(e) => onChange({ textAlign: e.target.value as TextAlign })}
+              data-testid="field-text-align"
+            >
+              {TEXT_ALIGNS.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Vertical align</span>
+            <select
+              value={transition.verticalAlign ?? "middle"}
+              onChange={(e) => onChange({ verticalAlign: e.target.value as VerticalAlign })}
+              data-testid="field-vertical-align"
+            >
+              {VERTICAL_ALIGNS.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+
+      <div className="field">
+        <span>Fade</span>
+        <div className="field-row">
+          <select
+            value={transition.fade?.type ?? ""}
+            onChange={(e) => {
+              const type = e.target.value;
+              if (!type) {
+                onChange({ fade: null });
+                return;
+              }
+              const prev = transition.fade;
+              onChange({
+                fade: {
+                  type: type as FadeType,
+                  direction: prev?.direction ?? "top_bottom",
+                  length: prev?.length ?? Math.max(1, Math.round(transition.gutterHeight * 0.4)),
+                },
+              });
+            }}
+            data-testid="field-fade-type"
+          >
+            <option value="">none</option>
+            {FADE_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+          {transition.fade && (
+            <>
+              <select
+                value={transition.fade.direction}
+                onChange={(e) => {
+                  const fade = transition.fade;
+                  if (!fade) return;
+                  onChange({ fade: { ...fade, direction: e.target.value as FadeDirection } });
+                }}
+                data-testid="field-fade-direction"
+              >
+                {FADE_DIRECTIONS.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min={1}
+                max={GUTTER_HEIGHT_MAX_PX}
+                step={1}
+                value={transition.fade.length}
+                onChange={(e) => {
+                  const fade = transition.fade;
+                  if (!fade) return;
+                  onChange({
+                    fade: {
+                      ...fade,
+                      length: clamp(
+                        Math.round(Number(e.target.value) || 1),
+                        1,
+                        GUTTER_HEIGHT_MAX_PX,
+                      ),
+                    },
+                  });
+                }}
+                data-testid="field-fade-length"
+                aria-label="Fade length (px)"
+              />
+            </>
+          )}
+        </div>
+        <span className="field-hint">Blends the panel into a color over the fade length (px).</span>
+      </div>
 
       <label className="field">
         <span>SFX</span>
