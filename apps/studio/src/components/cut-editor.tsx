@@ -113,7 +113,7 @@ function newOverlay(cutId: string, index: number): LetteringOverlay {
 
 type DragMode =
   | { kind: "move"; id: string; grabDX: number; grabDY: number }
-  | { kind: "resize"; id: string; anchorX: number; anchorY: number }
+  | { kind: "resize"; id: string; fx: number; fy: number }
   | { kind: "tail"; id: string };
 
 export function CutEditor({
@@ -211,14 +211,16 @@ export function CutEditor({
             return { ...b, geometry: { ...b.geometry, x, y } };
           }
           if (drag.kind === "resize") {
-            // Resize from the fixed top-left anchor toward the pointer; keep a
-            // positive minimum and stay inside the image bounds.
+            // Resize the box as the rect between the FIXED opposite corner
+            // (`fx,fy`, captured at drag start) and the pointer — so any of the
+            // four corner handles works. Keep a positive minimum and stay inside
+            // the image bounds.
             const minW = 0.04;
             const minH = 0.03;
-            const x = drag.anchorX;
-            const y = drag.anchorY;
-            const w = clamp(pt.x - x, minW, 1 - x);
-            const h = clamp(pt.y - y, minH, 1 - y);
+            const x = clamp(Math.min(pt.x, drag.fx), 0, 1 - minW);
+            const y = clamp(Math.min(pt.y, drag.fy), 0, 1 - minH);
+            const w = clamp(Math.abs(pt.x - drag.fx), minW, 1 - x);
+            const h = clamp(Math.abs(pt.y - drag.fy), minH, 1 - y);
             return { ...b, geometry: { x, y, width: w, height: h } };
           }
           // tail: aim the tail tip at the pointer (image-space normalized point).
@@ -264,16 +266,16 @@ export function CutEditor({
     [pointerToNorm, capture],
   );
 
+  // Resize from any corner: the FIXED point is the opposite corner of the one
+  // grabbed, so the box grows/shrinks toward the pointer from a stable anchor.
   const startResize = useCallback(
-    (event: React.PointerEvent, b: LetteringOverlay) => {
+    (event: React.PointerEvent, b: LetteringOverlay, corner: "nw" | "ne" | "sw" | "se") => {
       event.stopPropagation();
       setSelectedId(b.id);
-      dragRef.current = {
-        kind: "resize",
-        id: b.id,
-        anchorX: b.geometry.x,
-        anchorY: b.geometry.y,
-      };
+      const { x, y, width: w, height: h } = b.geometry;
+      const fx = corner === "nw" || corner === "sw" ? x + w : x;
+      const fy = corner === "nw" || corner === "ne" ? y + h : y;
+      dragRef.current = { kind: "resize", id: b.id, fx, fy };
       capture(event.pointerId);
     },
     [capture],
@@ -696,18 +698,28 @@ export function CutEditor({
                       )}
                       {isSelected && (
                         <>
-                          <rect
-                            x={bx + bw - handle}
-                            y={by + bh - handle}
-                            width={handle * 2}
-                            height={handle * 2}
-                            fill="var(--color-accent)"
-                            stroke="#ffffff"
-                            strokeWidth={handle * 0.25}
-                            style={{ cursor: "nwse-resize" }}
-                            data-handle="resize"
-                            onPointerDown={(event) => startResize(event, b)}
-                          />
+                          {(
+                            [
+                              { corner: "nw", cx: bx, cy: by, cursor: "nwse-resize" },
+                              { corner: "ne", cx: bx + bw, cy: by, cursor: "nesw-resize" },
+                              { corner: "sw", cx: bx, cy: by + bh, cursor: "nesw-resize" },
+                              { corner: "se", cx: bx + bw, cy: by + bh, cursor: "nwse-resize" },
+                            ] as const
+                          ).map((c) => (
+                            <rect
+                              key={c.corner}
+                              x={c.cx - handle}
+                              y={c.cy - handle}
+                              width={handle * 2}
+                              height={handle * 2}
+                              fill="var(--color-accent)"
+                              stroke="#ffffff"
+                              strokeWidth={handle * 0.25}
+                              style={{ cursor: c.cursor }}
+                              data-handle={`resize-${c.corner}`}
+                              onPointerDown={(event) => startResize(event, b, c.corner)}
+                            />
+                          ))}
                           {kindSupportsTail(b.kind) && b.tail && (
                             <circle
                               cx={b.tail.x * width}
