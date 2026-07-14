@@ -185,6 +185,51 @@ test("two adjacent transitions are rejected", () => {
   assert.ok(codes(result).includes("sequence.adjacent-transitions"));
 });
 
+test("a cut and a transition may share an id string (independent namespaces, #146)", () => {
+  const project = cloneValidProject();
+  const bundle = project.episodes[0];
+  assert.ok(bundle);
+  const tr = bundle.transitions[0];
+  assert.ok(tr);
+  // A cut named "beat" and a transition named "beat" both referenced once each:
+  // cut and transition ids are independent namespaces, so this is legitimate.
+  bundle.cuts = [
+    { id: "beat", image: null, imagePrompt: "", negativePrompt: "" },
+    { id: "cut-002", image: null, imagePrompt: "", negativePrompt: "" },
+  ];
+  tr.id = "beat";
+  bundle.transitions = [tr];
+  bundle.lettering = [];
+  bundle.episode.sequence = [
+    { type: "cut", id: "beat" },
+    { type: "transition", id: "beat" },
+    { type: "cut", id: "cut-002" },
+  ];
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+  assert.equal(codes(result).includes("sequence.duplicate-reference"), false);
+});
+
+test("a genuine same-type duplicate sequence reference still fails (#146)", () => {
+  const project = cloneValidProject();
+  const bundle = project.episodes[0];
+  assert.ok(bundle);
+  bundle.lettering = [];
+  // The same CUT id referenced twice is a real duplicate and must still fire.
+  bundle.episode.sequence = [
+    { type: "cut", id: "cut-001" },
+    { type: "transition", id: "tr-001" },
+    { type: "cut", id: "cut-001" },
+  ];
+  const result = validateProject(project);
+  assert.equal(result.valid, false);
+  const dup = result.issues.find((issue) => issue.code === "sequence.duplicate-reference");
+  assert.ok(dup);
+  // The output text is the established legacy message — #146 keys the seen-set
+  // by kind internally but must NOT change validation output (id-only wording).
+  assert.equal(dup.message, 'sequence references id "cut-001" more than once.');
+});
+
 test("bubble geometry must stay inside the cut image", () => {
   const project = cloneValidProject();
   const overlay = project.episodes[0]?.lettering[0];
