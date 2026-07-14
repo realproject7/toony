@@ -503,14 +503,9 @@ input[type="radio"] {
   pointer-events: none;
 }
 
-/* Scene-break divider line, centered across the panel. */
-.transition-block[data-treatment="break"] .transition-rule {
-  position: absolute;
-  left: 20%;
-  right: 20%;
-  top: 50%;
-  border-top: 2px solid #2a2a2a;
-}
+/* Scene-break divider styling now lives inline on `.transition-rule` from the
+   shared `resolveBandDivider` (#147) — span inset, height-scaled thickness, and
+   color — so it can never drift from the export raster (was a fixed 2px border). */
 
 /* A single panel text line, absolutely positioned from the shared render
    geometry (layoutPanelText / layoutCardText) so Read matches export (#118). */

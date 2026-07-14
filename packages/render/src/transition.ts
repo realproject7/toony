@@ -199,6 +199,96 @@ export function layoutTransition(transition: Transition): TransitionRender {
   };
 }
 
+// --- Band background + geometry (single source; #147) -----------------------
+//
+// These resolve the transition BAND's non-text visuals — background precedence,
+// the legibility height floor, and the scene-break divider geometry/color — so
+// the export canvas (`composeTransitionBand`) and the studio Read panel
+// (`TransitionBlock`) draw identical bands with NO per-consumer color/geometry
+// literals (the #112/#135 single-source rule; the divider thickness had already
+// drifted, 2px in studio vs the height-scaled stroke in export). Band TEXT layout
+// stays with `layoutCardText`/`layoutPanelText` (#148) — deliberately untouched.
+
+/**
+ * Neutral reading-margin white: the plain-gutter band fill AND the reserved
+ * gutter strip behind gutter bubbles in a cut. One constant so the band, the
+ * export canvas, and the studio cut stage never drift apart.
+ */
+export const GUTTER_MARGIN_FILL = "#ffffff";
+
+/** Default dark fill behind a legacy `card` panel (beat/time-skip) with no color. */
+const CARD_DEFAULT_FILL = "#15110d";
+
+/** Default vertical fade-treatment gradient (reading white → warm gray). */
+const FADE_DEFAULT_GRADIENT: ResolvedGradient = {
+  from: "#ffffff",
+  to: "#d9d4cc",
+  direction: "top_bottom",
+};
+
+/** Scene-break divider color. */
+const DIVIDER_COLOR = "#2a2a2a";
+
+/** The resolved band background both consumers fill the panel with. */
+export type BandBackground =
+  | { kind: "gradient"; gradient: ResolvedGradient }
+  | { kind: "solid"; color: string };
+
+/**
+ * Resolve a transition band's background in ONE place, precedence-ordered:
+ * full-panel gradient (#115) → resolved solid band fill (#99/#115) → explicit
+ * #98 `color` → legacy card dark default → fade-treatment gradient → plain
+ * reading white. Consumers apply the result (canvas fill / CSS background) and
+ * carry none of the precedence chain or fallback colors themselves.
+ */
+export function resolveBandBackground(render: TransitionRender): BandBackground {
+  if (render.gradient) return { kind: "gradient", gradient: render.gradient };
+  if (render.bandFill) return { kind: "solid", color: render.bandFill };
+  if (render.color) return { kind: "solid", color: render.color };
+  if (render.treatment === "card") return { kind: "solid", color: CARD_DEFAULT_FILL };
+  if (render.treatment === "fade") return { kind: "gradient", gradient: FADE_DEFAULT_GRADIENT };
+  return { kind: "solid", color: GUTTER_MARGIN_FILL };
+}
+
+/**
+ * The drawn band height at panel `width`: honor the authored gutter height, but
+ * cards/breaks and the v3 solid bands get a width-derived legibility floor
+ * (`round(width*0.1)`) so a small authored gutter still reads. The single source
+ * both the export canvas and the studio panel use to size a band.
+ */
+export function resolveBandHeight(render: TransitionRender, width: number): number {
+  const floored = render.isCard || render.treatment === "band";
+  const floor = floored ? Math.round(width * 0.1) : 0;
+  return Math.max(render.gutterHeight, floor);
+}
+
+/** Scene-break divider geometry/color at a given panel `height`. */
+export interface BandDivider {
+  /** Rule start as a fraction of panel width (the left inset). */
+  spanStart: number;
+  /** Rule end as a fraction of panel width. */
+  spanEnd: number;
+  /** Rule thickness in px — scales with height so studio and export match. */
+  thickness: number;
+  /** Rule color. */
+  color: string;
+}
+
+/**
+ * Resolve the scene-break divider at panel `height`. Thickness scales with the
+ * height (`max(1, round(height*0.04))`) — the value that had DRIFTED between the
+ * export raster and the studio's fixed 2px CSS border (#147). Both consumers now
+ * derive it here, so a break panel reads with the identical rule everywhere.
+ */
+export function resolveBandDivider(height: number): BandDivider {
+  return {
+    spanStart: 0.2,
+    spanEnd: 0.8,
+    thickness: Math.max(1, Math.round(height * 0.04)),
+    color: DIVIDER_COLOR,
+  };
+}
+
 /**
  * Resolved pixel geometry for an interstitial panel's text block (#115). The
  * SINGLE source both the export canvas and the studio Read panel (#118) consume,

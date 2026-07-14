@@ -16,7 +16,14 @@
 // dimensions the export canvas uses. `readOnly` (reader, #49) drops authoring
 // chrome — only the rendered panel remains; the preview keeps a small meta chip.
 
-import { layoutCardText, layoutPanelText, layoutTransition } from "@toony/render";
+import {
+  layoutCardText,
+  layoutPanelText,
+  layoutTransition,
+  resolveBandBackground,
+  resolveBandDivider,
+  resolveBandHeight,
+} from "@toony/render";
 import type { Transition } from "@toony/schema";
 import { useEffect, useRef, useState } from "react";
 
@@ -70,28 +77,20 @@ export function TransitionBlock({
     return () => ro.disconnect();
   }, []);
 
-  // Panel height: honor the authored gutter height; cards/bands get the SAME
-  // width-derived legibility floor the export canvas applies (round(width*0.1)).
-  const floored = plan.isCard || plan.treatment === "band";
-  const height = Math.max(plan.gutterHeight, floored ? Math.round(width * 0.1) : 0);
+  // Panel height + legibility floor from the shared single source (#147) — the
+  // SAME height the export canvas draws.
+  const height = resolveBandHeight(plan, width);
 
-  // Background fill, in the SAME precedence the export canvas uses.
-  let background: string;
-  if (plan.gradient) {
-    const { from, to, direction } = plan.gradient;
-    const [top, bottom] = direction === "top_bottom" ? [from, to] : [to, from];
-    background = `linear-gradient(to bottom, ${top}, ${bottom})`;
-  } else if (plan.bandFill) {
-    background = plan.bandFill;
-  } else if (plan.color) {
-    background = plan.color;
-  } else if (plan.treatment === "card") {
-    background = "#15110d";
-  } else if (plan.treatment === "fade") {
-    background = "linear-gradient(to bottom, #ffffff, #d9d4cc)";
-  } else {
-    background = "#ffffff";
-  }
+  // Background fill from the shared precedence resolver (#147): a gradient maps
+  // to a CSS `linear-gradient`, a solid to the color — with NO local fallback
+  // colors or precedence here.
+  const bg = resolveBandBackground(plan);
+  const background =
+    bg.kind === "gradient"
+      ? `linear-gradient(to bottom, ${
+          bg.gradient.direction === "top_bottom" ? bg.gradient.from : bg.gradient.to
+        }, ${bg.gradient.direction === "top_bottom" ? bg.gradient.to : bg.gradient.from})`
+      : bg.color;
 
   // Optional fade overlay (#115), over the fill, under text.
   let fadeBg: string | null = null;
@@ -130,7 +129,26 @@ export function TransitionBlock({
       {fadeBg && (
         <div className="transition-fade" style={{ background: fadeBg }} aria-hidden="true" />
       )}
-      {plan.treatment === "break" && <div className="transition-rule" aria-hidden="true" />}
+      {plan.treatment === "break" &&
+        (() => {
+          // Divider geometry/color from the shared single source (#147): span
+          // inset + height-scaled thickness + color, as inline style — off the
+          // old fixed 2px CSS border that had drifted from the export raster.
+          const divider = resolveBandDivider(height);
+          return (
+            <div
+              className="transition-rule"
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: `${divider.spanStart * 100}%`,
+                right: `${(1 - divider.spanEnd) * 100}%`,
+                borderTop: `${divider.thickness}px solid ${divider.color}`,
+              }}
+            />
+          );
+        })()}
       {panel && (
         <span
           className="transition-line"

@@ -15,6 +15,7 @@ import {
   type BalloonCommand,
   type BubbleRender,
   cutPlacementFrame,
+  GUTTER_MARGIN_FILL,
   IMPACT_BURST_FILL,
   IMPACT_BURST_STROKE,
   IMPACT_RAY_COLOR,
@@ -24,6 +25,9 @@ import {
   layoutTransition,
   type ResolvedFade,
   type ResolvedGradient,
+  resolveBandBackground,
+  resolveBandDivider,
+  resolveBandHeight,
   type TransitionRender,
 } from "@toony/render";
 import type { LetteringOverlay, Transition } from "@toony/schema";
@@ -171,7 +175,7 @@ export async function composeCut(
   // overlays → art == the whole canvas (full-bleed, byte-identical to before).
   const { art, bands } = cutPlacementFrame(overlays, width, height);
   if (bands.length > 0) {
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = GUTTER_MARGIN_FILL;
     ctx.fillRect(0, 0, width, height);
   }
   if (image) {
@@ -322,9 +326,8 @@ export function composeTransitionBand(
   const width = Math.max(1, Math.round(targetWidth));
   // Cards/breaks and the v3 solid bands (#99) get a floor so they stay legible/
   // visible even when authored with a small gutter; plain gutters honor the exact
-  // height.
-  const floor = render.isCard || render.treatment === "band" ? Math.round(width * 0.1) : 0;
-  const height = Math.max(render.gutterHeight, floor);
+  // height. Height + floor come from the shared single source (#147).
+  const height = resolveBandHeight(render, width);
   if (height <= 0) return null;
 
   // Band labels draw with a bundled curated face; register before drawing.
@@ -333,30 +336,15 @@ export function composeTransitionBand(
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
 
-  // Band background: a full-panel #115 gradient fill wins; then the resolved v3
-  // solid-band fill (#99 — black_band/title_card/palette_shift/desaturate_repeat
-  // + v4 color_field/void, already folding in any #98 `color`); then an explicit
-  // #98 `color` on a legacy kind; otherwise the per-treatment default (card dark,
-  // fade gradient, others white reading space).
-  if (render.gradient) {
-    drawGradient(ctx, render.gradient, width, height);
-  } else if (render.bandFill) {
-    ctx.fillStyle = render.bandFill;
-    ctx.fillRect(0, 0, width, height);
-  } else if (render.color) {
-    ctx.fillStyle = render.color;
-    ctx.fillRect(0, 0, width, height);
-  } else if (render.treatment === "card") {
-    ctx.fillStyle = "#15110d";
-    ctx.fillRect(0, 0, width, height);
-  } else if (render.treatment === "fade") {
-    const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, "#ffffff");
-    gradient.addColorStop(1, "#d9d4cc");
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, width, height);
+  // Band background from the shared precedence resolver (#147): a full-panel
+  // gradient (own #115 gradient or the fade-treatment default) fills via the
+  // same `drawGradient`; every solid case fills its resolved color. No fallback
+  // colors or precedence live here anymore.
+  const background = resolveBandBackground(render);
+  if (background.kind === "gradient") {
+    drawGradient(ctx, background.gradient, width, height);
   } else {
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = background.color;
     ctx.fillRect(0, 0, width, height);
   }
 
@@ -371,12 +359,18 @@ export function composeTransitionBand(
     ctx.fillStyle = "#f3ece0";
     drawBandText(ctx, render, width, height);
   } else if (render.treatment === "break") {
-    ctx.strokeStyle = "#2a2a2a";
-    ctx.lineWidth = Math.max(1, Math.round(height * 0.04));
+    // Divider geometry + color from the shared single source (#147); the height-
+    // scaled thickness is the value that had drifted from the studio's fixed 2px.
+    const divider = resolveBandDivider(height);
+    ctx.strokeStyle = divider.color;
+    ctx.lineWidth = divider.thickness;
     ctx.beginPath();
-    ctx.moveTo(width * 0.2, height / 2);
-    ctx.lineTo(width * 0.8, height / 2);
+    ctx.moveTo(width * divider.spanStart, height / 2);
+    ctx.lineTo(width * divider.spanEnd, height / 2);
     ctx.stroke();
+    // Break LABEL ink and the card-text color (#f3ece0 above) are TEXT colors
+    // owned by #148 (they mirror render's PANEL_TEXT_COLOR / card-text color),
+    // deliberately left here — #147 single-sources band bg/floor/divider only.
     ctx.fillStyle = "#2a2a2a";
     if (render.detail) drawBandText(ctx, render, width, height);
   }
