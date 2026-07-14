@@ -39,8 +39,10 @@ import {
   type VerticalAlign,
 } from "@toony/schema";
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { clamp } from "@/lib/clamp";
+import { persistWithGuard } from "@/lib/editor-save";
+import { planTransitionInsert } from "@/lib/transition-insert";
 import { ColorPicker } from "./color-picker";
 import { TransitionBlock } from "./transition-block";
 
@@ -122,6 +124,9 @@ export function TransitionEditor({
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  // Monotonic edit counter so an edit made DURING an in-flight save keeps the
+  // editor dirty instead of being false-cleaned (#150).
+  const editGenRef = useRef(0);
 
   const transitionById = useMemo(
     () => new Map(transitions.map((tr) => [tr.id, tr])),
@@ -131,54 +136,69 @@ export function TransitionEditor({
   const selected = selectedId ? (transitionById.get(selectedId) ?? null) : null;
   const transitionCount = sequence.filter((item) => item.type === "transition").length;
 
-  const update = useCallback((id: string, patch: Partial<Transition>) => {
-    setTransitions((prev) => prev.map((tr) => (tr.id === id ? { ...tr, ...patch } : tr)));
+  // Mark dirty and advance the edit generation. Every mutation goes through here
+  // so an in-flight save can detect edits that land during it.
+  const markDirty = useCallback(() => {
+    editGenRef.current += 1;
     setDirty(true);
     setMessage(null);
   }, []);
 
+  const update = useCallback(
+    (id: string, patch: Partial<Transition>) => {
+      setTransitions((prev) => prev.map((tr) => (tr.id === id ? { ...tr, ...patch } : tr)));
+      markDirty();
+    },
+    [markDirty],
+  );
+
   // Insert a transition into the sequence at `sequenceIndex` (between the cut
-  // before it and the cut at it), and create its record.
-  const insertAt = useCallback((sequenceIndex: number) => {
-    setSequence((prevSeq) => {
-      const created = newTransition(prevSeq.length);
-      setTransitions((prevTr) => [...prevTr, created]);
-      setSelectedId(created.id);
-      const next = [...prevSeq];
-      next.splice(sequenceIndex, 0, { type: "transition", id: created.id });
-      return next;
-    });
-    setDirty(true);
-    setMessage(null);
-  }, []);
+  // before it and the cut at it), and create its record. The record is minted
+  // ONCE, here at the top level — never inside a state updater — so StrictMode's
+  // dev double-invocation of the setters cannot fork a duplicate (#150).
+  const insertAt = useCallback(
+    (sequenceIndex: number) => {
+      const plan = planTransitionInsert(transitions, sequence, sequenceIndex, newTransition);
+      setTransitions(plan.transitions);
+      setSelectedId(plan.created.id);
+      setSequence(plan.sequence);
+      markDirty();
+    },
+    [transitions, sequence, markDirty],
+  );
 
   const deleteSelected = useCallback(() => {
     if (!selectedId) return;
     setSequence((prev) => prev.filter((item) => item.id !== selectedId));
     setTransitions((prev) => prev.filter((tr) => tr.id !== selectedId));
     setSelectedId(null);
-    setDirty(true);
-    setMessage(null);
-  }, [selectedId]);
+    markDirty();
+  }, [selectedId, markDirty]);
 
   const save = useCallback(async () => {
     setSaving(true);
     setMessage(null);
+    // Capture the edit generation alongside the snapshot being sent.
+    const generationAtStart = editGenRef.current;
     try {
-      const response = await fetch("/api/transitions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ workId, episodeId, sequence, transitions }),
+      const outcome = await persistWithGuard({
+        request: () =>
+          fetch("/api/transitions", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ workId, episodeId, sequence, transitions }),
+          }),
+        generationAtStart,
+        readGeneration: () => editGenRef.current,
       });
-      const data = (await response.json()) as { ok: boolean; error?: string };
-      if (!response.ok || !data.ok) {
-        setMessage({ kind: "error", text: data.error ?? "Save failed." });
+      if (!outcome.ok) {
+        setMessage({ kind: "error", text: outcome.error });
       } else {
-        setDirty(false);
+        // Only clear dirty when no edit landed during the in-flight save, so an
+        // edit made mid-save is never silently marked clean.
+        if (outcome.clean) setDirty(false);
         setMessage({ kind: "ok", text: "Saved to transitions.yaml + episode.yaml." });
       }
-    } catch (cause) {
-      setMessage({ kind: "error", text: cause instanceof Error ? cause.message : String(cause) });
     } finally {
       setSaving(false);
     }
