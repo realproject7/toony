@@ -59,7 +59,11 @@ export function useBrowserMeasure(): MeasureWidth | null {
     };
     const fonts = document.fonts;
     if (fonts?.ready) {
-      fonts.ready.then(rebuild).catch(() => {});
+      // Build once fonts are ready. If that promise REJECTS (a face failed to
+      // load), still build the measurer — the faces that DID load measure
+      // correctly, which is far better than stranding layout on the DOM-free
+      // approximation. Never leave `measure` null after hydration.
+      fonts.ready.then(rebuild, rebuild);
     } else {
       rebuild();
     }
