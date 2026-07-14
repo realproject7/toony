@@ -5,7 +5,7 @@
 // log folders and the story-bible/style-guide documents. Output is deterministic
 // (stable key order), so re-writing an unchanged project is byte-stable.
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type Cut,
@@ -22,6 +22,7 @@ import {
   validateWebtoonValue,
   type Webtoon,
 } from "@toony/schema";
+import { atomicWrite, atomicWriteAll } from "./atomic.js";
 import { ProjectIoError } from "./errors.js";
 import { encodeJson, encodeYaml } from "./format.js";
 import {
@@ -68,9 +69,9 @@ export async function writeProject(root: string, project: Project): Promise<void
   }
 
   // Structural files: JSON.
-  await writeFile(webtoonPath(root), encodeJson(project.webtoon), "utf8");
-  await writeFile(join(root, STORY_BIBLE_FILE), STORY_BIBLE_TEMPLATE, "utf8");
-  await writeFile(join(root, STYLE_GUIDE_FILE), STYLE_GUIDE_TEMPLATE, "utf8");
+  await atomicWrite(webtoonPath(root), encodeJson(project.webtoon));
+  await atomicWrite(join(root, STORY_BIBLE_FILE), STORY_BIBLE_TEMPLATE);
+  await atomicWrite(join(root, STYLE_GUIDE_FILE), STYLE_GUIDE_TEMPLATE);
 
   for (const bundle of project.episodes) {
     const id = bundle.episode.id;
@@ -79,10 +80,10 @@ export async function writeProject(root: string, project: Project): Promise<void
       await mkdir(join(episodeDir(root, id), dir), { recursive: true });
     }
     // Content files: YAML. Lettering: JSON.
-    await writeFile(episodeFile(root, id), encodeYaml(bundle.episode), "utf8");
-    await writeFile(cutsFile(root, id), encodeYaml(bundle.cuts), "utf8");
-    await writeFile(transitionsFile(root, id), encodeYaml(bundle.transitions), "utf8");
-    await writeFile(letteringFile(root, id), encodeJson(bundle.lettering), "utf8");
+    await atomicWrite(episodeFile(root, id), encodeYaml(bundle.episode));
+    await atomicWrite(cutsFile(root, id), encodeYaml(bundle.cuts));
+    await atomicWrite(transitionsFile(root, id), encodeYaml(bundle.transitions));
+    await atomicWrite(letteringFile(root, id), encodeJson(bundle.lettering));
   }
 }
 
@@ -107,7 +108,7 @@ export async function writeWebtoon(root: string, webtoon: Webtoon): Promise<void
     const detail = result.issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ");
     throw new ProjectIoError(`refusing to write invalid webtoon: ${detail}`, webtoon.projectId);
   }
-  await writeFile(webtoonPath(root), encodeJson(webtoon), "utf8");
+  await atomicWrite(webtoonPath(root), encodeJson(webtoon));
 }
 
 /**
@@ -145,7 +146,7 @@ export async function writeLettering(
     const detail = result.issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ");
     throw new ProjectIoError(`refusing to write invalid lettering: ${detail}`, episodeId);
   }
-  await writeFile(letteringFile(root, episodeId), encodeJson(overlays), "utf8");
+  await atomicWrite(letteringFile(root, episodeId), encodeJson(overlays));
 }
 
 /**
@@ -178,7 +179,7 @@ export async function writeCuts(root: string, episodeId: string, cuts: Cut[]): P
     const detail = result.issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ");
     throw new ProjectIoError(`refusing to write invalid cuts: ${detail}`, episodeId);
   }
-  await writeFile(cutsFile(root, episodeId), encodeYaml(cuts), "utf8");
+  await atomicWrite(cutsFile(root, episodeId), encodeYaml(cuts));
 }
 
 /**
@@ -247,9 +248,16 @@ export async function writeTransitions(
     throw new ProjectIoError(`refusing to write invalid transitions: ${detail}`, episodeId);
   }
 
-  // Validation passed: write both files (deterministic YAML).
-  await writeFile(transitionsFile(root, episodeId), encodeYaml(transitions), "utf8");
-  await writeFile(episodeFile(root, episodeId), encodeYaml(episode), "utf8");
+  // Validation passed: write both files as one write-unit (deterministic YAML).
+  // Rename order is load-bearing — the referenced-record file (`transitions.yaml`)
+  // commits BEFORE the referencing sequence file (`episode.yaml`), so a crash
+  // between the two renames leaves at worst an orphaned transition record
+  // (non-fatal per validation), never a sequence entry pointing at a record
+  // that isn't on disk.
+  await atomicWriteAll([
+    { file: transitionsFile(root, episodeId), data: encodeYaml(transitions) },
+    { file: episodeFile(root, episodeId), data: encodeYaml(episode) },
+  ]);
 }
 
 /**
