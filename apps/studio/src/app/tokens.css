@@ -98,7 +98,10 @@
   /* -----------------------------------------------------------------------
      4. STATE COLORS
      ----------------------------------------------------------------------- */
-  --state-draft: var(--neutral-400);
+  /* Draft chip text must stay ≥4.5:1 on --state-draft-soft (#f4efe4). --neutral-400
+     (#b3ad9f) was only 1.95:1; --neutral-600 (#6b655a) measures ~5.03:1. Neither
+     this token nor its neutrals are dark-overridden, so this fixes both themes. */
+  --state-draft: var(--neutral-600);
   --state-draft-soft: var(--neutral-100);
   --state-edited: var(--amber-500);
   --state-edited-soft: var(--color-highlight-soft);
