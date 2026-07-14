@@ -7,8 +7,9 @@
 // workspace. It is LOCAL runtime data — gitignored (`.toony/`) and never a place
 // for secrets in the repo; `readConfig` of a missing file returns sane defaults.
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { atomicWrite } from "./atomic.js";
 import { ProjectIoError } from "./errors.js";
 import { decodeJson, encodeJson } from "./format.js";
 
@@ -102,7 +103,7 @@ export async function writeConfig(root: string, config: ToonyConfig): Promise<vo
   const file = configPath(root);
   try {
     await mkdir(join(root, CONFIG_DIR), { recursive: true });
-    await writeFile(file, encodeJson(normalizeConfig(config)), "utf8");
+    await atomicWrite(file, encodeJson(normalizeConfig(config)));
   } catch (cause) {
     const reason = cause instanceof Error ? cause.message : String(cause);
     throw new ProjectIoError(`could not write config: ${reason}`, file);

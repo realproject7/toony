@@ -6,9 +6,16 @@
 // those references and owns file placement, association, and metadata stripping.
 // Provider production (manual import or generation) happens in `@toony/providers`
 // against the neutral contract; the produced `ProviderResult` is passed here.
+//
+// Every persisted write here goes through `atomicWrite` (stage-then-rename), so a
+// crash mid-write never truncates the asset, record, or provenance file. This
+// module does NOT lock the record file it read-modify-writes, so a concurrent
+// ingest and Studio save of the same `cuts.yaml`/`transitions.yaml` can still
+// lose one side's change (last writer wins); multi-process coordination is out
+// of scope (#144).
 
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   type AssetProvenance,
@@ -17,6 +24,7 @@ import {
   stripImageMetadata,
 } from "@toony/providers";
 import type { ImageAssetRef } from "@toony/schema";
+import { atomicWrite } from "./atomic.js";
 import { ProjectIoError } from "./errors.js";
 import { encodeJson, encodeYaml } from "./format.js";
 import { cutsFile, episodeDir, transitionsFile } from "./paths.js";
@@ -80,9 +88,10 @@ function assertSafeAssetSegment(id: string, file: string): void {
 
 // Wrap filesystem writes so a raw fs error (which embeds the absolute path)
 // never rethrows to the surface; callers get a neutral, path-free message.
+// Writes go through `atomicWrite`, so a failure leaves any existing file intact.
 async function writeFileSafe(file: string, data: string | Uint8Array, what: string): Promise<void> {
   try {
-    await writeFile(file, data);
+    await atomicWrite(file, data);
   } catch {
     throw new ProjectIoError(`could not write ${what}.`, file);
   }
