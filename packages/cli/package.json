@@ -1,9 +1,9 @@
 {
   "name": "toony-cli",
   "version": "0.0.0",
-  "private": false,
+  "private": true,
   "description": "Toony — agent CLI with a bundled Studio web app. `toony` runs headless commands; `toony studio` launches the local web studio from a single install.",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "type": "module",
   "bin": {
     "toony": "./dist/bin.js"
