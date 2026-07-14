@@ -958,6 +958,12 @@ export function validateProject(value: unknown): ValidationResult {
   }
 
   const episodeIds = new Set<string>();
+  // Episode ids become filesystem directory segments (`episodes/<id>/`), so an
+  // id that only differs from another by case still maps to the SAME folder on
+  // case-insensitive filesystems (macOS APFS, Windows NTFS are so by default),
+  // silently overwriting one episode's files. Track a case-folded set alongside
+  // the exact-match set to catch that collision before it reaches disk.
+  const episodeIdsCaseFold = new Set<string>();
   for (let i = 0; i < episodes.length; i++) {
     const bundle = episodes[i];
     const bundlePath = joinPath("episodes", i);
@@ -970,14 +976,19 @@ export function validateProject(value: unknown): ValidationResult {
 
     const episode = bundle.episode;
     if (isPlainObject(episode) && isNonEmptyString(episode.id)) {
+      const idPath = joinPath(joinPath(bundlePath, "episode"), "id");
+      const caseFold = episode.id.toLowerCase();
       if (episodeIds.has(episode.id)) {
+        c.add(idPath, "episode.duplicate-id", `duplicate episode id "${episode.id}".`);
+      } else if (episodeIdsCaseFold.has(caseFold)) {
         c.add(
-          joinPath(joinPath(bundlePath, "episode"), "id"),
-          "episode.duplicate-id",
-          `duplicate episode id "${episode.id}".`,
+          idPath,
+          "episode.id-collision",
+          `episode id "${episode.id}" collides case-insensitively with another episode id; on case-insensitive filesystems (macOS APFS, Windows NTFS) both map to the same folder and would overwrite each other.`,
         );
       }
       episodeIds.add(episode.id);
+      episodeIdsCaseFold.add(caseFold);
     }
 
     if (isArray(bundle.cuts)) {

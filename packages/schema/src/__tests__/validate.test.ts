@@ -82,6 +82,32 @@ test("duplicate cut ids are reported", () => {
   assert.ok(codes(result).includes("cut.duplicate-id"));
 });
 
+test("episode ids colliding only by case are rejected (#145 case-insensitive FS hazard)", () => {
+  const project = cloneValidProject();
+  const first = project.episodes[0];
+  assert.ok(first);
+  // Second episode differs from the first only by letter case: on APFS/NTFS both
+  // ids resolve to the same `episodes/<id>/` folder and silently overwrite.
+  const collide = structuredClone(first);
+  collide.episode.id = first.episode.id.toUpperCase();
+  project.episodes.push(collide);
+  const result = validateProject(project);
+  assert.equal(result.valid, false);
+  assert.ok(codes(result).includes("episode.id-collision"));
+});
+
+test("two episodes with genuinely distinct ids validate (no false collision, #145)", () => {
+  const project = cloneValidProject();
+  const first = project.episodes[0];
+  assert.ok(first);
+  const second = structuredClone(first);
+  second.episode.id = "ep-002";
+  project.episodes.push(second);
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+  assert.equal(codes(result).includes("episode.id-collision"), false);
+});
+
 test("duplicate lettering overlay ids are reported", () => {
   const project = cloneValidProject();
   const bundle = project.episodes[0];
