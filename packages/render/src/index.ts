@@ -53,12 +53,16 @@ export type {
   CardTextLayout,
   CardTextLine,
   PanelTextLayout,
+  PanelTextLine,
   ResolvedFade,
   ResolvedGradient,
   TransitionRender,
   TransitionTreatment,
 } from "./transition.js";
 export {
+  BAND_FONT_ID,
+  BAND_FONT_STACK,
+  BAND_TEXT_MAX_WIDTH_FRAC,
   GUTTER_MARGIN_FILL,
   layoutCardText,
   layoutPanelText,

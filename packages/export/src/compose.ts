@@ -12,6 +12,7 @@ import {
   type SKRSContext2D,
 } from "@napi-rs/canvas";
 import {
+  BAND_FONT_ID,
   type BalloonCommand,
   type BubbleRender,
   cutPlacementFrame,
@@ -35,10 +36,11 @@ import { canvasFontFamily, registerToonyFonts } from "./fonts.js";
 import { createCanvasMeasure } from "./measure.js";
 
 // Band labels (transition cards/breaks) use a registered curated face so the
-// stitched export never falls back to the host's default sans. Nunito is the
-// clean dialogue face and ships both 400 and 700.
-const BAND_FONT_REGULAR = canvasFontFamily("nunito", 400, "narration");
-const BAND_FONT_BOLD = canvasFontFamily("nunito", 700, "narration");
+// stitched export never falls back to the host's default sans. The band typeface
+// is the ONE shared decision from `@toony/render` (`BAND_FONT_ID`, curated
+// Nunito), so studio and export draw transition text in the same face (#148).
+const BAND_FONT_REGULAR = canvasFontFamily(BAND_FONT_ID, 400, "narration");
+const BAND_FONT_BOLD = canvasFontFamily(BAND_FONT_ID, 700, "narration");
 
 /** Height/width ratio used for a cut that has no image asset yet. */
 const FALLBACK_CUT_ASPECT = 1.4;
@@ -309,8 +311,9 @@ function drawPanelText(
   ctx.font = `400 ${t.fontSize}px "${BAND_FONT_REGULAR}"`;
   ctx.fillStyle = t.color;
   ctx.textAlign = t.align === "left" ? "left" : t.align === "right" ? "right" : "center";
-  ctx.textBaseline = t.baseline;
-  ctx.fillText(t.text, t.x, t.y);
+  // Each wrapped line is positioned by its vertical CENTER (#148).
+  ctx.textBaseline = "middle";
+  for (const line of t.lines) ctx.fillText(line.text, line.x, line.y);
 }
 
 /**

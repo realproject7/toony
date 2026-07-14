@@ -7,9 +7,11 @@
 // issue #9. Pure and deterministic so the editor (#9) and stitched export (#10)
 // can reuse the same band geometry/treatment.
 
+import { resolveFontFamily } from "@toony/fonts";
 import {
   type FadeDirection,
   type FadeType,
+  type FontFamilyId,
   GUTTER_HEIGHT_MAX_PX,
   GUTTER_HEIGHT_MIN_PX,
   type TextAlign,
@@ -18,6 +20,8 @@ import {
   type VerticalAlign,
 } from "@toony/schema";
 import { clamp } from "./geometry.js";
+import { approximateMeasure } from "./measure.js";
+import { type MeasureWidth, wrapText } from "./text.js";
 
 /**
  * Visual treatment of a transition band, derived from its type. `band` (#99) is
@@ -289,51 +293,96 @@ export function resolveBandDivider(height: number): BandDivider {
   };
 }
 
-/**
- * Resolved pixel geometry for an interstitial panel's text block (#115). The
- * SINGLE source both the export canvas and the studio Read panel (#118) consume,
- * so they position the panel text identically (the #112 single-source parity
- * rule — do not re-derive these constants per consumer). `baseline` doubles as a
- * canvas `textBaseline` and maps 1:1 to the schema vertical-align values.
- */
-export interface PanelTextLayout {
-  text: string;
-  /** Font size in px, derived from the panel height. */
-  fontSize: number;
-  /** Anchor x in px for the resolved horizontal alignment. */
-  x: number;
-  /** Anchor y in px for the resolved vertical alignment. */
-  y: number;
-  /** Horizontal text alignment. */
-  align: TextAlign;
-  /** Vertical baseline (top | middle | bottom). */
-  baseline: VerticalAlign;
-  /** Text color (light, for the dark card fills). */
-  color: string;
-}
+// --- Panel/card TEXT wrapping + typeface (single source; #148) ---------------
+//
+// Panel/card text WRAPS in both consumers from the same measure-aware layout, and
+// draws in ONE shared typeface. The studio used to wrap via CSS (`max-width` +
+// `pre-wrap`) in Inter while the export drew a single unwrapped Nunito line, so
+// the same long string broke differently and clipped the raster. These helpers
+// wrap with the deterministic default measurer (identical breaks on server and
+// canvas, no platform dependency) and expose the shared font id/stack; the #147
+// band background/floor/divider helpers above are consumed as-is, never redefined.
+
+/** Panel/card text wraps within this fraction of the panel width (#148). Matches
+ *  the 8% horizontal padding both consumers use (avail = 1 - 2*0.08 = 0.84). */
+export const BAND_TEXT_MAX_WIDTH_FRAC = 0.84;
+
+/** Line advance as a multiple of font size for wrapped panel/card text. */
+const BAND_LINE_HEIGHT_FACTOR = 1.25;
 
 /** Light panel-text color drawn over the dark card fills (#115). */
 const PANEL_TEXT_COLOR = "#f3ece0";
 
 /**
- * Resolve the panel text geometry for a transition render plan at the panel's
- * drawn `width`×`height`. Returns null when the panel has no text. Pure — export
- * and studio call it with their own dimensions and get identical placement.
+ * The single band/panel typeface — curated Nunito — applied in BOTH consumers so
+ * transition text renders in the same face in the studio Read view and the export
+ * raster (#148). `BAND_FONT_ID` is what export registers/measures with;
+ * `BAND_FONT_STACK` is the CSS stack the studio sets on panel/card text.
+ */
+export const BAND_FONT_ID: FontFamilyId = "nunito";
+// `resolveFontFamily` always returns a registered family (the `kind` is only a
+// fallback path, unused since `BAND_FONT_ID` is a valid registry id), so the
+// stack is non-optional and stays a single source with what export registers.
+export const BAND_FONT_STACK: string = resolveFontFamily(BAND_FONT_ID, "narration").stack;
+
+/** One drawn, already-wrapped line of a transition panel, middle-baselined. */
+export interface PanelTextLine {
+  text: string;
+  /** Anchor x (px) for the resolved horizontal alignment. */
+  x: number;
+  /** Vertical CENTER of this line (px) — draw middle-baselined. */
+  y: number;
+}
+
+/**
+ * Resolved v4 interstitial panel text (#115), WRAPPED to the panel width (#148).
+ * The SINGLE source both the export canvas and the studio Read panel consume, so
+ * they break and place the lines identically. `align` is the shared horizontal
+ * alignment (canvas `textAlign` / CSS `text-align`); every line draws
+ * middle-baselined at its own `y`.
+ */
+export interface PanelTextLayout {
+  lines: PanelTextLine[];
+  /** Font size in px, derived from the panel height. */
+  fontSize: number;
+  /** Horizontal text alignment. */
+  align: TextAlign;
+  /** Text color (light, for the dark card fills). */
+  color: string;
+}
+
+/**
+ * Resolve wrapped v4 panel text at the panel's drawn `width`×`height`. Wraps
+ * `render.detail` within `BAND_TEXT_MAX_WIDTH_FRAC` of the width using the
+ * deterministic default measurer (so export and studio break identically), and
+ * positions the block per the resolved vertical alignment. Returns null with no
+ * text. `measure` is injectable but both consumers use the default for parity.
  */
 export function layoutPanelText(
   render: TransitionRender,
   width: number,
   height: number,
+  measure: MeasureWidth = approximateMeasure,
 ): PanelTextLayout | null {
   if (!render.detail) return null;
   const fontSize = Math.max(12, Math.round(height * 0.14));
-  const padX = width * 0.08;
+  const lineHeight = fontSize * BAND_LINE_HEIGHT_FACTOR;
+  const padX = (width * (1 - BAND_TEXT_MAX_WIDTH_FRAC)) / 2;
   const padY = height * 0.1;
+  const maxWidth = width * BAND_TEXT_MAX_WIDTH_FRAC;
   const align = render.textAlign;
   const x = align === "left" ? padX : align === "right" ? width - padX : width / 2;
+  const wrapped = wrapText(measure, render.detail, maxWidth, fontSize, 400);
+  const blockHeight = wrapped.length * lineHeight;
   const v = render.verticalAlign;
-  const y = v === "top" ? padY : v === "bottom" ? height - padY : height / 2;
-  return { text: render.detail, fontSize, x, y, align, baseline: v, color: PANEL_TEXT_COLOR };
+  const blockTop =
+    v === "top" ? padY : v === "bottom" ? height - padY - blockHeight : (height - blockHeight) / 2;
+  const lines: PanelTextLine[] = wrapped.map((text, i) => ({
+    text,
+    x,
+    y: blockTop + i * lineHeight + lineHeight / 2,
+  }));
+  return { lines, fontSize, align, color: PANEL_TEXT_COLOR };
 }
 
 /** One drawn line of a legacy card/break panel (#118 parity), middle-baselined. */
@@ -359,23 +408,37 @@ export interface CardTextLayout {
  * Resolve the legacy card/break panel text geometry (`beat`/`time-skip`/
  * `title_card`/`scene-break`) at the drawn `width`×`height`. This is the SINGLE
  * source both the export canvas (`drawBandText`) and the studio Read panel (#118)
- * consume, so neither re-derives the size/position constants (the #112 single-
- * source rule). Mirrors the original `drawBandText` layout exactly. Returns null
- * when there is nothing to draw.
+ * consume. The bold detail line WRAPS to the panel width (#148, deterministic
+ * measurer → identical breaks); the small type label sits below it. A single
+ * detail line keeps its original `0.42h` center, so short cards are unchanged.
+ * Returns null when there is nothing to draw.
  */
 export function layoutCardText(
   render: TransitionRender,
   width: number,
   height: number,
+  measure: MeasureWidth = approximateMeasure,
 ): CardTextLayout | null {
   const labelSize = Math.max(10, Math.round(height * 0.22));
   const cx = width / 2;
   const color = render.treatment === "break" ? "#2a2a2a" : PANEL_TEXT_COLOR;
+  const maxWidth = width * BAND_TEXT_MAX_WIDTH_FRAC;
   if (render.detail) {
+    const detailLineHeight = labelSize * BAND_LINE_HEIGHT_FACTOR;
+    const wrapped = wrapText(measure, render.detail, maxWidth, labelSize, 700);
+    // Center the detail block on 0.42h (one line → y = 0.42h, unchanged).
+    const blockTop = height * 0.42 - (wrapped.length * detailLineHeight) / 2;
+    const detailLines: CardTextLine[] = wrapped.map((text, i) => ({
+      text,
+      x: cx,
+      y: blockTop + i * detailLineHeight + detailLineHeight / 2,
+      fontSize: labelSize,
+      weight: 700,
+    }));
     return {
       color,
       lines: [
-        { text: render.detail, x: cx, y: height * 0.42, fontSize: labelSize, weight: 700 },
+        ...detailLines,
         {
           text: render.label,
           x: cx,

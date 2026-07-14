@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  BAND_FONT_ID,
+  BAND_FONT_STACK,
+  BAND_TEXT_MAX_WIDTH_FRAC,
   GUTTER_MARGIN_FILL,
   layoutCardText,
   layoutPanelText,
@@ -10,6 +13,10 @@ import {
   resolveBandHeight,
 } from "../transition.js";
 import { transition } from "./fixtures.js";
+
+/** A sentence long enough to wrap at any sensible panel width/font. */
+const LONG_PANEL_TEXT =
+  "The tide remembers every name the harbor has ever whispered into the waiting dark of the long night.";
 
 test("layoutCardText resolves legacy card text geometry (shared by export + studio Read)", () => {
   const r = layoutTransition(
@@ -252,30 +259,32 @@ test("gradient resolves on the plan; absent → null (#115)", () => {
   assert.deepEqual(g.gradient, { from: "#102030", to: "#a0b0c0", direction: "bottom_up" });
 });
 
-test("layoutPanelText resolves a single-source text block for the v4 cards (#115)", () => {
+test("layoutPanelText resolves a single-source wrapped text block for the v4 cards (#115/#148)", () => {
   const plan = (over: Parameters<typeof transition>[0]) => layoutTransition(transition(over));
   // No text → null.
   assert.equal(layoutPanelText(plan({ id: "n", type: "color_field" }), 800, 400), null);
-  // center/middle defaults: x = width/2, y = height/2, baseline middle.
+  // center/middle defaults: a single short line centered at width/2, height/2.
   const mid = layoutPanelText(plan({ id: "m", type: "narration_card", text: "Hello" }), 800, 400);
   assert.ok(mid);
-  assert.equal(mid.text, "Hello");
-  assert.equal(mid.x, 400);
-  assert.equal(mid.y, 200);
+  assert.equal(mid.lines.length, 1);
+  assert.equal(mid.lines[0]?.text, "Hello");
+  assert.equal(mid.lines[0]?.x, 400);
+  assert.equal(mid.lines[0]?.y, 200); // single line, middle
   assert.equal(mid.align, "center");
-  assert.equal(mid.baseline, "middle");
   assert.equal(mid.fontSize, Math.max(12, Math.round(400 * 0.14)));
-  // left + top: x at left pad, y at top pad, baseline top.
+  // left + top: x at left pad; a single line's center sits padY + lineHeight/2.
+  const fontSize = Math.max(12, Math.round(400 * 0.14));
+  const lineHeight = fontSize * 1.25;
+  const padX = (800 * (1 - BAND_TEXT_MAX_WIDTH_FRAC)) / 2;
   const tl = layoutPanelText(
     plan({ id: "tl", type: "narration_card", text: "x", textAlign: "left", verticalAlign: "top" }),
     800,
     400,
   );
   assert.ok(tl);
-  assert.equal(tl.x, 800 * 0.08);
-  assert.equal(tl.y, 400 * 0.1);
+  assert.equal(tl.lines[0]?.x, padX);
+  assert.equal(tl.lines[0]?.y, 400 * 0.1 + lineHeight / 2);
   assert.equal(tl.align, "left");
-  assert.equal(tl.baseline, "top");
   // right + bottom.
   const rb = layoutPanelText(
     plan({
@@ -289,9 +298,9 @@ test("layoutPanelText resolves a single-source text block for the v4 cards (#115
     400,
   );
   assert.ok(rb);
-  assert.equal(rb.x, 800 - 800 * 0.08);
-  assert.equal(rb.y, 400 - 400 * 0.1);
-  assert.equal(rb.baseline, "bottom");
+  assert.equal(rb.lines[0]?.x, 800 - padX);
+  assert.equal(rb.lines[0]?.y, 400 - 400 * 0.1 - lineHeight / 2);
+  assert.equal(rb.align, "right");
 });
 
 // --- Band background + geometry single source (#147) ------------------------
@@ -372,4 +381,59 @@ test("resolveBandBackground resolves the full precedence chain (#147)", () => {
   const plain = layoutTransition(transition({ id: "p", type: "gutter" }));
   assert.deepEqual(resolveBandBackground(plain), { kind: "solid", color: GUTTER_MARGIN_FILL });
   assert.equal(GUTTER_MARGIN_FILL, "#ffffff");
+});
+
+// --- Panel/card text wrapping + shared typeface (#148) ----------------------
+
+test("layoutPanelText wraps long v4 text deterministically (export/studio parity, #148)", () => {
+  const r = layoutTransition(
+    transition({ id: "lp", type: "narration_card", text: LONG_PANEL_TEXT }),
+  );
+  const a = layoutPanelText(r, 800, 300);
+  assert.ok(a);
+  assert.ok(a.lines.length > 1, "long panel text must wrap to multiple lines");
+  // No word is lost or reordered by the wrap.
+  assert.equal(a.lines.map((l) => l.text).join(" "), LONG_PANEL_TEXT);
+  // Both consumers call the same pure layout with the same default measurer, so
+  // the export raster and the studio Read view break the lines identically.
+  const b = layoutPanelText(r, 800, 300);
+  assert.ok(b);
+  assert.deepEqual(
+    a.lines.map((l) => l.text),
+    b.lines.map((l) => l.text),
+  );
+  // Lines stack downward by a constant advance.
+  if (a.lines.length >= 2) {
+    const step = (a.lines[1]?.y ?? 0) - (a.lines[0]?.y ?? 0);
+    assert.ok(step > 0);
+  }
+});
+
+test("layoutCardText wraps a long legacy-card detail; a short detail stays one line (#148)", () => {
+  const long = layoutTransition(
+    transition({ id: "lc", type: "title_card", text: LONG_PANEL_TEXT }),
+  );
+  const cl = layoutCardText(long, 800, 300);
+  assert.ok(cl);
+  const detail = cl.lines.filter((l) => l.weight === 700);
+  assert.ok(detail.length > 1, "long card detail must wrap to multiple bold lines");
+  assert.equal(detail.map((l) => l.text).join(" "), LONG_PANEL_TEXT);
+  // The small type label (weight 400) still follows the wrapped detail.
+  assert.equal(cl.lines.filter((l) => l.weight === 400).length, 1);
+
+  // A short detail keeps its original single-line position (short cards unchanged).
+  const short = layoutCardText(
+    layoutTransition(transition({ id: "sc", type: "title_card", text: "Later." })),
+    800,
+    400,
+  );
+  assert.ok(short);
+  assert.equal(short.lines.filter((l) => l.weight === 700).length, 1);
+  assert.equal(short.lines[0]?.y, 400 * 0.42);
+});
+
+test("BAND_FONT is the one shared curated typeface (Nunito) for both consumers (#148)", () => {
+  assert.equal(BAND_FONT_ID, "nunito");
+  assert.ok(BAND_FONT_STACK.includes("Nunito"));
+  assert.equal(BAND_TEXT_MAX_WIDTH_FRAC, 0.84);
 });
