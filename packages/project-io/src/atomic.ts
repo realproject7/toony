@@ -46,13 +46,12 @@ export async function atomicWrite(file: string, data: string | Uint8Array): Prom
  * Nothing is renamed until all temps are written, so a failure while staging
  * leaves every target untouched.
  *
- * Ordering matters when the files cross-reference each other: list a
- * referenced-record file BEFORE the file that references it, so a crash between
- * renames leaves at worst an orphaned record (which validation reports as
- * non-fatal) rather than a dangling reference. This is not a transaction — a
- * crash mid-commit can still leave some files renamed and others not — but the
- * ordering bounds that window to the benign direction, and each individual
- * rename is atomic.
+ * This is not a transaction — a crash mid-commit can still leave some files
+ * renamed and others not — but each individual rename is atomic and the caller
+ * chooses the order. Referential safety across a bidirectional edit (one that
+ * both adds and removes cross-references) cannot be achieved by ordering two
+ * renames alone; the caller owns that (see `transitionCommitPlan` in
+ * `writer.ts`, which may commit in more than two ordered steps).
  */
 export async function atomicWriteAll(writes: readonly AtomicFileWrite[]): Promise<void> {
   const staged: Array<{ tmp: string; file: string }> = [];

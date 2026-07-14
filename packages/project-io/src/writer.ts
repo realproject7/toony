@@ -5,7 +5,7 @@
 // log folders and the story-bible/style-guide documents. Output is deterministic
 // (stable key order), so re-writing an unchanged project is byte-stable.
 
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type Cut,
@@ -22,9 +22,9 @@ import {
   validateWebtoonValue,
   type Webtoon,
 } from "@toony/schema";
-import { atomicWrite, atomicWriteAll } from "./atomic.js";
+import { atomicWrite } from "./atomic.js";
 import { ProjectIoError } from "./errors.js";
-import { encodeJson, encodeYaml } from "./format.js";
+import { decodeYaml, encodeJson, encodeYaml } from "./format.js";
 import {
   cutsFile,
   EPISODE_DIRS,
@@ -205,6 +205,14 @@ export async function writeCuts(root: string, episodeId: string, cuts: Cut[]): P
  *
  * `cuts` is supplied (not written) so the sequence's `cut` references can be
  * checked without re-reading disk; the cuts file itself is left byte-stable.
+ *
+ * The two files are committed in a crash-safe order derived from the edit (see
+ * `transitionCommitPlan`): after ANY single interrupted rename the persisted
+ * episode sequence references only transition ids present in the persisted
+ * `transitions.yaml`. The worst case is an orphaned record, which validation
+ * reports non-fatally — never a dangling reference to a record that isn't on
+ * disk. This is not a transaction (a crash can still leave the pair mid-commit),
+ * but every reachable window is the benign direction.
  */
 export async function writeTransitions(
   root: string,
@@ -248,16 +256,105 @@ export async function writeTransitions(
     throw new ProjectIoError(`refusing to write invalid transitions: ${detail}`, episodeId);
   }
 
-  // Validation passed: write both files as one write-unit (deterministic YAML).
-  // Rename order is load-bearing — the referenced-record file (`transitions.yaml`)
-  // commits BEFORE the referencing sequence file (`episode.yaml`), so a crash
-  // between the two renames leaves at worst an orphaned transition record
-  // (non-fatal per validation), never a sequence entry pointing at a record
-  // that isn't on disk.
-  await atomicWriteAll([
-    { file: transitionsFile(root, episodeId), data: encodeYaml(transitions) },
-    { file: episodeFile(root, episodeId), data: encodeYaml(episode) },
-  ]);
+  // Validation passed. Commit the record file and the sequence file in the
+  // crash-safe order this edit requires. Two independent renames cannot be
+  // referentially safe for an edit that both ADDS and DELETES ids (either order
+  // leaves one crash window with a dangling reference), so the plan compares the
+  // ids already on disk with the new set and may stage through a union record
+  // file. See `transitionCommitPlan` for the ordering and its invariant.
+  const transitionsPath = transitionsFile(root, episodeId);
+  const episodePath = episodeFile(root, episodeId);
+
+  const oldTransitions = await readTransitionsOnDisk(transitionsPath);
+  const oldIds = collectTransitionIds(oldTransitions);
+  const plan = transitionCommitPlan(oldIds, transitionIds);
+
+  const newTransitionsData = encodeYaml(transitions);
+  const episodeData = encodeYaml(episode);
+
+  for (const phase of plan) {
+    if (phase === "episode") {
+      await atomicWrite(episodePath, episodeData);
+    } else if (phase === "transitions:new") {
+      await atomicWrite(transitionsPath, newTransitionsData);
+    } else {
+      // Union pass (mixed edits only): old ∪ new records, so the record file
+      // covers whichever sequence — old or new — is live during a crash window.
+      const deletedOld = oldTransitions.filter((t) => {
+        const id = (t as { id?: unknown }).id;
+        return typeof id === "string" && !transitionIds.has(id);
+      });
+      await atomicWrite(transitionsPath, encodeYaml([...transitions, ...deletedOld]));
+    }
+  }
+}
+
+/** One rename in a transitions+episode commit: which file, with which records. */
+export type TransitionCommitPhase = "transitions:new" | "transitions:union" | "episode";
+
+/**
+ * Decide the crash-safe rename order for a transitions+episode save from the
+ * transition ids currently on disk (`oldIds`) versus the ids in the new record
+ * set (`newIds`). Each returned phase is one atomic rename, executed in order.
+ *
+ * Invariant (the testable claim): after ANY single interrupted rename the
+ * episode sequence references only transition ids present in the current
+ * `transitions.yaml`; the worst case is an orphan record, reported non-fatally.
+ *
+ *   - Additions only (or a no-op): records first, then the sequence — the
+ *     record file stays a superset of the OLD sequence's refs until the sequence
+ *     catches up.
+ *   - Deletions only: the sequence first, then prune the records — the record
+ *     file stays a superset of the NEW sequence's refs until the prune.
+ *   - Mixed add+delete: no two-rename order is safe (one window always drops an
+ *     id the live sequence still references), so stage through a union: write
+ *     records = old ∪ new, then the new sequence, then prune records to new.
+ *     Every window sees a record file covering whichever sequence is live.
+ */
+export function transitionCommitPlan(
+  oldIds: ReadonlySet<string>,
+  newIds: ReadonlySet<string>,
+): TransitionCommitPhase[] {
+  let hasAdditions = false;
+  let hasDeletions = false;
+  for (const id of newIds) if (!oldIds.has(id)) hasAdditions = true;
+  for (const id of oldIds) if (!newIds.has(id)) hasDeletions = true;
+
+  if (hasAdditions && hasDeletions) return ["transitions:union", "episode", "transitions:new"];
+  if (hasDeletions) return ["episode", "transitions:new"];
+  return ["transitions:new", "episode"];
+}
+
+/** Collect the non-empty string ids from a raw transition record list. */
+function collectTransitionIds(records: readonly unknown[]): Set<string> {
+  const ids = new Set<string>();
+  for (const record of records) {
+    const id = (record as { id?: unknown }).id;
+    if (typeof id === "string" && id.length > 0) ids.add(id);
+  }
+  return ids;
+}
+
+/**
+ * Best-effort read of the transition records currently on disk, used only to
+ * classify the edit for `transitionCommitPlan`. A missing or unparseable file
+ * yields `[]` (no known prior ids → the safe additions-only ordering), so this
+ * never throws and never blocks a valid save; the authoritative validation of
+ * the new records already happened above.
+ */
+async function readTransitionsOnDisk(file: string): Promise<unknown[]> {
+  let text: string;
+  try {
+    text = await readFile(file, "utf8");
+  } catch {
+    return [];
+  }
+  try {
+    const parsed = decodeYaml(text);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 /**

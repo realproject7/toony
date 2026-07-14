@@ -1,7 +1,7 @@
 // Round-trip and format tests for the on-disk IO layer.
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
@@ -19,6 +19,7 @@ import { cutsFile, episodeFile, letteringFile, transitionsFile, webtoonPath } fr
 import { loadProject } from "../reader.js";
 import { buildInitialProject, slugify } from "../scaffold.js";
 import {
+  transitionCommitPlan,
   writeCuts,
   writeLettering,
   writeProject,
@@ -688,4 +689,174 @@ test("overlay placement/placementSide round-trip (#98)", async () => {
   const ov = loaded.project.episodes[0]?.lettering[0];
   assert.equal(ov?.placement, "gutter");
   assert.equal(ov?.placementSide, "left");
+});
+
+// --- #144 write-unit commit ordering (crash safety) -------------------------
+
+/** Ids of the transitions the persisted episode sequence still points at. */
+function referencedTransitionIds(episode: Episode): string[] {
+  return episode.sequence.filter((i) => i.type === "transition").map((i) => i.id);
+}
+
+/**
+ * Read the two persisted files and assert the core invariant: the episode
+ * sequence references only transition ids that are actually present in
+ * `transitions.yaml` (an orphan record is allowed; a dangling reference is not).
+ */
+async function assertNoDanglingReference(root: string, episodeId: string): Promise<void> {
+  const transitions = decodeYaml(
+    await readFile(transitionsFile(root, episodeId), "utf8"),
+  ) as Transition[];
+  const episode = decodeYaml(await readFile(episodeFile(root, episodeId), "utf8")) as Episode;
+  const present = new Set(transitions.map((t) => t.id));
+  for (const id of referencedTransitionIds(episode)) {
+    assert.ok(
+      present.has(id),
+      `sequence references transition "${id}" but it is absent from transitions.yaml`,
+    );
+  }
+}
+
+test("transitionCommitPlan orders records-first for additions and a no-op", () => {
+  assert.deepEqual(transitionCommitPlan(new Set(), new Set(["a"])), ["transitions:new", "episode"]);
+  assert.deepEqual(transitionCommitPlan(new Set(["a"]), new Set(["a", "b"])), [
+    "transitions:new",
+    "episode",
+  ]);
+  // No change is treated as the additions case (records-first is always safe here).
+  assert.deepEqual(transitionCommitPlan(new Set(["a"]), new Set(["a"])), [
+    "transitions:new",
+    "episode",
+  ]);
+});
+
+test("transitionCommitPlan orders sequence-first for a pure deletion", () => {
+  assert.deepEqual(transitionCommitPlan(new Set(["a", "b"]), new Set(["a"])), [
+    "episode",
+    "transitions:new",
+  ]);
+});
+
+test("transitionCommitPlan stages through a union for a mixed add+delete", () => {
+  assert.deepEqual(transitionCommitPlan(new Set(["a", "b"]), new Set(["a", "c"])), [
+    "transitions:union",
+    "episode",
+    "transitions:new",
+  ]);
+});
+
+/**
+ * Seed an episode with two transitions (tr-001 before cut-002, tr-002 before
+ * cut-003) and three cuts, then return the shared cuts array.
+ */
+async function seedTwoTransitions(root: string, projectId: string): Promise<Cut[]> {
+  await writeProject(root, buildInitialProject(projectId));
+  const cuts: Cut[] = [
+    { id: "cut-001", image: null, imagePrompt: "", negativePrompt: "" },
+    { id: "cut-002", image: null, imagePrompt: "", negativePrompt: "" },
+    { id: "cut-003", image: null, imagePrompt: "", negativePrompt: "" },
+  ];
+  await writeCuts(root, "ep-001", cuts);
+  const transitions = [transition({ id: "tr-001" }), transition({ id: "tr-002" })];
+  const sequence: SequenceItem[] = [
+    { type: "cut", id: "cut-001" },
+    { type: "transition", id: "tr-001" },
+    { type: "cut", id: "cut-002" },
+    { type: "transition", id: "tr-002" },
+    { type: "cut", id: "cut-003" },
+  ];
+  await writeTransitions(root, "ep-001", episodeWith(sequence), transitions, cuts);
+  return cuts;
+}
+
+test("a deletion interrupted before the record prune leaves no dangling reference", async () => {
+  const root = join(workdir, "del-interrupt");
+  const cuts = await seedTwoTransitions(root, "del-interrupt");
+
+  // Delete tr-002. Plan is [episode, transitions:new]: episode.yaml commits
+  // first (dropping the tr-002 reference), then transitions.yaml is pruned.
+  const remaining = [transition({ id: "tr-001" })];
+  const sequence: SequenceItem[] = [
+    { type: "cut", id: "cut-001" },
+    { type: "transition", id: "tr-001" },
+    { type: "cut", id: "cut-002" },
+    { type: "cut", id: "cut-003" },
+  ];
+
+  // Interrupt the SECOND rename (the prune): make the transitions temp a
+  // directory so its staging fails with EISDIR after episode.yaml is committed.
+  await mkdir(`${transitionsFile(root, "ep-001")}.tmp`);
+  await assert.rejects(writeTransitions(root, "ep-001", episodeWith(sequence), remaining, cuts));
+
+  // episode.yaml is the new (deleted) sequence; transitions.yaml still holds the
+  // old superset. Old-order code would have pruned tr-002 first and left the old
+  // sequence dangling; here the new sequence references only present ids.
+  await assertNoDanglingReference(root, "ep-001");
+  const transitions = decodeYaml(
+    await readFile(transitionsFile(root, "ep-001"), "utf8"),
+  ) as Transition[];
+  assert.deepEqual(
+    transitions.map((t) => t.id).sort(),
+    ["tr-001", "tr-002"],
+    "the interrupted prune must leave the old records (tr-002 as a benign orphan)",
+  );
+});
+
+test("a mixed edit interrupted after the union pass leaves no dangling reference", async () => {
+  const root = join(workdir, "mixed-interrupt");
+  const cuts = await seedTwoTransitions(root, "mixed-interrupt");
+
+  // Delete tr-002 AND add tr-003. Plan is [transitions:union, episode,
+  // transitions:new]: the union pass writes {tr-001, tr-003, tr-002} first.
+  const next = [transition({ id: "tr-001" }), transition({ id: "tr-003" })];
+  const sequence: SequenceItem[] = [
+    { type: "cut", id: "cut-001" },
+    { type: "transition", id: "tr-001" },
+    { type: "cut", id: "cut-002" },
+    { type: "transition", id: "tr-003" },
+    { type: "cut", id: "cut-003" },
+  ];
+
+  // Interrupt the episode rename (phase 2): make episode.yaml's temp a directory.
+  // The union pass has committed, but the sequence is still the OLD one, which
+  // references tr-002 — present only because the union kept it.
+  await mkdir(`${episodeFile(root, "ep-001")}.tmp`);
+  await assert.rejects(writeTransitions(root, "ep-001", episodeWith(sequence), next, cuts));
+
+  await assertNoDanglingReference(root, "ep-001");
+  const transitions = decodeYaml(
+    await readFile(transitionsFile(root, "ep-001"), "utf8"),
+  ) as Transition[];
+  assert.deepEqual(
+    transitions.map((t) => t.id).sort(),
+    ["tr-001", "tr-002", "tr-003"],
+    "the union pass must persist old ∪ new so both the old and new sequence are covered",
+  );
+  // The episode is still the old sequence (its rename was interrupted).
+  const episode = decodeYaml(await readFile(episodeFile(root, "ep-001"), "utf8")) as Episode;
+  assert.deepEqual(referencedTransitionIds(episode).sort(), ["tr-001", "tr-002"]);
+});
+
+test("a completed mixed add+delete prunes to the new records and validates", async () => {
+  const root = join(workdir, "mixed-ok");
+  const cuts = await seedTwoTransitions(root, "mixed-ok");
+
+  const next = [transition({ id: "tr-001" }), transition({ id: "tr-003" })];
+  const sequence: SequenceItem[] = [
+    { type: "cut", id: "cut-001" },
+    { type: "transition", id: "tr-001" },
+    { type: "cut", id: "cut-002" },
+    { type: "transition", id: "tr-003" },
+    { type: "cut", id: "cut-003" },
+  ];
+  await writeTransitions(root, "ep-001", episodeWith(sequence), next, cuts);
+
+  const loaded = await loadProject(root);
+  assert.equal(loaded.validation.valid, true, JSON.stringify(loaded.validation.issues));
+  const persisted = loaded.project.episodes[0]?.transitions;
+  assert.deepEqual(
+    persisted?.map((t) => t.id).sort(),
+    ["tr-001", "tr-003"],
+    "the prune pass must drop the deleted tr-002 (no lingering orphan on success)",
+  );
 });
