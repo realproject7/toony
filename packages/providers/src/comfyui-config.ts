@@ -205,19 +205,25 @@ export async function resolveComfyUIConfig(
     throw new ProviderError("comfyui.bad-endpoint", "the ComfyUI endpoint URL is not a valid URL.");
   }
 
-  // Workflow: inline graph > env path > config path/inline > workspace path >
-  // bundled default.
+  // Workflow precedence (documented): inline override > env path > config-file
+  // (inline graph ?? path) > workspace path > bundled default. Each source is
+  // checked IN ORDER, so a lower-precedence PATH can never beat the config file's
+  // inline graph — the bug this fixes was coalescing env/config/workspace PATHs
+  // into one value checked before the config-file inline graph (#155).
   let workflow: ComfyWorkflowGraph;
-  const workflowPath =
-    nonEmpty(env.TOONY_COMFYUI_WORKFLOW) ??
-    nonEmpty(fromFile.workflowPath) ??
-    nonEmpty(ws?.workflow);
+  const envWorkflowPath = nonEmpty(env.TOONY_COMFYUI_WORKFLOW);
+  const fileWorkflowPath = nonEmpty(fromFile.workflowPath);
+  const wsWorkflowPath = nonEmpty(ws?.workflow);
   if (overrides.workflow !== undefined) {
     workflow = overrides.workflow;
-  } else if (workflowPath !== undefined && workflowPath.length > 0) {
-    workflow = await loadWorkflowFromPath(workflowPath);
+  } else if (envWorkflowPath !== undefined) {
+    workflow = await loadWorkflowFromPath(envWorkflowPath);
   } else if (fromFile.workflow !== undefined) {
     workflow = fromFile.workflow;
+  } else if (fileWorkflowPath !== undefined) {
+    workflow = await loadWorkflowFromPath(fileWorkflowPath);
+  } else if (wsWorkflowPath !== undefined) {
+    workflow = await loadWorkflowFromPath(wsWorkflowPath);
   } else {
     workflow = await loadDefaultWorkflow();
   }

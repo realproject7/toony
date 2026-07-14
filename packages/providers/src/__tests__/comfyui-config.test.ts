@@ -170,3 +170,110 @@ test("workspace config workflow path is loaded when no env/file workflow is set"
   });
   assert.equal(config.workflow["6"]?.class_type, "CLIPTextEncode");
 });
+
+// --- Workflow precedence matrix (#155): override > env path > config-file
+// (inline ?? path) > workspace path > bundled default. --------------------------
+
+/** A workflow graph identifiable by a unique class_type marker. */
+function graph(marker: string) {
+  return { "1": { class_type: marker, inputs: {} } };
+}
+async function writeGraph(dir: string, name: string, marker: string): Promise<string> {
+  const p = join(dir, name);
+  await writeFile(p, JSON.stringify(graph(marker)));
+  return p;
+}
+
+/** Build a config-file + workspace scenario with all four workflow sources present. */
+async function fourSourceScenario(opts: { configInline: boolean }) {
+  const dir = await mkdtemp(join(tmpdir(), "toony-comfy-prec-"));
+  const envPath = await writeGraph(dir, "env.json", "ENV_PATH");
+  const filePath = await writeGraph(dir, "file.json", "CONFIG_PATH");
+  const wsPath = await writeGraph(dir, "ws.json", "WS_PATH");
+  const configPath = join(dir, "cfg.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      url: COMFYUI_DEFAULT_LOCAL_URL,
+      ...(opts.configInline ? { workflow: graph("CONFIG_INLINE") } : {}),
+      workflowPath: filePath,
+    }),
+  );
+  return { envPath, configPath, wsPath };
+}
+
+test("workflow precedence: inline override beats every lower source (#155)", async () => {
+  const s = await fourSourceScenario({ configInline: true });
+  const config = await resolveComfyUIConfig({
+    env: {
+      TOONY_COMFYUI_URL: COMFYUI_DEFAULT_LOCAL_URL,
+      TOONY_COMFYUI_WORKFLOW: s.envPath,
+      TOONY_COMFYUI_CONFIG: s.configPath,
+    },
+    toonyConfig: { endpoint: COMFYUI_DEFAULT_LOCAL_URL, checkpoint: null, workflow: s.wsPath },
+    overrides: { workflow: graph("OVERRIDE") },
+  });
+  assert.equal(config.workflow["1"]?.class_type, "OVERRIDE");
+});
+
+test("workflow precedence: env path beats config-file and workspace (#155)", async () => {
+  const s = await fourSourceScenario({ configInline: true });
+  const config = await resolveComfyUIConfig({
+    env: {
+      TOONY_COMFYUI_URL: COMFYUI_DEFAULT_LOCAL_URL,
+      TOONY_COMFYUI_WORKFLOW: s.envPath,
+      TOONY_COMFYUI_CONFIG: s.configPath,
+    },
+    toonyConfig: { endpoint: COMFYUI_DEFAULT_LOCAL_URL, checkpoint: null, workflow: s.wsPath },
+  });
+  assert.equal(config.workflow["1"]?.class_type, "ENV_PATH");
+});
+
+test("workflow precedence: config-file INLINE graph beats a workspace path (#155 bug)", async () => {
+  // The regression: a stale workspace `.toony/config.json` workflow PATH must NOT
+  // beat the config file's inline graph (no override, no env path).
+  const s = await fourSourceScenario({ configInline: true });
+  const config = await resolveComfyUIConfig({
+    env: { TOONY_COMFYUI_CONFIG: s.configPath },
+    toonyConfig: { endpoint: COMFYUI_DEFAULT_LOCAL_URL, checkpoint: null, workflow: s.wsPath },
+  });
+  assert.equal(config.workflow["1"]?.class_type, "CONFIG_INLINE");
+});
+
+test("workflow precedence: config-file PATH beats a workspace path (#155)", async () => {
+  // No config inline graph → the config-file workflowPath wins over the ws path.
+  const s = await fourSourceScenario({ configInline: false });
+  const config = await resolveComfyUIConfig({
+    env: { TOONY_COMFYUI_CONFIG: s.configPath },
+    toonyConfig: { endpoint: COMFYUI_DEFAULT_LOCAL_URL, checkpoint: null, workflow: s.wsPath },
+  });
+  assert.equal(config.workflow["1"]?.class_type, "CONFIG_PATH");
+});
+
+test("workflow precedence: workspace path is used when nothing higher is set (#155)", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "toony-comfy-prec-"));
+  const wsPath = await writeGraph(dir, "ws.json", "WS_PATH");
+  const config = await resolveComfyUIConfig({
+    env: {},
+    toonyConfig: { endpoint: COMFYUI_DEFAULT_LOCAL_URL, checkpoint: null, workflow: wsPath },
+  });
+  assert.equal(config.workflow["1"]?.class_type, "WS_PATH");
+});
+
+test("workflow precedence: config-file inline beats a stale workspace path (no config path) (#155 headline)", async () => {
+  // The exact documented failure: config file pins an INLINE graph, no config
+  // workflowPath, but the workspace has a stale workflow PATH. Pre-fix the ws path
+  // silently won; now the inline graph does.
+  const dir = await mkdtemp(join(tmpdir(), "toony-comfy-prec-"));
+  const wsPath = await writeGraph(dir, "ws.json", "WS_PATH");
+  const configPath = join(dir, "cfg.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({ url: COMFYUI_DEFAULT_LOCAL_URL, workflow: graph("CONFIG_INLINE") }),
+  );
+  const config = await resolveComfyUIConfig({
+    env: { TOONY_COMFYUI_CONFIG: configPath },
+    toonyConfig: { endpoint: COMFYUI_DEFAULT_LOCAL_URL, checkpoint: null, workflow: wsPath },
+  });
+  assert.equal(config.workflow["1"]?.class_type, "CONFIG_INLINE");
+});
