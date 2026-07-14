@@ -26,7 +26,7 @@ import {
   ProjectIoError,
   summarizeEpisodes,
 } from "@toony/project-io";
-import type { Character, Cut, EpisodeBundle } from "@toony/schema";
+import type { Character, Cut, EpisodeBundle, LetteringOverlay, Transition } from "@toony/schema";
 
 export type { EpisodeSummary, Finding, LoadedProject };
 export { ProjectIoError, summarizeEpisodes };
@@ -155,6 +155,41 @@ export async function resolveCutArt(workId: string, workRoot: string, cut: Cut):
   } catch {
     return { ...FALLBACK_ART, src };
   }
+}
+
+/**
+ * The render inputs both episode routes (preview + reader) build from one loaded
+ * bundle: id→record lookups for the sequence walk, bubbles grouped by cut, and
+ * each cut's art resolved once in parallel (so the synchronous sequence render
+ * can place bubbles at the true aspect ratio). Extracted so the two routes cannot
+ * drift in how they shape a sequence for rendering (#158).
+ */
+export interface EpisodeRenderInputs {
+  cutById: Map<string, Cut>;
+  transitionById: Map<string, Transition>;
+  bubblesByCut: Map<string, LetteringOverlay[]>;
+  artByCut: Map<string, CutArt>;
+}
+
+export async function resolveEpisodeRenderInputs(
+  bundle: EpisodeBundle,
+  workId: string,
+  workRoot: string,
+): Promise<EpisodeRenderInputs> {
+  const { cuts, transitions, lettering } = bundle;
+  const cutById = new Map(cuts.map((cut) => [cut.id, cut]));
+  const transitionById = new Map(transitions.map((tr) => [tr.id, tr]));
+  const bubblesByCut = new Map<string, LetteringOverlay[]>();
+  for (const overlay of lettering) {
+    const list = bubblesByCut.get(overlay.cutId) ?? [];
+    list.push(overlay);
+    bubblesByCut.set(overlay.cutId, list);
+  }
+  const artEntries = await Promise.all(
+    cuts.map(async (cut) => [cut.id, await resolveCutArt(workId, workRoot, cut)] as const),
+  );
+  const artByCut = new Map<string, CutArt>(artEntries);
+  return { cutById, transitionById, bubblesByCut, artByCut };
 }
 
 /**

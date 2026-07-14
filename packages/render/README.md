@@ -44,11 +44,11 @@ return one `BubbleRender` per overlay:
 | `outline` | `BalloonCommand[]` — `M`/`L`/`A`, maps 1:1 to canvas and SVG |
 | `pathD` | SVG path `d` tracing the same outline (`""` for SFX) |
 | `tail` | `{tip, base1, base2}` triangle, or `null` (tailless / tip inside box) |
-| `fill`, `stroke`, `textColor`, `speakerColor` | resolved colors (stored style overrides per-kind defaults) |
+| `fill`, `stroke`, `textColor` | resolved colors (stored style overrides per-kind defaults) |
 | `strokeWidth`, `fillOpacity` | resolved stroke px and fill opacity |
-| `text` | `{lines, fontSize, lineHeight, speakerFontSize, overflow}` |
+| `text` | `{lines, fontSize, lineHeight, overflow}` |
 | `lines` | positioned, center-anchored `RenderedTextLine[]` |
-| `textOrigin` | top-left of the body text area (below any speaker strip) |
+| `textOrigin` | top-left of the body text area |
 | `overflow` | text overflows even at min font |
 
 ### SVG consumer (preview, #7)

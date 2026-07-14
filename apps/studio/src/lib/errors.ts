@@ -13,8 +13,6 @@
 // path-free engine error (e.g. PlotLink markdown too short) whose message is
 // safe to surface as-is.
 
-import { ProjectIoError } from "@toony/project-io";
-
 /**
  * A generic, path-free message for an IO/unknown failure caught while serving a
  * route. `ProjectIoError` (and raw Node errors) embed absolute on-disk paths, so
@@ -26,12 +24,4 @@ export function safeErrorMessage(_cause: unknown, fallback = "could not load the
   // The cause is intentionally not interpolated into the message: both
   // `ProjectIoError.message` and raw Node IO errors carry absolute paths.
   return fallback;
-}
-
-/**
- * Whether a caught error is an IO-layer failure from `@toony/project-io`. Kept so
- * a route can choose a 422 vs 500 status while still returning a path-free body.
- */
-export function isProjectIoError(cause: unknown): cause is ProjectIoError {
-  return cause instanceof ProjectIoError;
 }

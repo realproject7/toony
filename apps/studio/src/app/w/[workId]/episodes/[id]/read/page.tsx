@@ -15,12 +15,11 @@ import { CutCanvas } from "@/components/cut-canvas";
 import { LoadError } from "@/components/load-error";
 import { TransitionBlock } from "@/components/transition-block";
 import {
-  type CutArt,
   FALLBACK_ART,
   findEpisodeBundle,
   loadWork,
   ProjectIoError,
-  resolveCutArt,
+  resolveEpisodeRenderInputs,
 } from "@/lib/project";
 import { resolveWork } from "@/lib/workspace";
 
@@ -49,22 +48,12 @@ export default async function EpisodeReaderPage({
   const bundle = findEpisodeBundle(loaded, episodeId);
   if (!bundle) notFound();
 
-  const { episode, cuts, transitions, lettering } = bundle;
-  const cutById = new Map(cuts.map((cut) => [cut.id, cut]));
-  const transitionById = new Map(transitions.map((tr) => [tr.id, tr]));
-  const bubblesByCut = new Map<string, typeof lettering>();
-  for (const overlay of lettering) {
-    const list = bubblesByCut.get(overlay.cutId) ?? [];
-    list.push(overlay);
-    bubblesByCut.set(overlay.cutId, list);
-  }
-
-  // Resolve each cut's art (src + natural dimensions) once, in parallel, so the
-  // synchronous sequence render below can place bubbles at the true aspect ratio.
-  const artEntries = await Promise.all(
-    cuts.map(async (cut) => [cut.id, await resolveCutArt(work.id, work.root, cut)] as const),
+  const { episode } = bundle;
+  const { cutById, transitionById, bubblesByCut, artByCut } = await resolveEpisodeRenderInputs(
+    bundle,
+    work.id,
+    work.root,
   );
-  const artByCut = new Map<string, CutArt>(artEntries);
 
   return (
     <div data-testid="studio-episode-reader" className="reader-page">
