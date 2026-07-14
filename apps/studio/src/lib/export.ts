@@ -25,8 +25,6 @@ import {
 } from "@toony/export";
 import { type ConstraintCheck, formatBytes } from "@/lib/export-view";
 
-export { type ConstraintCheck, formatBytes };
-
 /** Run one export target against a resolved work root. Thin pass-through. */
 export function runExportTarget(
   workRoot: string,

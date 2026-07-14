@@ -63,6 +63,20 @@ function buildProvider(id: string): ImageProvider | { error: string } {
   return { error: `unknown provider "${id}"; only "manual" is available in this build` };
 }
 
+/**
+ * The off-machine opt-in gate: true when a provider would transmit project
+ * content off this machine and the operator has not passed `--allow-remote`.
+ *
+ * Intentional seam (#158): `buildProvider` only ships the local
+ * `ManualImportProvider` today (`transmitsRemotely === false`), so this never
+ * fires yet. It is kept — and tested — so that the moment a remote generation
+ * provider is added to `buildProvider`, it is gated by construction rather than
+ * needing this guard re-added. Mirrors the `toony generate` remote gate.
+ */
+export function requiresRemoteOptIn(provider: ImageProvider, allowRemote: boolean): boolean {
+  return provider.transmitsRemotely && !allowRemote;
+}
+
 /** Run `toony import-image`. Returns the process exit code. */
 export async function runImportImage(args: string[], io: ImportImageIo): Promise<number> {
   const parsed = parseFlags(args);
@@ -99,7 +113,7 @@ export async function runImportImage(args: string[], io: ImportImageIo): Promise
     io.err(provider.error);
     return EXIT_USAGE;
   }
-  if (provider.transmitsRemotely && !parsed.booleans.has("--allow-remote")) {
+  if (requiresRemoteOptIn(provider, parsed.booleans.has("--allow-remote"))) {
     io.err(
       `provider "${providerId}" can transmit project content off this machine; re-run with --allow-remote to opt in`,
     );

@@ -6,7 +6,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { runImportImage } from "../commands/import-image.js";
+import { type ImageProvider, ManualImportProvider } from "@toony/providers";
+import { requiresRemoteOptIn, runImportImage } from "../commands/import-image.js";
 import { runInit } from "../commands/init.js";
 import { runValidate } from "../commands/validate.js";
 import { EXIT_OK, EXIT_USAGE } from "../exit.js";
@@ -164,4 +165,15 @@ test("a non-image source is reported as an import failure", async () => {
   );
   assert.equal(code, EXIT_USAGE);
   assert.match(c.err.join("\n"), /import failed/);
+});
+
+// The off-machine opt-in seam (#158): only the local manual provider ships today,
+// so the gate never fires via the CLI — but the guard is kept and tested so a
+// future remote provider is blocked by construction unless `--allow-remote`.
+test("requiresRemoteOptIn gates a remote provider until --allow-remote", () => {
+  const remote = { id: "fake-remote", transmitsRemotely: true } as unknown as ImageProvider;
+  assert.equal(requiresRemoteOptIn(remote, false), true);
+  assert.equal(requiresRemoteOptIn(remote, true), false);
+  // The only shipped provider is local, so it is never gated.
+  assert.equal(requiresRemoteOptIn(new ManualImportProvider(), false), false);
 });
