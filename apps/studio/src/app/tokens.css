@@ -103,16 +103,23 @@
      this token nor its neutrals are dark-overridden, so this fixes both themes. */
   --state-draft: var(--neutral-600);
   --state-draft-soft: var(--neutral-100);
-  --state-edited: var(--amber-500);
+  /* Edited/pending chip text must stay ≥4.5:1 on --state-edited-soft (#fdf4d2).
+     --amber-500 (#f4ce42) was only 1.38:1; the deep gold #8a6a00 measures
+     4.60:1 — the same value proven for --color-warning on this soft. The
+     saturated amber stays for dark theme (see below) and non-text uses. */
+  --state-edited: #8a6a00;
   --state-edited-soft: var(--color-highlight-soft);
-  --state-final: var(--teal-500);
+  /* Final/connected chip text must stay ≥4.5:1 on --state-final-soft (#d7f6f1).
+     --teal-500 (#0fa896) was only 2.60:1; the deep teal #0a7266 measures
+     5.08:1. Soft background and the saturated dark-theme teal are unchanged. */
+  --state-final: #0a7266;
   --state-final-soft: #d7f6f1;
 
-  --state-connected: var(--teal-500);
+  --state-connected: #0a7266;
   --state-connected-soft: #d7f6f1;
   --state-disconnected: var(--coral-600);
   --state-disconnected-soft: var(--coral-50);
-  --state-pending: var(--amber-500);
+  --state-pending: #8a6a00;
   --state-pending-soft: var(--color-highlight-soft);
 
   --color-success: var(--teal-500);
