@@ -96,3 +96,25 @@ test("a response whose json() throws is reported as an error", async () => {
   });
   assert.deepEqual(outcome, { ok: false, error: "bad json" });
 });
+
+test("a null JSON body is a failed save, not a crash", async () => {
+  // Valid JSON `null` must not throw on a `.ok` access — the save handlers have
+  // no catch around the helper, so this has to fail closed to a message.
+  const outcome = await persistWithGuard({
+    request: async () => response(true, null),
+    generationAtStart: 1,
+    readGeneration: () => 1,
+  });
+  assert.deepEqual(outcome, { ok: false, error: "Save failed." });
+});
+
+test("a non-object JSON body (string/number) is a failed save, not a crash", async () => {
+  for (const body of ["oops", 42, true, []]) {
+    const outcome = await persistWithGuard({
+      request: async () => response(true, body),
+      generationAtStart: 1,
+      readGeneration: () => 1,
+    });
+    assert.deepEqual(outcome, { ok: false, error: "Save failed." }, `body=${JSON.stringify(body)}`);
+  }
+});

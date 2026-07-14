@@ -15,13 +15,22 @@ export interface SaveResponse {
   json: () => Promise<unknown>;
 }
 
-/** JSON body shape the studio save routes return. */
-interface SaveResponseBody {
-  ok: boolean;
-  error?: string;
-}
-
 export type SaveOutcome = { ok: true; clean: boolean } | { ok: false; error: string };
+
+/**
+ * Read the save routes' `{ ok, error }` body defensively. A malformed body —
+ * `null`, a non-object, or a non-boolean `ok` — is treated as a failed save
+ * (`ok: false`), never a thrown property access, so a stray `null` payload can't
+ * crash the (catch-free) save handlers.
+ */
+function readBody(parsed: unknown): { ok: boolean; error?: string } {
+  if (typeof parsed !== "object" || parsed === null) return { ok: false };
+  const record = parsed as Record<string, unknown>;
+  return {
+    ok: record.ok === true,
+    error: typeof record.error === "string" ? record.error : undefined,
+  };
+}
 
 /**
  * Run a persist request and decide whether the editor may mark itself clean.
@@ -43,15 +52,16 @@ export async function persistWithGuard(args: {
     return { ok: false, error: cause instanceof Error ? cause.message : String(cause) };
   }
 
-  let data: SaveResponseBody;
+  let parsed: unknown;
   try {
-    data = (await response.json()) as SaveResponseBody;
+    parsed = await response.json();
   } catch (cause) {
     return { ok: false, error: cause instanceof Error ? cause.message : String(cause) };
   }
 
-  if (!response.ok || !data.ok) {
-    return { ok: false, error: data.error ?? "Save failed." };
+  const body = readBody(parsed);
+  if (!response.ok || !body.ok) {
+    return { ok: false, error: body.error ?? "Save failed." };
   }
 
   // An edit that landed while the request was in flight advanced the generation,
