@@ -17,6 +17,7 @@
 // chrome — only the rendered panel remains; the preview keeps a small meta chip.
 
 import {
+  BAND_FONT_STACK,
   layoutCardText,
   layoutPanelText,
   layoutTransition,
@@ -112,10 +113,10 @@ export function TransitionBlock({
       ? layoutCardText(plan, width, height)
       : null;
 
+  // Each wrapped line is positioned by its vertical CENTER (#148), so the Y anchor
+  // is always the middle; only the horizontal anchor varies with alignment.
   const anchorX = (a: "left" | "center" | "right") =>
     a === "left" ? "0" : a === "right" ? "-100%" : "-50%";
-  const anchorY = (b: "top" | "middle" | "bottom") =>
-    b === "top" ? "0" : b === "bottom" ? "-100%" : "-50%";
 
   return (
     <div
@@ -149,24 +150,27 @@ export function TransitionBlock({
             />
           );
         })()}
-      {panel && (
+      {panel?.lines.map((line, i) => (
         <span
+          // biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines from a single layout pass; their index is stable identity.
+          key={`${transition.id}-panelline-${i}`}
           className="transition-line"
           style={{
-            left: pct(panel.x, width),
-            top: pct(panel.y, height),
-            transform: `translate(${anchorX(panel.align)}, ${anchorY(panel.baseline)})`,
+            left: pct(line.x, width),
+            top: pct(line.y, height),
+            transform: `translate(${anchorX(panel.align)}, -50%)`,
             fontSize: `${panel.fontSize}px`,
             color: panel.color,
             textAlign: panel.align,
+            fontFamily: BAND_FONT_STACK,
           }}
         >
-          {panel.text}
+          {line.text}
         </span>
-      )}
+      ))}
       {card?.lines.map((line, i) => (
         <span
-          // biome-ignore lint/suspicious/noArrayIndexKey: a card has 1–2 positional lines from a single layout pass; the index is their stable identity.
+          // biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines from a single layout pass; their index is stable identity.
           key={`${transition.id}-cardline-${i}`}
           className="transition-line"
           style={{
@@ -176,6 +180,7 @@ export function TransitionBlock({
             fontSize: `${line.fontSize}px`,
             fontWeight: line.weight,
             color: card.color,
+            fontFamily: BAND_FONT_STACK,
           }}
         >
           {line.text}

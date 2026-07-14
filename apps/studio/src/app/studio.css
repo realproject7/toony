@@ -507,14 +507,14 @@ input[type="radio"] {
    shared `resolveBandDivider` (#147) — span inset, height-scaled thickness, and
    color — so it can never drift from the export raster (was a fixed 2px border). */
 
-/* A single panel text line, absolutely positioned from the shared render
-   geometry (layoutPanelText / layoutCardText) so Read matches export (#118). */
+/* A single, already-wrapped panel text line, absolutely positioned from the
+   shared render geometry (layoutPanelText / layoutCardText). Wrapping and the
+   typeface come from the layout (#148), NOT CSS, so Read matches the export
+   raster's line breaks and face; `nowrap` keeps each computed line intact. */
 .transition-line {
   position: absolute;
-  line-height: var(--leading-snug);
-  max-width: 84%;
-  white-space: pre-wrap;
-  text-align: center;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 /* Authoring-only meta chip (type · height); hidden in the reader. */

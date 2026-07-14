@@ -7,9 +7,11 @@
 // issue #9. Pure and deterministic so the editor (#9) and stitched export (#10)
 // can reuse the same band geometry/treatment.
 
+import { resolveFontFamily } from "@toony/fonts";
 import {
   type FadeDirection,
   type FadeType,
+  type FontFamilyId,
   GUTTER_HEIGHT_MAX_PX,
   GUTTER_HEIGHT_MIN_PX,
   type TextAlign,
@@ -18,6 +20,8 @@ import {
   type VerticalAlign,
 } from "@toony/schema";
 import { clamp } from "./geometry.js";
+import { approximateMeasure } from "./measure.js";
+import { layoutBubbleText, type MeasureWidth } from "./text.js";
 
 /**
  * Visual treatment of a transition band, derived from its type. `band` (#99) is
@@ -289,51 +293,175 @@ export function resolveBandDivider(height: number): BandDivider {
   };
 }
 
-/**
- * Resolved pixel geometry for an interstitial panel's text block (#115). The
- * SINGLE source both the export canvas and the studio Read panel (#118) consume,
- * so they position the panel text identically (the #112 single-source parity
- * rule — do not re-derive these constants per consumer). `baseline` doubles as a
- * canvas `textBaseline` and maps 1:1 to the schema vertical-align values.
- */
-export interface PanelTextLayout {
-  text: string;
-  /** Font size in px, derived from the panel height. */
-  fontSize: number;
-  /** Anchor x in px for the resolved horizontal alignment. */
-  x: number;
-  /** Anchor y in px for the resolved vertical alignment. */
-  y: number;
-  /** Horizontal text alignment. */
-  align: TextAlign;
-  /** Vertical baseline (top | middle | bottom). */
-  baseline: VerticalAlign;
-  /** Text color (light, for the dark card fills). */
-  color: string;
-}
+// --- Panel/card TEXT wrapping + typeface (single source; #148) ---------------
+//
+// Panel/card text WRAPS in both consumers from the same measure-aware layout, and
+// draws in ONE shared typeface. The studio used to wrap via CSS (`max-width` +
+// `pre-wrap`) in Inter while the export drew a single unwrapped Nunito line, so
+// the same long string broke differently and clipped the raster. These helpers
+// wrap with the deterministic default measurer (identical breaks on server and
+// canvas, no platform dependency) and expose the shared font id/stack; the #147
+// band background/floor/divider helpers above are consumed as-is, never redefined.
+
+/** Panel/card text wraps within this fraction of the panel width (#148). Matches
+ *  the 8% horizontal padding both consumers use (avail = 1 - 2*0.08 = 0.84). */
+export const BAND_TEXT_MAX_WIDTH_FRAC = 0.84;
+
+/** Line advance as a multiple of font size for wrapped panel/card text. */
+const BAND_LINE_HEIGHT_FACTOR = 1.25;
 
 /** Light panel-text color drawn over the dark card fills (#115). */
 const PANEL_TEXT_COLOR = "#f3ece0";
 
 /**
- * Resolve the panel text geometry for a transition render plan at the panel's
- * drawn `width`×`height`. Returns null when the panel has no text. Pure — export
- * and studio call it with their own dimensions and get identical placement.
+ * The single band/panel typeface — curated Nunito — applied in BOTH consumers so
+ * transition text renders in the same face in the studio Read view and the export
+ * raster (#148). `BAND_FONT_ID` is what export registers/measures with;
+ * `BAND_FONT_STACK` is the CSS stack the studio sets on panel/card text.
+ */
+export const BAND_FONT_ID: FontFamilyId = "nunito";
+// `resolveFontFamily` always returns a registered family (the `kind` is only a
+// fallback path, unused since `BAND_FONT_ID` is a valid registry id), so the
+// stack is non-optional and stays a single source with what export registers.
+export const BAND_FONT_STACK: string = resolveFontFamily(BAND_FONT_ID, "narration").stack;
+
+/**
+ * Trim trailing words (then characters) off `line` so that `line…` fits within
+ * `maxWidth` at the given font — so the ellipsized last line never spills past
+ * the panel horizontally. Measured with the SAME measurer the wrap used, so both
+ * consumers truncate identically. Always returns at least the ellipsis.
+ */
+function ellipsizeToWidth(
+  line: string,
+  measure: MeasureWidth,
+  fontSize: number,
+  fontWeight: 400 | 700,
+  maxWidth: number,
+): string {
+  const fits = (t: string) => measure(`${t}…`, fontSize, fontWeight) <= maxWidth;
+  let text = line.replace(/\s+$/, "");
+  if (fits(text)) return `${text}…`;
+  const words = text.split(/\s+/).filter(Boolean);
+  while (words.length > 1) {
+    words.pop();
+    text = words.join(" ");
+    if (fits(text)) return `${text}…`;
+  }
+  // A single word still too wide with the ellipsis: trim characters.
+  text = words[0] ?? "";
+  while (text.length > 0 && !fits(text)) text = text.slice(0, -1);
+  return `${text}…`;
+}
+
+/**
+ * Shared overflow policy (#148): auto-fit shrinks the font to a floor, but
+ * `Transition.text` is unbounded, so at the floor a very long caption can still
+ * produce more lines than fit. Cap the block to the `maxLines` that fit the
+ * available height, and width-aware-truncate the last shown line to `line…`
+ * (reflowing so it still fits `maxWidth`) — so the block NEVER clips or overlaps
+ * vertically OR horizontally, and both consumers degrade a too-long caption
+ * identically. Always keeps at least one line.
+ */
+function capLinesToFit(
+  lines: string[],
+  availableHeight: number,
+  lineHeight: number,
+  measure: MeasureWidth,
+  fontSize: number,
+  fontWeight: 400 | 700,
+  maxWidth: number,
+): string[] {
+  const maxLines = Math.max(1, Math.floor(availableHeight / lineHeight));
+  if (lines.length <= maxLines) return lines;
+  const kept = lines.slice(0, maxLines);
+  const lastIndex = kept.length - 1;
+  kept[lastIndex] = ellipsizeToWidth(
+    kept[lastIndex] ?? "",
+    measure,
+    fontSize,
+    fontWeight,
+    maxWidth,
+  );
+  return kept;
+}
+
+/** One drawn, already-wrapped line of a transition panel, middle-baselined. */
+export interface PanelTextLine {
+  text: string;
+  /** Anchor x (px) for the resolved horizontal alignment. */
+  x: number;
+  /** Vertical CENTER of this line (px) — draw middle-baselined. */
+  y: number;
+}
+
+/**
+ * Resolved v4 interstitial panel text (#115), WRAPPED to the panel width (#148).
+ * The SINGLE source both the export canvas and the studio Read panel consume, so
+ * they break and place the lines identically. `align` is the shared horizontal
+ * alignment (canvas `textAlign` / CSS `text-align`); every line draws
+ * middle-baselined at its own `y`.
+ */
+export interface PanelTextLayout {
+  lines: PanelTextLine[];
+  /** Font size in px, derived from the panel height. */
+  fontSize: number;
+  /** Horizontal text alignment. */
+  align: TextAlign;
+  /** Text color (light, for the dark card fills). */
+  color: string;
+}
+
+/**
+ * Resolve wrapped v4 panel text at the panel's drawn `width`×`height`. Wraps
+ * `render.detail` within `BAND_TEXT_MAX_WIDTH_FRAC` of the width using the
+ * deterministic default measurer (so export and studio break identically), and
+ * positions the block per the resolved vertical alignment. Returns null with no
+ * text. `measure` is injectable but both consumers use the default for parity.
  */
 export function layoutPanelText(
   render: TransitionRender,
   width: number,
   height: number,
+  measure: MeasureWidth = approximateMeasure,
 ): PanelTextLayout | null {
   if (!render.detail) return null;
-  const fontSize = Math.max(12, Math.round(height * 0.14));
-  const padX = width * 0.08;
+  const padX = (width * (1 - BAND_TEXT_MAX_WIDTH_FRAC)) / 2;
   const padY = height * 0.1;
+  const maxFontSize = Math.max(12, Math.round(height * 0.14));
+  // Auto-fit + wrap the text so the block always fits within the padded panel:
+  // it wraps to the max width and shrinks the font (down to a floor) if the
+  // wrapped lines would be taller than the panel — so a long caption never clips.
+  const fit = layoutBubbleText(measure, render.detail, width, height, {
+    maxFontSize,
+    minFontSize: Math.max(8, Math.round(maxFontSize * 0.6)),
+    fontWeight: 400,
+    lineHeightFactor: BAND_LINE_HEIGHT_FACTOR,
+    paddingX: padX,
+    paddingY: padY,
+  });
+  // Overflow policy: cap to the lines that fit the padded panel (width-aware
+  // ellipsis on the last), so an unbounded caption never clips.
+  const capped = capLinesToFit(
+    fit.lines,
+    height - 2 * padY,
+    fit.lineHeight,
+    measure,
+    fit.fontSize,
+    400,
+    width * BAND_TEXT_MAX_WIDTH_FRAC,
+  );
+  const blockHeight = capped.length * fit.lineHeight;
   const align = render.textAlign;
   const x = align === "left" ? padX : align === "right" ? width - padX : width / 2;
   const v = render.verticalAlign;
-  const y = v === "top" ? padY : v === "bottom" ? height - padY : height / 2;
-  return { text: render.detail, fontSize, x, y, align, baseline: v, color: PANEL_TEXT_COLOR };
+  const blockTop =
+    v === "top" ? padY : v === "bottom" ? height - padY - blockHeight : (height - blockHeight) / 2;
+  const lines: PanelTextLine[] = capped.map((text, i) => ({
+    text,
+    x,
+    y: blockTop + i * fit.lineHeight + fit.lineHeight / 2,
+  }));
+  return { lines, fontSize: fit.fontSize, align, color: PANEL_TEXT_COLOR };
 }
 
 /** One drawn line of a legacy card/break panel (#118 parity), middle-baselined. */
@@ -359,28 +487,68 @@ export interface CardTextLayout {
  * Resolve the legacy card/break panel text geometry (`beat`/`time-skip`/
  * `title_card`/`scene-break`) at the drawn `width`×`height`. This is the SINGLE
  * source both the export canvas (`drawBandText`) and the studio Read panel (#118)
- * consume, so neither re-derives the size/position constants (the #112 single-
- * source rule). Mirrors the original `drawBandText` layout exactly. Returns null
- * when there is nothing to draw.
+ * consume. The bold detail line WRAPS to the panel width (#148, deterministic
+ * measurer → identical breaks); the small type label sits below it. A single
+ * detail line keeps its original `0.42h` center, so short cards are unchanged.
+ * Returns null when there is nothing to draw.
  */
 export function layoutCardText(
   render: TransitionRender,
   width: number,
   height: number,
+  measure: MeasureWidth = approximateMeasure,
 ): CardTextLayout | null {
   const labelSize = Math.max(10, Math.round(height * 0.22));
   const cx = width / 2;
   const color = render.treatment === "break" ? "#2a2a2a" : PANEL_TEXT_COLOR;
+  const padX = (width * (1 - BAND_TEXT_MAX_WIDTH_FRAC)) / 2;
+  const padY = height * 0.1;
   if (render.detail) {
+    const labelFontSize = Math.max(8, Math.round(labelSize * 0.6));
+    const labelLineHeight = labelFontSize * BAND_LINE_HEIGHT_FACTOR;
+    const gap = labelLineHeight * 0.5;
+    // Auto-fit + wrap the bold detail into the panel MINUS the top/bottom pad and
+    // the label row + gap, so the detail block never grows past the panel. The
+    // detail + label form one vertically-centered, bounded, non-overlapping stack.
+    const detailBox = Math.max(1, height - 2 * padY - labelLineHeight - gap);
+    const detail = layoutBubbleText(measure, render.detail, width, detailBox, {
+      maxFontSize: labelSize,
+      minFontSize: Math.max(8, Math.round(labelSize * 0.5)),
+      fontWeight: 700,
+      lineHeightFactor: BAND_LINE_HEIGHT_FACTOR,
+      paddingX: padX,
+      paddingY: 0,
+    });
+    // Overflow policy: cap the detail to the lines that fit its reserved box
+    // (width-aware ellipsis on the last), so the stack always stays bounded.
+    const cappedDetail = capLinesToFit(
+      detail.lines,
+      detailBox,
+      detail.lineHeight,
+      measure,
+      detail.fontSize,
+      700,
+      width * BAND_TEXT_MAX_WIDTH_FRAC,
+    );
+    const detailHeight = cappedDetail.length * detail.lineHeight;
+    const stackHeight = detailHeight + gap + labelLineHeight;
+    const stackTop = Math.max(padY, (height - stackHeight) / 2);
+    const detailLines: CardTextLine[] = cappedDetail.map((text, i) => ({
+      text,
+      x: cx,
+      y: stackTop + i * detail.lineHeight + detail.lineHeight / 2,
+      fontSize: detail.fontSize,
+      weight: 700,
+    }));
     return {
       color,
       lines: [
-        { text: render.detail, x: cx, y: height * 0.42, fontSize: labelSize, weight: 700 },
+        ...detailLines,
         {
           text: render.label,
           x: cx,
-          y: height * 0.68,
-          fontSize: Math.max(8, Math.round(labelSize * 0.6)),
+          y: stackTop + detailHeight + gap + labelLineHeight / 2,
+          fontSize: labelFontSize,
           weight: 400,
         },
       ],
