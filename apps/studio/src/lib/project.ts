@@ -131,8 +131,9 @@ export interface CutArt {
   height: number;
 }
 
-/** Default aspect when an asset is missing or its header cannot be read. */
-const FALLBACK_ART: CutArt = { src: null, width: 1000, height: 1414 };
+/** Default aspect when an asset is missing or its header cannot be read. The
+ *  single source pages use for a cut whose art hasn't resolved (#154). */
+export const FALLBACK_ART: CutArt = { src: null, width: 1000, height: 1414 };
 
 /**
  * Resolve a cut's art for the preview: prefer the final image, then the clean

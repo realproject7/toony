@@ -36,6 +36,11 @@ export interface ComfyUIClientDeps {
   now?: () => number;
 }
 
+// Non-workflow FALLBACK latent dims used when a request omits width/height. These
+// intentionally stay INDEPENDENT of the bundled default-txt2img.workflow.json's
+// own EmptyLatentImage defaults (#154 item 4, dropped): the JSON is the graph's
+// own defaults, this is the request fallback — coupling them would mean parsing a
+// JSON asset for constants, not worth it. They may match today; that's fine.
 const DEFAULT_WIDTH = 832;
 const DEFAULT_HEIGHT = 1216;
 

@@ -12,10 +12,11 @@ import { composeCut, composeTransitionBand } from "./compose.js";
 import {
   DEFAULT_JPEG_QUALITY,
   DEFAULT_WEBP_QUALITY,
-  encodeCanvas,
-  encodeWebpToFit,
-  type RasterFormat,
-} from "./encode.js";
+  PLATFORM_DEFAULT_WIDTH,
+  PLOTLINK_DEFAULT_WIDTH,
+  STITCHED_DEFAULT_WIDTH,
+} from "./defaults.js";
+import { encodeCanvas, encodeWebpToFit, type RasterFormat } from "./encode.js";
 import { ExportError } from "./errors.js";
 import {
   type ExportManifest,
@@ -29,10 +30,6 @@ import {
   sha256Hex,
 } from "./manifest.js";
 import { buildPlotlinkMarkdown } from "./markdown.js";
-
-const PLATFORM_DEFAULT_WIDTH = 1200;
-const STITCHED_DEFAULT_WIDTH = 1200;
-const PLOTLINK_DEFAULT_WIDTH = 800;
 
 export interface ExportOptions {
   /** Render width in px. Each target has a sensible default. */

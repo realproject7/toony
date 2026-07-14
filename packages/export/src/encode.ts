@@ -2,11 +2,9 @@
 // for the PlotLink per-image byte budget.
 
 import { type Canvas, createCanvas } from "@napi-rs/canvas";
+import { DEFAULT_JPEG_QUALITY, DEFAULT_WEBP_QUALITY } from "./defaults.js";
 
 export type RasterFormat = "png" | "jpeg" | "webp";
-
-export const DEFAULT_JPEG_QUALITY = 82;
-export const DEFAULT_WEBP_QUALITY = 82;
 
 /** Clamp a lossy quality into the valid 0..100 range. */
 export function clampQuality(quality: number): number {

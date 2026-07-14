@@ -12,6 +12,7 @@ import { LoadError } from "@/components/load-error";
 import { TransitionBlock } from "@/components/transition-block";
 import {
   type CutArt,
+  FALLBACK_ART,
   findEpisodeBundle,
   loadWork,
   ProjectIoError,
@@ -130,7 +131,7 @@ export default async function EpisodePreviewPage({
                   key={key}
                   cut={cut}
                   bubbles={bubblesByCut.get(cut.id) ?? []}
-                  art={artByCut.get(cut.id) ?? { src: null, width: 1000, height: 1414 }}
+                  art={artByCut.get(cut.id) ?? FALLBACK_ART}
                   workId={work.id}
                   episodeId={episode.id}
                 />

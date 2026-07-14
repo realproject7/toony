@@ -45,7 +45,7 @@ export type {
   BubbleTextOptions,
   MeasureWidth,
 } from "./text.js";
-export { defaultBubbleFontRange, layoutBubbleText, wrapText } from "./text.js";
+export { defaultBubbleFontRange, layoutBubbleText, matchFaceWeight, wrapText } from "./text.js";
 
 export type {
   BandBackground,
