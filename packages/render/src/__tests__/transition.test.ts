@@ -24,16 +24,17 @@ test("layoutCardText resolves legacy card text geometry (shared by export + stud
   );
   const card = layoutCardText(r, 800, 400);
   assert.ok(card);
-  // Detail line: bold, 0.22h, at y = 0.42h, centered.
+  // A short detail is one bold line + the small type label, both centered on x,
+  // both inside the panel, with the label BELOW the detail (no overlap).
   assert.equal(card.lines.length, 2);
   assert.equal(card.lines[0]?.text, "One caller.");
-  assert.equal(card.lines[0]?.fontSize, Math.max(10, Math.round(400 * 0.22)));
-  assert.equal(card.lines[0]?.y, 400 * 0.42);
+  assert.equal(card.lines[0]?.fontSize, Math.max(10, Math.round(400 * 0.22))); // fits at max font
   assert.equal(card.lines[0]?.weight, 700);
   assert.equal(card.lines[0]?.x, 400); // width/2
-  // Small type label under it at y = 0.68h.
-  assert.equal(card.lines[1]?.y, 400 * 0.68);
   assert.equal(card.lines[1]?.weight, 400);
+  assert.equal(card.lines[1]?.x, 400);
+  assert.ok((card.lines[0]?.y ?? 0) > 0 && (card.lines[1]?.y ?? 0) < 400);
+  assert.ok((card.lines[1]?.y ?? 0) > (card.lines[0]?.y ?? 0)); // label under detail
   assert.equal(card.color, "#f3ece0");
 });
 
@@ -421,7 +422,7 @@ test("layoutCardText wraps a long legacy-card detail; a short detail stays one l
   // The small type label (weight 400) still follows the wrapped detail.
   assert.equal(cl.lines.filter((l) => l.weight === 400).length, 1);
 
-  // A short detail keeps its original single-line position (short cards unchanged).
+  // A short detail stays a single bold line.
   const short = layoutCardText(
     layoutTransition(transition({ id: "sc", type: "title_card", text: "Later." })),
     800,
@@ -429,7 +430,44 @@ test("layoutCardText wraps a long legacy-card detail; a short detail stays one l
   );
   assert.ok(short);
   assert.equal(short.lines.filter((l) => l.weight === 700).length, 1);
-  assert.equal(short.lines[0]?.y, 400 * 0.42);
+});
+
+test("layoutCardText keeps the wrapped detail+label a bounded, non-overlapping stack (#148)", () => {
+  // A long detail at a short panel: every line must stay inside the panel and
+  // the label must sit strictly BELOW the wrapped detail (no clip, no overlap).
+  const r = layoutTransition(transition({ id: "bnd", type: "title_card", text: LONG_PANEL_TEXT }));
+  const height = 300;
+  const card = layoutCardText(r, 800, height);
+  assert.ok(card);
+  const detail = card.lines.filter((l) => l.weight === 700);
+  const label = card.lines.find((l) => l.weight === 400);
+  assert.ok(detail.length > 1, "the long detail wraps");
+  assert.ok(label);
+  // Auto-fit may shrink the detail below the nominal 0.22h so it fits.
+  assert.ok((detail[0]?.fontSize ?? 0) <= Math.max(10, Math.round(height * 0.22)));
+  // Bounds: every line's box stays within [0, height].
+  for (const line of card.lines) {
+    const half = (line.fontSize * 1.25) / 2;
+    assert.ok((line.y ?? 0) - half >= -0.5, `line top within panel (y=${line.y})`);
+    assert.ok((line.y ?? 0) + half <= height + 0.5, `line bottom within panel (y=${line.y})`);
+  }
+  // Non-overlap: the label sits below the lowest detail line.
+  const lowestDetail = Math.max(...detail.map((l) => l.y));
+  assert.ok(label.y > lowestDetail, "label is below the wrapped detail");
+});
+
+test("layoutPanelText keeps a long wrapped block inside the panel (#148 bounds)", () => {
+  const r = layoutTransition(
+    transition({ id: "pb", type: "narration_card", text: LONG_PANEL_TEXT }),
+  );
+  const height = 300;
+  const p = layoutPanelText(r, 800, height);
+  assert.ok(p);
+  for (const line of p.lines) {
+    const half = (p.fontSize * 1.25) / 2;
+    assert.ok((line.y ?? 0) - half >= -0.5, `line top within panel (y=${line.y})`);
+    assert.ok((line.y ?? 0) + half <= height + 0.5, `line bottom within panel (y=${line.y})`);
+  }
 });
 
 test("BAND_FONT is the one shared curated typeface (Nunito) for both consumers (#148)", () => {

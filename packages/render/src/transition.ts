@@ -21,7 +21,7 @@ import {
 } from "@toony/schema";
 import { clamp } from "./geometry.js";
 import { approximateMeasure } from "./measure.js";
-import { type MeasureWidth, wrapText } from "./text.js";
+import { layoutBubbleText, type MeasureWidth } from "./text.js";
 
 /**
  * Visual treatment of a transition band, derived from its type. `band` (#99) is
@@ -365,24 +365,32 @@ export function layoutPanelText(
   measure: MeasureWidth = approximateMeasure,
 ): PanelTextLayout | null {
   if (!render.detail) return null;
-  const fontSize = Math.max(12, Math.round(height * 0.14));
-  const lineHeight = fontSize * BAND_LINE_HEIGHT_FACTOR;
   const padX = (width * (1 - BAND_TEXT_MAX_WIDTH_FRAC)) / 2;
   const padY = height * 0.1;
-  const maxWidth = width * BAND_TEXT_MAX_WIDTH_FRAC;
+  const maxFontSize = Math.max(12, Math.round(height * 0.14));
+  // Auto-fit + wrap the text so the block always fits within the padded panel:
+  // it wraps to the max width and shrinks the font (down to a floor) if the
+  // wrapped lines would be taller than the panel — so a long caption never clips.
+  const fit = layoutBubbleText(measure, render.detail, width, height, {
+    maxFontSize,
+    minFontSize: Math.max(8, Math.round(maxFontSize * 0.6)),
+    fontWeight: 400,
+    lineHeightFactor: BAND_LINE_HEIGHT_FACTOR,
+    paddingX: padX,
+    paddingY: padY,
+  });
+  const blockHeight = fit.lines.length * fit.lineHeight;
   const align = render.textAlign;
   const x = align === "left" ? padX : align === "right" ? width - padX : width / 2;
-  const wrapped = wrapText(measure, render.detail, maxWidth, fontSize, 400);
-  const blockHeight = wrapped.length * lineHeight;
   const v = render.verticalAlign;
   const blockTop =
     v === "top" ? padY : v === "bottom" ? height - padY - blockHeight : (height - blockHeight) / 2;
-  const lines: PanelTextLine[] = wrapped.map((text, i) => ({
+  const lines: PanelTextLine[] = fit.lines.map((text, i) => ({
     text,
     x,
-    y: blockTop + i * lineHeight + lineHeight / 2,
+    y: blockTop + i * fit.lineHeight + fit.lineHeight / 2,
   }));
-  return { lines, fontSize, align, color: PANEL_TEXT_COLOR };
+  return { lines, fontSize: fit.fontSize, align, color: PANEL_TEXT_COLOR };
 }
 
 /** One drawn line of a legacy card/break panel (#118 parity), middle-baselined. */
@@ -422,17 +430,32 @@ export function layoutCardText(
   const labelSize = Math.max(10, Math.round(height * 0.22));
   const cx = width / 2;
   const color = render.treatment === "break" ? "#2a2a2a" : PANEL_TEXT_COLOR;
-  const maxWidth = width * BAND_TEXT_MAX_WIDTH_FRAC;
+  const padX = (width * (1 - BAND_TEXT_MAX_WIDTH_FRAC)) / 2;
+  const padY = height * 0.1;
   if (render.detail) {
-    const detailLineHeight = labelSize * BAND_LINE_HEIGHT_FACTOR;
-    const wrapped = wrapText(measure, render.detail, maxWidth, labelSize, 700);
-    // Center the detail block on 0.42h (one line → y = 0.42h, unchanged).
-    const blockTop = height * 0.42 - (wrapped.length * detailLineHeight) / 2;
-    const detailLines: CardTextLine[] = wrapped.map((text, i) => ({
+    const labelFontSize = Math.max(8, Math.round(labelSize * 0.6));
+    const labelLineHeight = labelFontSize * BAND_LINE_HEIGHT_FACTOR;
+    const gap = labelLineHeight * 0.5;
+    // Auto-fit + wrap the bold detail into the panel MINUS the top/bottom pad and
+    // the label row + gap, so the detail block never grows past the panel. The
+    // detail + label form one vertically-centered, bounded, non-overlapping stack.
+    const detailBox = Math.max(1, height - 2 * padY - labelLineHeight - gap);
+    const detail = layoutBubbleText(measure, render.detail, width, detailBox, {
+      maxFontSize: labelSize,
+      minFontSize: Math.max(8, Math.round(labelSize * 0.5)),
+      fontWeight: 700,
+      lineHeightFactor: BAND_LINE_HEIGHT_FACTOR,
+      paddingX: padX,
+      paddingY: 0,
+    });
+    const detailHeight = detail.lines.length * detail.lineHeight;
+    const stackHeight = detailHeight + gap + labelLineHeight;
+    const stackTop = Math.max(padY, (height - stackHeight) / 2);
+    const detailLines: CardTextLine[] = detail.lines.map((text, i) => ({
       text,
       x: cx,
-      y: blockTop + i * detailLineHeight + detailLineHeight / 2,
-      fontSize: labelSize,
+      y: stackTop + i * detail.lineHeight + detail.lineHeight / 2,
+      fontSize: detail.fontSize,
       weight: 700,
     }));
     return {
@@ -442,8 +465,8 @@ export function layoutCardText(
         {
           text: render.label,
           x: cx,
-          y: height * 0.68,
-          fontSize: Math.max(8, Math.round(labelSize * 0.6)),
+          y: stackTop + detailHeight + gap + labelLineHeight / 2,
+          fontSize: labelFontSize,
           weight: 400,
         },
       ],
