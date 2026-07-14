@@ -185,6 +185,47 @@ test("two adjacent transitions are rejected", () => {
   assert.ok(codes(result).includes("sequence.adjacent-transitions"));
 });
 
+test("a cut and a transition may share an id string (independent namespaces, #146)", () => {
+  const project = cloneValidProject();
+  const bundle = project.episodes[0];
+  assert.ok(bundle);
+  const tr = bundle.transitions[0];
+  assert.ok(tr);
+  // A cut named "beat" and a transition named "beat" both referenced once each:
+  // cut and transition ids are independent namespaces, so this is legitimate.
+  bundle.cuts = [
+    { id: "beat", image: null, imagePrompt: "", negativePrompt: "" },
+    { id: "cut-002", image: null, imagePrompt: "", negativePrompt: "" },
+  ];
+  tr.id = "beat";
+  bundle.transitions = [tr];
+  bundle.lettering = [];
+  bundle.episode.sequence = [
+    { type: "cut", id: "beat" },
+    { type: "transition", id: "beat" },
+    { type: "cut", id: "cut-002" },
+  ];
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+  assert.equal(codes(result).includes("sequence.duplicate-reference"), false);
+});
+
+test("a genuine same-type duplicate sequence reference still fails (#146)", () => {
+  const project = cloneValidProject();
+  const bundle = project.episodes[0];
+  assert.ok(bundle);
+  bundle.lettering = [];
+  // The same CUT id referenced twice is a real duplicate and must still fire.
+  bundle.episode.sequence = [
+    { type: "cut", id: "cut-001" },
+    { type: "transition", id: "tr-001" },
+    { type: "cut", id: "cut-001" },
+  ];
+  const result = validateProject(project);
+  assert.equal(result.valid, false);
+  assert.ok(codes(result).includes("sequence.duplicate-reference"));
+});
+
 test("bubble geometry must stay inside the cut image", () => {
   const project = cloneValidProject();
   const overlay = project.episodes[0]?.lettering[0];

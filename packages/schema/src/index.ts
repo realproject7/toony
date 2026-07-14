@@ -104,6 +104,7 @@ export {
   validateLanguageConfigValue,
   validateLetteringOverlayValue,
   validateProject,
+  validateSequenceIntegrity,
   validateSequenceItemValue,
   validateTransitionValue,
   validateWebtoon,

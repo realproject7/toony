@@ -18,6 +18,7 @@ import {
   validateEpisodeValue,
   validateLetteringOverlayValue,
   validateProject,
+  validateSequenceIntegrity,
   validateTransitionValue,
   validateWebtoonValue,
   type Webtoon,
@@ -244,11 +245,15 @@ export async function writeTransitions(
   validateEpisodeValue(episode, "episode", c);
 
   // Cross-reference + canonical shape of the sequence against the real records.
+  // Single-sourced from `@toony/schema` (#146): cut and transition ids are
+  // independent namespaces, so a cut and a transition may share an id string —
+  // the shared check keys duplicate-reference detection by kind, and this writer
+  // no longer maintains its own (previously divergent) copy of the logic.
   const cutIds = new Set<string>();
   for (const cut of cuts) {
     if (typeof cut?.id === "string" && cut.id.length > 0) cutIds.add(cut.id);
   }
-  validateSequenceConsistency(episode.sequence, cutIds, transitionIds, "episode.sequence", c);
+  validateSequenceIntegrity(episode, cutIds, transitionIds, "episode", c);
 
   const result = c.result();
   if (!result.valid) {
@@ -410,102 +415,4 @@ async function readTransitionsOnDisk(file: string): Promise<unknown[]> {
     );
   }
   return parsed;
-}
-
-/**
- * Enforce the sequence invariants the transition editor owns: every reference
- * resolves to a real record, no record is referenced twice or orphaned, and a
- * transition sits between two cuts (canonical webtoon reading rhythm). Mirrors
- * the cross-file checks `validateProject` runs, scoped to one episode so the
- * surgical writer can reject a bad edit before touching disk.
- */
-function validateSequenceConsistency(
-  sequence: Episode["sequence"],
-  cutIds: Set<string>,
-  transitionIds: Set<string>,
-  path: string,
-  c: IssueCollector,
-): void {
-  const seen = new Set<string>();
-  const referencedCutIds = new Set<string>();
-  const referencedTransitionIds = new Set<string>();
-  const types: string[] = [];
-
-  for (let i = 0; i < sequence.length; i++) {
-    const item = sequence[i];
-    const itemPath = `${path}[${i}]`;
-    types.push(item?.type ?? "invalid");
-    if (!item) continue;
-    const id = item.id;
-    if (typeof id !== "string" || id.length === 0) continue;
-
-    if (seen.has(id)) {
-      c.add(
-        itemPath,
-        "sequence.duplicate-reference",
-        `sequence references id "${id}" more than once.`,
-      );
-    }
-    seen.add(id);
-
-    if (item.type === "cut") {
-      referencedCutIds.add(id);
-      if (!cutIds.has(id)) {
-        c.add(
-          itemPath,
-          "sequence.missing-cut",
-          `sequence references cut "${id}" with no matching cut record.`,
-        );
-      }
-    } else if (item.type === "transition") {
-      referencedTransitionIds.add(id);
-      if (!transitionIds.has(id)) {
-        c.add(
-          itemPath,
-          "sequence.missing-transition",
-          `sequence references transition "${id}" with no matching transition record.`,
-        );
-      }
-    }
-  }
-
-  for (const cutId of cutIds) {
-    if (!referencedCutIds.has(cutId)) {
-      c.add(path, "cut.orphan", `cut "${cutId}" is not referenced by the episode sequence.`);
-    }
-  }
-  for (const transitionId of transitionIds) {
-    if (!referencedTransitionIds.has(transitionId)) {
-      c.add(
-        path,
-        "transition.orphan",
-        `transition "${transitionId}" is not referenced by the episode sequence.`,
-      );
-    }
-  }
-
-  // Canonical shape: a transition must sit between two cuts.
-  if (types.length === 0) {
-    c.add(path, "sequence.empty", "episode sequence must contain at least one cut.");
-    return;
-  }
-  if (types[0] === "transition") {
-    c.add(
-      path,
-      "sequence.leading-transition",
-      "episode sequence must not begin with a transition.",
-    );
-  }
-  if (types[types.length - 1] === "transition") {
-    c.add(path, "sequence.trailing-transition", "episode sequence must not end with a transition.");
-  }
-  for (let i = 1; i < types.length; i++) {
-    if (types[i] === "transition" && types[i - 1] === "transition") {
-      c.add(
-        `${path}[${i}]`,
-        "sequence.adjacent-transitions",
-        "two transitions cannot be adjacent; a transition must sit between cuts.",
-      );
-    }
-  }
 }

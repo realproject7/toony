@@ -498,6 +498,60 @@ test("writeTransitions rejects two adjacent transitions", async () => {
   );
 });
 
+test("writeTransitions accepts a cut and transition sharing an id (#146 namespaces)", async () => {
+  const root = join(workdir, "shared-id");
+  await writeProject(root, buildInitialProject("shared-id"));
+  // A cut and a transition legitimately share the id "beat" (independent
+  // namespaces). The previously-divergent writer copy of the sequence check
+  // falsely rejected this; it now uses the single-sourced @toony/schema check.
+  const cuts: Cut[] = [
+    { id: "beat", image: null, imagePrompt: "", negativePrompt: "" },
+    { id: "cut-002", image: null, imagePrompt: "", negativePrompt: "" },
+  ];
+  await writeCuts(root, "ep-001", cuts);
+  const transitions = [transition({ id: "beat" })];
+  const sequence: SequenceItem[] = [
+    { type: "cut", id: "beat" },
+    { type: "transition", id: "beat" },
+    { type: "cut", id: "cut-002" },
+  ];
+  await assert.doesNotReject(
+    writeTransitions(root, "ep-001", episodeWith(sequence), transitions, cuts),
+  );
+
+  const loaded = await loadProject(root);
+  assert.equal(loaded.validation.valid, true, JSON.stringify(loaded.validation.issues));
+  assert.deepEqual(
+    loaded.project.episodes[0]?.episode.sequence,
+    sequence,
+    "the shared-id sequence must round-trip intact",
+  );
+});
+
+test("writeTransitions still rejects a genuine same-type duplicate reference (#146)", async () => {
+  const root = join(workdir, "dup-same-type");
+  await writeProject(root, buildInitialProject("dup-same-type"));
+  const cuts: Cut[] = [
+    { id: "cut-001", image: null, imagePrompt: "", negativePrompt: "" },
+    { id: "cut-002", image: null, imagePrompt: "", negativePrompt: "" },
+  ];
+  const transitions = [transition({ id: "tr-001" })];
+  // cut-001 referenced twice — a real duplicate, must still be refused.
+  const sequence: SequenceItem[] = [
+    { type: "cut", id: "cut-001" },
+    { type: "transition", id: "tr-001" },
+    { type: "cut", id: "cut-001" },
+  ];
+  await assert.rejects(
+    writeTransitions(root, "ep-001", episodeWith(sequence), transitions, cuts),
+    (error: unknown) => {
+      assert.ok(error instanceof ProjectIoError);
+      assert.match(error.message, /more than once/);
+      return true;
+    },
+  );
+});
+
 test("writeTransitions rejects a sequence referencing an unknown transition", async () => {
   const root = join(workdir, "demo");
   await writeProject(root, buildInitialProject("demo"));

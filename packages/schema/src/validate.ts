@@ -839,8 +839,16 @@ function collectIds(
   return ids;
 }
 
-function validateSequenceIntegrity(
-  episode: Record<string, unknown>,
+/**
+ * Cross-reference and canonical-shape check for one episode's reading sequence:
+ * every reference resolves to a real record, no record is referenced twice or
+ * left orphaned, and a transition sits between two cuts. Exported so the
+ * surgical writer in `@toony/project-io` (#9 transition save) shares this single
+ * source instead of re-implementing it. `path` is the episode base; sequence and
+ * record subpaths are derived from it.
+ */
+export function validateSequenceIntegrity(
+  episode: { sequence?: unknown },
   cutIds: Set<string>,
   transitionIds: Set<string>,
   path: string,
@@ -849,6 +857,10 @@ function validateSequenceIntegrity(
   const sequence = episode.sequence;
   if (!isArray(sequence)) return;
 
+  // Cut ids and transition ids are INDEPENDENT namespaces (validated separately
+  // by `collectIds`), so a cut and a transition may legitimately share an id
+  // string. Key the seen-set by `${type}:${id}` so a duplicate reference only
+  // fires within one kind — never falsely across the cut/transition boundary.
   const seen = new Set<string>();
   const referencedCutIds = new Set<string>();
   const referencedTransitionIds = new Set<string>();
@@ -858,14 +870,16 @@ function validateSequenceIntegrity(
     const itemPath = joinPath(joinPath(path, "sequence"), i);
     if (!isPlainObject(item) || !isNonEmptyString(item.id)) continue;
 
-    if (seen.has(item.id)) {
+    const kind = typeof item.type === "string" ? item.type : "invalid";
+    const seenKey = `${kind}:${item.id}`;
+    if (seen.has(seenKey)) {
       c.add(
         itemPath,
         "sequence.duplicate-reference",
-        `sequence references id "${item.id}" more than once.`,
+        `sequence references ${kind} "${item.id}" more than once.`,
       );
     }
-    seen.add(item.id);
+    seen.add(seenKey);
 
     if (item.type === "cut") {
       referencedCutIds.add(item.id);
