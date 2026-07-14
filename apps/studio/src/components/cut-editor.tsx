@@ -31,6 +31,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { clamp } from "@/lib/clamp";
+import { persistWithGuard } from "@/lib/editor-save";
 import type { CutArt } from "@/lib/project";
 import { svgLetterSpacing, svgTextAnchor } from "@/lib/text-anchor";
 
@@ -102,6 +103,10 @@ export function CutEditor({
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragRef = useRef<DragMode | null>(null);
+  // Monotonic edit counter: every edit bumps it, and `save` compares it before
+  // and after the await so an edit made DURING an in-flight save keeps the
+  // editor dirty instead of being reverted or false-cleaned (#150).
+  const editGenRef = useRef(0);
 
   const hasArt = Boolean(art.src);
   const { width, height } = art;
@@ -129,11 +134,21 @@ export function CutEditor({
   const selected = bubbles.find((b) => b.id === selectedId) ?? null;
   const selectedPlan = plans.find((plan) => plan.id === selectedId) ?? null;
 
-  const update = useCallback((id: string, patch: Partial<LetteringOverlay>) => {
-    setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
+  // Mark the editor dirty and advance the edit generation. Every mutation goes
+  // through here so an in-flight save can detect edits that land during it.
+  const markDirty = useCallback(() => {
+    editGenRef.current += 1;
     setDirty(true);
     setMessage(null);
   }, []);
+
+  const update = useCallback(
+    (id: string, patch: Partial<LetteringOverlay>) => {
+      setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
+      markDirty();
+    },
+    [markDirty],
+  );
 
   // Convert a pointer event to normalized 0..1 image coordinates.
   const pointerToNorm = useCallback((event: { clientX: number; clientY: number }) => {
@@ -180,10 +195,9 @@ export function CutEditor({
           return { ...b, tail: { x: pt.x, y: pt.y } };
         }),
       );
-      setDirty(true);
-      setMessage(null);
+      markDirty();
     },
-    [pointerToNorm],
+    [pointerToNorm, markDirty],
   );
 
   // Capture the pointer on the SVG itself (the element that owns the move/up
@@ -250,9 +264,8 @@ export function CutEditor({
       setSelectedId(created.id);
       return [...prev, created];
     });
-    setDirty(true);
-    setMessage(null);
-  }, [cutId]);
+    markDirty();
+  }, [cutId, markDirty]);
 
   const duplicateSelected = useCallback(() => {
     if (!selected) return;
@@ -269,9 +282,8 @@ export function CutEditor({
       setSelectedId(copy.id);
       return [...prev, copy];
     });
-    setDirty(true);
-    setMessage(null);
-  }, [selected, cutId]);
+    markDirty();
+  }, [selected, cutId, markDirty]);
 
   const deleteSelected = useCallback(() => {
     if (!selectedId) return;
@@ -280,9 +292,8 @@ export function CutEditor({
       setSelectedId(next[0]?.id ?? null);
       return next;
     });
-    setDirty(true);
-    setMessage(null);
-  }, [selectedId]);
+    markDirty();
+  }, [selectedId, markDirty]);
 
   // --- Arrangement: z-order + nudge ---------------------------------------
   //
@@ -344,9 +355,8 @@ export function CutEditor({
           : { ...b, zIndex: (b.zIndex ?? LETTERING_STYLE_DEFAULTS.zIndex) + 1 },
       ),
     );
-    setDirty(true);
-    setMessage(null);
-  }, [selected, bubbles, zOf, updateZ]);
+    markDirty();
+  }, [selected, bubbles, zOf, updateZ, markDirty]);
 
   const nudgeSelected = useCallback(
     (dx: number, dy: number) => {
@@ -378,26 +388,31 @@ export function CutEditor({
   const save = useCallback(async () => {
     setSaving(true);
     setMessage(null);
-    // Persist the render core's overflow flag so the on-disk model matches what
-    // the editor shows (the schema overlay carries its own `overflow` field).
+    // Snapshot the payload AND the edit generation together. Persist the render
+    // core's overflow flag so the on-disk model matches what the editor shows
+    // (the schema overlay carries its own `overflow` field).
+    const generationAtStart = editGenRef.current;
     const overflowById = new Map(plans.map((plan) => [plan.id, plan.overflow]));
     const payload = bubbles.map((b) => ({ ...b, overflow: overflowById.get(b.id) ?? b.overflow }));
     try {
-      const response = await fetch("/api/lettering", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ workId, episodeId, overlays: payload }),
+      const outcome = await persistWithGuard({
+        request: () =>
+          fetch("/api/lettering", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ workId, episodeId, overlays: payload }),
+          }),
+        generationAtStart,
+        readGeneration: () => editGenRef.current,
       });
-      const data = (await response.json()) as { ok: boolean; error?: string };
-      if (!response.ok || !data.ok) {
-        setMessage({ kind: "error", text: data.error ?? "Save failed." });
+      if (!outcome.ok) {
+        setMessage({ kind: "error", text: outcome.error });
       } else {
-        setBubbles(payload);
-        setDirty(false);
+        // Do NOT write the snapshot back into state — an edit made during the
+        // await would be reverted. Only clear dirty when no edit landed mid-save.
+        if (outcome.clean) setDirty(false);
         setMessage({ kind: "ok", text: "Saved to lettering.json." });
       }
-    } catch (cause) {
-      setMessage({ kind: "error", text: cause instanceof Error ? cause.message : String(cause) });
     } finally {
       setSaving(false);
     }
