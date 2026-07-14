@@ -325,6 +325,24 @@ export const BAND_FONT_ID: FontFamilyId = "nunito";
 // stack is non-optional and stays a single source with what export registers.
 export const BAND_FONT_STACK: string = resolveFontFamily(BAND_FONT_ID, "narration").stack;
 
+/**
+ * Shared overflow policy (#148): auto-fit shrinks the font to a floor, but
+ * `Transition.text` is unbounded, so at the floor a very long caption can still
+ * produce more lines than fit. Cap the block to the `maxLines` that fit the
+ * available height and mark the truncation with an ellipsis on the last shown
+ * line — so the block NEVER clips or overlaps, and both consumers degrade a
+ * too-long caption identically. Always keeps at least one line.
+ */
+function capLinesToFit(lines: string[], availableHeight: number, lineHeight: number): string[] {
+  const maxLines = Math.max(1, Math.floor(availableHeight / lineHeight));
+  if (lines.length <= maxLines) return lines;
+  const kept = lines.slice(0, maxLines);
+  const lastIndex = kept.length - 1;
+  const last = kept[lastIndex] ?? "";
+  kept[lastIndex] = `${last.replace(/\s+$/, "")}…`;
+  return kept;
+}
+
 /** One drawn, already-wrapped line of a transition panel, middle-baselined. */
 export interface PanelTextLine {
   text: string;
@@ -379,13 +397,16 @@ export function layoutPanelText(
     paddingX: padX,
     paddingY: padY,
   });
-  const blockHeight = fit.lines.length * fit.lineHeight;
+  // Overflow policy: cap to the lines that fit the padded panel (ellipsis on the
+  // last), so an unbounded caption never clips.
+  const capped = capLinesToFit(fit.lines, height - 2 * padY, fit.lineHeight);
+  const blockHeight = capped.length * fit.lineHeight;
   const align = render.textAlign;
   const x = align === "left" ? padX : align === "right" ? width - padX : width / 2;
   const v = render.verticalAlign;
   const blockTop =
     v === "top" ? padY : v === "bottom" ? height - padY - blockHeight : (height - blockHeight) / 2;
-  const lines: PanelTextLine[] = fit.lines.map((text, i) => ({
+  const lines: PanelTextLine[] = capped.map((text, i) => ({
     text,
     x,
     y: blockTop + i * fit.lineHeight + fit.lineHeight / 2,
@@ -448,10 +469,13 @@ export function layoutCardText(
       paddingX: padX,
       paddingY: 0,
     });
-    const detailHeight = detail.lines.length * detail.lineHeight;
+    // Overflow policy: cap the detail to the lines that fit its reserved box
+    // (ellipsis on the last), so the detail+label stack always stays bounded.
+    const cappedDetail = capLinesToFit(detail.lines, detailBox, detail.lineHeight);
+    const detailHeight = cappedDetail.length * detail.lineHeight;
     const stackHeight = detailHeight + gap + labelLineHeight;
     const stackTop = Math.max(padY, (height - stackHeight) / 2);
-    const detailLines: CardTextLine[] = detail.lines.map((text, i) => ({
+    const detailLines: CardTextLine[] = cappedDetail.map((text, i) => ({
       text,
       x: cx,
       y: stackTop + i * detail.lineHeight + detail.lineHeight / 2,

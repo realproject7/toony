@@ -475,3 +475,41 @@ test("BAND_FONT is the one shared curated typeface (Nunito) for both consumers (
   assert.ok(BAND_FONT_STACK.includes("Nunito"));
   assert.equal(BAND_TEXT_MAX_WIDTH_FRAC, 0.84);
 });
+
+// --- Overflow policy for unbounded text (#148) ------------------------------
+
+/** Long enough to overflow even at the auto-fit minimum font on a small panel. */
+const OVERSIZED_TEXT = Array.from({ length: 80 }, (_, i) => `word${i}`).join(" ");
+
+test("layoutPanelText caps an oversized caption to the panel with an ellipsis (#148)", () => {
+  const r = layoutTransition(
+    transition({ id: "ovp", type: "narration_card", text: OVERSIZED_TEXT }),
+  );
+  const height = 160;
+  const p = layoutPanelText(r, 500, height);
+  assert.ok(p);
+  const half = (p.fontSize * 1.25) / 2;
+  for (const line of p.lines) {
+    assert.ok((line.y ?? 0) - half >= -0.5, `line top within panel (y=${line.y})`);
+    assert.ok((line.y ?? 0) + half <= height + 0.5, `line bottom within panel (y=${line.y})`);
+  }
+  // Truncated: the last shown line is ellipsized (not all text fits).
+  assert.ok(p.lines.at(-1)?.text.endsWith("…"), "truncation is marked with an ellipsis");
+});
+
+test("layoutCardText caps an oversized detail; stack stays bounded + non-overlapping (#148)", () => {
+  const r = layoutTransition(transition({ id: "ovc", type: "title_card", text: OVERSIZED_TEXT }));
+  const height = 180;
+  const card = layoutCardText(r, 600, height);
+  assert.ok(card);
+  const detail = card.lines.filter((l) => l.weight === 700);
+  const label = card.lines.find((l) => l.weight === 400);
+  assert.ok(label);
+  for (const line of card.lines) {
+    const half = (line.fontSize * 1.25) / 2;
+    assert.ok((line.y ?? 0) - half >= -0.5, `line top within panel (y=${line.y})`);
+    assert.ok((line.y ?? 0) + half <= height + 0.5, `line bottom within panel (y=${line.y})`);
+  }
+  assert.ok(label.y > Math.max(...detail.map((l) => l.y)), "label sits below the capped detail");
+  assert.ok(detail.at(-1)?.text.endsWith("…"), "detail truncation is ellipsized");
+});
