@@ -12,53 +12,17 @@
 
 import { readConfig } from "@toony/project-io";
 import { SettingsForm } from "@/components/settings-form";
+import { probeComfyui } from "@/lib/comfyui-probe";
 import { workspaceRoot } from "@/lib/workspace";
 
 // The config is read from disk per request; never cache it.
 export const dynamic = "force-dynamic";
 
-const PING_TIMEOUT_MS = 4_000;
-
-/**
- * Probe the configured ComfyUI `/system_stats` for the initial badge. Mirrors the
- * route's probe; kept here so the first paint already shows reachability without a
- * client round-trip. Any failure is "unreachable"; an unset endpoint is
- * "unconfigured".
- */
-async function probe(
-  endpoint: string | null,
-): Promise<{ state: "reachable" | "unreachable" | "unconfigured"; detail?: string }> {
-  if (endpoint === null) return { state: "unconfigured" };
-  let base: URL;
-  try {
-    base = new URL(endpoint);
-  } catch {
-    return { state: "unreachable" };
-  }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS);
-  try {
-    const response = await fetch(new URL("/system_stats", base), { signal: controller.signal });
-    if (!response.ok) return { state: "unreachable" };
-    let detail: string | undefined;
-    try {
-      const stats = (await response.json()) as { system?: { comfyui_version?: unknown } };
-      const version = stats.system?.comfyui_version;
-      if (typeof version === "string" && version.length > 0) detail = `ComfyUI ${version}`;
-    } catch {
-      // Reachable but non-JSON is still reachable.
-    }
-    return { state: "reachable", detail };
-  } catch {
-    return { state: "unreachable" };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 export default async function SettingsPage() {
   const config = await readConfig(workspaceRoot());
-  const connection = await probe(config.comfyui.endpoint);
+  // Single-sourced probe (#154), so the first-paint badge matches /api/config
+  // exactly — including the http/https SSRF guard the settings page now adopts.
+  const connection = await probeComfyui(config.comfyui.endpoint);
 
   return (
     <div data-testid="studio-settings">

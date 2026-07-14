@@ -11,6 +11,7 @@ import {
   type ShotType,
 } from "@toony/schema";
 import { type Finding, finding } from "./findings.js";
+import { REFERENCE_RENDER } from "./reference.js";
 
 /** > this many speech/thought bubbles in a cut → density warning. */
 export const CRAFT_MAX_DIALOGUE_BUBBLES = 2;
@@ -44,12 +45,9 @@ export const TRANSITION_MONOTONY_RUN_MAX = 4;
  */
 export const TRANSITION_HEIGHT_TOLERANCE_PX = 12;
 
-/**
- * Reference render size for counting wrapped lines. Wrapping depends on the box
- * (normalized geometry) + font, so a FIXED reference makes the line/char checks
- * deterministic and image-independent (a portrait webtoon cut).
- */
-const REFERENCE = { width: 1200, height: 1600 } as const;
+// Reference render size for counting wrapped lines — a FIXED, image-independent
+// canvas so the line/char checks are deterministic. Single-sourced (#154).
+const REFERENCE = REFERENCE_RENDER;
 
 /** Kinds that represent someone speaking/thinking and should be attributable. */
 const ATTRIBUTED_KINDS = new Set(["speech", "thought", "shout", "whisper"]);

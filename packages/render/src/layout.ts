@@ -41,6 +41,7 @@ import {
   defaultBubbleFontRange,
   layoutBubbleText,
   type MeasureWidth,
+  matchFaceWeight,
 } from "./text.js";
 
 /** A positioned line of wrapped body text, in the caller's pixel space. */
@@ -267,7 +268,7 @@ export function layoutBubble(
   // threshold is applied in @toony/export's canvas face selection so the raster
   // and the SVG land on the identical face (#85). Measurement uses it too so
   // wrap/auto-fit reflect the weight actually drawn.
-  const measureWeight: 400 | 700 = fontWeight >= 600 ? 700 : 400;
+  const measureWeight: 400 | 700 = matchFaceWeight(fontWeight);
 
   // Placement (#98): `in_panel` uses the whole cut canvas (back-compat); `gutter`
   // reserves an in-bounds strip of `GUTTER_BAND_FRAC` width on `placementSide`.

@@ -20,6 +20,7 @@ import {
   resolveFontFamily,
 } from "@toony/fonts";
 import { fontAssetPath } from "@toony/fonts/node";
+import { matchFaceWeight } from "@toony/render";
 import type { BubbleKind } from "@toony/schema";
 
 // Canvas family name for a face FILE's weight. 400 files register under the
@@ -35,11 +36,11 @@ function nameForFaceWeight(family: FontFamily, faceWeight: FontFaceWeight): stri
  * following CSS font-weight matching for the {400,700} set each family ships:
  * 600-700 pick the bold (700) face, 400-500 pick regular. This mirrors how the
  * browser matches the studio SVG's `font-weight`, so e.g. weight 600 draws bold
- * in BOTH the export raster and the SVG preview (#85). `@toony/render` applies
- * the same threshold for its measurement weight.
+ * in BOTH the export raster and the SVG preview (#85). Single-sourced from
+ * `@toony/render`'s `matchFaceWeight` (#154) so the threshold cannot drift.
  */
 export function cssFaceWeight(weight: number): FontFaceWeight {
-  return weight >= 600 ? 700 : 400;
+  return matchFaceWeight(weight);
 }
 
 /**

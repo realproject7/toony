@@ -2,10 +2,17 @@
 // exports built on the shared renderer, plus the export manifest schema.
 
 export { composeCut, composeTransitionBand } from "./compose.js";
+// Plain constants live in the Node-free `./defaults.js` (also a browser-safe
+// subpath) so consumers keep importing them from the main entry (#154).
 export {
-  clampQuality,
   DEFAULT_JPEG_QUALITY,
   DEFAULT_WEBP_QUALITY,
+  PLATFORM_DEFAULT_WIDTH,
+  PLOTLINK_DEFAULT_WIDTH,
+  STITCHED_DEFAULT_WIDTH,
+} from "./defaults.js";
+export {
+  clampQuality,
   encodeCanvas,
   encodeWebpToFit,
   type FitResult,

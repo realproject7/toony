@@ -21,13 +21,11 @@
 // the loaded-checkpoint hint. The browser never talks to ComfyUI directly.
 
 import { readConfig, type ToonyConfig, writeConfig } from "@toony/project-io";
+import { probeComfyui } from "@/lib/comfyui-probe";
 import { safeErrorMessage } from "@/lib/errors";
 import { workspaceRoot } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
-
-/** How long to wait for ComfyUI's /system_stats before calling it unreachable. */
-const PING_TIMEOUT_MS = 4_000;
 
 interface SavePayload {
   comfyui: {
@@ -35,13 +33,6 @@ interface SavePayload {
     checkpoint: string;
     workflow: string;
   };
-}
-
-/** Connection probe outcome for the status badge. */
-interface ConnectionStatus {
-  state: "reachable" | "unreachable" | "unconfigured";
-  /** Present only when reachable and the endpoint reported a system summary. */
-  detail?: string;
 }
 
 function badRequest(message: string): Response {
@@ -68,57 +59,6 @@ function isSavePayload(value: unknown): value is SavePayload {
   );
 }
 
-/**
- * Probe the configured ComfyUI endpoint's `/system_stats`. Returns a coarse
- * reachable/unreachable verdict; any network/HTTP error is "unreachable" (the
- * page shows that without treating it as a server error). An unset endpoint is
- * "unconfigured" so the badge can prompt the operator to set one.
- */
-async function probeConnection(endpoint: string | null): Promise<ConnectionStatus> {
-  if (endpoint === null) return { state: "unconfigured" };
-  let base: URL;
-  try {
-    base = new URL(endpoint);
-  } catch {
-    return { state: "unreachable" };
-  }
-  // SSRF posture (#82): this is a server-side fetch of the OPERATOR's own
-  // ComfyUI endpoint, and Studio is a local-first, single-user, localhost-only
-  // tool — the operator sets and trusts this address (typically 127.0.0.1:8188),
-  // so the risk is accepted for the intended deployment. As a basic guard we only
-  // probe http/https (no file:, etc.) and keep the short timeout below; we do NOT
-  // attempt to enumerate/block internal addresses, which would break the common
-  // case of pointing at a LAN ComfyUI host.
-  if (base.protocol !== "http:" && base.protocol !== "https:") {
-    return { state: "unreachable" };
-  }
-  const url = new URL("/system_stats", base);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PING_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) return { state: "unreachable" };
-    // ComfyUI returns a JSON summary; surface a compact, safe detail if present.
-    let detail: string | undefined;
-    try {
-      const stats = (await response.json()) as {
-        system?: { comfyui_version?: unknown; os?: unknown };
-      };
-      const version = stats.system?.comfyui_version;
-      if (typeof version === "string" && version.length > 0) {
-        detail = `ComfyUI ${version}`;
-      }
-    } catch {
-      // A reachable endpoint that returns non-JSON is still reachable.
-    }
-    return { state: "reachable", detail };
-  } catch {
-    return { state: "unreachable" };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 /** Read the workspace config and probe the configured endpoint. */
 export async function GET(): Promise<Response> {
   let config: ToonyConfig;
@@ -130,7 +70,7 @@ export async function GET(): Promise<Response> {
       { status: 500 },
     );
   }
-  const connection = await probeConnection(config.comfyui.endpoint);
+  const connection = await probeComfyui(config.comfyui.endpoint);
   return Response.json({ ok: true, config, connection });
 }
 
@@ -176,6 +116,6 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const connection = await probeConnection(config.comfyui.endpoint);
+  const connection = await probeComfyui(config.comfyui.endpoint);
   return Response.json({ ok: true, config, connection });
 }

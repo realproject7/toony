@@ -12,6 +12,14 @@
 // verbatim. No state is persisted here; the engine writes the real output on disk.
 
 import type { ExportManifest, ManifestFile } from "@toony/export";
+// Browser-safe subpath: plain constants with no Node/canvas imports (#154), so
+// the client bundle single-sources them without pulling in the export engine.
+import {
+  DEFAULT_JPEG_QUALITY,
+  PLATFORM_DEFAULT_WIDTH,
+  PLOTLINK_DEFAULT_WIDTH,
+  STITCHED_DEFAULT_WIDTH,
+} from "@toony/export/defaults";
 import { useCallback, useMemo, useState } from "react";
 import { type ConstraintCheck, formatBytes } from "@/lib/export-view";
 
@@ -32,8 +40,8 @@ interface TargetSpec {
   defaultWidth: number;
 }
 
-// Defaults mirror the engine's per-target defaults so the controls open at the
-// values the engine would otherwise apply.
+// Per-target defaults come from the export engine (#154 single-source), so the
+// controls open at exactly the values the engine would otherwise apply.
 const TARGETS = [
   {
     kind: "platform",
@@ -41,7 +49,7 @@ const TARGETS = [
     blurb: "One image per cut, in reading order.",
     supportsFormat: true,
     supportsQuality: true,
-    defaultWidth: 1200,
+    defaultWidth: PLATFORM_DEFAULT_WIDTH,
   },
   {
     kind: "stitched",
@@ -49,7 +57,7 @@ const TARGETS = [
     blurb: "A single tall image: cuts, gutters, transitions, lettering.",
     supportsFormat: true,
     supportsQuality: true,
-    defaultWidth: 1200,
+    defaultWidth: STITCHED_DEFAULT_WIDTH,
   },
   {
     kind: "plotlink",
@@ -57,7 +65,7 @@ const TARGETS = [
     blurb: "WebP package (≤20 images, ≤1 MB each) plus generated markdown.",
     supportsFormat: false,
     supportsQuality: true,
-    defaultWidth: 800,
+    defaultWidth: PLOTLINK_DEFAULT_WIDTH,
   },
 ] as const satisfies readonly TargetSpec[];
 
@@ -83,9 +91,9 @@ export interface ExportPanelProps {
 
 export function ExportPanel({ workId, episodeId }: ExportPanelProps) {
   const [target, setTarget] = useState<TargetKind>("platform");
-  const [width, setWidth] = useState<number>(1200);
+  const [width, setWidth] = useState<number>(PLATFORM_DEFAULT_WIDTH);
   const [format, setFormat] = useState<"png" | "jpeg">("png");
-  const [quality, setQuality] = useState<number>(82);
+  const [quality, setQuality] = useState<number>(DEFAULT_JPEG_QUALITY);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; code?: string } | null>(null);
   const [result, setResult] = useState<SuccessResult | null>(null);

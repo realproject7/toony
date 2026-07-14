@@ -7,18 +7,14 @@
 // the server-only `@/lib/workspace` wrapper; no wallet/account/publish surfaces —
 // this is a production tool.
 
+import { join } from "node:path";
 import Link from "next/link";
 import { NewWorkButton } from "@/components/new-work-button";
-import { listWorks } from "@/lib/workspace";
+import { assetUrl } from "@/lib/project";
+import { listWorks, workspaceRoot } from "@/lib/workspace";
 
 // The workspace is scanned from disk per request, so this page must not be cached.
 export const dynamic = "force-dynamic";
-
-/** A project-relative cover path becomes a scoped, path-safe asset URL. */
-function coverUrl(workId: string, coverImagePath: string | null): string | null {
-  if (!coverImagePath) return null;
-  return `/api/asset?work=${encodeURIComponent(workId)}&path=${encodeURIComponent(coverImagePath)}`;
-}
 
 /** Human-readable "last edited" from an ISO timestamp (date only, locale-free). */
 function formatUpdated(iso: string): string {
@@ -29,6 +25,7 @@ function formatUpdated(iso: string): string {
 
 export default async function LibraryPage() {
   const works = await listWorks();
+  const wsRoot = workspaceRoot();
   const totalEpisodes = works.reduce((sum, work) => sum + work.episodeCount, 0);
   const totalCuts = works.reduce((sum, work) => sum + work.cutCount, 0);
 
@@ -69,7 +66,9 @@ export default async function LibraryPage() {
       ) : (
         <ul className="work-grid" data-testid="work-grid">
           {works.map((work) => {
-            const cover = coverUrl(work.id, work.coverImagePath);
+            // Reuse the shared, path-safe `assetUrl` (its `resolveWorkAsset`
+            // pre-check) instead of re-building the URL here (#154).
+            const cover = assetUrl(work.id, join(wsRoot, work.id), work.coverImagePath);
             return (
               <li key={work.id}>
                 <Link

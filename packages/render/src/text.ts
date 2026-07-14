@@ -187,3 +187,15 @@ export function defaultBubbleFontRange(renderHeight: number): {
     maxFontSize: Math.max(1, renderHeight * 0.05),
   };
 }
+
+/**
+ * Map a resolved body weight (400–700) to the face weight actually used, per CSS
+ * font-weight matching for the {400,700} set each family ships: 600–700 pick the
+ * bold (700) face, 400–500 pick regular. The SINGLE source both the render
+ * measurement weight and `@toony/export`'s canvas face selection (`cssFaceWeight`)
+ * use, so the SVG preview and the export raster always land on the identical face
+ * (#85/#154 — do not re-derive this threshold per consumer).
+ */
+export function matchFaceWeight(weight: number): 400 | 700 {
+  return weight >= 600 ? 700 : 400;
+}

@@ -11,6 +11,7 @@ import { layoutCut } from "@toony/render";
 import type { EpisodeBundle } from "@toony/schema";
 import { type Finding, finding } from "./findings.js";
 import { readImageDimensions } from "./image/dimensions.js";
+import { REFERENCE_RENDER } from "./reference.js";
 
 /**
  * Fallback cut render size used when a cut has no image, or its image header is
@@ -18,7 +19,7 @@ import { readImageDimensions } from "./image/dimensions.js";
  * is derived from the render height, so a stable fallback keeps the lint
  * deterministic. The default approximates a typical portrait webtoon cut.
  */
-export const DEFAULT_OVERFLOW_FALLBACK = { width: 1200, height: 1600 } as const;
+export const DEFAULT_OVERFLOW_FALLBACK = REFERENCE_RENDER;
 
 export interface OverflowLintOptions {
   /** Render size assumed for cuts without a readable image. */
