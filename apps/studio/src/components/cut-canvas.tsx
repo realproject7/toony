@@ -13,6 +13,7 @@
 import {
   type BubbleRender,
   cutPlacementFrame,
+  GUTTER_MARGIN_FILL,
   IMPACT_BURST_FILL,
   IMPACT_BURST_STROKE,
   IMPACT_RAY_COLOR,
@@ -154,7 +155,7 @@ export function CutCanvas({ cut, bubbles, art, workId, episodeId, readOnly }: Cu
       {hasArt ? (
         <div
           className="cut-stage"
-          style={reserved ? { aspectRatio, background: "#ffffff" } : { aspectRatio }}
+          style={reserved ? { aspectRatio, background: GUTTER_MARGIN_FILL } : { aspectRatio }}
           data-reserved={reserved ? "true" : undefined}
           data-testid={`cut-stage-${cut.id}`}
         >

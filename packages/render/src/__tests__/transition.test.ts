@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { layoutCardText, layoutPanelText, layoutTransition } from "../transition.js";
+import {
+  GUTTER_MARGIN_FILL,
+  layoutCardText,
+  layoutPanelText,
+  layoutTransition,
+  resolveBandBackground,
+  resolveBandDivider,
+  resolveBandHeight,
+} from "../transition.js";
 import { transition } from "./fixtures.js";
 
 test("layoutCardText resolves legacy card text geometry (shared by export + studio Read)", () => {
@@ -284,4 +292,84 @@ test("layoutPanelText resolves a single-source text block for the v4 cards (#115
   assert.equal(rb.x, 800 - 800 * 0.08);
   assert.equal(rb.y, 400 - 400 * 0.1);
   assert.equal(rb.baseline, "bottom");
+});
+
+// --- Band background + geometry single source (#147) ------------------------
+
+test("resolveBandHeight applies the width-derived floor to cards/breaks/bands only", () => {
+  // Plain gutter honors its exact height (no floor), at any width.
+  const gutter = layoutTransition(transition({ id: "g", type: "gutter", gutterHeight: 64 }));
+  assert.equal(resolveBandHeight(gutter, 800), 64);
+  assert.equal(resolveBandHeight(gutter, 1200), 64);
+
+  // Scene-break floors to round(width*0.1) when the authored gutter is smaller.
+  const brk = layoutTransition(transition({ id: "b", type: "scene-break", gutterHeight: 10 }));
+  assert.equal(resolveBandHeight(brk, 800), 80); // round(800*0.1)
+  assert.equal(resolveBandHeight(brk, 1200), 120);
+  // A tall authored break keeps its height (above the floor).
+  const tallBrk = layoutTransition(
+    transition({ id: "b2", type: "scene-break", gutterHeight: 300 }),
+  );
+  assert.equal(resolveBandHeight(tallBrk, 800), 300);
+
+  // v3 solid band floors the same way.
+  const band = layoutTransition(transition({ id: "z", type: "black_band", gutterHeight: 5 }));
+  assert.equal(resolveBandHeight(band, 500), 50);
+});
+
+test("resolveBandDivider scales thickness with height (the drifted value, #147)", () => {
+  // The ticket's drift example: width 800 → break floors to height 80 → 3px rule
+  // (studio used to draw a fixed 2px border here).
+  const brk = layoutTransition(transition({ id: "b", type: "scene-break", gutterHeight: 10 }));
+  const height = resolveBandHeight(brk, 800);
+  assert.equal(height, 80);
+  const d = resolveBandDivider(height);
+  assert.equal(d.thickness, 3); // max(1, round(80 * 0.04))
+  assert.equal(d.spanStart, 0.2);
+  assert.equal(d.spanEnd, 0.8);
+  assert.equal(d.color, "#2a2a2a");
+
+  // Thickness tracks height across the range, with a 1px floor.
+  assert.equal(resolveBandDivider(200).thickness, 8); // round(8)
+  assert.equal(resolveBandDivider(50).thickness, 2); // round(2)
+  assert.equal(resolveBandDivider(10).thickness, 1); // max(1, round(0.4))
+});
+
+test("resolveBandBackground resolves the full precedence chain (#147)", () => {
+  // 1) full-panel gradient wins.
+  const grad = layoutTransition(
+    transition({
+      id: "g",
+      type: "color_field",
+      gradient: { from: "#111111", to: "#222222", direction: "top_bottom" },
+    }),
+  );
+  assert.deepEqual(resolveBandBackground(grad), {
+    kind: "gradient",
+    gradient: { from: "#111111", to: "#222222", direction: "top_bottom" },
+  });
+
+  // 2) resolved craft/interstitial solid band fill.
+  const band = layoutTransition(transition({ id: "bl", type: "black_band" }));
+  assert.deepEqual(resolveBandBackground(band), { kind: "solid", color: "#0d0d0d" });
+
+  // 3) explicit #98 color on a legacy kind.
+  const colored = layoutTransition(transition({ id: "c", type: "gutter", color: "#abcdef" }));
+  assert.deepEqual(resolveBandBackground(colored), { kind: "solid", color: "#abcdef" });
+
+  // 4) legacy card dark default (beat has no craft default, no color).
+  const card = layoutTransition(transition({ id: "bt", type: "beat" }));
+  assert.deepEqual(resolveBandBackground(card), { kind: "solid", color: "#15110d" });
+
+  // 5) fade-treatment default gradient.
+  const fade = layoutTransition(transition({ id: "f", type: "fade" }));
+  assert.deepEqual(resolveBandBackground(fade), {
+    kind: "gradient",
+    gradient: { from: "#ffffff", to: "#d9d4cc", direction: "top_bottom" },
+  });
+
+  // 6) plain gutter → the shared reading-margin white.
+  const plain = layoutTransition(transition({ id: "p", type: "gutter" }));
+  assert.deepEqual(resolveBandBackground(plain), { kind: "solid", color: GUTTER_MARGIN_FILL });
+  assert.equal(GUTTER_MARGIN_FILL, "#ffffff");
 });
