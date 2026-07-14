@@ -487,10 +487,10 @@ export interface CardTextLayout {
  * Resolve the legacy card/break panel text geometry (`beat`/`time-skip`/
  * `title_card`/`scene-break`) at the drawn `width`×`height`. This is the SINGLE
  * source both the export canvas (`drawBandText`) and the studio Read panel (#118)
- * consume. The bold detail line WRAPS to the panel width (#148, deterministic
- * measurer → identical breaks); the small type label sits below it. A single
- * detail line keeps its original `0.42h` center, so short cards are unchanged.
- * Returns null when there is nothing to draw.
+ * consume. The bold detail WRAPS + auto-fits to the panel width (#148,
+ * deterministic measurer → identical breaks); the detail block and the small type
+ * label form one vertically-centered, bounded, non-overlapping stack (the label
+ * always sits below the detail). Returns null when there is nothing to draw.
  */
 export function layoutCardText(
   render: TransitionRender,
