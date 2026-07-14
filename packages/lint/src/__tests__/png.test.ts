@@ -38,3 +38,24 @@ test("rejects a truncated PNG", () => {
   const truncated = png.subarray(0, 33);
   assert.throws(() => decodePng(truncated), ImageDecodeError);
 });
+
+test("rejects a PNG whose IHDR length is not 13 (#156)", () => {
+  const png = encodePng(makeSolidRaster(4, 4, 3, 100));
+  const bad = Uint8Array.from(png);
+  // The IHDR chunk length is the big-endian uint32 right after the 8-byte PNG
+  // signature (valid = 13). 12 still fits the buffer, so it exercises the new
+  // IHDR-length check (corrupt) rather than the past-end bounds check.
+  bad[8] = 0;
+  bad[9] = 0;
+  bad[10] = 0;
+  bad[11] = 12;
+  assert.throws(
+    () => decodePng(bad),
+    (error: unknown) => {
+      assert.ok(error instanceof ImageDecodeError);
+      assert.equal(error.code, "corrupt");
+      assert.match(error.message, /IHDR/);
+      return true;
+    },
+  );
+});

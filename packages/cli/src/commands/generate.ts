@@ -67,7 +67,9 @@ function parseFlags(args: string[]): Flags | { error: string } {
     const arg = args[i] ?? "";
     if (VALUE_FLAGS.has(arg)) {
       const value = args[i + 1];
-      if (value === undefined) return { error: `${arg} requires a value` };
+      // Reject a following flag as a value (e.g. `--episode --cut x`), matching
+      // export.ts / import-image.ts (#156).
+      if (value === undefined || value.startsWith("-")) return { error: `${arg} requires a value` };
       values.set(arg, value);
       i++;
     } else if (BOOLEAN_FLAGS.has(arg)) {

@@ -13,7 +13,12 @@ import type {
   Transition,
   TransitionType,
 } from "@toony/schema";
-import { lintCraft, RHYTHM_RUN_MAX, TRANSITION_MONOTONY_RUN_MAX } from "../craft-lint.js";
+import {
+  lintCraft,
+  RHYTHM_RUN_MAX,
+  TRANSITION_MONOTONY_RUN_MAX,
+  wordCount,
+} from "../craft-lint.js";
 import { type Finding, sortFindings } from "../findings.js";
 
 const WIDE: BubbleGeometry = { x: 0.05, y: 0.05, width: 0.9, height: 0.18 };
@@ -423,4 +428,15 @@ test("no false positives on the existing example episodes (#116 AC)", () => {
     assert.deepEqual(monotony(b), [], "no transition-monotony false positive");
     assert.deepEqual(panelSlice(b), [], "no panel-slice false positive");
   }
+});
+
+test("wordCount counts CJK text word-by-word, not as one blob (#156)", () => {
+  // Spaceless Japanese/Chinese narration: >1 word via Intl.Segmenter (a plain
+  // whitespace split would count each as a single word, so the CJK density/
+  // narration-fragment lints would never fire).
+  assert.ok(wordCount("これはナレーションのテキストです") > 1);
+  assert.ok(wordCount("这是一段很长的旁白文字") > 1);
+  // Latin whitespace behavior is unchanged.
+  assert.equal(wordCount("one two three"), 3);
+  assert.equal(wordCount("   "), 0);
 });

@@ -135,6 +135,12 @@ export function decodePng(buffer: Uint8Array): Raster {
     }
 
     if (type === "IHDR") {
+      // IHDR is a fixed 13-byte payload; a short/long one would read
+      // bitDepth/colorType/interlace from adjacent bytes → garbage dimensions or
+      // a wrong "unsupported" verdict. Reject it as corrupt before reading fields.
+      if (length !== 13) {
+        throw new ImageDecodeError("corrupt", `PNG IHDR chunk length is ${length}, must be 13.`);
+      }
       width = view.getUint32(dataStart);
       height = view.getUint32(dataStart + 4);
       const bitDepth = buffer[dataStart + 8];
