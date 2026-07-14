@@ -326,20 +326,62 @@ export const BAND_FONT_ID: FontFamilyId = "nunito";
 export const BAND_FONT_STACK: string = resolveFontFamily(BAND_FONT_ID, "narration").stack;
 
 /**
+ * Trim trailing words (then characters) off `line` so that `line…` fits within
+ * `maxWidth` at the given font — so the ellipsized last line never spills past
+ * the panel horizontally. Measured with the SAME measurer the wrap used, so both
+ * consumers truncate identically. Always returns at least the ellipsis.
+ */
+function ellipsizeToWidth(
+  line: string,
+  measure: MeasureWidth,
+  fontSize: number,
+  fontWeight: 400 | 700,
+  maxWidth: number,
+): string {
+  const fits = (t: string) => measure(`${t}…`, fontSize, fontWeight) <= maxWidth;
+  let text = line.replace(/\s+$/, "");
+  if (fits(text)) return `${text}…`;
+  const words = text.split(/\s+/).filter(Boolean);
+  while (words.length > 1) {
+    words.pop();
+    text = words.join(" ");
+    if (fits(text)) return `${text}…`;
+  }
+  // A single word still too wide with the ellipsis: trim characters.
+  text = words[0] ?? "";
+  while (text.length > 0 && !fits(text)) text = text.slice(0, -1);
+  return `${text}…`;
+}
+
+/**
  * Shared overflow policy (#148): auto-fit shrinks the font to a floor, but
  * `Transition.text` is unbounded, so at the floor a very long caption can still
  * produce more lines than fit. Cap the block to the `maxLines` that fit the
- * available height and mark the truncation with an ellipsis on the last shown
- * line — so the block NEVER clips or overlaps, and both consumers degrade a
- * too-long caption identically. Always keeps at least one line.
+ * available height, and width-aware-truncate the last shown line to `line…`
+ * (reflowing so it still fits `maxWidth`) — so the block NEVER clips or overlaps
+ * vertically OR horizontally, and both consumers degrade a too-long caption
+ * identically. Always keeps at least one line.
  */
-function capLinesToFit(lines: string[], availableHeight: number, lineHeight: number): string[] {
+function capLinesToFit(
+  lines: string[],
+  availableHeight: number,
+  lineHeight: number,
+  measure: MeasureWidth,
+  fontSize: number,
+  fontWeight: 400 | 700,
+  maxWidth: number,
+): string[] {
   const maxLines = Math.max(1, Math.floor(availableHeight / lineHeight));
   if (lines.length <= maxLines) return lines;
   const kept = lines.slice(0, maxLines);
   const lastIndex = kept.length - 1;
-  const last = kept[lastIndex] ?? "";
-  kept[lastIndex] = `${last.replace(/\s+$/, "")}…`;
+  kept[lastIndex] = ellipsizeToWidth(
+    kept[lastIndex] ?? "",
+    measure,
+    fontSize,
+    fontWeight,
+    maxWidth,
+  );
   return kept;
 }
 
@@ -397,9 +439,17 @@ export function layoutPanelText(
     paddingX: padX,
     paddingY: padY,
   });
-  // Overflow policy: cap to the lines that fit the padded panel (ellipsis on the
-  // last), so an unbounded caption never clips.
-  const capped = capLinesToFit(fit.lines, height - 2 * padY, fit.lineHeight);
+  // Overflow policy: cap to the lines that fit the padded panel (width-aware
+  // ellipsis on the last), so an unbounded caption never clips.
+  const capped = capLinesToFit(
+    fit.lines,
+    height - 2 * padY,
+    fit.lineHeight,
+    measure,
+    fit.fontSize,
+    400,
+    width * BAND_TEXT_MAX_WIDTH_FRAC,
+  );
   const blockHeight = capped.length * fit.lineHeight;
   const align = render.textAlign;
   const x = align === "left" ? padX : align === "right" ? width - padX : width / 2;
@@ -470,8 +520,16 @@ export function layoutCardText(
       paddingY: 0,
     });
     // Overflow policy: cap the detail to the lines that fit its reserved box
-    // (ellipsis on the last), so the detail+label stack always stays bounded.
-    const cappedDetail = capLinesToFit(detail.lines, detailBox, detail.lineHeight);
+    // (width-aware ellipsis on the last), so the stack always stays bounded.
+    const cappedDetail = capLinesToFit(
+      detail.lines,
+      detailBox,
+      detail.lineHeight,
+      measure,
+      detail.fontSize,
+      700,
+      width * BAND_TEXT_MAX_WIDTH_FRAC,
+    );
     const detailHeight = cappedDetail.length * detail.lineHeight;
     const stackHeight = detailHeight + gap + labelLineHeight;
     const stackTop = Math.max(padY, (height - stackHeight) / 2);

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { approximateMeasure } from "../measure.js";
 import {
   BAND_FONT_ID,
   BAND_FONT_STACK,
@@ -494,7 +495,13 @@ test("layoutPanelText caps an oversized caption to the panel with an ellipsis (#
     assert.ok((line.y ?? 0) + half <= height + 0.5, `line bottom within panel (y=${line.y})`);
   }
   // Truncated: the last shown line is ellipsized (not all text fits).
-  assert.ok(p.lines.at(-1)?.text.endsWith("…"), "truncation is marked with an ellipsis");
+  const lastPanel = p.lines.at(-1);
+  assert.ok(lastPanel?.text.endsWith("…"), "truncation is marked with an ellipsis");
+  // Width-aware: the ellipsized last line still fits the max text width.
+  assert.ok(
+    approximateMeasure(lastPanel?.text ?? "", p.fontSize, 400) <= 500 * BAND_TEXT_MAX_WIDTH_FRAC,
+    "the ellipsized last panel line fits the max width",
+  );
 });
 
 test("layoutCardText caps an oversized detail; stack stays bounded + non-overlapping (#148)", () => {
@@ -511,5 +518,34 @@ test("layoutCardText caps an oversized detail; stack stays bounded + non-overlap
     assert.ok((line.y ?? 0) + half <= height + 0.5, `line bottom within panel (y=${line.y})`);
   }
   assert.ok(label.y > Math.max(...detail.map((l) => l.y)), "label sits below the capped detail");
-  assert.ok(detail.at(-1)?.text.endsWith("…"), "detail truncation is ellipsized");
+  const lastDetail = detail.at(-1);
+  assert.ok(lastDetail?.text.endsWith("…"), "detail truncation is ellipsized");
+  assert.ok(
+    approximateMeasure(lastDetail?.text ?? "", lastDetail?.fontSize ?? 0, 700) <=
+      600 * BAND_TEXT_MAX_WIDTH_FRAC,
+    "the ellipsized last detail line fits the max width",
+  );
+});
+
+test("ellipsized truncation reflows a near-limit last line to fit the width (#148)", () => {
+  // Long words so wrapped lines pack near the 84% max width; with more lines than
+  // fit, the retained last line + "…" would overflow unless reflowed to fit.
+  const nearLimit = Array.from({ length: 120 }, () => "abcdefghij").join(" ");
+  const width = 520;
+  const maxWidth = width * BAND_TEXT_MAX_WIDTH_FRAC;
+  const p = layoutPanelText(
+    layoutTransition(transition({ id: "nl", type: "narration_card", text: nearLimit })),
+    width,
+    120,
+  );
+  assert.ok(p);
+  const last = p.lines.at(-1);
+  assert.ok(last?.text.endsWith("…"));
+  // Every displayed line — including the ellipsized last — fits the max width.
+  for (const line of p.lines) {
+    assert.ok(
+      approximateMeasure(line.text, p.fontSize, 400) <= maxWidth + 0.5,
+      `line "${line.text}" fits the max width`,
+    );
+  }
 });
