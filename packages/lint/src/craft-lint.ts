@@ -54,12 +54,30 @@ const ATTRIBUTED_KINDS = new Set(["speech", "thought", "shout", "whisper"]);
 /** Kinds counted toward per-cut dialogue density. */
 const DIALOGUE_KINDS = new Set(["speech", "thought"]);
 
-function wordCount(text: string): number {
+export function wordCount(text: string): number {
   const trimmed = text.trim();
-  return trimmed.length === 0 ? 0 : trimmed.split(/\s+/).length;
+  if (trimmed.length === 0) return 0;
+  // Count word-like segments with `Intl.Segmenter` (built-in on Node 20+): unspaced
+  // CJK narration (Japanese/Chinese, spaceless Korean) has no whitespace to split
+  // on, so a plain `/\s+/` split counts it as ONE word and the density/fragment
+  // lints never fire for those languages. Fall back to whitespace splitting where
+  // Segmenter is unavailable.
+  if (typeof Intl.Segmenter === "function") {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
+    let count = 0;
+    for (const segment of segmenter.segment(trimmed)) {
+      if (segment.isWordLike) count++;
+    }
+    return count;
+  }
+  return trimmed.split(/\s+/).length;
 }
 
-/** A line that has upper-case letters and no lower-case ones (a shout/run-on). */
+/**
+ * A line that has upper-case letters and no lower-case ones (a shout/run-on).
+ * LATIN-ONLY by design: scripts without letter case (CJK, etc.) never match, so
+ * this heuristic only flags all-caps runs in cased scripts.
+ */
 function isAllCapsRun(line: string): boolean {
   return /[A-Z]/.test(line) && !/[a-z]/.test(line);
 }

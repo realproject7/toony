@@ -281,3 +281,12 @@ test("an unknown provider is a usage error", async () => {
   assert.equal(code, EXIT_USAGE);
   assert.match(c.err.join("\n"), /unknown provider/);
 });
+
+test("generate rejects a flag used as another flag's value (#156)", async () => {
+  const c = capture();
+  // `--episode --cut ...`: the value guard must reject `--cut` as `--episode`'s
+  // value (matching export/import-image), not silently set episode="--cut".
+  const code = await runGenerate(["--episode", "--cut", "cut-001", "--prompt", "x"], c.io);
+  assert.equal(code, EXIT_USAGE);
+  assert.match([...c.out, ...c.err].join("\n"), /--episode requires a value/);
+});
