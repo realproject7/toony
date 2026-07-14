@@ -10,19 +10,11 @@
 // aspect-ratio stage, so the overlay scales with the displayed image. When no
 // art is linked, the existing "No image yet" empty state is kept.
 
-import {
-  type BubbleRender,
-  cutPlacementFrame,
-  GUTTER_MARGIN_FILL,
-  IMPACT_BURST_FILL,
-  IMPACT_BURST_STROKE,
-  IMPACT_RAY_COLOR,
-  layoutCut,
-} from "@toony/render";
+import { cutPlacementFrame, GUTTER_MARGIN_FILL } from "@toony/render";
 import type { Cut, LetteringOverlay } from "@toony/schema";
 import Link from "next/link";
 import type { CutArt } from "@/lib/project";
-import { svgLetterSpacing, svgTextAnchor } from "@/lib/text-anchor";
+import { CutOverlay } from "./cut-overlay";
 
 export interface CutCanvasProps {
   cut: Cut;
@@ -44,76 +36,8 @@ export interface CutCanvasProps {
   readOnly?: boolean;
 }
 
-/** One bubble drawn as SVG from its geometry-core render plan. */
-function Bubble({ plan }: { plan: BubbleRender }) {
-  const fontSize = plan.text.fontSize;
-  const impact = plan.impact;
-  return (
-    <g data-bubble-id={plan.id} data-overflow={plan.overflow ? "true" : undefined}>
-      {plan.hasBubble && (
-        <path
-          d={plan.pathD}
-          fill={plan.fill}
-          fillOpacity={plan.fillOpacity}
-          stroke={plan.stroke}
-          strokeWidth={plan.strokeWidth}
-          strokeLinejoin="round"
-        />
-      )}
-      {/* impact_band SFX (#99): speed-lines + burst behind the text, from the
-          SAME pure-segment plan the export canvas traces → pixel parity. */}
-      {impact && (
-        <g data-testid={`impact-${plan.id}`}>
-          {impact.rays.map((ray, i) => (
-            <line
-              // biome-ignore lint/suspicious/noArrayIndexKey: rays are a positional, read-only layout output — the index is the stable identity within one layout pass.
-              key={`${plan.id}-ray-${i}`}
-              x1={ray.x1}
-              y1={ray.y1}
-              x2={ray.x2}
-              y2={ray.y2}
-              stroke={IMPACT_RAY_COLOR}
-              strokeWidth={impact.rayWidth}
-            />
-          ))}
-          <polygon
-            points={impact.burst.map((p) => `${p.x},${p.y}`).join(" ")}
-            fill={IMPACT_BURST_FILL}
-            stroke={IMPACT_BURST_STROKE}
-            strokeWidth={impact.burstStrokeWidth}
-            strokeLinejoin="round"
-          />
-        </g>
-      )}
-      {plan.lines.map((line, i) => (
-        <text
-          // biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines are a positional, read-only layout output — the index is the stable identity within a single layout pass.
-          key={`${plan.id}-line-${i}`}
-          x={line.anchorX}
-          y={line.y + fontSize}
-          fontFamily={plan.fontStack}
-          fontSize={fontSize}
-          fontWeight={plan.fontWeight}
-          textAnchor={svgTextAnchor(plan.textAlign)}
-          letterSpacing={svgLetterSpacing(plan.letterSpacing, fontSize)}
-          fill={plan.textColor}
-          // SFX bare text is outlined so it reads on any background. Width comes
-          // from the render plan (single source: `textOutlineWidth`, >0 ⟺ SFX),
-          // so the SVG preview and the export raster stroke it identically (#112).
-          stroke={plan.textOutlineWidth > 0 ? plan.stroke : undefined}
-          strokeWidth={plan.textOutlineWidth > 0 ? plan.textOutlineWidth : undefined}
-          paintOrder="stroke"
-        >
-          {line.text}
-        </text>
-      ))}
-    </g>
-  );
-}
-
 export function CutCanvas({ cut, bubbles, art, workId, episodeId, readOnly }: CutCanvasProps) {
   const hasArt = Boolean(art.src);
-  const plans = layoutCut(bubbles, art.width, art.height);
   const aspectRatio = `${art.width} / ${art.height}`;
   // Gutter placement (#98): reserve the strip(s) — the artwork occupies only the
   // `art` rect (the band(s) become a white reading margin where gutter bubbles
@@ -167,19 +91,9 @@ export function CutCanvas({ cut, bubbles, art, workId, episodeId, readOnly }: Cu
             src={art.src ?? undefined}
             alt={`Artwork for ${cut.id}`}
           />
-          {plans.length > 0 && (
-            <svg
-              className="cut-overlays"
-              viewBox={`0 0 ${art.width} ${art.height}`}
-              preserveAspectRatio="none"
-              role="presentation"
-              aria-hidden="true"
-            >
-              {plans.map((plan) => (
-                <Bubble key={plan.id} plan={plan} />
-              ))}
-            </svg>
-          )}
+          {/* Bubble layout needs a browser text measurer (#149); that runs in the
+              hydrated client child, keeping the rest of this preview server-side. */}
+          <CutOverlay bubbles={bubbles} art={art} />
         </div>
       ) : (
         <div className="cut-canvas">

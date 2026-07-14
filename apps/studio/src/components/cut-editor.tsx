@@ -30,6 +30,7 @@ import { LETTERING_STYLE_DEFAULTS, type LetteringOverlay } from "@toony/schema";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useMemo, useRef, useState } from "react";
+import { useBrowserMeasure } from "@/lib/browser-measure";
 import { clamp } from "@/lib/clamp";
 import { persistWithGuard } from "@/lib/editor-save";
 import type { CutArt } from "@/lib/project";
@@ -112,8 +113,15 @@ export function CutEditor({
   const { width, height } = art;
   const aspectRatio = `${width} / ${height}`;
 
-  // Lay out every bubble through the render core at natural pixel dimensions.
-  const plans = useMemo(() => layoutCut(bubbles, width, height), [bubbles, width, height]);
+  // Lay out every bubble through the render core at natural pixel dimensions,
+  // using a real browser text measurer (#149) so the editor's wrap/auto-fit
+  // matches the export raster (falls back to the approximation until fonts load,
+  // then re-layouts). This IS a client component, so no boundary is needed here.
+  const measure = useBrowserMeasure();
+  const plans = useMemo(
+    () => layoutCut(bubbles, width, height, measure ? { measure } : undefined),
+    [bubbles, width, height, measure],
+  );
   const overflowCount = plans.filter((plan) => plan.overflow).length;
 
   // Gutter placement (#98/#111): reserve the strip(s) so the focused editor's
