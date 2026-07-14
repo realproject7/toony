@@ -29,7 +29,7 @@ local-only (`transmitsRemotely: false`), never touches the network, and detects
 the format from magic bytes. Read failures do not echo the path (fs errors embed
 absolute paths, which must not leak).
 
-Generation providers (Grok/xAI-style, ComfyUI, constrained cloud, custom) are
+Generation providers (hosted cloud image APIs, ComfyUI, constrained cloud, custom) are
 added later against the same contract. Remote ones set `transmitsRemotely: true`
 so callers gate them behind an explicit opt-in; cloud/remote generation never
 transmits private content by default.

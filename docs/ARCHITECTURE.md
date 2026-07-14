@@ -42,7 +42,7 @@ configurable.
 ## Provider-Neutral Image Workflow
 
 Toony core must not make one provider's policy or capability limits the product
-boundary. It must support constrained cloud models, Grok/xAI-style providers,
+boundary. It must support constrained cloud models, hosted cloud image APIs,
 local or remote ComfyUI, custom providers, manual import, and agent-produced
 image files.
 

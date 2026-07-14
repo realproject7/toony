@@ -2,7 +2,7 @@
 //
 // This is a real, local-only provider — it never touches the network, so
 // `transmitsRemotely` is false and it transmits no project content anywhere.
-// Generation providers (Grok/xAI-style, ComfyUI, constrained cloud, custom) are
+// Generation providers (hosted cloud image APIs, ComfyUI, constrained cloud, custom) are
 // added later against the same contract; remote ones set `transmitsRemotely`
 // true so callers can gate them behind an explicit opt-in.
 
