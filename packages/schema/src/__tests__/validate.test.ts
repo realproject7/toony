@@ -223,7 +223,11 @@ test("a genuine same-type duplicate sequence reference still fails (#146)", () =
   ];
   const result = validateProject(project);
   assert.equal(result.valid, false);
-  assert.ok(codes(result).includes("sequence.duplicate-reference"));
+  const dup = result.issues.find((issue) => issue.code === "sequence.duplicate-reference");
+  assert.ok(dup);
+  // The output text is the established legacy message — #146 keys the seen-set
+  // by kind internally but must NOT change validation output (id-only wording).
+  assert.equal(dup.message, 'sequence references id "cut-001" more than once.');
 });
 
 test("bubble geometry must stay inside the cut image", () => {

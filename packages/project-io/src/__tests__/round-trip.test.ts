@@ -546,7 +546,8 @@ test("writeTransitions still rejects a genuine same-type duplicate reference (#1
     writeTransitions(root, "ep-001", episodeWith(sequence), transitions, cuts),
     (error: unknown) => {
       assert.ok(error instanceof ProjectIoError);
-      assert.match(error.message, /more than once/);
+      // Exact legacy message preserved through the single-sourced schema check.
+      assert.match(error.message, /sequence references id "cut-001" more than once\./);
       return true;
     },
   );

@@ -870,13 +870,16 @@ export function validateSequenceIntegrity(
     const itemPath = joinPath(joinPath(path, "sequence"), i);
     if (!isPlainObject(item) || !isNonEmptyString(item.id)) continue;
 
+    // Key the seen-set by `${kind}:${id}` (internal only) so a duplicate fires
+    // within one namespace, not across it. The issue MESSAGE is left byte-for-
+    // byte as before — #146 changes namespace semantics, not validation output.
     const kind = typeof item.type === "string" ? item.type : "invalid";
     const seenKey = `${kind}:${item.id}`;
     if (seen.has(seenKey)) {
       c.add(
         itemPath,
         "sequence.duplicate-reference",
-        `sequence references ${kind} "${item.id}" more than once.`,
+        `sequence references id "${item.id}" more than once.`,
       );
     }
     seen.add(seenKey);
