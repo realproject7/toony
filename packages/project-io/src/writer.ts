@@ -22,7 +22,7 @@ import {
   validateWebtoonValue,
   type Webtoon,
 } from "@toony/schema";
-import { atomicWrite } from "./atomic.js";
+import { type AtomicFileWrite, atomicWrite } from "./atomic.js";
 import { ProjectIoError } from "./errors.js";
 import { decodeYaml, encodeJson, encodeYaml } from "./format.js";
 import {
@@ -259,33 +259,24 @@ export async function writeTransitions(
   // Validation passed. Commit the record file and the sequence file in the
   // crash-safe order this edit requires. Two independent renames cannot be
   // referentially safe for an edit that both ADDS and DELETES ids (either order
-  // leaves one crash window with a dangling reference), so the plan compares the
-  // ids already on disk with the new set and may stage through a union record
-  // file. See `transitionCommitPlan` for the ordering and its invariant.
+  // leaves one crash window with a dangling reference), so the order is derived
+  // from the ids already on disk and may stage through a union record file. The
+  // read below refuses the save (leaving every file intact) rather than guess an
+  // ordering when the current records cannot be trusted — a wrong guess is what
+  // would dangle. See `buildTransitionCommitSteps` / `transitionCommitPlan`.
   const transitionsPath = transitionsFile(root, episodeId);
   const episodePath = episodeFile(root, episodeId);
-
   const oldTransitions = await readTransitionsOnDisk(transitionsPath);
-  const oldIds = collectTransitionIds(oldTransitions);
-  const plan = transitionCommitPlan(oldIds, transitionIds);
 
-  const newTransitionsData = encodeYaml(transitions);
-  const episodeData = encodeYaml(episode);
-
-  for (const phase of plan) {
-    if (phase === "episode") {
-      await atomicWrite(episodePath, episodeData);
-    } else if (phase === "transitions:new") {
-      await atomicWrite(transitionsPath, newTransitionsData);
-    } else {
-      // Union pass (mixed edits only): old ∪ new records, so the record file
-      // covers whichever sequence — old or new — is live during a crash window.
-      const deletedOld = oldTransitions.filter((t) => {
-        const id = (t as { id?: unknown }).id;
-        return typeof id === "string" && !transitionIds.has(id);
-      });
-      await atomicWrite(transitionsPath, encodeYaml([...transitions, ...deletedOld]));
-    }
+  const steps = buildTransitionCommitSteps({
+    oldTransitions,
+    transitions,
+    episode,
+    transitionsPath,
+    episodePath,
+  });
+  for (const step of steps) {
+    await atomicWrite(step.file, step.data);
   }
 }
 
@@ -325,6 +316,41 @@ export function transitionCommitPlan(
   return ["transitions:new", "episode"];
 }
 
+/**
+ * Build the ordered, concrete atomic writes that commit a transitions+episode
+ * save, given the transition records currently on disk. Pure (no IO):
+ * `writeTransitions` runs each returned step as its own atomic rename, in order.
+ * The order — and, for a mixed add+delete, the union staging step — comes from
+ * `transitionCommitPlan`, so every interrupted-rename window is crash-safe.
+ */
+export function buildTransitionCommitSteps(input: {
+  oldTransitions: readonly unknown[];
+  transitions: Transition[];
+  episode: Episode;
+  transitionsPath: string;
+  episodePath: string;
+}): AtomicFileWrite[] {
+  const { oldTransitions, transitions, episode, transitionsPath, episodePath } = input;
+  const oldIds = collectTransitionIds(oldTransitions);
+  const newIds = collectTransitionIds(transitions);
+  const plan = transitionCommitPlan(oldIds, newIds);
+
+  const newTransitionsData = encodeYaml(transitions);
+  const episodeData = encodeYaml(episode);
+
+  return plan.map((phase) => {
+    if (phase === "episode") return { file: episodePath, data: episodeData };
+    if (phase === "transitions:new") return { file: transitionsPath, data: newTransitionsData };
+    // Union pass (mixed edits only): old ∪ new records, so the record file
+    // covers whichever sequence — old or new — is live during a crash window.
+    const deletedOld = oldTransitions.filter((t) => {
+      const id = (t as { id?: unknown }).id;
+      return typeof id === "string" && !newIds.has(id);
+    });
+    return { file: transitionsPath, data: encodeYaml([...transitions, ...deletedOld]) };
+  });
+}
+
 /** Collect the non-empty string ids from a raw transition record list. */
 function collectTransitionIds(records: readonly unknown[]): Set<string> {
   const ids = new Set<string>();
@@ -335,26 +361,55 @@ function collectTransitionIds(records: readonly unknown[]): Set<string> {
   return ids;
 }
 
+/** True when `cause` is a Node filesystem error carrying `code`. */
+function hasErrnoCode(cause: unknown, code: string): boolean {
+  return (
+    typeof cause === "object" &&
+    cause !== null &&
+    "code" in cause &&
+    (cause as { code?: unknown }).code === code
+  );
+}
+
 /**
- * Best-effort read of the transition records currently on disk, used only to
- * classify the edit for `transitionCommitPlan`. A missing or unparseable file
- * yields `[]` (no known prior ids → the safe additions-only ordering), so this
- * never throws and never blocks a valid save; the authoritative validation of
- * the new records already happened above.
+ * Read the transition records currently on disk, used to classify the edit for
+ * the crash-safe commit order. This must be TRUSTWORTHY, so it fails closed: a
+ * genuinely absent file (`ENOENT`) is the one proven "first write" and yields
+ * `[]` (every id is an addition → the safe records-first order). Any other read
+ * error, or an unparseable / non-array file, throws `ProjectIoError` so the save
+ * is refused with every file left intact — guessing `[]` there could pick a
+ * records-first order for what is actually a deletion and dangle on a crash.
  */
 async function readTransitionsOnDisk(file: string): Promise<unknown[]> {
   let text: string;
   try {
     text = await readFile(file, "utf8");
-  } catch {
-    return [];
+  } catch (cause) {
+    if (hasErrnoCode(cause, "ENOENT")) return [];
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    throw new ProjectIoError(
+      `cannot read existing ${file} to choose a crash-safe write order: ${reason}`,
+      file,
+    );
   }
+
+  let parsed: unknown;
   try {
-    const parsed = decodeYaml(text);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
+    parsed = decodeYaml(text);
+  } catch (cause) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    throw new ProjectIoError(
+      `existing ${file} is unparseable, cannot choose a crash-safe write order: ${reason}`,
+      file,
+    );
   }
+  if (!Array.isArray(parsed)) {
+    throw new ProjectIoError(
+      `existing ${file} is not a transition list, cannot choose a crash-safe write order`,
+      file,
+    );
+  }
+  return parsed;
 }
 
 /**
