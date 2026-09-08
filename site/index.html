@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Toony — local-first webtoon production</title>
+    <meta
+      name="description"
+      content="An agent-first, local-first production tool for webtoons. Your story, cuts, lettering, and exports live in a folder on your machine."
+    />
+    <link rel="icon" href="/toony-icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/toony-cat.png" />
+    <meta property="og:title" content="Toony — local-first webtoon production" />
+    <meta
+      property="og:description"
+      content="An agent-first, local-first production tool for webtoons. Your story, cuts, lettering, and exports live in a folder on your machine."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://toony.dev" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="nav">
+      <a class="brand" href="/">
+        <img src="/toony-icon.svg" alt="" width="34" height="34" />
+        <span class="brand-name">Toony<span class="dot">.</span></span>
+      </a>
+      <nav aria-label="Primary">
+        <a href="#how">How it works</a>
+        <a href="#episode">See an episode</a>
+        <a href="#start">Get started</a>
+        <a class="nav-repo" href="https://github.com/realproject7/toony">GitHub</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Local-first webtoon production</p>
+          <h1>Your webtoon lives in a folder, not in someone's cloud.</h1>
+          <p class="lede">
+            Toony is a production tool for vertical-scroll comics. The story, the
+            cuts, the lettering, and the exports are plain files on your own
+            machine. An agent does the planning and the busywork. You do the part
+            that needs taste.
+          </p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="#start">Get started</a>
+            <a class="btn btn-ghost" href="https://github.com/realproject7/toony"
+              >Read the source</a
+            >
+          </div>
+          <p class="fineprint">
+            No account. No cloud sync. No telemetry. Free for noncommercial use.
+          </p>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <img src="/toony-cat.png" alt="" width="320" height="320" />
+        </div>
+      </section>
+
+      <section class="strip" aria-label="What Toony is">
+        <div class="strip-item">
+          <h3>Webtoon-only</h3>
+          <p>
+            Built for the vertical scroll: cut rhythm, gutters, and interstitial
+            panels are first-class, not an afterthought bolted onto a comic tool.
+          </p>
+        </div>
+        <div class="strip-item">
+          <h3>Agent-first</h3>
+          <p>
+            The agent owns prompts, shot planning, character consistency, and
+            lint. You keep the two jobs that are actually yours.
+          </p>
+        </div>
+        <div class="strip-item">
+          <h3>What you see ships</h3>
+          <p>
+            The studio preview and the exported image share one layout engine, so
+            the page you read is the page you publish.
+          </p>
+        </div>
+      </section>
+
+      <section id="how" class="section">
+        <h2>The split</h2>
+        <p class="section-lede">
+          Most tools make you do everything. Toony draws a line and keeps it.
+        </p>
+        <div class="split">
+          <article class="card card-human">
+            <h3><span class="tag tag-gold">You</span> the editor</h3>
+            <ul>
+              <li>Place and shape speech bubbles</li>
+              <li>Set the transition rhythm between scenes</li>
+              <li>Judge whether a page reads well</li>
+            </ul>
+            <p class="card-note">
+              The studio editor deliberately exposes only these. Everything else
+              would be you doing an agent's job.
+            </p>
+          </article>
+          <article class="card card-agent">
+            <h3><span class="tag tag-teal">The agent</span> the crew</h3>
+            <ul>
+              <li>Story bible, characters, and prompt composition</li>
+              <li>Image generation through your own local provider</li>
+              <li>Craft lint: rhythm, density, overflow, manifests</li>
+              <li>Platform, stitched, and PlotLink-ready exports</li>
+            </ul>
+            <p class="card-note">
+              It works the same files you do, over the CLI. Nothing is hidden in a
+              database.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section id="episode" class="section section-sunken">
+        <h2>An episode, start to finish</h2>
+        <p class="section-lede">
+          "Dead Air" is the example project in the repository. Every panel below
+          came out of Toony: art generated through a local provider, lettering
+          placed in the studio, transitions rendered as real panels.
+        </p>
+        <div class="reader" id="reader"></div>
+        <p class="reader-note">
+          The dark panels between the art are not gaps. In Toony a transition is a
+          real panel with its own height, color, and text, and it renders
+          identically in the studio and in the export.
+        </p>
+      </section>
+
+      <section id="start" class="section">
+        <h2>Get started</h2>
+        <p class="section-lede">
+          Toony is source-available and runs from the repository. There is no
+          published package yet.
+        </p>
+        <div class="steps">
+          <div class="step">
+            <span class="step-n">1</span>
+            <div>
+              <h3>Clone and build</h3>
+              <pre><code>git clone https://github.com/realproject7/toony
+cd toony
+pnpm install
+pnpm build</code></pre>
+            </div>
+          </div>
+          <div class="step">
+            <span class="step-n">2</span>
+            <div>
+              <h3>Start a project</h3>
+              <pre><code>toony init my-webtoon --genre thriller
+toony validate my-webtoon</code></pre>
+            </div>
+          </div>
+          <div class="step">
+            <span class="step-n">3</span>
+            <div>
+              <h3>Open the studio</h3>
+              <pre><code>toony studio my-webtoon</code></pre>
+              <p class="step-note">
+                A local web studio over your project folder. It reads and writes
+                the same files the CLI does.
+              </p>
+            </div>
+          </div>
+          <div class="step">
+            <span class="step-n">4</span>
+            <div>
+              <h3>Export</h3>
+              <pre><code>toony export stitched my-webtoon --episode ep-001</code></pre>
+              <p class="step-note">
+                Platform image sequence, one stitched episode image, or a
+                PlotLink-ready package, with a manifest.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-quiet">
+        <h2>What local-first actually means here</h2>
+        <ul class="promises">
+          <li>
+            <strong>Your files stay yours.</strong> A project is a folder of YAML,
+            JSON, and images. Open it in any editor. Put it in your own git repo.
+          </li>
+          <li>
+            <strong>No account, ever.</strong> There is nothing to sign up for and
+            nothing to sign in to.
+          </li>
+          <li>
+            <strong>Image generation is yours to point.</strong> Toony talks to an
+            image provider you configure and run. Point it at a local install and
+            your prompts never leave the machine.
+          </li>
+          <li>
+            <strong>No telemetry.</strong> The tool does not phone home, and this
+            page does not track you.
+          </li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer-brand">
+        <img src="/toony-icon.svg" alt="" width="26" height="26" />
+        <span>Toony</span>
+      </div>
+      <p>
+        Source-available under the
+        <a href="https://github.com/realproject7/toony/blob/main/LICENSE"
+          >PolyForm Noncommercial License 1.0.0</a
+        >. Noncommercial use is free. Monetized publication, commissioned work,
+        and studio production need a
+        <a href="https://github.com/realproject7/toony/blob/main/COMMERCIAL.md"
+          >commercial license</a
+        >.
+      </p>
+      <p class="footer-links">
+        <a href="https://github.com/realproject7/toony">Repository</a>
+        <a href="https://github.com/realproject7/toony/issues">Issues</a>
+      </p>
+    </footer>
+
+    <script src="/reader.js" defer></script>
+  </body>
+</html>
