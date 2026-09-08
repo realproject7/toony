@@ -21,18 +21,26 @@ usage:
 
 options:
   validate --json          emit a structured JSON report instead of text
+  validate --require-images
+                           also fail when a cut an episode renders has no image
+                           asset; opt-in, because \`image: null\` is legitimate
+                           mid-production and the shipped examples rely on it
   studio --port <n>        port for the studio server (in-repo dev default 4477;
                            installed: a free port is chosen automatically)
   import-image --episode <id> (--cut <id> [--slot clean|final] | --transition <id>)
                --from <file> [--provider manual]
                            strips image metadata at ingest; provider-neutral
-  generate --episode <id> (--cut <id> [--slot clean|final] | --transition <id>)
+  generate --episode <id> (--cut <id> [--cut <id> ...] [--slot clean|final]
+                           | --transition <id>)
            --prompt <text> [--negative <text>] [--width <px>] [--height <px>]
            [--seed <n>] [--workflow <name>] [--provider comfyui] [--allow-remote]
                            generates and ingests an image; the provider endpoint
                            and workflow come from local runtime config/env
                            (e.g. TOONY_COMFYUI_URL), never from webtoon.json;
-                           --workflow selects a workflow a pack contributed
+                           --workflow selects a workflow a pack contributed;
+                           repeat --cut to generate several cuts in one run: it
+                           prints a per-cut summary, keeps every cut it
+                           finished, and exits non-zero if any cut failed
   export <platform|stitched|plotlink|preset> [path] --episode <id>
          [--width <px>] [--format png|jpg] [--quality <0-100>]
                            writes into the project's exports/ folder + manifest;
@@ -71,9 +79,11 @@ packs (docs/PACK_FORMAT.md):
 
 exit codes (agent-readable):
   0   success; for \`validate\`, the project is valid; for \`lint\`, no error/warning findings
-  1   domain error: validation errors (\`validate\`: schema errors), lint findings
+  1   domain error: validation errors (\`validate\`: schema errors, or a cut with
+      no image under \`--require-images\`), lint findings
       (\`lint\`: any error/warning finding), an out-of-band measurement
       (\`measure --against\`), a pack problem (\`packs doctor\`), or generation failure
-      (\`generate\`: endpoint unreachable, provider error, or timeout)
+      (\`generate\`: endpoint unreachable, provider error, or timeout; in a
+      multi-cut run, ANY failed cut)
   2   usage error or IO failure (bad arguments, missing/unreadable files)
 `;

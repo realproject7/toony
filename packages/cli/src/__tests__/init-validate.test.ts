@@ -7,9 +7,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { cutsFile, GENRES, slugify, transitionsFile } from "@toony/project-io";
+import type { Cut, Project } from "@toony/schema";
 import { runInit } from "../commands/init.js";
 import { runLint } from "../commands/lint.js";
-import { runValidate } from "../commands/validate.js";
+import { cutsWithoutImage, runValidate } from "../commands/validate.js";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 
 let workdir: string;
@@ -115,6 +116,135 @@ test("validate --json emits a structured report", async () => {
   assert.equal(report.valid, true);
   assert.equal(report.issueCount, 0);
   assert.ok(Array.isArray(report.issues));
+});
+
+// --- Opt-in incomplete-episode check (#204) --------------------------------
+
+/** Rewrite cut-001's `image` so it points at a clean asset, leaving cut-002 null. */
+async function giveFirstCutAnImage(projectDir: string): Promise<void> {
+  const path = join(projectDir, "episodes", "ep-001", "cuts.yaml");
+  await writeFile(
+    path,
+    (await readFile(path, "utf8")).replace(
+      "- id: cut-001\n  image: null",
+      "- id: cut-001\n  image:\n    clean: episodes/ep-001/assets/clean/cut-001.png\n    final: null",
+    ),
+  );
+}
+
+test("image: null still validates by default; --require-images is what fails it (#204)", async () => {
+  assert.equal(await runInit(["demo"], capture().io), EXIT_OK);
+  const projectDir = join(workdir, "demo");
+
+  // The scaffold ships both cuts with `image: null`, exactly as the examples do.
+  const byDefault = capture();
+  assert.equal(await runValidate([projectDir], byDefault.io), EXIT_OK);
+  assert.doesNotMatch(byDefault.out.join("\n"), /image asset/);
+
+  const optIn = capture();
+  assert.equal(await runValidate([projectDir, "--require-images"], optIn.io), EXIT_VALIDATION);
+  const out = optIn.out.join("\n");
+  assert.match(out, /^valid:/m, "the schema itself is still valid");
+  assert.match(out, /^2 cut\(s\) with no image asset:$/m);
+  assert.match(out, /^ {2}- ep-001 cut-001$/m);
+  assert.match(out, /^ {2}- ep-001 cut-002$/m);
+});
+
+test("--require-images passes once every rendered cut has an image (#204)", async () => {
+  assert.equal(await runInit(["demo"], capture().io), EXIT_OK);
+  const projectDir = join(workdir, "demo");
+  await giveFirstCutAnImage(projectDir);
+
+  const partial = capture();
+  assert.equal(await runValidate([projectDir, "--require-images"], partial.io), EXIT_VALIDATION);
+  assert.match(partial.out.join("\n"), /^1 cut\(s\) with no image asset:$/m);
+  assert.match(partial.out.join("\n"), /^ {2}- ep-001 cut-002$/m);
+
+  const cutsPath = join(projectDir, "episodes", "ep-001", "cuts.yaml");
+  await writeFile(
+    cutsPath,
+    (await readFile(cutsPath, "utf8")).replace(
+      "- id: cut-002\n  image: null",
+      "- id: cut-002\n  image:\n    clean: null\n    final: episodes/ep-001/assets/final/cut-002.png",
+    ),
+  );
+
+  const complete = capture();
+  assert.equal(await runValidate([projectDir, "--require-images"], complete.io), EXIT_OK);
+  assert.match(complete.out.join("\n"), /every rendered cut has an image asset\./);
+});
+
+test("cutsWithoutImage counts what the renderer would render, and nothing else (#204)", () => {
+  // The schema's `cut.orphan` rule keeps a valid project's cuts and sequence in
+  // step, so the sequence scoping is asserted here rather than through the CLI.
+  // It matters because this must report the SAME cuts `toony measure` counts.
+  const cut = (id: string, image: Cut["image"]): Cut => ({
+    id,
+    image,
+    imagePrompt: "",
+    negativePrompt: "",
+  });
+  const project: Project = {
+    webtoon: {
+      schemaVersion: 1,
+      projectId: "p",
+      title: "P",
+      languages: {
+        defaultLanguage: "en",
+        supportedLanguages: ["en"],
+        dialogueLanguage: "en",
+        promptLanguage: "en",
+      },
+      imageProviders: { defaultProvider: "manual", providers: [] },
+    },
+    episodes: [
+      {
+        episode: {
+          schemaVersion: 1,
+          id: "ep-001",
+          title: "E",
+          sequence: [
+            { type: "cut", id: "has-clean" },
+            { type: "cut", id: "has-final" },
+            { type: "cut", id: "empty" },
+            { type: "cut", id: "both-null" },
+          ],
+        },
+        cuts: [
+          cut("has-clean", { clean: "a.png", final: null }),
+          cut("has-final", { clean: null, final: "b.png" }),
+          cut("empty", null),
+          cut("both-null", { clean: null, final: null }),
+          cut("not-in-sequence", null),
+        ],
+        transitions: [],
+        lettering: [],
+      },
+    ],
+  };
+  assert.deepEqual(cutsWithoutImage(project), [
+    { episodeId: "ep-001", cutId: "empty" },
+    { episodeId: "ep-001", cutId: "both-null" },
+  ]);
+});
+
+test("--require-images adds the missing cuts to --json, and nothing otherwise (#204)", async () => {
+  assert.equal(await runInit(["demo"], capture().io), EXIT_OK);
+  const projectDir = join(workdir, "demo");
+  await giveFirstCutAnImage(projectDir);
+
+  const plain = capture();
+  assert.equal(await runValidate([projectDir, "--json"], plain.io), EXIT_OK);
+  assert.equal(JSON.parse(plain.out.join("\n")).missing, undefined);
+
+  const c = capture();
+  assert.equal(
+    await runValidate([projectDir, "--json", "--require-images"], c.io),
+    EXIT_VALIDATION,
+  );
+  const report = JSON.parse(c.out.join("\n"));
+  assert.equal(report.valid, true, "the schema report is untouched by the check");
+  assert.deepEqual(report.missing, [{ episodeId: "ep-001", cutId: "cut-002" }]);
 });
 
 test("validate reports an IO error (exit 2) for a missing project", async () => {
