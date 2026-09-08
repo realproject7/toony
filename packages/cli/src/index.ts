@@ -14,6 +14,7 @@ export { runStudio } from "./commands/studio.js";
 export { runValidate } from "./commands/validate.js";
 export { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "./exit.js";
 export { HELP_TEXT } from "./help.js";
+export { discoverPackContent, type PackIo } from "./packs.js";
 export { jsonReport, textReport, type ValidateJsonReport } from "./report.js";
 
 import { runExport } from "./commands/export.js";

@@ -5,12 +5,13 @@ import { isAbsolute, resolve } from "node:path";
 import {
   buildInitialProject,
   GENRES,
-  type Genre,
-  isGenre,
+  listGenreIds,
+  resolveGenreBundle,
   slugify,
   writeProject,
 } from "@toony/project-io";
 import { EXIT_OK, EXIT_USAGE } from "../exit.js";
+import { discoverPackContent } from "../packs.js";
 
 const USAGE = `usage: toony init <name> [--genre <${GENRES.join("|")}>]`;
 
@@ -18,6 +19,8 @@ export interface InitIo {
   cwd: string;
   out: (line: string) => void;
   err: (line: string) => void;
+  /** Process environment; `TOONY_PACKS` names extra pack directories. */
+  env?: Record<string, string | undefined>;
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -31,21 +34,28 @@ async function exists(path: string): Promise<boolean> {
 
 /** Run `toony init`. Returns the process exit code. */
 export async function runInit(args: string[], io: InitIo): Promise<number> {
+  // Packs are discovered from the folder `init` is run in — the workspace a new
+  // project is created inside — so a genre scaffold contributed by a pack is
+  // offered alongside the built-in five (#192). With no packs installed this is
+  // an empty list and the genre vocabulary is exactly `GENRES`.
+  const packs = await discoverPackContent(io.cwd, io);
+  const genreIds = await listGenreIds(packs.genres);
+
   // Parse a single positional <name> plus an optional `--genre <g>` flag. Unknown
   // flags are a usage error (consistent with the other commands).
   let name: string | undefined;
-  let genre: Genre | undefined;
+  let genre: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === undefined) continue;
     if (arg === "--genre") {
       const value = args[i + 1];
       if (value === undefined) {
-        io.err(`missing value for --genre; expected one of: ${GENRES.join(", ")}`);
+        io.err(`missing value for --genre; expected one of: ${genreIds.join(", ")}`);
         return EXIT_USAGE;
       }
-      if (!isGenre(value)) {
-        io.err(`unknown genre "${value}"; expected one of: ${GENRES.join(", ")}`);
+      if (!genreIds.includes(value)) {
+        io.err(`unknown genre "${value}"; expected one of: ${genreIds.join(", ")}`);
         return EXIT_USAGE;
       }
       genre = value;
@@ -79,7 +89,9 @@ export async function runInit(args: string[], io: InitIo): Promise<number> {
     return EXIT_USAGE;
   }
 
-  const project = buildInitialProject(name, genre);
+  // `genre` was checked against the merged list above, so this always resolves.
+  const starter = genre === undefined ? undefined : await resolveGenreBundle(genre, packs.genres);
+  const project = buildInitialProject(name, starter);
   try {
     await writeProject(target, project);
   } catch (cause) {

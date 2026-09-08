@@ -24,7 +24,10 @@ export {
   buildGenreEpisodeBundle,
   GENRES,
   type Genre,
+  type GenreScaffold,
   isGenre,
+  listGenreIds,
+  resolveGenreBundle,
 } from "./genres.js";
 export {
   type AssetSlot,

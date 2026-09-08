@@ -69,12 +69,15 @@ function starterEpisode(): EpisodeBundle {
 }
 
 /**
- * Build the full in-memory project model for a new project. With no `genre` the
- * neutral starter episode is used (back-compat); a `genre` seeds a genre-tuned
- * cold-open + beat scaffold (#101) via `@toony/project-io`'s genre templates.
- * Either way the result is a valid, lint-clean project.
+ * Build the full in-memory project model for a new project. With no `starter`
+ * the neutral starter episode is used (back-compat); a built-in `Genre` seeds a
+ * genre-tuned cold-open + beat scaffold (#101), and an already-resolved
+ * `EpisodeBundle` seeds that bundle directly — which is how a genre scaffold
+ * contributed by a pack (#192) reaches `toony init` without this package having
+ * to know where the scaffold came from. Either way the result is a valid,
+ * lint-clean project.
  */
-export function buildInitialProject(name: string, genre?: Genre): Project {
+export function buildInitialProject(name: string, starter?: Genre | EpisodeBundle): Project {
   const projectId = slugify(name);
   const webtoon: Webtoon = {
     schemaVersion: SCHEMA_VERSION,
@@ -91,6 +94,11 @@ export function buildInitialProject(name: string, genre?: Genre): Project {
       providers: [],
     },
   };
-  const episode = genre ? buildGenreEpisodeBundle(genre) : starterEpisode();
+  const episode =
+    starter === undefined
+      ? starterEpisode()
+      : typeof starter === "string"
+        ? buildGenreEpisodeBundle(starter)
+        : starter;
   return { webtoon, episodes: [episode] };
 }

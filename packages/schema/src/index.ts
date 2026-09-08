@@ -6,12 +6,27 @@ export { IssueCollector, joinPath } from "./errors.js";
 export {
   EXPORT_QUALITY_MAX,
   EXPORT_QUALITY_MIN,
+  EXPORT_TARGET_KINDS,
   EXPORT_WIDTH_MAX,
   EXPORT_WIDTH_MIN,
+  type ExportTargetKind,
   validateExportInt,
   validateExportQuality,
   validateExportWidth,
 } from "./export-options.js";
+// The primitive guards the validators are written with. Exported so validators
+// OUTSIDE this package (e.g. the pack-manifest validator in `@toony/packs`) are
+// written in the same idiom against the same narrowing helpers.
+export {
+  isArray,
+  isBoolean,
+  isFiniteNumber,
+  isInteger,
+  isNonEmptyString,
+  isNormalizedUnit,
+  isPlainObject,
+  isString,
+} from "./guards.js";
 export { isPathSafeId } from "./path-safe-id.js";
 export {
   isMoodColor,
@@ -99,6 +114,7 @@ export {
 export {
   isProjectRelativePath,
   validateCutValue,
+  validateEpisodeBundleRecords,
   validateEpisodeValue,
   validateImageProvidersValue,
   validateLanguageConfigValue,

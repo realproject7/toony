@@ -28,6 +28,12 @@
 //      file, preserving the documented env-first behaviour. `workflow` is a path
 //      to a workflow-graph JSON template, like TOONY_COMFYUI_WORKFLOW.
 //
+// A workflow may also be selected BY NAME from a registry the caller injects
+// (`workflows` + `workflowName` on the config source) — that is how a named
+// workflow contributed by a pack reaches this provider (#192). The registry is
+// plain data (name → local file path), so this package resolves named workflows
+// while staying dependency-free.
+//
 // The example URL "http://127.0.0.1:8188" is the operator's OWN local instance
 // (ComfyUI's documented default address). Nothing here is committed for a real
 // server.
@@ -91,6 +97,16 @@ export interface ComfyUIConfigSource {
    * Used as the LOWEST-precedence source so env vars still override it.
    */
   toonyConfig?: ToonyWorkspaceComfyConfig;
+  /**
+   * Named workflow templates the caller has resolved: name → local JSON file
+   * path. This is the registry of NAMED workflows (#192) — the CLI discovers
+   * packs and injects their workflows here as plain data, so this package keeps
+   * no dependency on the pack loader and stays dependency-free. Absent (the
+   * zero-pack case) means no workflow can be selected by name.
+   */
+  workflows?: ReadonlyMap<string, string>;
+  /** Select one of `workflows` by name (`toony generate --workflow <name>`). */
+  workflowName?: string;
 }
 
 /** A non-empty string passes through; null/empty/undefined become undefined. */
@@ -144,6 +160,30 @@ async function loadWorkflowFromPath(path: string): Promise<ComfyWorkflowGraph> {
     );
   }
   return parseWorkflowGraph(text);
+}
+
+/**
+ * Resolve a workflow the caller selected BY NAME against the injected registry
+ * (#192). The registry is plain data — names to local file paths — so this
+ * package resolves named workflows without knowing anything about where the
+ * names came from. An unknown name fails with the available names listed, never
+ * by silently falling back to the default graph.
+ */
+async function loadWorkflowByName(
+  name: string,
+  workflows: ReadonlyMap<string, string> | undefined,
+): Promise<ComfyWorkflowGraph> {
+  const path = workflows?.get(name);
+  if (path === undefined) {
+    const available = [...(workflows?.keys() ?? [])].sort();
+    throw new ProviderError(
+      "comfyui.unknown-workflow",
+      available.length === 0
+        ? `no workflow named "${name}"; no named workflows are installed.`
+        : `no workflow named "${name}"; available: ${available.join(", ")}.`,
+    );
+  }
+  return loadWorkflowFromPath(path);
 }
 
 function parsePositiveInt(value: string | undefined, label: string): number | undefined {
@@ -205,17 +245,24 @@ export async function resolveComfyUIConfig(
     throw new ProviderError("comfyui.bad-endpoint", "the ComfyUI endpoint URL is not a valid URL.");
   }
 
-  // Workflow precedence (documented): inline override > env path > config-file
-  // (inline graph ?? path) > workspace path > bundled default. Each source is
-  // checked IN ORDER, so a lower-precedence PATH can never beat the config file's
-  // inline graph — the bug this fixes was coalescing env/config/workspace PATHs
-  // into one value checked before the config-file inline graph (#155).
+  // Workflow precedence (documented): inline override > requested NAME > env
+  // path > config-file (inline graph ?? path) > workspace path > bundled
+  // default. Each source is checked IN ORDER, so a lower-precedence PATH can
+  // never beat the config file's inline graph — the bug this fixes was
+  // coalescing env/config/workspace PATHs into one value checked before the
+  // config-file inline graph (#155). A requested name sits directly under the
+  // inline graph because naming a workflow is an explicit per-run choice; when
+  // no name is requested the chain below is exactly the one that shipped before
+  // named workflows existed, so the zero-pack path is unchanged (#192).
   let workflow: ComfyWorkflowGraph;
   const envWorkflowPath = nonEmpty(env.TOONY_COMFYUI_WORKFLOW);
   const fileWorkflowPath = nonEmpty(fromFile.workflowPath);
   const wsWorkflowPath = nonEmpty(ws?.workflow);
+  const requestedName = nonEmpty(source.workflowName);
   if (overrides.workflow !== undefined) {
     workflow = overrides.workflow;
+  } else if (requestedName !== undefined) {
+    workflow = await loadWorkflowByName(requestedName, source.workflows);
   } else if (envWorkflowPath !== undefined) {
     workflow = await loadWorkflowFromPath(envWorkflowPath);
   } else if (fromFile.workflow !== undefined) {

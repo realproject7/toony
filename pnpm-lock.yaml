@@ -73,6 +73,9 @@ importers:
       '@toony/lint':
         specifier: workspace:*
         version: link:../lint
+      '@toony/packs':
+        specifier: workspace:*
+        version: link:../packs
       '@toony/project-io':
         specifier: workspace:*
         version: link:../project-io
@@ -141,6 +144,19 @@ importers:
       '@toony/render':
         specifier: workspace:*
         version: link:../render
+      '@toony/schema':
+        specifier: workspace:*
+        version: link:../schema
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.2
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  packages/packs:
+    dependencies:
       '@toony/schema':
         specifier: workspace:*
         version: link:../schema

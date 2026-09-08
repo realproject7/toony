@@ -4,6 +4,7 @@
 // lints completeness against this contract.
 
 import { createHash } from "node:crypto";
+import { EXPORT_TARGET_KINDS, type ExportTargetKind } from "@toony/schema";
 import type { RasterFormat } from "./encode.js";
 
 export const MANIFEST_VERSION = 1;
@@ -13,9 +14,11 @@ export const MANIFEST_FILE = "manifest.json";
 export const PLOTLINK_MAX_IMAGES = 20;
 export const PLOTLINK_MAX_BYTES = 1_000_000;
 
-/** The export target vocabulary; the single runtime source for the kind list. */
-export const EXPORT_TARGET_KINDS = ["platform", "stitched", "plotlink"] as const;
-export type ExportTargetKind = (typeof EXPORT_TARGET_KINDS)[number];
+// The export target vocabulary is defined in `@toony/schema` (next to the other
+// export-option rules) so a package that only VALIDATES a target name never has
+// to depend on this Node/canvas engine. Re-exported here so `@toony/export`
+// stays the import site every existing consumer already uses.
+export { EXPORT_TARGET_KINDS, type ExportTargetKind };
 
 export interface ManifestFile {
   /** Project-relative path to the output file. Never absolute. */
