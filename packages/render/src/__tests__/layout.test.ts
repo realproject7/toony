@@ -2,10 +2,15 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { defaultFontFamilyForKind, getFontFamily } from "@toony/fonts";
 import { cutPlacementFrame, GUTTER_BAND_FRAC, layoutBubble, layoutCut } from "../layout.js";
+import { approximateMeasure } from "../measure.js";
+import { wrapText } from "../text.js";
 import { narrationOverlay, overlay, sfxOverlay, speechOverlay } from "./fixtures.js";
 
 const W = 800;
 const H = 1200;
+
+/** Enough words to wrap the default 320 x 240 fixture box to several lines. */
+const LONG_LINE = "We need to move before sunrise or the whole street will hear the door";
 
 test("layoutBubble is deterministic for the same inputs", () => {
   const a = layoutBubble(speechOverlay, W, H);
@@ -189,13 +194,111 @@ test("the retired `font` field never decides the face, whatever it holds (#208)"
 });
 
 test("textAlign controls each line's anchor x", () => {
-  const left = layoutBubble(overlay({ id: "l", textAlign: "left" }), W, H);
+  // A square-cornered bubble: the silhouette IS the body rect, so every line
+  // anchors on the one padded column (the pre-#210 numbers).
+  const left = layoutBubble(overlay({ id: "l", textAlign: "left", cornerRadius: 0 }), W, H);
   for (const line of left.lines) assert.equal(line.anchorX, left.textOrigin.x);
-  const right = layoutBubble(overlay({ id: "r", textAlign: "right" }), W, H);
+  const right = layoutBubble(overlay({ id: "r", textAlign: "right", cornerRadius: 0 }), W, H);
   const padX = Math.max(2, right.box.width * 0.06);
   for (const line of right.lines) {
     assert.equal(line.anchorX, right.box.x + right.box.width - padX);
   }
+});
+
+// --- Text clears the drawn balloon, not the body rect (#210) ----------------
+
+test("a rounded balloon insets the lines its corner arcs reach, and only those", () => {
+  // 320 x 240 body → default radius 96; the top padding is 19.2px, which lands
+  // 76.8px inside a 96px arc, so the outer lines are pulled well in.
+  const r = layoutBubble(overlay({ id: "round", text: LONG_LINE }), W, H);
+  assert.equal(r.cornerRadius, 96);
+  const insets = r.text.lineInsets;
+  assert.equal(insets.length, r.text.lines.length);
+  assert.ok(r.text.lines.length >= 3, `need a middle line; got ${r.text.lines.length}`);
+  // The outermost lines sit deepest inside the arcs, the middle ones are clear
+  // of them: the inset falls monotonically toward the middle of the block.
+  const mid = Math.floor((insets.length - 1) / 2);
+  for (let i = 1; i <= mid; i++) {
+    assert.ok(
+      (insets[i] ?? 0) < (insets[i - 1] ?? 0),
+      `line ${i} inset ${insets[i]} should be under line ${i - 1}'s ${insets[i - 1]}`,
+    );
+  }
+  // First and last are the same distance from their own edge, so equal.
+  assert.equal(insets[0], insets[insets.length - 1]);
+  // The inset is the arc's own bite at the line-box edge: at depth d inside a
+  // radius-r corner the shape is r - sqrt(d*(2r-d)) narrower on each side.
+  // 96 - sqrt(19.2 * (192 - 19.2)) = 38.4.
+  assert.equal(Math.round((insets[0] ?? 0) * 100) / 100, 38.4);
+});
+
+test("every line's drawn extent clears the balloon silhouette by the full padding", () => {
+  const r = layoutBubble(overlay({ id: "clear", text: LONG_LINE }), W, H);
+  const padX = Math.max(2, r.box.width * 0.06);
+  const padY = Math.max(2, r.box.height * 0.08);
+  const radius = r.cornerRadius;
+  const half = r.box.width / 2;
+  r.text.lines.forEach((line, i) => {
+    // Independent of the layout's own arithmetic: place the line at its worst
+    // row (against whichever edge is nearer) and solve the circle there.
+    const fromEnd = r.text.lines.length - 1 - i;
+    const depth = padY + Math.min(i, fromEnd) * r.text.lineHeight;
+    const shapeHalf =
+      depth >= radius ? half : half - (radius - Math.sqrt(depth * (2 * radius - depth)));
+    const drawnHalf = approximateMeasure(line, r.text.fontSize, 400) / 2;
+    assert.ok(
+      drawnHalf + padX <= shapeHalf + 0.5,
+      `line ${i} "${line}": half-width ${drawnHalf.toFixed(1)} + pad ${padX} exceeds the shape's ${shapeHalf.toFixed(1)}`,
+    );
+  });
+});
+
+test("cornerRadius 0 is the pre-#210 layout exactly: no insets, plain-rect wrap", () => {
+  const square = layoutBubble(overlay({ id: "sq", text: LONG_LINE, cornerRadius: 0 }), W, H);
+  assert.deepEqual(
+    square.text.lineInsets,
+    square.text.lines.map(() => 0),
+  );
+  // Re-wrap independently at the resolved font against the plain padded column.
+  const padX = Math.max(2, square.box.width * 0.06);
+  assert.deepEqual(
+    square.text.lines,
+    wrapText(approximateMeasure, LONG_LINE, square.box.width - 2 * padX, square.text.fontSize, 400),
+  );
+  // A square-cornered bubble fits MORE per line than the rounded one, which is
+  // the whole cost of the fix, so this is not passing by both being equal.
+  const rounded = layoutBubble(overlay({ id: "rd", text: LONG_LINE }), W, H);
+  assert.ok(
+    square.text.lines.length < rounded.text.lines.length,
+    `square ${square.text.lines.length} lines vs rounded ${rounded.text.lines.length}`,
+  );
+});
+
+test("the wrap does not depend on vertical anchoring, so toggling it never reflows", () => {
+  const base = overlay({ id: "va", text: LONG_LINE });
+  const top = layoutBubble({ ...base, verticalAlign: "top" }, W, H);
+  const bottom = layoutBubble({ ...base, verticalAlign: "bottom" }, W, H);
+  assert.deepEqual(bottom.text.lines, top.text.lines);
+  assert.deepEqual(bottom.text.lineInsets, top.text.lineInsets);
+});
+
+test("left and right anchors move in with each line's own inset", () => {
+  const left = layoutBubble(overlay({ id: "la", text: LONG_LINE, textAlign: "left" }), W, H);
+  const right = layoutBubble(overlay({ id: "ra", text: LONG_LINE, textAlign: "right" }), W, H);
+  const padX = Math.max(2, left.box.width * 0.06);
+  assert.ok((left.text.lineInsets[0] ?? 0) > 0, "the fixture must have an inset first line");
+  left.lines.forEach((line, i) => {
+    assert.equal(line.anchorX, left.box.x + padX + (left.text.lineInsets[i] ?? 0));
+  });
+  right.lines.forEach((line, i) => {
+    assert.equal(
+      line.anchorX,
+      right.box.x + right.box.width - padX - (right.text.lineInsets[i] ?? 0),
+    );
+  });
+  // Centered text needs no shift: the arcs bite both sides equally.
+  const center = layoutBubble(overlay({ id: "ca", text: LONG_LINE }), W, H);
+  for (const line of center.lines) assert.equal(line.anchorX, line.centerX);
 });
 
 test("letterSpacing widens measurement so wrapping reflects it", () => {

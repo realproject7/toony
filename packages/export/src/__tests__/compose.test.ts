@@ -781,3 +781,152 @@ test("a full-panel gradient fills top→bottom from the plan (#115)", async () =
   const ftop = avg(flip.canvas, Math.round(flip.width / 2), 3);
   assert.ok(ftop[0] > 215, `bottom_up top should be light, got [${ftop}]`);
 });
+
+// --- Text clears the DRAWN balloon, not the body rect (#210) ---------------
+//
+// The wrap used to reserve its 6% margin against the bubble's rectangle. The
+// balloon is a rounded rect whose corner arcs cut inside that rectangle near the
+// top and bottom, which is exactly where the first and last lines sit, so those
+// lines landed on the stroke. These tests measure the exported PIXELS: they scan
+// each row for the gap between the balloon stroke and the nearest text pixel,
+// which is what a reader actually sees, and which no layout-number assertion can
+// stand in for.
+
+/** Ink threshold: the balloon fill composites near-white, stroke and text are #1a1a1a. */
+const INK_LUMA = 110;
+
+/** Inclusive [start, end] spans of ink pixels across one scanned row. */
+function inkRuns(data: Uint8ClampedArray, rowStart: number, count: number): [number, number][] {
+  const runs: [number, number][] = [];
+  let start: number | null = null;
+  for (let i = 0; i < count; i++) {
+    const p = rowStart + i * 4;
+    const luma =
+      0.2126 * (data[p] ?? 255) + 0.7152 * (data[p + 1] ?? 255) + 0.0722 * (data[p + 2] ?? 255);
+    if (luma < INK_LUMA) {
+      if (start === null) start = i;
+    } else if (start !== null) {
+      runs.push([start, i - 1]);
+      start = null;
+    }
+  }
+  if (start !== null) runs.push([start, count - 1]);
+  return runs;
+}
+
+/**
+ * Scan the composed raster row by row across the bubble. On a row that carries
+ * text the first and last ink runs are the balloon's two stroke walls and
+ * everything between them is lettering, so the gap on each side is measurable
+ * directly. Returns the worst gap found, how many rows carried text, and the
+ * first such row (which says where the block actually landed).
+ */
+function textClearance(
+  composed: { canvas: Canvas; width: number; height: number },
+  box: { x: number; y: number; width: number; height: number },
+): { worst: number; rows: number; firstRow: number } {
+  const margin = 10; // the stroke straddles the outline; keep both walls in frame
+  const x0 = Math.max(0, Math.floor(box.x) - margin);
+  const x1 = Math.min(composed.width - 1, Math.ceil(box.x + box.width) + margin);
+  const y0 = Math.max(0, Math.floor(box.y));
+  const y1 = Math.min(composed.height - 1, Math.ceil(box.y + box.height));
+  const w = x1 - x0 + 1;
+  const { data } = composed.canvas.getContext("2d").getImageData(x0, y0, w, y1 - y0 + 1);
+  let worst = Number.POSITIVE_INFINITY;
+  let rows = 0;
+  let firstRow = -1;
+  for (let row = 0; row <= y1 - y0; row++) {
+    const runs = inkRuns(data, row * w * 4, w);
+    if (runs.length < 3) continue; // nothing between the two walls on this row
+    const leftWall = runs[0] as [number, number];
+    const rightWall = runs[runs.length - 1] as [number, number];
+    const firstInk = runs[1] as [number, number];
+    const lastInk = runs[runs.length - 2] as [number, number];
+    worst = Math.min(worst, firstInk[0] - leftWall[1] - 1, rightWall[0] - lastInk[1] - 1);
+    if (firstRow < 0) firstRow = y0 + row;
+    rows++;
+  }
+  return { worst, rows, firstRow };
+}
+
+/** The ticket's bubble: 432 x 385 px in a 1200px-wide export, five-plus lines. */
+function roundBalloon(over: Partial<LetteringOverlay>): LetteringOverlay {
+  return {
+    id: "ov-clearance",
+    cutId: "cut-clearance",
+    speaker: "Mina",
+    kind: "speech",
+    text: "We need to move before sunrise or the whole street will hear the door and come looking for us again.",
+    font: "sans-serif",
+    fill: "",
+    opacity: 1,
+    border: null,
+    tail: null,
+    geometry: { x: 240 / 1200, y: 336 / 1680, width: 432 / 1200, height: 385 / 1680 },
+    overflow: false,
+    reviewStatus: "draft",
+    ...over,
+  };
+}
+
+const CLEARANCE_BOX = { x: 240, y: 336, width: 432, height: 385 };
+// The bubble's intended margin is 6% of 432 = 25.9px, and the balloon stroke is
+// centered on the outline, so ~3.4px of that margin sits under the stroke itself.
+// A reading of 20px or better means the margin survived; before #210 this exact
+// raster kept 1px on its first line.
+const CLEARANCE_FLOOR = 20;
+
+test("bubble text keeps its margin from the drawn balloon, first and last lines too (#210)", async () => {
+  const composed = await composeCut([roundBalloon({})], null, 1200);
+  const { worst, rows } = textClearance(composed, CLEARANCE_BOX);
+  assert.ok(rows > 40, `expected many text rows to measure, got ${rows}`);
+  assert.ok(worst >= CLEARANCE_FLOOR, `narrowest gap to the balloon was ${worst}px`);
+});
+
+test("a bottom-anchored block clears the BOTTOM arc too (#210)", async () => {
+  // Vertical anchoring decides which line sits against an arc, so reserving only
+  // against the TOP arc would leave a bottom-anchored last line on the stroke.
+  // A fixed font keeps the block shorter than the box; auto-fit fills the height
+  // and the two anchorings would land on the same rows, testing nothing.
+  const top = await composeCut([roundBalloon({ verticalAlign: "top", fontSize: 30 })], null, 1200);
+  const bottom = await composeCut(
+    [roundBalloon({ verticalAlign: "bottom", fontSize: 30 })],
+    null,
+    1200,
+  );
+  const topGap = textClearance(top, CLEARANCE_BOX);
+  const bottomGap = textClearance(bottom, CLEARANCE_BOX);
+  assert.ok(
+    bottomGap.firstRow - topGap.firstRow > 100,
+    `the block must actually move: top starts at ${topGap.firstRow}, bottom at ${bottomGap.firstRow}`,
+  );
+  assert.ok(topGap.rows > 40 && bottomGap.rows > 40, "expected many text rows to measure");
+  assert.ok(bottomGap.worst >= CLEARANCE_FLOOR, `bottom-anchored gap was ${bottomGap.worst}px`);
+  assert.ok(topGap.worst >= CLEARANCE_FLOOR, `top-anchored gap was ${topGap.worst}px`);
+});
+
+test("left-anchored lines move in with the arc instead of sitting on it (#210)", async () => {
+  // Left alignment pins every line to the column's left edge, so a fix that only
+  // narrowed the wrap would still park the first line on the arc.
+  const composed = await composeCut([roundBalloon({ textAlign: "left" })], null, 1200);
+  const { worst, rows } = textClearance(composed, CLEARANCE_BOX);
+  assert.ok(rows > 40, `expected many text rows to measure, got ${rows}`);
+  assert.ok(worst >= CLEARANCE_FLOOR, `narrowest gap to the balloon was ${worst}px`);
+});
+
+test("a square-cornered bubble is untouched: same raster ink as before (#210)", async () => {
+  // cornerRadius 0 has no arcs to clear, so the shaped path must not engage. The
+  // wrap is the plain padded column and the text spans the full width it always
+  // did, measurably wider than the rounded balloon's.
+  const square = await composeCut([roundBalloon({ cornerRadius: 0 })], null, 1200);
+  const rounded = await composeCut([roundBalloon({})], null, 1200);
+  const squareGap = textClearance(square, CLEARANCE_BOX);
+  const roundedGap = textClearance(rounded, CLEARANCE_BOX);
+  assert.ok(squareGap.rows > 40 && roundedGap.rows > 40);
+  // Square corners give the text the whole rectangle, so it runs closer to the
+  // wall than the rounded balloon's lettering ever does.
+  assert.ok(
+    squareGap.worst < roundedGap.worst,
+    `square ${squareGap.worst}px vs rounded ${roundedGap.worst}px`,
+  );
+});
