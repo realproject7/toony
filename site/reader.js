@@ -23,9 +23,17 @@ const SEQUENCE = [
   { kind: "panel", height: 220, fill: CARD_FILL, text: "One unknown caller. No name. No number." },
   { kind: "cut", src: "/episode/cut-004.jpg", alt: "A hand hovering over the glowing line button" },
   { kind: "panel", height: 180, fill: CARD_FILL, text: "...is someone there?" },
-  { kind: "cut", src: "/episode/cut-005.jpg", alt: "The caller, a shadowed figure in a hooded raincoat" },
+  {
+    kind: "cut",
+    src: "/episode/cut-005.jpg",
+    alt: "The caller, a shadowed figure in a hooded raincoat",
+  },
   { kind: "panel", height: 300, fill: "#0a0a0a", text: null },
-  { kind: "cut", src: "/episode/cut-006.jpg", alt: "Wren's face in close-up, the colour draining out" },
+  {
+    kind: "cut",
+    src: "/episode/cut-006.jpg",
+    alt: "Wren's face in close-up, the colour draining out",
+  },
   {
     kind: "panel",
     height: 200,
