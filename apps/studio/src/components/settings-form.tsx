@@ -15,9 +15,13 @@
 // at generation time — the hint copy says so explicitly.
 
 import { useCallback, useState } from "react";
-
-/** Connection-badge state, mirrored from the `/api/config` probe result. */
-type ConnectionState = "reachable" | "unreachable" | "unconfigured" | "unknown";
+import {
+  asValue,
+  type ConnectionState,
+  describeTestOutcome,
+  isDirty,
+  UNSAVED_EDITS_MESSAGE,
+} from "@/lib/settings-test-outcome";
 
 interface Connection {
   state: ConnectionState;
@@ -49,11 +53,6 @@ export interface SettingsFormProps {
   initialConnection: { state: Exclude<ConnectionState, "unknown">; detail?: string };
 }
 
-/** Empty-string for a null field, so the inputs are always controlled. */
-function asValue(value: string | null): string {
-  return value ?? "";
-}
-
 export function SettingsForm({ initialConfig, initialConnection }: SettingsFormProps) {
   const [endpoint, setEndpoint] = useState(asValue(initialConfig.comfyui.endpoint));
   const [checkpoint, setCheckpoint] = useState(asValue(initialConfig.comfyui.checkpoint));
@@ -62,6 +61,13 @@ export function SettingsForm({ initialConfig, initialConnection }: SettingsFormP
   const [busy, setBusy] = useState<"save" | "test" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // What a test run reported. A probe usually resolves to the state already on
+  // the badge, so without this the screen is identical before and after and the
+  // button reads as broken (#223).
+  const [tested, setTested] = useState<string | null>(null);
+  // The values last written to disk. `test` probes the FILE, so it has to know
+  // whether the form still matches it.
+  const [savedConfig, setSavedConfig] = useState<ComfyConfig>(initialConfig.comfyui);
 
   const payload = useCallback(
     () => ({
@@ -74,15 +80,19 @@ export function SettingsForm({ initialConfig, initialConnection }: SettingsFormP
     [endpoint, checkpoint, workflow],
   );
 
+  const dirty = isDirty({ endpoint, checkpoint, workflow }, savedConfig);
+
   const save = useCallback(async () => {
     setBusy("save");
     setError(null);
     setSaved(false);
+    setTested(null);
     try {
+      const body = payload();
       const response = await fetch("/api/config", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload()),
+        body: JSON.stringify(body),
       });
       const data = (await response.json()) as ConfigResponse;
       if (!response.ok || !data.ok) {
@@ -90,6 +100,9 @@ export function SettingsForm({ initialConfig, initialConnection }: SettingsFormP
         return;
       }
       if (data.connection) setConnection(data.connection);
+      // Track what reached disk from the SERVER's echo where it gives one, so a
+      // value the server normalized does not leave the form looking dirty.
+      setSavedConfig(data.config?.comfyui ?? body.comfyui);
       setSaved(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -98,11 +111,22 @@ export function SettingsForm({ initialConfig, initialConnection }: SettingsFormP
     }
   }, [payload]);
 
-  // "Test connection" re-reads the saved config and re-probes it. It reflects the
-  // ON-DISK endpoint, so save first to test unsaved edits.
+  // "Test connection" re-probes the SAVED config, not the form. That is the
+  // config the CLI and agents actually resolve, so a green badge for an unsaved
+  // value would be a badge for a state that does not exist on disk.
+  //
+  // The probe almost always resolves to the state already shown, so this must
+  // report an outcome every time it runs. Reporting nothing is what made the
+  // button look broken (#223).
   const test = useCallback(async () => {
+    if (dirty) {
+      setError(null);
+      setTested(UNSAVED_EDITS_MESSAGE);
+      return;
+    }
     setBusy("test");
     setError(null);
+    setTested(null);
     try {
       const response = await fetch("/api/config", { method: "GET" });
       const data = (await response.json()) as ConfigResponse;
@@ -111,12 +135,13 @@ export function SettingsForm({ initialConfig, initialConnection }: SettingsFormP
         return;
       }
       if (data.connection) setConnection(data.connection);
+      setTested(describeTestOutcome(data.connection?.state, data.connection?.detail));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(null);
     }
-  }, []);
+  }, [dirty]);
 
   const badge = BADGE[connection.state];
 
@@ -154,6 +179,7 @@ export function SettingsForm({ initialConfig, initialConnection }: SettingsFormP
             onChange={(e) => {
               setEndpoint(e.target.value);
               setSaved(false);
+              setTested(null);
             }}
             data-testid="settings-endpoint"
           />
@@ -173,6 +199,7 @@ export function SettingsForm({ initialConfig, initialConnection }: SettingsFormP
             onChange={(e) => {
               setCheckpoint(e.target.value);
               setSaved(false);
+              setTested(null);
             }}
             data-testid="settings-checkpoint"
           />
@@ -191,6 +218,7 @@ export function SettingsForm({ initialConfig, initialConnection }: SettingsFormP
             onChange={(e) => {
               setWorkflow(e.target.value);
               setSaved(false);
+              setTested(null);
             }}
             data-testid="settings-workflow"
           />
@@ -223,6 +251,11 @@ export function SettingsForm({ initialConfig, initialConnection }: SettingsFormP
         {saved && (
           <span className="settings-ok" role="status" data-testid="settings-saved">
             Saved
+          </span>
+        )}
+        {tested && (
+          <span className="field-hint" role="status" data-testid="settings-test-result">
+            {tested}
           </span>
         )}
         {error && (
