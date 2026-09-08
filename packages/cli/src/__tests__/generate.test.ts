@@ -228,13 +228,30 @@ test("env endpoint overrides the .toony/config.json endpoint", async () => {
 
 test("a remote provider requires --allow-remote", async () => {
   const projectDir = await scaffold();
-  const c = capture({ TOONY_COMFYUI_URL: "http://127.0.0.1:8188" });
+  // Must be a genuinely non-local endpoint. This test used to point at
+  // 127.0.0.1 and still expect the gate to fire, which pinned the #180 defect
+  // instead of the rule it names.
+  const c = capture({ TOONY_COMFYUI_URL: "https://comfy.example.com" });
   const code = await runGenerate(
     [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--prompt", "x"],
     c.io,
   );
   assert.equal(code, EXIT_USAGE);
   assert.match(c.err.join("\n"), /--allow-remote/);
+});
+
+test("a loopback endpoint does not require --allow-remote (#180)", async () => {
+  const projectDir = await scaffold();
+  const c = capture({ TOONY_COMFYUI_URL: "http://127.0.0.1:8188" });
+  const code = await runGenerate(
+    [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--prompt", "x"],
+    c.io,
+  );
+  // Nothing is listening in the test environment, so this fails at connect
+  // time — which is the point: it got PAST the opt-in gate rather than being
+  // refused as a usage error before any request was attempted.
+  assert.notEqual(code, EXIT_USAGE);
+  assert.doesNotMatch(c.err.join("\n"), /--allow-remote/);
 });
 
 test("missing --prompt is a usage error", async () => {
