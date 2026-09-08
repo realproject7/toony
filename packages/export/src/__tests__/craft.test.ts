@@ -99,17 +99,26 @@ test("the same episode measured twice is identical", async () => {
   assert.equal(JSON.stringify(again), JSON.stringify(restless));
 });
 
-test("run lengths are a share of the screen, so the aspect rescales them", async () => {
+test("run lengths are a share of WIDTH, so the aspect cannot move them", async () => {
   const half = await measureEpisodeCraft(join(workdir, "restless"), "ep-001", {
     width: WIDTH,
     screenAspect: 1,
   });
-  // Halving the screen doubles every run expressed in screens, and doubles the
-  // cuts that fit on one — while the gutter RATIO, a share of the page, holds.
   assert.equal(half.screenHeight, restless.screenHeight / 2);
-  assert.ok(half.metrics.panelHeightMedian > restless.metrics.panelHeightMedian * 1.8);
-  assert.ok(half.metrics.panelsPerScreen < restless.metrics.panelsPerScreen * 0.6);
+
+  // Panel and gutter heights are multiples of column width, which is the
+  // invariant of a vertical-scroll page. This test previously asserted the
+  // opposite — that halving the screen doubles them — which pinned a real
+  // defect: the same page reported panelHeightMedian 0.28 at aspect 2 and 0.14
+  // at aspect 4, so neither figure could be compared to a reference band, and a
+  // style pack graded against one was being graded against a moving unit.
+  assert.equal(half.metrics.panelHeightMedian, restless.metrics.panelHeightMedian);
+  assert.equal(half.metrics.gutterMedian, restless.metrics.gutterMedian);
   assert.ok(Math.abs(half.metrics.gutterRatio - restless.metrics.gutterRatio) < 0.02);
+
+  // Only the per-screen COUNTS may depend on the screen definition: a shorter
+  // screen genuinely holds fewer panels.
+  assert.ok(half.metrics.panelsPerScreen < restless.metrics.panelsPerScreen * 0.6);
 });
 
 test("an episode with no art measures, and says how much art is missing", async () => {

@@ -361,10 +361,16 @@ export async function measureEpisodeCraft(
   const insets: number[] = [];
   for (const run of runsOf(flags)) {
     if (run.flat) {
-      gutterRuns.push(run.length / screenHeight);
+      // Normalize by WIDTH, matching the reference analyzer. Dividing by
+      // screenHeight made these two metrics scale inversely with --screen-aspect,
+      // so the same page reported 0.28 at aspect 2 and 0.14 at aspect 4 — and
+      // neither number was comparable to a reference band, which is expressed as
+      // a multiple of column width. Only the per-screen counts below may depend
+      // on the screen definition.
+      gutterRuns.push(run.length / width);
       continue;
     }
-    panelRuns.push(run.length / screenHeight);
+    panelRuns.push(run.length / width);
     const middle = readRow(ctx, run.start + Math.floor(run.length / 2), width);
     const { left, right } = rowMargins(middle, width);
     insets.push((left + right) / width);
