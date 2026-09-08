@@ -75,6 +75,11 @@ export interface BubbleInspectorProps {
   onNudge: (dx: number, dy: number) => void;
   /** Distinct colors used by other bubbles in this cut (the project palette). */
   projectPalette: readonly string[];
+  /**
+   * The project's declared dialogue language. The "Default (…)" option must name
+   * the face the renderer will actually resolve, and that follows this (#213).
+   */
+  dialogueLanguage: string;
 }
 
 export function BubbleInspector({
@@ -87,6 +92,7 @@ export function BubbleInspector({
   onSendToBack,
   onNudge,
   projectPalette,
+  dialogueLanguage,
 }: BubbleInspectorProps) {
   const supportsTail = kindSupportsTail(overlay.kind);
 
@@ -335,7 +341,9 @@ export function BubbleInspector({
             }}
             data-testid="field-font-family"
           >
-            <option value="">Default ({defaultFontFamilyForKind(overlay.kind)})</option>
+            <option value="">
+              Default ({defaultFontFamilyForKind(overlay.kind, dialogueLanguage)})
+            </option>
             {FONT_FAMILIES.map((family) => (
               <option key={family.id} value={family.id} style={{ fontFamily: family.stack }}>
                 {family.name}

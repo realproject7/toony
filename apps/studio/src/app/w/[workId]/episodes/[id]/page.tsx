@@ -123,6 +123,7 @@ export default async function EpisodePreviewPage({
                   art={artByCut.get(cut.id) ?? FALLBACK_ART}
                   workId={work.id}
                   episodeId={episode.id}
+                  dialogueLanguage={loaded.project.webtoon.languages.dialogueLanguage}
                 />
               );
             }

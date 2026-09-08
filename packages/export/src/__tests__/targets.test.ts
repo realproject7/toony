@@ -3,7 +3,9 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import type { FontFamilyId } from "@toony/fonts";
 import { buildInitialProject, writeProject } from "@toony/project-io";
+import type { BubbleKind } from "@toony/schema";
 import {
   buildExportProject,
   buildManyCutsProject,
@@ -114,4 +116,52 @@ test("plotlink export enforces the 20-image limit", async () => {
 test("export refuses an unknown episode", async () => {
   const root = await richProject();
   await assert.rejects(() => exportPlatform(root, "ep-999"), ExportError);
+});
+
+// --- Dialogue language (#213) ------------------------------------------------
+// The export target is what actually reads `languages.dialogueLanguage` off the
+// loaded project and hands it to the compositor. These assert on the manifest's
+// content hashes, so they only pass if the declared language reaches the pixels.
+
+/** The kinds whose default face follows the declared dialogue language. */
+const DIALOGUE_KINDS = new Set<BubbleKind>(["speech", "whisper", "ambient"]);
+
+/** Export the fixture with a given language declared, and hash what it wrote. */
+async function exportedHashes(
+  dialogueLanguage: string,
+  pinDialogueFace?: FontFamilyId,
+): Promise<string[]> {
+  const project = buildExportProject();
+  project.webtoon.languages.dialogueLanguage = dialogueLanguage;
+  // A project only validates when its dialogue language is one it supports.
+  if (!project.webtoon.languages.supportedLanguages.includes(dialogueLanguage)) {
+    project.webtoon.languages.supportedLanguages.push(dialogueLanguage);
+  }
+  if (pinDialogueFace) {
+    for (const bundle of project.episodes) {
+      for (const overlay of bundle.lettering) {
+        if (DIALOGUE_KINDS.has(overlay.kind)) overlay.fontFamily = pinDialogueFace;
+      }
+    }
+  }
+  const base = await mkdtemp(join(tmpdir(), "toony-export-lang-"));
+  const root = join(base, "proj");
+  await writeProject(root, project);
+  await writeCutImages(root);
+  const out = await exportPlatform(root, "ep-001", { width: 400, format: "png" });
+  return out.manifest.files.map((f) => f.sha256);
+}
+
+test("an export draws the dialogue face the project's declared language picks", async () => {
+  const en = await exportedHashes("en");
+  const ko = await exportedHashes("ko");
+  assert.notDeepEqual(en, ko, "the declared language never reached the exported pixels");
+
+  // Declaring Korean must be exactly equivalent to pinning the Korean sans on
+  // every dialogue bubble and nothing else: same bytes, cut for cut.
+  const pinnedKorean = await exportedHashes("en", "noto-sans-kr");
+  assert.deepEqual(ko, pinnedKorean, "ko export is not the Korean sans");
+
+  const pinnedLatin = await exportedHashes("ko", "nunito");
+  assert.deepEqual(en, pinnedLatin, "en export is not the Latin sans");
 });

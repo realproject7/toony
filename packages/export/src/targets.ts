@@ -8,7 +8,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { type Canvas, createCanvas } from "@napi-rs/canvas";
 import { loadProject } from "@toony/project-io";
 import type { Cut, EpisodeBundle, Project } from "@toony/schema";
-import { composeCut, composeTransitionBand } from "./compose.js";
+import { type ComposeCutOptions, composeCut, composeTransitionBand } from "./compose.js";
 import {
   DEFAULT_JPEG_QUALITY,
   DEFAULT_WEBP_QUALITY,
@@ -105,6 +105,15 @@ async function loadEpisode(root: string, episodeId: string): Promise<LoadedEpiso
   };
 }
 
+/**
+ * Compose options every raster target shares. The project declares which language
+ * its dialogue is written in, and that picks the DEFAULT dialogue face (#213), so
+ * an exported cut lands on the same face the studio preview shows.
+ */
+function composeOptions(project: Project): ComposeCutOptions {
+  return { dialogueLanguage: project.webtoon.languages.dialogueLanguage };
+}
+
 /** Cut records in canonical reading order (from the episode sequence). */
 function orderedCuts(bundle: EpisodeBundle): Cut[] {
   const byId = new Map(bundle.cuts.map((c) => [c.id, c]));
@@ -179,7 +188,7 @@ export async function exportPlatform(
   for (let i = 0; i < cuts.length; i++) {
     const cut = cuts[i] as Cut;
     const overlays = bundle.lettering.filter((o) => o.cutId === cut.id);
-    const composed = await composeCut(overlays, imageFor(cut.id), width);
+    const composed = await composeCut(overlays, imageFor(cut.id), width, composeOptions(project));
     const bytes = encodeCanvas(composed.canvas, format, quality ?? undefined);
     const name = `${String(i + 1).padStart(3, "0")}.${ext(format)}`;
     await writeFileSafe(`${outAbs}/${name}`, bytes, "a platform image");
@@ -232,7 +241,12 @@ export async function stitchEpisode(
       const cut = cutsById.get(item.id);
       if (!cut) continue;
       const overlays = bundle.lettering.filter((o) => o.cutId === cut.id);
-      const composed = await composeCut(overlays, imageFor(cut.id), renderWidth);
+      const composed = await composeCut(
+        overlays,
+        imageFor(cut.id),
+        renderWidth,
+        composeOptions(project),
+      );
       bands.push({ canvas: composed.canvas, height: composed.height });
     } else {
       const transition = transitionsById.get(item.id);
@@ -325,7 +339,7 @@ export async function exportPlotlink(
   for (let i = 0; i < cuts.length; i++) {
     const cut = cuts[i] as Cut;
     const overlays = bundle.lettering.filter((o) => o.cutId === cut.id);
-    const composed = await composeCut(overlays, imageFor(cut.id), width);
+    const composed = await composeCut(overlays, imageFor(cut.id), width, composeOptions(project));
     const fit = encodeWebpToFit(
       composed.canvas,
       PLOTLINK_MAX_BYTES,

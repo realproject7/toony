@@ -172,11 +172,46 @@ export function getFontFamily(id: string): FontFamily | undefined {
 }
 
 /**
- * The default family id for each bubble kind. Dialogue kinds default to a clean
- * sans (Noto Sans KR covers Latin + Korean, the project's primary dialogue
- * languages); shout/sfx default to the loud display faces; thought/narration
- * default to a soft handwriting face. An overlay with no `fontFamily` resolves
- * through this map, so projects written before #56 pick a sensible per-kind face.
+ * The clean dialogue sans for each writing system. A project records the language
+ * its dialogue is written in (`webtoon.json` → `languages.dialogueLanguage`), and
+ * the dialogue kinds default to the face built for that language's script instead
+ * of assuming one script for every project (#213).
+ */
+const DIALOGUE_SANS_BY_SCRIPT: Record<FontScript, FontFamilyId> = {
+  latin: "nunito",
+  korean: "noto-sans-kr",
+  japanese: "noto-sans-jp",
+};
+
+/** What a caller resolves to when it declares no dialogue language at all. */
+const BASELINE_DIALOGUE_SANS: FontFamilyId = DIALOGUE_SANS_BY_SCRIPT.korean;
+
+/**
+ * The writing system a dialogue language is set in, or `undefined` when the
+ * caller declares none. Matching is on the BCP-47 primary subtag, so "ko-KR" and
+ * "ko" agree. Latin is the residual: the curated set covers exactly three
+ * scripts, and a language with no CJK face here still needs its Latin glyphs.
+ */
+function dialogueScript(language: string | undefined | null): FontScript | undefined {
+  if (typeof language !== "string") return undefined;
+  const primary = language.trim().toLowerCase().split(/[-_]/)[0];
+  if (!primary) return undefined;
+  if (primary === "ko") return "korean";
+  if (primary === "ja") return "japanese";
+  return "latin";
+}
+
+/**
+ * The default family id for each bubble kind, for a caller that declares no
+ * dialogue language. Dialogue kinds default to a clean sans; shout/sfx default to
+ * the loud display faces; thought/narration default to a soft handwriting face.
+ * An overlay with no `fontFamily` resolves through this map, so projects written
+ * before #56 pick a sensible per-kind face.
+ *
+ * The dialogue-kind entries are a BASELINE, not a language claim: with a declared
+ * dialogue language they resolve through {@link DIALOGUE_SANS_BY_SCRIPT} instead
+ * (#213). The baseline keeps the Korean-covering sans so a caller that declares
+ * nothing renders exactly what it rendered before that change.
  */
 const DEFAULT_BY_KIND: Record<BubbleKind, FontFamilyId> = {
   speech: "noto-sans-kr",
@@ -190,25 +225,49 @@ const DEFAULT_BY_KIND: Record<BubbleKind, FontFamilyId> = {
   ambient: "noto-sans-kr",
 };
 
-/** The default curated family id for a bubble kind (used when an overlay omits one). */
-export function defaultFontFamilyForKind(kind: BubbleKind): FontFamilyId {
-  return DEFAULT_BY_KIND[kind] ?? "noto-sans-kr";
+// A kind follows the declared dialogue language exactly when its baseline default
+// IS the dialogue sans. Every other kind's default was picked for its intent
+// (loud display, hand-lettered) and not for a script, so the language must not
+// move it. Deriving the set from the map keeps the two from drifting apart.
+const FOLLOWS_DIALOGUE_LANGUAGE: ReadonlySet<BubbleKind> = new Set(
+  (Object.keys(DEFAULT_BY_KIND) as BubbleKind[]).filter(
+    (kind) => DEFAULT_BY_KIND[kind] === BASELINE_DIALOGUE_SANS,
+  ),
+);
+
+/**
+ * The default curated family id for a bubble kind (used when an overlay omits
+ * one). `dialogueLanguage` is the project's declared dialogue language; the
+ * dialogue kinds take the clean sans built for that language's script. Absent,
+ * blank, or not supplied → the baseline map.
+ */
+export function defaultFontFamilyForKind(
+  kind: BubbleKind,
+  dialogueLanguage?: string | null,
+): FontFamilyId {
+  const baseline = DEFAULT_BY_KIND[kind] ?? BASELINE_DIALOGUE_SANS;
+  if (!FOLLOWS_DIALOGUE_LANGUAGE.has(kind)) return baseline;
+  const script = dialogueScript(dialogueLanguage);
+  return script === undefined ? baseline : DIALOGUE_SANS_BY_SCRIPT[script];
 }
 
 /**
  * Resolve an overlay's `fontFamily` (possibly absent/unknown for back-compat) to
- * a concrete family, falling back to the per-kind default. Always returns a
- * registered family, so render and export never end up on an unregistered face.
+ * a concrete family, falling back to the per-kind default for the project's
+ * declared dialogue language. An explicit id always wins, so the language only
+ * ever moves a default. Always returns a registered family, so render and export
+ * never end up on an unregistered face.
  */
 export function resolveFontFamily(
   fontFamily: string | undefined | null,
   kind: BubbleKind,
+  dialogueLanguage?: string | null,
 ): FontFamily {
   if (isFontFamilyId(fontFamily)) {
     const fam = BY_ID.get(fontFamily);
     if (fam) return fam;
   }
-  const fallback = BY_ID.get(defaultFontFamilyForKind(kind));
+  const fallback = BY_ID.get(defaultFontFamilyForKind(kind, dialogueLanguage));
   // The per-kind default ids are all registry members, so this is always defined;
   // the final coalesce keeps the return type non-optional without a non-null cast.
   return fallback ?? FIRST_FAMILY;
@@ -218,8 +277,12 @@ export function resolveFontFamily(
  * The CSS font stack for an overlay's resolved family — what SVG/HTML rendering
  * sets as `font-family`. Render uses this so the preview matches the editor.
  */
-export function fontStackFor(fontFamily: string | undefined | null, kind: BubbleKind): string {
-  return resolveFontFamily(fontFamily, kind).stack;
+export function fontStackFor(
+  fontFamily: string | undefined | null,
+  kind: BubbleKind,
+  dialogueLanguage?: string | null,
+): string {
+  return resolveFontFamily(fontFamily, kind, dialogueLanguage).stack;
 }
 
 /** The woff2 file for a family at the nearest available weight (>=700 → 700, else 400). */
