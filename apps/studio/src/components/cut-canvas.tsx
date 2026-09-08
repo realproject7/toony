@@ -27,6 +27,12 @@ export interface CutCanvasProps {
   /** Owning episode id, used to link to the focused cut editor (#8). */
   episodeId: string;
   /**
+   * The project's declared dialogue language (`languages.dialogueLanguage`). It
+   * picks the default dialogue face (#213); the export raster reads the same
+   * field, so the preview and the exported page land on one face.
+   */
+  dialogueLanguage: string;
+  /**
    * Distraction-free reader mode (#49): drop all edit chrome — the cut-id chip
    * header, the "Edit lettering" link, and the secondary bubble text list — so
    * only the rendered artwork + on-art bubbles remain, exactly as a reader sees
@@ -36,7 +42,15 @@ export interface CutCanvasProps {
   readOnly?: boolean;
 }
 
-export function CutCanvas({ cut, bubbles, art, workId, episodeId, readOnly }: CutCanvasProps) {
+export function CutCanvas({
+  cut,
+  bubbles,
+  art,
+  workId,
+  episodeId,
+  dialogueLanguage,
+  readOnly,
+}: CutCanvasProps) {
   const hasArt = Boolean(art.src);
   const aspectRatio = `${art.width} / ${art.height}`;
   // Gutter placement (#98): reserve the strip(s) — the artwork occupies only the
@@ -93,7 +107,7 @@ export function CutCanvas({ cut, bubbles, art, workId, episodeId, readOnly }: Cu
           />
           {/* Bubble layout needs a browser text measurer (#149); that runs in the
               hydrated client child, keeping the rest of this preview server-side. */}
-          <CutOverlay bubbles={bubbles} art={art} />
+          <CutOverlay bubbles={bubbles} art={art} dialogueLanguage={dialogueLanguage} />
         </div>
       ) : (
         <div className="cut-canvas">

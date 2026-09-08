@@ -94,12 +94,28 @@ function Bubble({ plan }: { plan: BubbleRender }) {
  * pixel dimensions, using a real browser text measurer (#149) so the preview
  * wraps/auto-fits identically to the export raster. Renders nothing when there
  * are no bubbles to draw.
+ *
+ * `dialogueLanguage` is the project's declared dialogue language, which picks the
+ * default dialogue face (#213). The export raster passes the same value into the
+ * same `layoutCut`, so what is read here is what is exported.
  */
-export function CutOverlay({ bubbles, art }: { bubbles: LetteringOverlay[]; art: CutArt }) {
+export function CutOverlay({
+  bubbles,
+  art,
+  dialogueLanguage,
+}: {
+  bubbles: LetteringOverlay[];
+  art: CutArt;
+  dialogueLanguage: string;
+}) {
   const measure = useBrowserMeasure();
   const plans = useMemo(
-    () => layoutCut(bubbles, art.width, art.height, measure ? { measure } : undefined),
-    [bubbles, art.width, art.height, measure],
+    () =>
+      layoutCut(bubbles, art.width, art.height, {
+        ...(measure ? { measure } : {}),
+        dialogueLanguage,
+      }),
+    [bubbles, art.width, art.height, measure, dialogueLanguage],
   );
   if (plans.length === 0) return null;
   return (

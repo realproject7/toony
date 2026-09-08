@@ -142,6 +142,15 @@ function drawBubble(ctx: SKRSContext2D, b: BubbleRender): void {
   ctx.letterSpacing = "0px";
 }
 
+export interface ComposeCutOptions {
+  /**
+   * The project's declared dialogue language (`webtoon.json` →
+   * `languages.dialogueLanguage`). Handed straight to the shared layout so the
+   * raster picks the same DEFAULT dialogue face the studio preview shows (#213).
+   */
+  dialogueLanguage?: string;
+}
+
 /**
  * Composite a cut at `targetWidth`: its image (scaled to width) with all its
  * lettering overlays drawn on top via the shared renderer. When the cut has no
@@ -152,6 +161,7 @@ export async function composeCut(
   overlays: LetteringOverlay[],
   imageBytes: Uint8Array | null,
   targetWidth: number,
+  options: ComposeCutOptions = {},
 ): Promise<ComposedCut> {
   const width = Math.max(1, Math.round(targetWidth));
   let height: number;
@@ -188,7 +198,10 @@ export async function composeCut(
   }
 
   const measure = createCanvasMeasure();
-  for (const bubble of layoutCut(overlays, width, height, { measure })) {
+  for (const bubble of layoutCut(overlays, width, height, {
+    measure,
+    dialogueLanguage: options.dialogueLanguage,
+  })) {
     drawBubble(ctx, bubble);
   }
   return { canvas, width, height };

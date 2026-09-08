@@ -55,6 +55,7 @@ export default async function CutEditorPage({
       cutId={cut.id}
       art={art}
       initialBubbles={bubbles}
+      dialogueLanguage={loaded.project.webtoon.languages.dialogueLanguage}
     />
   );
 }

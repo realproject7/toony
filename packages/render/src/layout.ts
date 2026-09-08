@@ -178,6 +178,13 @@ export interface LayoutOptions {
    * for an in-panel bubble (back-compat).
    */
   cutArt?: Rect;
+  /**
+   * The project's declared dialogue language (`webtoon.json` →
+   * `languages.dialogueLanguage`), which picks the DEFAULT dialogue face (#213).
+   * An overlay's explicit `fontFamily` still wins. Absent → the per-kind baseline,
+   * so a caller with no project in hand lays out exactly as it did before.
+   */
+  dialogueLanguage?: string;
 }
 
 /** Base stroke width derived from render height when not supplied. */
@@ -271,7 +278,10 @@ export function layoutBubble(
   // default when absent/unknown, via the shared @toony/fonts registry. Both the
   // family id and its CSS stack are exposed so SVG sets `font-family` and export
   // selects the matching registered canvas family — one resolution, no drift.
-  const family = resolveFontFamily(effectiveFamilyId, kind);
+  // The DEFAULT follows the project's declared dialogue language (#213); every
+  // consumer resolves here, so the preview and the raster cannot pick different
+  // faces for the same project.
+  const family = resolveFontFamily(effectiveFamilyId, kind, opts.dialogueLanguage);
   const fontFamily: FontFamilyId = family.id;
   const fontStack = family.stack;
   const textAlign: TextAlign = overlay.textAlign ?? LETTERING_STYLE_DEFAULTS.textAlign;

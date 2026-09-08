@@ -57,6 +57,12 @@ export interface CutEditorProps {
   cutId: string;
   art: CutArt;
   initialBubbles: LetteringOverlay[];
+  /**
+   * The project's declared dialogue language (`languages.dialogueLanguage`). It
+   * picks the default dialogue face (#213), so the editor lays out with the same
+   * face the preview and the export raster resolve.
+   */
+  dialogueLanguage: string;
 }
 
 type DragMode =
@@ -72,6 +78,7 @@ export function CutEditor({
   cutId,
   art,
   initialBubbles,
+  dialogueLanguage,
 }: CutEditorProps) {
   const [bubbles, setBubbles] = useState<LetteringOverlay[]>(initialBubbles);
   const [selectedId, setSelectedId] = useState<string | null>(initialBubbles[0]?.id ?? null);
@@ -96,8 +103,12 @@ export function CutEditor({
   // then re-layouts). This IS a client component, so no boundary is needed here.
   const measure = useBrowserMeasure();
   const plans = useMemo(
-    () => layoutCut(bubbles, width, height, measure ? { measure } : undefined),
-    [bubbles, width, height, measure],
+    () =>
+      layoutCut(bubbles, width, height, {
+        ...(measure ? { measure } : {}),
+        dialogueLanguage,
+      }),
+    [bubbles, width, height, measure, dialogueLanguage],
   );
   const overflowCount = plans.filter((plan) => plan.overflow).length;
 
@@ -762,6 +773,7 @@ export function CutEditor({
               onSendToBack={sendToBack}
               onNudge={nudgeSelected}
               projectPalette={projectPalette}
+              dialogueLanguage={dialogueLanguage}
             />
           ) : (
             <div className="inspector-empty">

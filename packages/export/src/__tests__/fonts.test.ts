@@ -86,6 +86,94 @@ test("different curated families produce visibly different rasters (selected fac
   assert.ok(diff > 50, `expected the two faces to differ; differing pixels = ${diff}`);
 });
 
+// --- Dialogue language (#213) ------------------------------------------------
+// The raster must draw the default dialogue face the project's declared language
+// picks, not a fixed one. These compare produced PIXELS, so they only pass if the
+// language actually reaches the face the canvas draws with.
+
+/** A speech bubble with NO pinned family, so it resolves through the default. */
+function defaultSpeechOverlay(): LetteringOverlay {
+  return {
+    id: "ov-speech-default",
+    cutId: "cut-1",
+    speaker: "",
+    kind: "speech",
+    text: "Hello there",
+    font: "body",
+    fill: "#ffffff",
+    opacity: 1,
+    border: null,
+    tail: null,
+    geometry: { x: 0.1, y: 0.3, width: 0.8, height: 0.3 },
+    overflow: false,
+    reviewStatus: "draft",
+    fontSize: 28,
+  };
+}
+
+/** Every pixel of a composed raster, for exact before/after comparison. */
+function pixels(composed: ComposedCut): Uint8ClampedArray {
+  const ctx = composed.canvas.getContext("2d");
+  return ctx.getImageData(0, 0, composed.width, composed.height).data;
+}
+
+function differingPixels(a: ComposedCut, b: ComposedCut): number {
+  const pa = pixels(a);
+  const pb = pixels(b);
+  assert.equal(pa.length, pb.length);
+  let diff = 0;
+  for (let i = 0; i < pa.length; i += 4) {
+    if (pa[i] !== pb[i] || pa[i + 1] !== pb[i + 1] || pa[i + 2] !== pb[i + 2]) diff++;
+  }
+  return diff;
+}
+
+test("a declared dialogue language draws the raster its script's face draws", async () => {
+  registerToonyFonts();
+  const overlay = defaultSpeechOverlay();
+  // Pinning the family explicitly is the reference: declaring the language must
+  // land on exactly those pixels, which it can only do via the same face.
+  const en = await composeCut([overlay], null, 400, { dialogueLanguage: "en" });
+  const pinnedLatin = await composeCut([{ ...overlay, fontFamily: "nunito" }], null, 400);
+  assert.equal(differingPixels(en, pinnedLatin), 0, "en must draw the Latin sans");
+
+  const ko = await composeCut([overlay], null, 400, { dialogueLanguage: "ko" });
+  const pinnedKorean = await composeCut([{ ...overlay, fontFamily: "noto-sans-kr" }], null, 400);
+  assert.equal(differingPixels(ko, pinnedKorean), 0, "ko must draw the Korean sans");
+
+  // If the language never reached the canvas, both rasters would be identical.
+  assert.ok(differingPixels(en, ko) > 50, "en and ko must not draw the same face");
+});
+
+test("declaring no dialogue language draws what the export drew before #213", async () => {
+  registerToonyFonts();
+  const overlay = defaultSpeechOverlay();
+  const none = await composeCut([overlay], null, 400);
+  const baseline = await composeCut([{ ...overlay, fontFamily: "noto-sans-kr" }], null, 400);
+  assert.equal(differingPixels(none, baseline), 0, "the no-language default must be unchanged");
+});
+
+test("a pinned family draws the same raster whatever language is declared", async () => {
+  registerToonyFonts();
+  const overlay = { ...defaultSpeechOverlay(), fontFamily: "gaegu" as const };
+  const en = await composeCut([overlay], null, 400, { dialogueLanguage: "en" });
+  const ko = await composeCut([overlay], null, 400, { dialogueLanguage: "ko" });
+  const none = await composeCut([overlay], null, 400);
+  assert.equal(differingPixels(en, none), 0, "en moved a pinned face");
+  assert.equal(differingPixels(ko, none), 0, "ko moved a pinned face");
+});
+
+test("the canvas family name follows the language-resolved face (read equals export)", () => {
+  // The studio SVG sets `plan.fontStack`; the raster puts `canvasFontFamily` of
+  // `plan.fontFamily` in `ctx.font`. Both start from one `resolveFontFamily`, so
+  // the name the canvas uses must be the name the resolved family carries.
+  for (const language of ["en", "ko", "ja"]) {
+    const family = resolveFontFamily(undefined, "speech", language);
+    assert.equal(canvasFontFamily(family.id, 400, "speech"), family.name);
+    assert.ok(family.stack.includes(`"${family.name}"`), `${language} stack must name the face`);
+  }
+});
+
 test("a Korean line renders the CJK subset face (non-empty ink, not a blank fallback)", async () => {
   // Korean text outside the Latin-only faces' coverage; the curated KO face must
   // supply the glyphs (otherwise the box would be empty / tofu only).
