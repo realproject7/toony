@@ -4,10 +4,11 @@
 // prompt produces an output image, fetches the bytes via /view, and returns them
 // as a ProviderResult the existing ingestion path consumes.
 //
-// `transmitsRemotely` is true: the provider sends prompt text to the configured
-// ComfyUI server. For a localhost install that never leaves the machine, but the
-// flag stays true so callers gate any non-local endpoint behind an explicit
-// opt-in (Toony does not inspect the URL to relax this).
+// `transmitsRemotely` is derived from the configured endpoint, per the
+// ImageProvider contract: false when the endpoint is loopback (the prompt never
+// leaves the machine), true for anything else so callers gate it behind an
+// explicit opt-in. Anything that is not provably loopback counts as remote —
+// a LAN address is still another machine.
 //
 // Toony imposes NO content policy here; whatever the operator's ComfyUI install
 // produces is ingested as-is.
@@ -66,11 +67,42 @@ function intOption(options: ImageRequest["options"], key: string, fallback: numb
   return fallback;
 }
 
+/**
+ * Whether `endpoint` addresses this machine, so prompt content sent to it never
+ * leaves. Only provable loopback counts: an unparseable URL, a LAN address, or
+ * a wildcard bind like `0.0.0.0` all read as remote, because the safe failure
+ * for a privacy gate is to demand the opt-in.
+ */
+export function isLoopbackEndpoint(endpoint: string): boolean {
+  let host: string;
+  try {
+    host = new URL(endpoint).hostname;
+  } catch {
+    return false;
+  }
+  // URL keeps IPv6 hosts in brackets.
+  const bare = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+  if (bare === "localhost" || bare === "::1") return true;
+  // The whole 127.0.0.0/8 block is loopback, not just 127.0.0.1.
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(bare);
+  if (!v4) return false;
+  const octets = v4.slice(1).map(Number);
+  if (octets.some((o) => o > 255)) return false;
+  return octets[0] === 127;
+}
+
 export class ComfyUIProvider implements ImageProvider {
   readonly id = "comfyui";
   readonly kind = "comfyui" as const;
-  // Sends prompt content to the configured server; gate non-local use upstream.
-  readonly transmitsRemotely = true;
+
+  /**
+   * True when prompt content would leave this machine. A loopback endpoint keeps
+   * everything local, so requiring `--allow-remote` for it would train users to
+   * pass the remote opt-in by reflex — the opposite of what the gate is for.
+   */
+  get transmitsRemotely(): boolean {
+    return !isLoopbackEndpoint(this.config.url);
+  }
 
   private readonly config: ComfyUIConfig;
   private readonly fetch: FetchLike;

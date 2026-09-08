@@ -43,11 +43,16 @@ function bytesResponse(bytes: Uint8Array): Response {
   return new Response(bytes, { status: 200, headers: { "content-type": "image/png" } });
 }
 
-test("provider metadata reflects a remote-capable comfyui source", () => {
+test("provider metadata identifies the comfyui source", () => {
   const provider = new ComfyUIProvider(testConfig(), { fetch: async () => new Response() });
   assert.equal(provider.id, "comfyui");
   assert.equal(provider.kind, "comfyui");
-  assert.equal(provider.transmitsRemotely, true);
+  // This test used to assert `transmitsRemotely === true` while testConfig()
+  // points at 127.0.0.1, so it pinned the #180 defect rather than the contract:
+  // ImageProvider documents the flag as "false for local sources
+  // (manual/local/ComfyUI-on-localhost)". Remoteness is now derived from the
+  // endpoint and is covered by the two tests at the end of this file.
+  assert.equal(provider.transmitsRemotely, false, "testConfig() is loopback");
 });
 
 test("produce submits, polls until complete, fetches bytes, and returns a result", async () => {
@@ -164,4 +169,44 @@ test("produce times out when no image appears in time", async () => {
       return e instanceof ProviderError && e.code === "comfyui.timeout";
     },
   );
+});
+
+// #180: the gate must reflect where content actually goes. The ImageProvider
+// contract already said "false for local sources (manual/local/ComfyUI-on-
+// localhost)"; the implementation ignored the endpoint and hardcoded true, so a
+// purely local generate demanded the remote opt-in.
+
+test("a loopback endpoint does not transmit remotely (#180)", () => {
+  for (const url of [
+    "http://127.0.0.1:8188",
+    "http://localhost:8188",
+    "http://[::1]:8188",
+    // The whole 127.0.0.0/8 block is loopback, not just .0.1.
+    "http://127.4.5.6:8188",
+    "https://localhost:8443",
+  ]) {
+    const provider = new ComfyUIProvider({ ...testConfig(), url });
+    assert.equal(provider.transmitsRemotely, false, `${url} should be local`);
+  }
+});
+
+test("a non-loopback endpoint still requires the remote opt-in (#180)", () => {
+  for (const url of [
+    "http://192.168.1.50:8188",
+    "http://10.0.0.7:8188",
+    "https://comfy.example.com",
+    // A wildcard bind is not provably this machine, so it reads as remote: the
+    // safe failure for a privacy gate is to demand the opt-in.
+    "http://0.0.0.0:8188",
+    // 127 must be the FIRST octet; a look-alike elsewhere is a real host.
+    "http://10.127.0.1:8188",
+  ]) {
+    const provider = new ComfyUIProvider({ ...testConfig(), url });
+    assert.equal(provider.transmitsRemotely, true, `${url} should be remote`);
+  }
+});
+
+test("an unparseable endpoint reads as remote rather than local (#180)", () => {
+  const provider = new ComfyUIProvider({ ...testConfig(), url: "not a url" });
+  assert.equal(provider.transmitsRemotely, true);
 });
