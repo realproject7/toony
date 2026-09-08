@@ -215,9 +215,11 @@ better webtoon, headlessly, with the lints keeping it honest.
 
 ## Reproduce
 
-The committed seed lives at [`examples/dead-air`](../examples/dead-air) with
-`image: null` on every cut and the lockstrings/prompts/lettering/transitions in
-place; artwork regenerates from the prompts through any configured provider:
+The committed seed lives at [`examples/dead-air`](../examples/dead-air) with the
+lockstrings/prompts/lettering/transitions in place. When this v3 record was
+written every cut was `image: null`; the v4 real-art pass below has since filled
+them in. Either way the artwork regenerates from the prompts through any
+configured provider, overwriting what is committed:
 
 ```bash
 cd examples/dead-air
