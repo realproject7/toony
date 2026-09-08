@@ -6,8 +6,12 @@
 // resolved by @toony/render (void #0a0a0a, the text cards #15110d, color_field
 // from the transition's own color) and the shared panel text color #f3ece0.
 //
-// Heights are the authored gutterHeight in project pixels, scaled to the reading
-// column the same way the studio and the export scale a panel to its width.
+// Heights are the authored gutterHeight in project pixels, rescaled to this
+// reading column. Note this is NOT what the renderer does: `resolveBandHeight`
+// treats gutterHeight as an absolute pixel height with a width-derived floor, so
+// the studio draws tr-001 at its full 150px whatever the column width. What this
+// strip reproduces is the EXPORT raster composed at project width and then shrunk
+// to fit, which is the right model for a fixed-width showcase image.
 
 const PANEL_TEXT = "#f3ece0";
 const CARD_FILL = "#15110d";
@@ -15,24 +19,40 @@ const PROJECT_WIDTH = 832;
 
 /** The episode sequence: cuts by file, transitions by resolved appearance. */
 const SEQUENCE = [
-  { kind: "cut", src: "/episode/cut-001.jpg", alt: "Late-night radio booth, rain on the window" },
+  {
+    kind: "cut",
+    src: "/episode/cut-001.jpg",
+    alt: "A dark radio booth at night, rain streaking the window, an empty chair at the console",
+  },
   { kind: "panel", height: 150, fill: "#101618", text: "2:14 AM — LIVE" },
-  { kind: "cut", src: "/episode/cut-002.jpg", alt: "Wren leaning toward the broadcast microphone" },
+  {
+    kind: "cut",
+    src: "/episode/cut-002.jpg",
+    alt: "Wren at the broadcast microphone in the dark booth, chin resting on her hand",
+  },
   { kind: "panel", height: 200, fill: "#16222b", text: null },
-  { kind: "cut", src: "/episode/cut-003.jpg", alt: "A call line blinking red on the mixing desk" },
+  {
+    kind: "cut",
+    src: "/episode/cut-003.jpg",
+    alt: "A glowing red call-line button on the mixing desk, shallow focus",
+  },
   { kind: "panel", height: 220, fill: CARD_FILL, text: "One unknown caller. No name. No number." },
-  { kind: "cut", src: "/episode/cut-004.jpg", alt: "A hand hovering over the glowing line button" },
+  {
+    kind: "cut",
+    src: "/episode/cut-004.jpg",
+    alt: "Wren at the console under a warm lamp, leaning on her hand",
+  },
   { kind: "panel", height: 180, fill: CARD_FILL, text: "...is someone there?" },
   {
     kind: "cut",
     src: "/episode/cut-005.jpg",
-    alt: "The caller, a shadowed figure in a hooded raincoat",
+    alt: "The Caller: a hooded figure in shadow, face hidden, in near-monochrome",
   },
   { kind: "panel", height: 300, fill: "#0a0a0a", text: null },
   {
     kind: "cut",
     src: "/episode/cut-006.jpg",
-    alt: "Wren's face in close-up, the colour draining out",
+    alt: "A close-up of Wren, wide-eyed and sweating in cold blue light",
   },
   {
     kind: "panel",
@@ -41,7 +61,11 @@ const SEQUENCE = [
     text: null,
     fade: { color: "#000000", length: 160 },
   },
-  { kind: "cut", src: "/episode/cut-007.jpg", alt: "The booth in blackout, the ON AIR sign dead" },
+  {
+    kind: "cut",
+    src: "/episode/cut-007.jpg",
+    alt: "The booth in near-darkness, lit red, a figure silhouetted at the console",
+  },
 ];
 
 function buildPanel(item, columnWidth) {

@@ -17,6 +17,11 @@
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://toony.dev" />
+    <meta property="og:image" content="https://toony.dev/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="canonical" href="https://toony.dev/" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -61,7 +66,8 @@
         </div>
       </section>
 
-      <section class="strip" aria-label="What Toony is">
+      <section class="strip" aria-labelledby="strip-heading">
+        <h2 id="strip-heading" class="sr-only">What Toony is</h2>
         <div class="strip-item">
           <h3>Webtoon-only</h3>
           <p>
@@ -99,8 +105,9 @@
               <li>Judge whether a page reads well</li>
             </ul>
             <p class="card-note">
-              The studio editor deliberately exposes only these. Everything else
-              would be you doing an agent's job.
+              The cut editor deliberately exposes only these. The studio also
+              lets you browse the work, configure your image provider, and run an
+              export, but it will not put you back in the prompt-writing seat.
             </p>
           </article>
           <article class="card card-agent">
@@ -122,9 +129,11 @@
       <section id="episode" class="section section-sunken">
         <h2>An episode, start to finish</h2>
         <p class="section-lede">
-          "Dead Air" is the example project in the repository. Every panel below
-          came out of Toony: art generated through a local provider, lettering
-          placed in the studio, transitions rendered as real panels.
+          "Dead Air" is the example project in the repository. The cut art below
+          was generated through a local provider by Toony's own CLI, and the dark
+          panels between the cuts are transitions, rendered from the episode's
+          real data. Lettering is left off here so the panel rhythm is easy to
+          read; the episode's bubbles and captions live in the project file.
         </p>
         <div class="reader" id="reader"></div>
         <p class="reader-note">
@@ -149,6 +158,11 @@
 cd toony
 pnpm install
 pnpm build</code></pre>
+              <p class="step-note">
+                Nothing is published to a registry yet, so the CLI runs straight
+                from the build output. Give it a short name for the steps below:
+              </p>
+              <pre><code>alias toony="node $PWD/packages/cli/dist/bin.js"</code></pre>
             </div>
           </div>
           <div class="step">
