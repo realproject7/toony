@@ -33,10 +33,13 @@ letting that pass for craft. Measure an episode after its art is in.
 
 ## What is measured
 
-Every run length is a share of **one screen**, so the numbers do not change when
-you render wider. A screen is `width × screenAspect`, and `--screen-aspect`
-(default `2`) is the reading viewport the measurement assumes. Two measurements
-are only comparable at the same aspect, which is why a band file can pin its own.
+Every run length is a share of the **render width**, so the numbers do not change
+when you render wider. A screen is `width × screenAspect`, and `--screen-aspect`
+(default `2`) is the reading viewport the measurement assumes. Only
+`panelsPerScreen` and `gutterIntrusionsPerScreen` read it, and they scale
+linearly with it: double the aspect and both counts double. Every other metric
+measures the same at every aspect, so a band file pins an aspect to give its two
+count ranges a meaning, not to make the rest comparable.
 
 | Metric | What it reads | The knob it grades |
 |---|---|---|
@@ -57,13 +60,18 @@ are only comparable at the same aspect, which is why a band file can pin its own
 A row is **flat** when its luminance barely varies across the width — it carries
 no art, so it reads as inter-panel space. Two floors then clean up the runs:
 
-- a flat run shorter than **0.4% of a screen** is a seam inside the art, not a
+- a flat run shorter than **1.6% of the width** is a seam inside the art, not a
   reading pause, so it is absorbed into the art around it;
-- a non-flat run shorter than **4% of a screen** is not a cut. It is something
+- a non-flat run shorter than **16% of the width** is not a cut. It is something
   floating IN the gutter — a bubble or an SFX over the empty space between cuts.
   It is folded back into the gutter for rhythm and counted as
   `gutterIntrusionsPerScreen` instead, so a run of floating bubbles cannot
   masquerade as a burst of tiny panels.
+
+Both floors are shares of the width, never of the screen. They decide which runs
+exist, and every metric is read off the surviving runs, so keying them to the
+screen quietly moved all of the metrics above with `--screen-aspect` even after
+their own units were fixed.
 
 Colour is sampled from the panel **interior**: each sampled row's flat margins
 are trimmed before its pixels count. That is not a detail. Sampling whole rows

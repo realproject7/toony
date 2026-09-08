@@ -51,25 +51,40 @@ import { stitchEpisode } from "./targets.js";
  */
 export const FLAT_ROW_STDDEV_MAX = 12;
 
-/** Flat runs shorter than this share of a screen are seams between stacked art. */
-export const GUTTER_MIN_RUN_FRACTION = 0.004;
+/**
+ * Flat runs shorter than this share of the render WIDTH are seams between
+ * stacked art, not reading pauses.
+ *
+ * Width, never the screen height. This floor decides which runs exist, and every
+ * metric is computed from the surviving run set, so keying it to the screen made
+ * even the width-normalized metrics move with `--screen-aspect`. The value is
+ * the old screen-relative one times four, so a 4:1 screen classifies exactly as
+ * it did before, and 4 is the aspect every band derived from the reference
+ * captures declares. The reference analyzer uses the same width-relative floor
+ * at the same value, and the two sides have to classify identically or a band
+ * cannot be compared to a render.
+ */
+export const GUTTER_MIN_RUN_FRACTION = 0.016;
 
 /**
- * A non-flat run shorter than this share of a screen is not a panel: it is
- * something floating IN the gutter — a bubble or an SFX overlapping the empty
+ * A non-flat run shorter than this share of the render width is not a panel: it
+ * is something floating IN the gutter — a bubble or an SFX overlapping the empty
  * space between cuts, which Toony expresses as `placement: gutter`. Counting
  * those as panels shredded the reference's thriller numbers (panels per frame
  * read 6.9 and the median panel height came out a third of its true value), so
  * they are folded back into the gutter for rhythm and counted on their own.
+ *
+ * Width-relative, and rescaled by four, for the reason given on the gutter floor
+ * above.
  */
-export const PANEL_MIN_RUN_FRACTION = 0.04;
+export const PANEL_MIN_RUN_FRACTION = 0.16;
 
 /**
- * Height of one reading screen as a multiple of the render width. Run lengths
- * are reported as a share of a screen — the unit the reference analyzer uses for
- * its per-capture numbers — so this is the viewport the measurement assumes. A
- * band measured at another aspect is not comparable, which is why a band file may
- * pin its own.
+ * Height of one reading screen as a multiple of the render width. Only
+ * `panelsPerScreen` and `gutterIntrusionsPerScreen` read it, and they scale
+ * linearly with it. Every other metric is a share of the width and measures the
+ * same at every aspect, so two bands taken at different aspects are still
+ * comparable on the nine metrics that are pure geometry and colour.
  */
 export const DEFAULT_SCREEN_ASPECT = 2;
 
@@ -103,16 +118,16 @@ export const CRAFT_METRIC_NAMES = [
 export type CraftMetricName = (typeof CRAFT_METRIC_NAMES)[number];
 
 /**
- * The measured craft signals. Run lengths are a share of one screen; `valueMean`
+ * The measured craft signals. Run lengths are a share of the width; `valueMean`
  * and `valueSpread` are 0..255 luminance; `saturationMean` is 0..1; `hueBias` is
  * degrees, or null when the sampled art carries no colour at all.
  */
 export interface CraftMetrics {
   /** Share of episode height that is inter-panel space. */
   gutterRatio: number;
-  /** Median gutter run, as a share of one screen. */
+  /** Median gutter run, as a share of the width. */
   gutterMedian: number;
-  /** Median panel run, as a share of one screen. */
+  /** Median panel run, as a share of the width. */
   panelHeightMedian: number;
   /** Standard deviation of the panel runs, same unit. */
   panelHeightSpread: number;
@@ -336,8 +351,11 @@ export async function measureEpisodeCraft(
   const { canvas, width, height, bundle } = stitched;
   const ctx = canvas.getContext("2d");
   const screenHeight = Math.max(1, Math.round(width * screenAspect));
-  const gutterMinRun = Math.max(2, Math.floor(screenHeight * GUTTER_MIN_RUN_FRACTION));
-  const panelMinRun = Math.max(3, Math.floor(screenHeight * PANEL_MIN_RUN_FRACTION));
+  // Both floors are shares of the width. Nothing that decides which runs exist
+  // may read screenHeight, or the screen definition leaks into every metric
+  // computed from the run set.
+  const gutterMinRun = Math.max(2, Math.floor(width * GUTTER_MIN_RUN_FRACTION));
+  const panelMinRun = Math.max(3, Math.floor(width * PANEL_MIN_RUN_FRACTION));
 
   const stats = rowStats(ctx, width, height);
   const flags = stats.map((row) => row.stddev < FLAT_ROW_STDDEV_MAX);

@@ -19,6 +19,7 @@ import {
   CRAFT_METRIC_NAMES,
   type CraftBand,
   type CraftMeasurement,
+  type CraftMetricName,
   compareToCraftBand,
   measureEpisodeCraft,
   validateCraftBandValue,
@@ -99,26 +100,74 @@ test("the same episode measured twice is identical", async () => {
   assert.equal(JSON.stringify(again), JSON.stringify(restless));
 });
 
-test("run lengths are a share of WIDTH, so the aspect cannot move them", async () => {
-  const half = await measureEpisodeCraft(join(workdir, "restless"), "ep-001", {
-    width: WIDTH,
-    screenAspect: 1,
-  });
-  assert.equal(half.screenHeight, restless.screenHeight / 2);
+/** The only two metrics allowed to read the screen definition. */
+const SCREEN_DEPENDENT: readonly CraftMetricName[] = [
+  "panelsPerScreen",
+  "gutterIntrusionsPerScreen",
+];
 
-  // Panel and gutter heights are multiples of column width, which is the
-  // invariant of a vertical-scroll page. This test previously asserted the
-  // opposite — that halving the screen doubles them — which pinned a real
-  // defect: the same page reported panelHeightMedian 0.28 at aspect 2 and 0.14
-  // at aspect 4, so neither figure could be compared to a reference band, and a
-  // style pack graded against one was being graded against a moving unit.
-  assert.equal(half.metrics.panelHeightMedian, restless.metrics.panelHeightMedian);
-  assert.equal(half.metrics.gutterMedian, restless.metrics.gutterMedian);
-  assert.ok(Math.abs(half.metrics.gutterRatio - restless.metrics.gutterRatio) < 0.02);
+/** The run set behind a per-screen count, recovered from the reported figure. */
+function runCount(measured: CraftMeasurement, name: CraftMetricName): number {
+  return Math.round(((measured.metrics[name] as number) * measured.height) / measured.screenHeight);
+}
 
-  // Only the per-screen COUNTS may depend on the screen definition: a shorter
-  // screen genuinely holds fewer panels.
-  assert.ok(half.metrics.panelsPerScreen < restless.metrics.panelsPerScreen * 0.6);
+test("only the two per-screen counts move with the aspect, and they move linearly", async () => {
+  const sweep: CraftMeasurement[] = [];
+  for (const screenAspect of [1, 2, 4, 8]) {
+    sweep.push(
+      await measureEpisodeCraft(join(workdir, "restless"), "ep-001", {
+        width: WIDTH,
+        screenAspect,
+      }),
+    );
+  }
+  const first = sweep[0] as CraftMeasurement;
+
+  // Every metric not on the list above is asserted, so a metric added later is
+  // invariant unless someone deliberately says otherwise.
+  //
+  // Two rounds of this defect were caught by measuring the same page twice.
+  // #205 divided run lengths by the screen height, so panelHeightMedian read
+  // 0.28 at aspect 2 and 0.14 at aspect 4. #214 found the run-detection floors
+  // still keyed to the screen: they decide which runs exist, so all nine of
+  // these moved anyway, and on examples/dead-air gutterRatio ran 0.1660, 0.1603,
+  // 0.1461 and gutterMedian jumped 17% between aspect 2 and aspect 8.
+  const invariant = (measured: CraftMeasurement) =>
+    CRAFT_METRIC_NAMES.filter((name) => !SCREEN_DEPENDENT.includes(name)).map(
+      (name) => [name, measured.metrics[name]] as const,
+    );
+  for (const measured of sweep) {
+    assert.deepEqual(invariant(measured), invariant(first), `aspect ${measured.screenAspect}`);
+  }
+
+  // A per-screen count is one run set over a different divisor, so the run set
+  // must not move either. Recovered from the same page before #214, the
+  // intrusion count read 8, then 5, then 4 as the aspect doubled.
+  for (const measured of sweep) {
+    for (const name of SCREEN_DEPENDENT) {
+      assert.equal(
+        runCount(measured, name),
+        runCount(first, name),
+        `${name} at aspect ${measured.screenAspect}`,
+      );
+    }
+  }
+
+  // Doubling the screen doubles the count. Reported figures carry two decimals,
+  // which is the whole of the slack allowed here.
+  for (let i = 1; i < sweep.length; i++) {
+    const lower = sweep[i - 1] as CraftMeasurement;
+    const upper = sweep[i] as CraftMeasurement;
+    assert.equal(upper.screenHeight, lower.screenHeight * 2);
+    for (const name of SCREEN_DEPENDENT) {
+      const expected = (lower.metrics[name] as number) * 2;
+      const actual = upper.metrics[name] as number;
+      assert.ok(
+        Math.abs(actual - expected) <= 0.015,
+        `${name} ${lower.metrics[name]} at aspect ${lower.screenAspect} vs ${actual} at ${upper.screenAspect}`,
+      );
+    }
+  }
 });
 
 test("an episode with no art measures, and says how much art is missing", async () => {
