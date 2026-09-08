@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "Toony — agent CLI with a bundled Studio web app. `toony` runs headless commands; `toony studio` launches the local web studio from a single install.",
-  "license": "UNLICENSED",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "bin": {
     "toony": "./dist/bin.js"
