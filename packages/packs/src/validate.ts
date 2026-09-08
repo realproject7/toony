@@ -31,6 +31,7 @@ import {
 import {
   PACK_FORMAT_VERSION,
   PACK_PRESET_FORMATS,
+  type PackCraftBandRef,
   type PackExportPreset,
   type PackGenreRef,
   type PackManifest,
@@ -47,9 +48,11 @@ const MANIFEST_KEYS = [
   "workflows",
   "genres",
   "exportPresets",
+  "craftBands",
 ] as const;
 const WORKFLOW_KEYS = ["name", "file"] as const;
 const GENRE_KEYS = ["id", "title", "file"] as const;
+const CRAFT_BAND_KEYS = ["id", "file"] as const;
 const PRESET_KEYS = ["id", "target", "options"] as const;
 const PRESET_OPTION_KEYS = ["width", "format", "quality"] as const;
 
@@ -197,6 +200,40 @@ function validateGenres(value: unknown, path: string, c: IssueCollector): void {
   }
 }
 
+function validateCraftBands(value: unknown, path: string, c: IssueCollector): void {
+  if (!isArray(value)) {
+    c.add(path, "pack.craft-bands.type", "craftBands must be an array.");
+    return;
+  }
+  const ids = new Set<string>();
+  for (let i = 0; i < value.length; i++) {
+    const entry = value[i];
+    const entryPath = joinPath(path, i);
+    if (!isPlainObject(entry)) {
+      c.add(entryPath, "pack.craft-band.type", "craft band entry must be an object.");
+      continue;
+    }
+    allowlistKeys(entry, CRAFT_BAND_KEYS, entryPath, "a craft band entry", c);
+    if (!isNonEmptyString(entry.id)) {
+      c.add(
+        joinPath(entryPath, "id"),
+        "pack.craft-band.id",
+        "craft band id must be a non-empty string.",
+      );
+    } else {
+      checkDuplicate(
+        ids,
+        entry.id,
+        joinPath(entryPath, "id"),
+        "pack.craft-band.duplicate",
+        "craft band id",
+        c,
+      );
+    }
+    validateFileRef(entry.file, joinPath(entryPath, "file"), "craft band", c);
+  }
+}
+
 function validateExportPresets(value: unknown, path: string, c: IssueCollector): void {
   if (!isArray(value)) {
     c.add(path, "pack.export-presets.type", "exportPresets must be an array.");
@@ -303,6 +340,7 @@ export function validatePackManifest(value: unknown): ValidationResult {
   if (value.exportPresets !== undefined) {
     validateExportPresets(value.exportPresets, "pack.exportPresets", c);
   }
+  if (value.craftBands !== undefined) validateCraftBands(value.craftBands, "pack.craftBands", c);
 
   return c.result();
 }
@@ -323,6 +361,7 @@ export function asPackManifest(value: Record<string, unknown>): PackManifest {
     workflows: (value.workflows as PackWorkflowRef[] | undefined) ?? [],
     genres: (value.genres as PackGenreRef[] | undefined) ?? [],
     exportPresets: presets.map((preset) => ({ ...preset, options: preset.options ?? {} })),
+    craftBands: (value.craftBands as PackCraftBandRef[] | undefined) ?? [],
   };
 }
 

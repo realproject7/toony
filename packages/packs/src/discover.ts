@@ -62,6 +62,8 @@ export interface PackContent {
   workflows: ReadonlyMap<string, string>;
   genres: readonly PackGenre[];
   exportPresets: readonly PackExportPreset[];
+  /** Craft bands (#196): band id → absolute JSON file path. */
+  craftBands: ReadonlyMap<string, string>;
 }
 
 /** Discovery result: the valid packs, their merged content, and any problems. */
@@ -76,6 +78,7 @@ export const EMPTY_PACK_CONTENT: PackContent = {
   workflows: new Map(),
   genres: [],
   exportPresets: [],
+  craftBands: new Map(),
 };
 
 /** The pack root directories searched for `root`, highest precedence first. */
@@ -213,6 +216,7 @@ export async function loadPacks(
   const workflows = new Map<string, string>();
   const genres: PackGenre[] = [];
   const exportPresets: PackExportPreset[] = [];
+  const craftBands = new Map<string, string>();
   const presetIds = new Set<string>();
   const genreIds = new Set<string>();
   const packIds = new Set<string>();
@@ -294,7 +298,37 @@ export async function loadPacks(
         contributedPresets.push(preset);
       }
 
+      // A band is carried as a FILE PATH, like a workflow graph: `@toony/export`
+      // owns the band format, so discovery checks the file is there and leaves
+      // parsing to the consumer that has the measurement.
+      const contributedBands: [string, string][] = [];
+      for (const band of manifest.craftBands) {
+        const abs = resolve(dir, band.file);
+        if (craftBands.has(band.id)) {
+          claimed.push({
+            pack: dir,
+            path: `craftBands.${band.id}`,
+            code: "pack.craft-band.claimed",
+            message: `craft band id "${band.id}" is already provided by an earlier pack; rename it in this pack.`,
+          });
+          continue;
+        }
+        try {
+          await stat(abs);
+        } catch {
+          claimed.push({
+            pack: dir,
+            path: `craftBands.${band.id}`,
+            code: "pack.craft-band.file-missing",
+            message: `craft band file "${band.file}" could not be read.`,
+          });
+          continue;
+        }
+        contributedBands.push([band.id, abs]);
+      }
+
       issues.push(...claimed);
+      for (const [id, abs] of contributedBands) craftBands.set(id, abs);
       for (const [name, abs] of contributedWorkflows) workflows.set(name, abs);
       for (const genre of contributedGenres) {
         genreIds.add(genre.id);
@@ -309,5 +343,5 @@ export async function loadPacks(
     }
   }
 
-  return { packs, content: { workflows, genres, exportPresets }, issues };
+  return { packs, content: { workflows, genres, exportPresets, craftBands }, issues };
 }

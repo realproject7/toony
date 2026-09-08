@@ -25,9 +25,10 @@ const VALID = {
       options: { width: 1600, format: "jpeg", quality: 88 },
     },
   ],
+  craftBands: [{ id: "noir-band", file: "bands/noir.json" }],
 };
 
-test("a complete manifest with all three contribution kinds is valid", () => {
+test("a complete manifest with every contribution kind is valid", () => {
   const result = validatePackManifest(VALID);
   assert.equal(result.valid, true, JSON.stringify(result.issues));
 });
@@ -39,6 +40,7 @@ test("a manifest that contributes nothing is valid", () => {
   assert.deepEqual(manifest.workflows, []);
   assert.deepEqual(manifest.genres, []);
   assert.deepEqual(manifest.exportPresets, []);
+  assert.deepEqual(manifest.craftBands, []);
 });
 
 // --- The data-only boundary -------------------------------------------------
@@ -81,6 +83,7 @@ test("a code-bearing field is rejected inside every nested entry too", () => {
       ...VALID,
       exportPresets: [{ id: "p", target: "platform", options: { encoder: "./enc.js" } }],
     },
+    { ...VALID, craftBands: [{ id: "b", file: "b.json", grader: "./grade.js" }] },
   ];
   for (const manifest of nested) {
     assert.ok(
@@ -185,6 +188,29 @@ test("duplicate ids within one pack are rejected", () => {
       ],
     }).includes("pack.export-preset.duplicate"),
   );
+  assert.ok(
+    codes({
+      ...VALID,
+      craftBands: [
+        { id: "b", file: "a.json" },
+        { id: "b", file: "b.json" },
+      ],
+    }).includes("pack.craft-band.duplicate"),
+  );
+});
+
+test("a craft band needs an id and a pack-relative JSON file", () => {
+  assert.ok(codes({ ...VALID, craftBands: [{ file: "b.json" }] }).includes("pack.craft-band.id"));
+  assert.ok(
+    codes({ ...VALID, craftBands: [{ id: "b", file: "../out.json" }] }).includes(
+      "pack.file.unsafe",
+    ),
+  );
+  assert.ok(
+    codes({ ...VALID, craftBands: [{ id: "b", file: "band.js" }] }).includes("pack.file.extension"),
+  );
+  assert.ok(codes({ ...VALID, craftBands: "bands" }).includes("pack.craft-bands.type"));
+  assert.ok(codes({ ...VALID, craftBands: ["bands/noir.json"] }).includes("pack.craft-band.type"));
 });
 
 test("a manifest that is not an object is rejected without throwing", () => {
