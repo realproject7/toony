@@ -16,7 +16,8 @@
     "test": "turbo run test",
     "scan": "node scripts/scan-public-safety.mjs",
     "no-stub": "node scripts/check-no-stub.mjs",
-    "check": "pnpm run typecheck && pnpm run lint && pnpm run scan && pnpm run no-stub"
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run scan && pnpm run no-stub",
+    "verify-release": "./scripts/verify-release.sh"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.0",
