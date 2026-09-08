@@ -77,6 +77,10 @@ test("composeCut without an image falls back to the neutral background", async (
   assert.equal(data[0], 0xec);
   assert.equal(data[1], 0xea);
   assert.equal(data[2], 0xe6);
+  // The fill and the aspect are now shared with the studio (#211), so pin both
+  // with literals here: moving either would silently reshape or recolor every
+  // art-less cut in already-published exports.
+  assert.equal(composed.height, Math.round(200 * 1.4));
 });
 
 // --- v2 WYSIWYG consumer-field parity (#81) --------------------------------

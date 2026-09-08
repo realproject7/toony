@@ -202,6 +202,23 @@ const SFX_TEXT_OUTLINE_FACTOR = 0.12;
  */
 export const GUTTER_BAND_FRAC = 0.18;
 
+// --- The art-less cut stage (single source; #211) ---------------------------
+//
+// Lettering an episode before the art exists is a supported workflow, so a cut
+// with no usable image still gets a real stage: neutral paper of a fixed aspect
+// with the bubbles laid out on it. Both numbers live here because the export
+// raster and the studio reader draw that stage independently. They were 1.4 and
+// 1.414 apart, and the fill had no studio counterpart at all.
+
+/**
+ * Height/width ratio of the stage a cut gets when it has no usable image. The
+ * export raster has shipped at this ratio, so it is the value both sides take.
+ */
+export const FALLBACK_CUT_ASPECT = 1.4;
+
+/** Neutral paper filled behind the lettering on an art-less cut's stage. */
+export const ARTLESS_CUT_FILL = "#eceae6";
+
 /** An axis-aligned rect in the caller's pixel space. */
 export interface Rect {
   x: number;

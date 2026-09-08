@@ -33,7 +33,14 @@ export type {
   Rect,
   RenderedTextLine,
 } from "./layout.js";
-export { cutPlacementFrame, GUTTER_BAND_FRAC, layoutBubble, layoutCut } from "./layout.js";
+export {
+  ARTLESS_CUT_FILL,
+  cutPlacementFrame,
+  FALLBACK_CUT_ASPECT,
+  GUTTER_BAND_FRAC,
+  layoutBubble,
+  layoutCut,
+} from "./layout.js";
 
 export { approximateMeasure } from "./measure.js";
 

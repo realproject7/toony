@@ -7,10 +7,15 @@
 //
 // The bubbles are laid out at the art's NATURAL pixel dimensions and drawn into
 // an SVG whose viewBox matches those dimensions; the SVG and the <img> share one
-// aspect-ratio stage, so the overlay scales with the displayed image. When no
-// art is linked, the existing "No image yet" empty state is kept.
+// aspect-ratio stage, so the overlay scales with the displayed image.
+//
+// A cut with no linked art still exports (#211): the raster fills a neutral
+// stage of the fallback aspect and draws the lettering on it. Reader mode has no
+// text list to carry those bubbles (#49 hides it), so it draws that same stage in
+// place of the artwork. The edit preview keeps the compact "No image yet" empty
+// state, because its text list already shows the author every bubble.
 
-import { cutPlacementFrame, GUTTER_MARGIN_FILL } from "@toony/render";
+import { ARTLESS_CUT_FILL, cutPlacementFrame, GUTTER_MARGIN_FILL } from "@toony/render";
 import type { Cut, LetteringOverlay } from "@toony/schema";
 import Link from "next/link";
 import type { CutArt } from "@/lib/project";
@@ -38,6 +43,9 @@ export interface CutCanvasProps {
 
 export function CutCanvas({ cut, bubbles, art, workId, episodeId, readOnly }: CutCanvasProps) {
   const hasArt = Boolean(art.src);
+  // A reader sees the export's stage whether or not the art is linked; an author
+  // gets the compact empty state, since the text list below carries the bubbles.
+  const drawsStage = hasArt || readOnly === true;
   const aspectRatio = `${art.width} / ${art.height}`;
   // Gutter placement (#98): reserve the strip(s) — the artwork occupies only the
   // `art` rect (the band(s) become a white reading margin where gutter bubbles
@@ -76,21 +84,31 @@ export function CutCanvas({ cut, bubbles, art, workId, episodeId, readOnly }: Cu
         </div>
       )}
 
-      {hasArt ? (
+      {drawsStage ? (
         <div
           className="cut-stage"
           style={reserved ? { aspectRatio, background: GUTTER_MARGIN_FILL } : { aspectRatio }}
           data-reserved={reserved ? "true" : undefined}
           data-testid={`cut-stage-${cut.id}`}
         >
-          {/* The cut artwork. Read-only preview; no upload/import happens here. */}
-          {/* biome-ignore lint/performance/noImgElement: local-first studio serves project files directly, not via the Next image optimizer. */}
-          <img
-            className="cut-art"
-            style={artStyle}
-            src={art.src ?? undefined}
-            alt={`Artwork for ${cut.id}`}
-          />
+          {hasArt ? (
+            // The cut artwork. Read-only preview; no upload/import happens here.
+            // biome-ignore lint/performance/noImgElement: local-first studio serves project files directly, not via the Next image optimizer.
+            <img
+              className="cut-art"
+              style={artStyle}
+              src={art.src ?? undefined}
+              alt={`Artwork for ${cut.id}`}
+            />
+          ) : (
+            // The neutral paper the export fills the same rect with, so the
+            // reader's stage and the raster differ only in the missing art.
+            <div
+              className="cut-art"
+              style={{ ...artStyle, background: ARTLESS_CUT_FILL }}
+              data-testid={`cut-blank-${cut.id}`}
+            />
+          )}
           {/* Bubble layout needs a browser text measurer (#149); that runs in the
               hydrated client child, keeping the rest of this preview server-side. */}
           <CutOverlay bubbles={bubbles} art={art} />
