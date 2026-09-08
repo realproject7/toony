@@ -285,7 +285,6 @@ export interface LetteringOverlay {
   speaker: string;
   kind: BubbleKind;
   text: string;
-  font: string;
   fill: string;
   opacity: number;
   border: BubbleBorder | null;
@@ -320,6 +319,15 @@ export interface LetteringOverlay {
    * only; `impact_band` adds a full-width radial-burst treatment. Back-compatible.
    */
   sfxMode?: SfxMode;
+  /**
+   * Legacy free-text font name, retired in #208. `fontFamily` is the only field
+   * that decides a bubble's face: nothing reads this one, and Toony no longer
+   * writes it. It stays in the shape so a project written before #208 keeps
+   * loading and validating with its stored value untouched.
+   *
+   * @deprecated Set `fontFamily` instead.
+   */
+  font?: string;
   // Additive pro-lettering style overrides (#54, #56). All OPTIONAL and back-
   // compatible: absent fields fall back to the renderer's current behavior. See
   // the bounds/defaults constants above.

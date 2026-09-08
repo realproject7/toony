@@ -558,10 +558,16 @@ export function validateLetteringOverlayValue(
     c.add(path, "overlay.type", "lettering overlay must be an object.");
     return;
   }
-  for (const key of ["id", "cutId", "font", "fill"] as const) {
+  for (const key of ["id", "cutId", "fill"] as const) {
     if (!isNonEmptyString(value[key])) {
       c.add(joinPath(path, key), "field.required", `${key} must be a non-empty string.`);
     }
+  }
+  // Legacy `font` (#208): no consumer reads it and no producer writes it, but
+  // projects written before #208 carry one, so it is accepted rather than
+  // rejected as unknown. `fontFamily` is the face contract.
+  if (value.font !== undefined && !isString(value.font)) {
+    c.add(joinPath(path, "font"), "field.type", "font must be a string when present.");
   }
   // speaker is always a string, but only ATTRIBUTED kinds require it to be
   // non-empty. Narration/SFX and the v3 beat (silence pause) / ambient

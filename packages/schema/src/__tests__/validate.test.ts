@@ -468,6 +468,68 @@ test("fontFamily rejects an unknown family id", () => {
   assert.ok(codes(validateProject(project)).includes("style.font-family"));
 });
 
+// --- Retired legacy `font` (#208) -------------------------------------------
+// Until #208 `font` was REQUIRED and non-empty, which made every producer stamp
+// a face name nothing ever read. It is now optional and ignored.
+
+test("an overlay with no legacy font validates", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  assert.equal(overlay.font, "Nanum Gothic");
+  overlay.font = undefined;
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+});
+
+test("an overlay with the key absent entirely validates", () => {
+  const project = cloneValidProject();
+  const bundle = project.episodes[0];
+  assert.ok(bundle);
+  const overlay = bundle.lettering[0];
+  assert.ok(overlay);
+  // `undefined` and an absent key are different bytes on disk; both must pass.
+  const stripped = { ...overlay };
+  delete stripped.font;
+  assert.ok(!("font" in stripped));
+  bundle.lettering[0] = stripped;
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+});
+
+test("a project written before #208 still validates with its stored font", () => {
+  // validProject carries `font: "Nanum Gothic"` on every overlay, exactly as the
+  // studio wrote it before #208.
+  const result = validateProject(validProject);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+  assert.deepEqual(
+    validProject.episodes[0]?.lettering.map((o) => o.font),
+    ["Nanum Gothic", "Nanum Gothic"],
+  );
+});
+
+test("an empty legacy font no longer fails, since nothing reads it", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.font = "";
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+});
+
+test("a non-string legacy font is still rejected", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.font = 12 as unknown as string;
+  const result = validateProject(project);
+  assert.equal(result.valid, false);
+  assert.deepEqual(
+    result.issues.map((issue) => [issue.path, issue.code]),
+    [["episodes[0].lettering[0].font", "field.type"]],
+  );
+});
+
 // --- Character registry + cut.characters (#92) -----------------------------
 
 test("a project without a character registry is valid (back-compat)", () => {

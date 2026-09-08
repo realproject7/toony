@@ -2,12 +2,16 @@
 // guards it: with no packs installed, `toony init`, `toony generate`, and
 // `toony export` must behave exactly as they did before the seam existed.
 //
-// "Exactly" is pinned, not asserted. INIT_TREE_DIGESTS below were computed by
-// running the CLI on `main` at af8bd07 — the commit this work branched from,
-// before any of this existed — hashing every byte of every file `toony init`
-// writes. If a change to the seam perturbs a single byte of a scaffolded
-// project, these fail. A deliberate future change to a genre or to the on-disk
-// format is expected to update them; an accidental one is not.
+// "Exactly" is pinned, not asserted. INIT_TREE_DIGESTS below hash every byte of
+// every file `toony init` writes. If a change to the seam perturbs a single byte
+// of a scaffolded project, these fail. A deliberate future change to a genre or
+// to the on-disk format is expected to update them; an accidental one is not.
+//
+// They were first computed on `main` at af8bd07, the commit the seam branched
+// from. #208 retired `LetteringOverlay.font`, which the genre scaffolds seeded,
+// so the five genre digests moved with it; the neutral scaffold has no lettering
+// and its digest is unchanged from af8bd07, which is the evidence that only the
+// retired field moved.
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -24,14 +28,14 @@ import { runLint } from "../commands/lint.js";
 import { runValidate } from "../commands/validate.js";
 import { EXIT_OK, EXIT_USAGE } from "../exit.js";
 
-/** Tree digest of `toony init` output, per `--genre`, as of main@af8bd07. */
+/** Tree digest of `toony init` output, per `--genre`; genre digests as of #208. */
 const INIT_TREE_DIGESTS: Record<string, string> = {
   "": "ffc46179e61e1bc9011d4a944dedf058224f6bf6999fa6c257eee53f26165a45",
-  romance: "2530ba07b1827371406f998de7978b825d9b4f4bb456af987df55ff451fce906",
-  comedy: "2c958b5a4ad155766f846e0175266172d04c91cdda227cab5b70f967677ca97b",
-  action: "7b80a85d9f52baee4dff851bfaff41261384431cfc71e518a1d4d3c3b6084660",
-  thriller: "b9e165d93b2401554aa15309a30127caeef208b758969a01738b655e8c06fb58",
-  "slice-of-life": "c5e63237b5af157677373735e02263f097cbe5830b8bf7ed09c788545f4ae9d7",
+  romance: "833151197939d0d8542f5d847e7dec2b5495a548d080eb4e651d683219d77efe",
+  comedy: "ad52cc311bc7fff86200de53d83c996cc9904c7612b199658c28f68879154d86",
+  action: "cfe021281353ea5116250e8d47504298d8d17421283d4a09571d266cba7fa4cb",
+  thriller: "980e9438ded27cc583bbd9842d69053ceee20c4f7f7159e45e6bb8de6cd74402",
+  "slice-of-life": "817e269e7ab53f68a41c1d17749f3450011a1c8f685bb4ab8f98a1c33ca4ec7a",
 };
 
 let workdir: string;
@@ -179,7 +183,7 @@ test("with no packs installed, init writes byte-for-byte what it wrote before th
     assert.equal(
       await treeDigest(join(workdir, "demo")),
       expected,
-      `init${genre ? ` --genre ${genre}` : ""} output changed from main@af8bd07`,
+      `init${genre ? ` --genre ${genre}` : ""} output changed from the pinned tree`,
     );
     await rm(join(workdir, "demo"), { recursive: true, force: true });
   }

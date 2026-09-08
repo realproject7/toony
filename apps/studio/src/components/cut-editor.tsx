@@ -18,7 +18,6 @@
 // to the preview without writing.
 
 import {
-  bubbleKindStyle,
   cutPlacementFrame,
   IMPACT_BURST_FILL,
   IMPACT_BURST_STROKE,
@@ -33,6 +32,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useBrowserMeasure } from "@/lib/browser-measure";
 import { clamp } from "@/lib/clamp";
 import { persistWithGuard } from "@/lib/editor-save";
+import { newOverlay } from "@/lib/new-overlay";
 import type { CutArt } from "@/lib/project";
 import { svgLetterSpacing, svgTextAnchor } from "@/lib/text-anchor";
 
@@ -57,29 +57,6 @@ export interface CutEditorProps {
   cutId: string;
   art: CutArt;
   initialBubbles: LetteringOverlay[];
-}
-
-/**
- * Default style fields for a freshly added overlay. `fill` is seeded with the
- * kind's default fill (the schema requires a non-empty fill string), so a new
- * bubble both validates and renders with its kind's default appearance.
- */
-function newOverlay(cutId: string, index: number): LetteringOverlay {
-  return {
-    id: `ov-${cutId}-${Date.now().toString(36)}-${index}`,
-    cutId,
-    speaker: "",
-    kind: "speech",
-    text: "New bubble",
-    font: "Nanum Gothic",
-    fill: bubbleKindStyle("speech").fill,
-    opacity: 1,
-    border: null,
-    tail: null,
-    geometry: { x: 0.32, y: 0.32, width: 0.36, height: 0.22 },
-    overflow: false,
-    reviewStatus: "human-edited",
-  };
 }
 
 type DragMode =

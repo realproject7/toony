@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { validateProject } from "@toony/schema";
+import { serializeProject, validateProject } from "@toony/schema";
 import { buildGenreEpisodeBundle, GENRES, type Genre, isGenre } from "../genres.js";
 import { buildInitialProject } from "../scaffold.js";
 
@@ -92,6 +92,52 @@ test("isGenre accepts the documented genres and rejects others", () => {
   for (const genre of GENRES) assert.equal(isGenre(genre), true);
   assert.equal(isGenre("horror"), false);
   assert.equal(isGenre(""), false);
+});
+
+// The fields a genre scaffold may seed on an overlay. `font` is deliberately
+// absent: it was seeded as "sans-serif" until #208 and no consumer ever read it.
+const SEEDED_OVERLAY_KEYS = [
+  "border",
+  "cutId",
+  "fill",
+  "geometry",
+  "id",
+  "kind",
+  "opacity",
+  "overflow",
+  "reviewStatus",
+  "speaker",
+  "tail",
+  "text",
+];
+const OPTIONAL_OVERLAY_KEYS = ["sfxMode", "tone"];
+
+test("genre scaffolds seed no retired font name (#208)", () => {
+  const allowed = new Set([...SEEDED_OVERLAY_KEYS, ...OPTIONAL_OVERLAY_KEYS]);
+  for (const genre of GENRES) {
+    const lettering = buildGenreEpisodeBundle(genre).lettering;
+    assert.ok(lettering.length > 0, `${genre} seeds no lettering`);
+    for (const overlay of lettering) {
+      // Every required key is still seeded, so the check below cannot pass by
+      // the scaffold having gone empty.
+      for (const key of SEEDED_OVERLAY_KEYS) {
+        assert.ok(key in overlay, `${genre} ${overlay.id} lost ${key}`);
+      }
+      assert.deepEqual(
+        Object.keys(overlay).filter((key) => !allowed.has(key)),
+        [],
+        `${genre} ${overlay.id} seeds an unexpected field`,
+      );
+    }
+  }
+});
+
+test("a scaffolded project writes no font key to disk (#208)", () => {
+  for (const genre of GENRES) {
+    const bytes = serializeProject(buildInitialProject("demo", genre));
+    assert.ok(bytes.includes('"text"'), `${genre} serialized nothing`);
+    assert.equal(bytes.includes('"font"'), false, `${genre} wrote a retired font name`);
+  }
 });
 
 test("no genre keeps the neutral two-cut scaffold (back-compat)", () => {
