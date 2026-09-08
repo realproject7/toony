@@ -226,10 +226,15 @@ function minPlateAlpha(plate: Rgb, ink: Rgb): number | null {
  *    to the minimum that keeps `ink` at the AA floor over black;
  *  - an alpha of exactly 0 is an explicit "no plate" and is honored — the
  *    pre-#186 fully borderless caption stays reachable with no schema change;
- *  - a plate color the core cannot measure, or an ink it cannot measure (an
- *    authored `textColor`), is returned as authored with no floor applied: where
- *    the author picks both colors, the author owns the pairing, exactly as for
- *    every other kind.
+ *  - the floor is computed against the RESOLVED ink, so an authored `textColor`
+ *    gets the same guarantee as the per-kind one.
+ *
+ * Two cases fall back to exactly what the author wrote. A color the core cannot
+ * measure (a named color, a paint server) cannot be reasoned about at all; and a
+ * plate/ink pair that no alpha can separate — an author who picked a dark plate
+ * AND dark ink — cannot be fixed by opacity, and repainting a color the author
+ * chose is not the renderer's call. Both are the same policy every other kind
+ * already follows: pick both colors and you own the pairing.
  *
  * Both the studio SVG and the export canvas consume the result through the
  * render plan's `fill`/`fillOpacity`, so neither re-derives it (#112/#135/#147).

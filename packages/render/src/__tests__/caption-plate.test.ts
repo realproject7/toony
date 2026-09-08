@@ -163,17 +163,45 @@ test("opacity 0 is an explicit opt-out: the caption stays fully borderless", () 
   assert.equal(plan.strokeWidth, 0, "and nothing may be stroked in its place");
 });
 
-test("an authored textColor hands the pairing back to the author", () => {
-  // The renderer guarantees the captions it fully resolves. When the author picks
-  // the ink too, they own the pairing — the same policy as every other kind — so
-  // the plate is drawn exactly as authored rather than silently repainted.
+test("an authored textColor keeps its ink AND gets the same contrast floor", () => {
+  // The ink and the plate color are the author's; the alpha between them is the
+  // renderer's. A lighter authored ink needs MORE plate to clear AA, so the floor
+  // is computed against the resolved ink rather than the per-kind one.
+  const ink = "#4a3b2f";
   const plan = layoutBubble(
-    { ...narrationOverlay, fill: "#f5efe2", opacity: 0.35, textColor: "#4a3b2f" },
+    { ...narrationOverlay, fill: "#f5efe2", opacity: 0.35, textColor: ink },
     W,
     H,
   );
-  assert.equal(plan.textColor, "#4a3b2f");
-  assert.equal(plan.fill, "#f5efe2");
+  assert.equal(plan.textColor, ink, "the authored ink is never repainted");
+  assert.equal(plan.fill, "#f5efe2", "the authored plate color is never repainted");
+  assert.ok(plan.fillOpacity > 0.35, "a lighter ink must pull the plate alpha up");
+  for (const bg of [WHITE, DARK_ART, BLACK]) {
+    assert.ok(resolvedContrast(plan, bg) >= CAPTION_MIN_CONTRAST, `authored ink failed over ${bg}`);
+  }
+  // And the floor tracks the ink: this lighter ink needs a heavier plate than the
+  // per-kind dark one does, so it is not one constant reused for every caption.
+  const dflt = layoutBubble({ ...narrationOverlay, fill: "#f5efe2", opacity: 0.35 }, W, H);
+  assert.ok(
+    plan.fillOpacity > dflt.fillOpacity,
+    `lighter ink resolved ${plan.fillOpacity} vs default ink ${dflt.fillOpacity}`,
+  );
+});
+
+test("a plate and ink no alpha can separate are left exactly as authored", () => {
+  // A dark caption plate under the dark per-kind ink cannot be rescued by
+  // opacity, and repainting a color the author chose is not the renderer's call.
+  const plan = layoutBubble({ ...narrationOverlay, fill: "#101010", opacity: 0.6 }, W, H);
+  assert.equal(plan.fill, "#101010");
+  assert.equal(plan.fillOpacity, 0.6);
+});
+
+test("a color the core cannot measure is left exactly as authored", () => {
+  // A named CSS color is legal in the schema (`fill` is any non-empty string) but
+  // is not something the core can run luminance on, so it makes no promise.
+  const plan = layoutBubble({ ...narrationOverlay, fill: "papayawhip", opacity: 0.5 }, W, H);
+  assert.equal(plan.fill, "papayawhip");
+  assert.equal(plan.fillOpacity, 0.5);
 });
 
 // --- The plate is one resolved decision, not a constant ----------------------
