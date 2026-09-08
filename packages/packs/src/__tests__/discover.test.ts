@@ -246,3 +246,26 @@ test("discovery is deterministic across runs", async () => {
   assert.deepEqual(first.packs, second.packs);
   assert.deepEqual(first.content.genres, second.content.genres);
 });
+
+// #198: a pack collection is normally a git repository, so `.git` sits beside
+// the packs and used to be reported as a pack missing its manifest — a false
+// warning on every command. The negative control matters as much as the fix:
+// without it, "suppress every warning" would also pass.
+test("dot directories and node_modules are not packs, but a real one still warns", async () => {
+  const packsDir = join(workdir, PROJECT_PACKS_DIR);
+  await mkdir(packsDir, { recursive: true });
+  const dir = await writePack(packsDir, "alpha");
+  await mkdir(join(packsDir, ".git", "objects"), { recursive: true });
+  await mkdir(join(packsDir, "node_modules", "something"), { recursive: true });
+
+  const quiet = await loadPacks(workdir);
+  assert.deepEqual(quiet.issues, [], "skipped entries must not report as packs");
+  assert.deepEqual(quiet.packs, [{ id: "alpha", name: "alpha", dir }]);
+
+  // Control: a genuinely malformed pack must still be reported, so the fix
+  // cannot have been "stop warning".
+  await mkdir(join(packsDir, "broken"), { recursive: true });
+  const loud = await loadPacks(workdir);
+  assert.equal(loud.issues.length, 1, "a real pack with no manifest must warn");
+  assert.match(loud.issues[0]?.code ?? "", /manifest-missing/);
+});
