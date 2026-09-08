@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { STANDARD_CANVAS_WIDTH_PX } from "@toony/schema";
 import { approximateMeasure } from "../measure.js";
 import {
   BAND_FONT_ID,
@@ -11,6 +12,7 @@ import {
   layoutTransition,
   resolveBandBackground,
   resolveBandDivider,
+  resolveBandFade,
   resolveBandHeight,
 } from "../transition.js";
 import { transition } from "./fixtures.js";
@@ -18,6 +20,9 @@ import { transition } from "./fixtures.js";
 /** A sentence long enough to wrap at any sensible panel width/font. */
 const LONG_PANEL_TEXT =
   "The tide remembers every name the harbor has ever whispered into the waiting dark of the long night.";
+
+/** The default reference column a project's px gutter heights are written on. */
+const REF = STANDARD_CANVAS_WIDTH_PX;
 
 test("layoutCardText resolves legacy card text geometry (shared by export + studio Read)", () => {
   const r = layoutTransition(
@@ -308,31 +313,88 @@ test("layoutPanelText resolves a single-source wrapped text block for the v4 car
 // --- Band background + geometry single source (#147) ------------------------
 
 test("resolveBandHeight applies the width-derived floor to cards/breaks/bands only", () => {
-  // Plain gutter honors its exact height (no floor), at any width.
+  // Plain gutter honors its exact authored height (no floor) on its own column.
   const gutter = layoutTransition(transition({ id: "g", type: "gutter", gutterHeight: 64 }));
-  assert.equal(resolveBandHeight(gutter, 800), 64);
-  assert.equal(resolveBandHeight(gutter, 1200), 64);
+  assert.equal(resolveBandHeight(gutter, REF, REF), 64);
+  assert.equal(resolveBandHeight(gutter, 1200, 1200), 64);
 
-  // Scene-break floors to round(width*0.1) when the authored gutter is smaller.
+  // Scene-break floors to round(width*0.1) when the scaled gutter is smaller.
   const brk = layoutTransition(transition({ id: "b", type: "scene-break", gutterHeight: 10 }));
-  assert.equal(resolveBandHeight(brk, 800), 80); // round(800*0.1)
-  assert.equal(resolveBandHeight(brk, 1200), 120);
+  assert.equal(resolveBandHeight(brk, 800, REF), 80); // round(800*0.1)
+  assert.equal(resolveBandHeight(brk, 1200, REF), 120); // scaled 15 < floor 120
   // A tall authored break keeps its height (above the floor).
   const tallBrk = layoutTransition(
     transition({ id: "b2", type: "scene-break", gutterHeight: 300 }),
   );
-  assert.equal(resolveBandHeight(tallBrk, 800), 300);
+  assert.equal(resolveBandHeight(tallBrk, 800, REF), 300);
 
   // v3 solid band floors the same way.
   const band = layoutTransition(transition({ id: "z", type: "black_band", gutterHeight: 5 }));
-  assert.equal(resolveBandHeight(band, 500), 50);
+  assert.equal(resolveBandHeight(band, 500, REF), 50);
+});
+
+test("resolveBandHeight scales the authored height with the column (#217)", () => {
+  // 320px on an 800px column is two fifths of the column. Before #217 it stayed
+  // 320 drawn px at every width, so the page tightened as the export grew.
+  const gutter = layoutTransition(transition({ id: "g", type: "gutter", gutterHeight: 320 }));
+  assert.equal(resolveBandHeight(gutter, REF, REF), 320);
+  assert.equal(resolveBandHeight(gutter, 1200, REF), 480);
+  assert.equal(resolveBandHeight(gutter, 1600, REF), 640);
+  assert.equal(resolveBandHeight(gutter, 400, REF), 160);
+  // The share of the column is what stays fixed, which is the invariant a craft
+  // band grades on.
+  for (const width of [320, 400, 800, 1200, 1600, 2400]) {
+    assert.equal(resolveBandHeight(gutter, width, REF) / width, 0.4, `width ${width}`);
+  }
+
+  // A project that authored against a wider column reads the same number as a
+  // smaller share of it.
+  assert.equal(resolveBandHeight(gutter, 1200, 1200), 320);
+  assert.equal(resolveBandHeight(gutter, 2400, 1200), 640);
+  assert.equal(resolveBandHeight(gutter, 1200, 1600), 240);
+
+  // The floor is already column-relative, so a floored band was invariant all
+  // along and stays that way.
+  const brk = layoutTransition(transition({ id: "b", type: "scene-break", gutterHeight: 10 }));
+  for (const width of [800, 1200, 1600]) {
+    assert.equal(resolveBandHeight(brk, width, REF) / width, 0.1, `floored width ${width}`);
+  }
+});
+
+test("resolveBandFade scales the fade span with the column (#217)", () => {
+  const faded = layoutTransition(
+    transition({
+      id: "f",
+      type: "void",
+      gutterHeight: 400,
+      fade: { type: "to_black", direction: "top_bottom", length: 200 },
+    }),
+  );
+  // The plan carries the authored span; the drawn one comes from the resolver.
+  assert.equal(faded.fade?.length, 200);
+  // The fade covers half the band on the reference column, and must keep
+  // covering half of it at every other width or the panel reads differently.
+  for (const width of [400, 800, 1200, 1600]) {
+    const height = resolveBandHeight(faded, width, REF);
+    const fade = resolveBandFade(faded, width, height, REF);
+    assert.ok(fade);
+    assert.equal(fade.length / height, 0.5, `width ${width}`);
+    assert.equal(fade.color, "#000000");
+    assert.equal(fade.direction, "top_bottom");
+  }
+  // The span is clamped to the band it is drawn into, so a fade can never run
+  // past its panel however the caller sized it.
+  assert.equal(resolveBandFade(faded, 1600, 100, REF)?.length, 100);
+  // No fade authored → nothing to resolve.
+  const plain = layoutTransition(transition({ id: "p", type: "gutter", gutterHeight: 64 }));
+  assert.equal(resolveBandFade(plain, 1600, 128, REF), null);
 });
 
 test("resolveBandDivider scales thickness with height (the drifted value, #147)", () => {
   // The ticket's drift example: width 800 → break floors to height 80 → 3px rule
   // (studio used to draw a fixed 2px border here).
   const brk = layoutTransition(transition({ id: "b", type: "scene-break", gutterHeight: 10 }));
-  const height = resolveBandHeight(brk, 800);
+  const height = resolveBandHeight(brk, 800, REF);
   assert.equal(height, 80);
   const d = resolveBandDivider(height);
   assert.equal(d.thickness, 3); // max(1, round(80 * 0.04))

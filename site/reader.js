@@ -6,16 +6,15 @@
 // resolved by @toony/render (void #0a0a0a, the text cards #15110d, color_field
 // from the transition's own color) and the shared panel text color #f3ece0.
 //
-// Heights are the authored gutterHeight in project pixels, rescaled to this
-// reading column. Note this is NOT what the renderer does: `resolveBandHeight`
-// treats gutterHeight as an absolute pixel height with a width-derived floor, so
-// the studio draws tr-001 at its full 150px whatever the column width. What this
-// strip reproduces is the EXPORT raster composed at project width and then shrunk
-// to fit, which is the right model for a fixed-width showcase image.
+// Heights are the authored gutterHeight rescaled from the project's reference
+// column to this reading column, which since #217 is exactly what the renderer
+// does: `resolveBandHeight` scales an authored height by the same ratio, so the
+// strip and a real export are the same page at different sizes.
 
 const PANEL_TEXT = "#f3ece0";
 const CARD_FILL = "#15110d";
-const PROJECT_WIDTH = 832;
+/** `referenceWidth` from examples/dead-air/webtoon.json: the column these px are on. */
+const REFERENCE_COLUMN = 800;
 
 /** The episode sequence: cuts by file, transitions by resolved appearance. */
 const SEQUENCE = [
@@ -71,9 +70,9 @@ const SEQUENCE = [
 function buildPanel(item, columnWidth) {
   const el = document.createElement("div");
   el.className = "panel";
-  // Shrink the authored panel height by the same factor the export raster is
-  // shrunk by to fit this column.
-  const scaled = Math.round((item.height * columnWidth) / PROJECT_WIDTH);
+  // Scale the authored panel height from the reference column to this one, the
+  // same ratio the renderer uses.
+  const scaled = Math.round((item.height * columnWidth) / REFERENCE_COLUMN);
   el.style.minHeight = `${scaled}px`;
   // The fade span is authored in project pixels against the panel's project
   // height, so it has to shrink with the panel. Expressed as a percentage it

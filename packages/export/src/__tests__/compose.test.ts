@@ -410,6 +410,13 @@ test("export composes the new bubble kinds/tones without error", async () => {
 });
 
 // --- Transition band color (#98) -------------------------------------------
+//
+// Every band test below asserts DRAWING (fill, gradient, fade, text anchoring),
+// so it renders each transition on the column its px were authored for
+// (reference width === render width). That makes the authored gutter height the
+// drawn height, which is the geometry these assertions were written against.
+// Band SCALING between columns is #217's own subject and is asserted in
+// craft.test.ts against measured rasters.
 
 test("composeTransitionBand fills the band with Transition.color when set", async () => {
   const { composeTransitionBand } = await import("../compose.js");
@@ -426,6 +433,7 @@ test("composeTransitionBand fills the band with Transition.color when set", asyn
       reviewStatus: "draft",
       color: "#3366cc",
     },
+    300,
     300,
   );
   assert.ok(band);
@@ -494,7 +502,7 @@ function craftTransition(over: Partial<import("@toony/schema").Transition>) {
 
 test("black_band composes a solid black band (#99)", async () => {
   const { composeTransitionBand } = await import("../compose.js");
-  const band = composeTransitionBand(craftTransition({ type: "black_band" }), 300);
+  const band = composeTransitionBand(craftTransition({ type: "black_band" }), 300, 300);
   assert.ok(band);
   // The floor keeps a small-gutter band visible.
   assert.ok(band.height > 0);
@@ -509,6 +517,7 @@ test("palette_shift fills the band with Transition.color (#99)", async () => {
   const band = composeTransitionBand(
     craftTransition({ type: "palette_shift", color: "#3366cc" }),
     300,
+    300,
   );
   assert.ok(band);
   const ctx = band.canvas.getContext("2d");
@@ -519,7 +528,7 @@ test("palette_shift fills the band with Transition.color (#99)", async () => {
 
 test("desaturate_repeat composes a neutral gray band (#99 — true cross-cut deferred)", async () => {
   const { composeTransitionBand } = await import("../compose.js");
-  const band = composeTransitionBand(craftTransition({ type: "desaturate_repeat" }), 300);
+  const band = composeTransitionBand(craftTransition({ type: "desaturate_repeat" }), 300, 300);
   assert.ok(band);
   const ctx = band.canvas.getContext("2d");
   const { data } = ctx.getImageData(Math.round(band.width / 2), Math.round(band.height / 2), 1, 1);
@@ -636,12 +645,16 @@ function avg(canvas: Canvas, x: number, y: number): [number, number, number] {
 
 test("color_field composes a solid mood fill; void is near-black (#115)", async () => {
   const { composeTransitionBand } = await import("../compose.js");
-  const cf = composeTransitionBand(craftTransition({ type: "color_field", color: "#3366cc" }), 300);
+  const cf = composeTransitionBand(
+    craftTransition({ type: "color_field", color: "#3366cc" }),
+    300,
+    300,
+  );
   assert.ok(cf);
   const [r, g, b] = avg(cf.canvas, Math.round(cf.width / 2), Math.round(cf.height / 2));
   const near = (got: number, want: number) => Math.abs(got - want) <= 2;
   assert.ok(near(r, 51) && near(g, 102) && near(b, 204), `color_field got [${r},${g},${b}]`);
-  const vd = composeTransitionBand(craftTransition({ type: "void" }), 300);
+  const vd = composeTransitionBand(craftTransition({ type: "void" }), 300, 300);
   assert.ok(vd);
   const [vr, vg, vb] = avg(vd.canvas, Math.round(vd.width / 2), Math.round(vd.height / 2));
   assert.ok(vr < 20 && vg < 20 && vb < 20, `void got [${vr},${vg},${vb}]`);
@@ -674,6 +687,7 @@ test("a v4 text card renders light text and honors verticalAlign (#115)", async 
       gutterHeight: 400,
     }),
     400,
+    400,
   );
   const bottom = composeTransitionBand(
     craftTransition({
@@ -682,6 +696,7 @@ test("a v4 text card renders light text and honors verticalAlign (#115)", async 
       verticalAlign: "bottom",
       gutterHeight: 400,
     }),
+    400,
     400,
   );
   assert.ok(top && bottom);
@@ -699,6 +714,7 @@ test("a to_white top_bottom fade lightens the bottom edge of a void panel (#115)
       gutterHeight: 600,
       fade: { type: "to_white", direction: "top_bottom", length: 300 },
     }),
+    300,
     300,
   );
   assert.ok(band);
@@ -762,6 +778,7 @@ test("a full-panel gradient fills top→bottom from the plan (#115)", async () =
       gutterHeight: 400,
     }),
     300,
+    300,
   );
   assert.ok(band);
   const top = avg(band.canvas, Math.round(band.width / 2), 3);
@@ -779,6 +796,7 @@ test("a full-panel gradient fills top→bottom from the plan (#115)", async () =
       gradient: { from: "#000000", to: "#ffffff", direction: "bottom_up" },
       gutterHeight: 400,
     }),
+    300,
     300,
   );
   assert.ok(flip);

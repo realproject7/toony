@@ -166,6 +166,11 @@ export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
  * Gutter height is expressed in CSS pixels (px) — the natural shared unit for
  * the preview (#7), transition editor (#9), and stitched export (#10), which
  * preserves gutters at concrete heights. Must be an integer in this range.
+ *
+ * Those px are lengths on the project's REFERENCE COLUMN (`Webtoon.referenceWidth`,
+ * default `STANDARD_CANVAS_WIDTH_PX`), not on whatever column an export happens
+ * to render at (#217). Render scales them to the export column, so these bounds
+ * keep bounding the same thing they always did: what an author may write.
  */
 export const GUTTER_HEIGHT_MIN_PX = 0;
 export const GUTTER_HEIGHT_MAX_PX = 4096;
@@ -509,6 +514,20 @@ export interface Webtoon {
    * written before it existed simply omit it (treated as no characters).
    */
   characters?: Character[];
+  /**
+   * The reading column, in px, this project's px-authored vertical measurements
+   * were written against (#217). Every `gutterHeight` in the project is a length
+   * on THIS column; an export at another width scales them by the ratio, so the
+   * episode reads the same at every resolution instead of tightening as the
+   * column grows.
+   *
+   * OPTIONAL and back-compatible: absent → `STANDARD_CANVAS_WIDTH_PX`, the canvas
+   * the spacing/panel-height vocabulary has been calibrated to since #117, so a
+   * project written before the field renders exactly as before at 800px.
+   * Override it only when the project's numbers were genuinely written against a
+   * different column; contributed pack scaffolds are authored on the standard one.
+   */
+  referenceWidth?: number;
 }
 
 /** The records for a single episode, assembled from its files. */

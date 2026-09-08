@@ -11,6 +11,7 @@ import {
   type LetteringOverlay,
   type Project,
   SCHEMA_VERSION,
+  STANDARD_CANVAS_WIDTH_PX,
   type Transition,
   type Webtoon,
 } from "@toony/schema";
@@ -83,6 +84,10 @@ export function buildInitialProject(name: string, starter?: Genre | EpisodeBundl
     schemaVersion: SCHEMA_VERSION,
     projectId,
     title: titleize(projectId),
+    // State the column the starter's px gutter heights are written on, rather
+    // than leaving it to the default: a project's rhythm is unreadable without
+    // it, and a genre scaffold seeds its numbers on the standard canvas (#217).
+    referenceWidth: STANDARD_CANVAS_WIDTH_PX,
     languages: {
       defaultLanguage: "en",
       supportedLanguages: ["en"],

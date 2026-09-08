@@ -82,5 +82,6 @@ export {
   layoutTransition,
   resolveBandBackground,
   resolveBandDivider,
+  resolveBandFade,
   resolveBandHeight,
 } from "./transition.js";

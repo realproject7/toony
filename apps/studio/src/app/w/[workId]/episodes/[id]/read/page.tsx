@@ -9,6 +9,7 @@
 // export; only the editing chrome is dropped. A header toggle returns to the
 // editing preview so it is always obvious how to get back to editing.
 
+import { resolveReferenceWidth } from "@toony/schema";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CutCanvas } from "@/components/cut-canvas";
@@ -54,6 +55,9 @@ export default async function EpisodeReaderPage({
     work.id,
     work.root,
   );
+  // The column this project's px gutter heights were authored against (#217), so
+  // the reader scales bands the same way the export does.
+  const referenceWidth = resolveReferenceWidth(loaded.project.webtoon.referenceWidth);
 
   return (
     <div data-testid="studio-episode-reader" className="reader-page">
@@ -103,7 +107,14 @@ export default async function EpisodeReaderPage({
           }
           const transition = transitionById.get(item.id);
           if (!transition) return null;
-          return <TransitionBlock key={key} transition={transition} readOnly />;
+          return (
+            <TransitionBlock
+              key={key}
+              transition={transition}
+              referenceWidth={referenceWidth}
+              readOnly
+            />
+          );
         })}
       </div>
 

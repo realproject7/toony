@@ -10,6 +10,12 @@
 /**
  * Standard canvas width (px) the presets are calibrated against (§1). A reader
  * scrolls a ~800px-wide canvas at ~800px/sec, so vertical pixels map to seconds.
+ *
+ * It is also the DEFAULT reference column (#217). Every px measurement authored
+ * on this ladder is a length on this canvas and means nothing without it: the
+ * spacing presets, the panel heights, and a transition's `gutterHeight`.
+ * A project that authored against a different column records it as
+ * `Webtoon.referenceWidth`; one that omits the field declares this canvas.
  */
 export const STANDARD_CANVAS_WIDTH_PX = 800;
 
@@ -17,8 +23,28 @@ export const STANDARD_CANVAS_WIDTH_PX = 800;
  * A single no-art panel taller than this (px) gets sliced across the mobile fold
  * (~1200–1280px per screen), so it can't read as one beat. #116's panel-slice
  * lint warns above this; the editor/agent can auto-note it (§1/§5).
+ *
+ * Reference-column px, like every other length here: the fold is 1.5 columns of
+ * the standard canvas, so the comparison holds at every export width (#217).
  */
 export const PANEL_FOLD_SLICE_PX = 1200;
+
+/**
+ * The column a project's px-authored vertical measurements were written against,
+ * resolved from the optional `Webtoon.referenceWidth` (#217).
+ *
+ * A rendered episode scales its art to the export column, so the gutters between
+ * cuts have to scale with it or the page rhythm changes with the export
+ * resolution. Scaling needs the column the numbers were MEANT for; that is this.
+ * Absent → the standard canvas, which is what the authoring vocabulary has been
+ * calibrated to since #117, so a project written before the field renders
+ * unchanged at 800px.
+ */
+export function resolveReferenceWidth(declared: number | undefined | null): number {
+  return typeof declared === "number" && Number.isFinite(declared) && declared > 0
+    ? declared
+    : STANDARD_CANVAS_WIDTH_PX;
+}
 
 // --- Clock-ladder spacing presets (§1/§5) -----------------------------------
 // Empty vertical space IS time: each preset is how long a no-art gap "reads"

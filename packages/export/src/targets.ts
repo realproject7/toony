@@ -7,7 +7,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { type Canvas, createCanvas } from "@napi-rs/canvas";
 import { loadProject } from "@toony/project-io";
-import type { Cut, EpisodeBundle, Project } from "@toony/schema";
+import { type Cut, type EpisodeBundle, type Project, resolveReferenceWidth } from "@toony/schema";
 import { type ComposeCutOptions, composeCut, composeTransitionBand } from "./compose.js";
 import {
   DEFAULT_JPEG_QUALITY,
@@ -231,6 +231,10 @@ export async function stitchEpisode(
 ): Promise<StitchedEpisode> {
   const { bundle, project, imageFor } = await loadEpisode(root, episodeId);
   const renderWidth = Math.max(1, Math.round(width ?? STITCHED_DEFAULT_WIDTH));
+  // The column the project's px gutter heights were authored against (#217).
+  // Cuts already scale to `renderWidth`; the bands scale from here, so the page
+  // rhythm is a property of the project and not of the requested width.
+  const referenceWidth = resolveReferenceWidth(project.webtoon.referenceWidth);
 
   const transitionsById = new Map(bundle.transitions.map((t) => [t.id, t]));
   const cutsById = new Map(bundle.cuts.map((c) => [c.id, c]));
@@ -251,7 +255,7 @@ export async function stitchEpisode(
     } else {
       const transition = transitionsById.get(item.id);
       if (!transition) continue;
-      const band = composeTransitionBand(transition, renderWidth);
+      const band = composeTransitionBand(transition, renderWidth, referenceWidth);
       if (band) bands.push({ canvas: band.canvas, height: band.height });
     }
   }

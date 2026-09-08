@@ -12,7 +12,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { buildInitialProject, writeProject } from "@toony/project-io";
+import { buildInitialProject, writeProject, writeWebtoon } from "@toony/project-io";
+import { STANDARD_CANVAS_WIDTH_PX } from "@toony/schema";
 import { CALM, RESTLESS, writeRhythmProject } from "../__fixtures__/craft.js";
 import {
   asCraftBand,
@@ -268,4 +269,78 @@ test("an unmeasurable metric fails its range instead of passing by absence", () 
   const report = compareToCraftBand({ ...calm.metrics, hueBias: null }, band);
   assert.equal(report.inBand, false);
   assert.equal(report.metrics[0]?.value, null);
+});
+
+// --- Page rhythm is a property of the work, not of the export width (#217) ---
+//
+// Measured on the real rasters, because that is the only thing that settles it:
+// a conversion function checked against its own formula would have passed while
+// the exported page still changed shape.
+
+test("the same episode measures the same at every export width", async () => {
+  const root = join(workdir, "restless");
+  const widths = [400, 600, 900, 1200, 1600];
+  const measured: CraftMeasurement[] = [];
+  for (const width of widths) {
+    measured.push(await measureEpisodeCraft(root, "ep-001", { width }));
+  }
+  const first = measured[0] as CraftMeasurement;
+
+  // The metric must be worth holding fixed: a measurement that reported no
+  // gutters at all would satisfy every equality below.
+  assert.ok(first.metrics.gutterMedian > 0.3, `gutterMedian ${first.metrics.gutterMedian}`);
+  assert.ok(first.metrics.panelsPerScreen > 2, `panelsPerScreen ${first.metrics.panelsPerScreen}`);
+
+  // Band heights land on whole pixels, so a share can move by a fraction of a
+  // pixel per band. Nothing here is near that: before this was fixed the same
+  // four-fold width range moved gutterMedian 0.625 → 0.249 and panelsPerScreen
+  // 2.04 → 3.31.
+  for (const [i, m] of measured.entries()) {
+    const at = `width ${widths[i]}`;
+    assert.ok(
+      Math.abs(m.metrics.gutterMedian - first.metrics.gutterMedian) < 0.002,
+      `${at}: gutterMedian ${m.metrics.gutterMedian} vs ${first.metrics.gutterMedian}`,
+    );
+    assert.ok(
+      Math.abs(m.metrics.gutterRatio - first.metrics.gutterRatio) < 0.002,
+      `${at}: gutterRatio ${m.metrics.gutterRatio} vs ${first.metrics.gutterRatio}`,
+    );
+    assert.equal(
+      m.metrics.panelsPerScreen,
+      first.metrics.panelsPerScreen,
+      `${at}: panelsPerScreen`,
+    );
+    // The page itself is the same shape, independently of how any row is
+    // classified: its height is the same multiple of its width.
+    assert.ok(
+      Math.abs(m.height / m.width - first.height / first.width) < 0.01,
+      `${at}: page ${m.height}/${m.width} vs ${first.height}/${first.width}`,
+    );
+  }
+});
+
+test("the declared reference column is what the export scales from", async () => {
+  const root = join(workdir, "restless-wide-column");
+  const project = await writeRhythmProject(root, RESTLESS);
+  // 600 renders both reference columns to whole pixels, so the expected page
+  // heights are exact and no rounding has to be argued about.
+  const width = 600;
+  const bands = RESTLESS.cutHeights.length - 1;
+  const authored = await measureEpisodeCraft(root, "ep-001", { width });
+
+  const wider = STANDARD_CANVAS_WIDTH_PX * 2;
+  await writeWebtoon(root, { ...project.webtoon, referenceWidth: wider });
+  const onWiderColumn = await measureEpisodeCraft(root, "ep-001", { width });
+
+  // The same authored number on a column twice as wide is half the reading
+  // pause, so the page loses half of every band. The art is untouched.
+  const drawn = (reference: number) => (RESTLESS.gutterHeight * width) / reference;
+  assert.equal(
+    authored.height - onWiderColumn.height,
+    bands * (drawn(STANDARD_CANVAS_WIDTH_PX) - drawn(wider)),
+  );
+  assert.ok(
+    onWiderColumn.metrics.gutterRatio < authored.metrics.gutterRatio,
+    `gutterRatio ${onWiderColumn.metrics.gutterRatio} vs ${authored.metrics.gutterRatio}`,
+  );
 });

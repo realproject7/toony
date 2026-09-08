@@ -5,6 +5,7 @@
 // scoped to the work resolved path-safely from `<workId>`. Cut images and bubble
 // overlays are resolved through `@toony/render` against this work's asset scope.
 
+import { resolveReferenceWidth } from "@toony/schema";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CutCanvas } from "@/components/cut-canvas";
@@ -49,6 +50,9 @@ export default async function EpisodePreviewPage({
     work.id,
     work.root,
   );
+  // The column this project's px gutter heights were authored against (#217), so
+  // the preview scales bands the same way the export does.
+  const referenceWidth = resolveReferenceWidth(loaded.project.webtoon.referenceWidth);
 
   const cutCount = episode.sequence.filter((item) => item.type === "cut").length;
   const transitionCount = episode.sequence.filter((item) => item.type === "transition").length;
@@ -136,7 +140,9 @@ export default async function EpisodePreviewPage({
                 </div>
               );
             }
-            return <TransitionBlock key={key} transition={transition} />;
+            return (
+              <TransitionBlock key={key} transition={transition} referenceWidth={referenceWidth} />
+            );
           })}
         </div>
 
