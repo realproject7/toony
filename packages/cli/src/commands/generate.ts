@@ -277,7 +277,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   }
   if (provider.transmitsRemotely && !parsed.booleans.has("--allow-remote")) {
     io.err(
-      `provider "${providerId}" sends prompt content to the configured server; re-run with --allow-remote to opt in (use a local endpoint to keep content on this machine)`,
+      `provider "${providerId}" would send prompt content to a non-local server; re-run with --allow-remote to opt in, or point it at a loopback endpoint (localhost or 127.0.0.1) to keep content on this machine`,
     );
     return EXIT_USAGE;
   }

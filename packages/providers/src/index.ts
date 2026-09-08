@@ -6,6 +6,7 @@ export {
   type ComfyUIClientDeps,
   ComfyUIProvider,
   type FetchLike,
+  isLoopbackEndpoint,
 } from "./comfyui.js";
 export {
   COMFYUI_DEFAULT_LOCAL_URL,
