@@ -101,11 +101,18 @@ export function packRoots(root: string, env: Record<string, string | undefined> 
 async function listPackDirs(packRoot: string): Promise<string[]> {
   try {
     const entries = await readdir(packRoot, { withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort()
-      .map((name) => resolve(packRoot, name));
+    return (
+      entries
+        .filter((entry) => entry.isDirectory())
+        // A pack collection is normally a git repository, so `.git` sits right
+        // beside the packs. Reporting it as a pack missing its manifest fires a
+        // guaranteed false warning on every command, and a warning channel that
+        // is always wrong is one nobody reads when a real pack is malformed.
+        .filter((entry) => !entry.name.startsWith(".") && entry.name !== "node_modules")
+        .map((entry) => entry.name)
+        .sort()
+        .map((name) => resolve(packRoot, name))
+    );
   } catch {
     // A missing or unreadable root is the normal zero-pack case, not an error.
     return [];
