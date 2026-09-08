@@ -9,8 +9,10 @@
 // Prompts come from `--prompt`/`--negative` or, for a cut, fall back to the
 // stored `cut.imagePrompt`/`negativePrompt` (#38). For BOTH sources, the
 // referenced characters' lockstrings (#92) are prepended VERBATIM so a character
-// stays on-model across cuts. When the endpoint is unset or unreachable the
-// command fails with a clear, actionable message — it never fabricates a result.
+// stays on-model across cuts, and the cut's declared `palette` is appended as a
+// colour clause (#207) so the colour a cut asks for reaches the only lever the
+// provider has. When the endpoint is unset or unreachable the command fails with
+// a clear, actionable message — it never fabricates a result.
 
 import { dirname, resolve } from "node:path";
 import {
@@ -32,6 +34,7 @@ import {
 import type { Character } from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 import { discoverPackContent } from "../packs.js";
+import { appendPaletteClause } from "../palette.js";
 
 export interface GenerateIo {
   cwd: string;
@@ -219,11 +222,13 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   // Resolve the effective prompt: an explicit --prompt wins; otherwise a cut
   // falls back to its stored imagePrompt/negativePrompt (#38). Transitions carry
   // no stored prompt, so --prompt stays required for them. For a cut we load the
-  // project regardless (even with --prompt) to read its `characters` refs and the
-  // project registry, so lockstrings (#92) inject for both prompt sources.
+  // project regardless (even with --prompt) to read its `characters` refs, its
+  // `palette`, and the project registry, so lockstrings (#92) and the palette
+  // clause (#207) inject for both prompt sources.
   let effectivePrompt = prompt;
   let effectiveNegative = negative;
   let cutCharacters: readonly string[] | undefined;
+  let cutPalette: string | undefined;
   let registry: readonly Character[] = [];
   if (cutId !== undefined) {
     try {
@@ -233,6 +238,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
       const cut = bundle?.cuts.find((c) => c.id === cutId);
       if (cut) {
         cutCharacters = cut.characters;
+        cutPalette = cut.palette;
         if (
           (effectivePrompt === undefined || effectivePrompt.trim().length === 0) &&
           cut.imagePrompt.trim().length > 0
@@ -255,6 +261,10 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   }
   // Prepend referenced characters' lockstrings verbatim (#92) for either source.
   effectivePrompt = injectCharacterLockstrings(effectivePrompt, cutCharacters, registry);
+  // Then append the cut's palette as a colour clause (#207). An explicit
+  // --prompt has already won the choice of BASE prompt above; like a lockstring,
+  // the clause qualifies whichever base was chosen rather than replacing it.
+  effectivePrompt = appendPaletteClause(effectivePrompt, cutPalette);
 
   const options: Record<string, string | number> = {};
   if (effectiveNegative !== undefined) options.negativePrompt = effectiveNegative;

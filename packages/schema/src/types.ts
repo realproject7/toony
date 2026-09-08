@@ -399,7 +399,11 @@ export interface Cut {
   // (they do NOT change rendering; lint/planning/editor consume them).
   /** Composition/shot hint (#98), one of `SHOT_TYPES`. */
   shotType?: ShotType;
-  /** Dominant palette color for the cut, a CSS color string (#98). */
+  /**
+   * Dominant palette color for the cut, a CSS color string (#98). It does not
+   * change rendering, but it is no longer inert: `toony generate` turns it into
+   * a colour clause on the image prompt (#207).
+   */
   palette?: string;
   /** World layer (#98), e.g. "reality" | "metaphor"; a free string is allowed. */
   layer?: string;
