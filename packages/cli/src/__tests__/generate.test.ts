@@ -4,7 +4,7 @@
 // documented API does, so the command exercises the real provider + ingest path.
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -54,13 +54,30 @@ function pngWithText(): Uint8Array {
 
 const PROMPT_ID = "abcd-1234";
 
-// A minimal ComfyUI-compatible server for one generation.
-async function startFakeComfy(image: Uint8Array): Promise<{ url: string; close: () => void }> {
+// A minimal ComfyUI-compatible server for one generation. `positivePrompt()`
+// reports the text Toony actually injected into the graph, so prompt
+// composition can be asserted on what left the process rather than on the
+// command's own report of it.
+async function startFakeComfy(image: Uint8Array): Promise<{
+  url: string;
+  close: () => void;
+  positivePrompt: () => string | null;
+}> {
+  let positivePrompt: string | null = null;
   const server: Server = createServer((req, res) => {
     const url = req.url ?? "";
     if (req.method === "POST" && url === "/prompt") {
-      res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify({ prompt_id: PROMPT_ID, node_errors: {} }));
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+          prompt?: Record<string, { inputs?: Record<string, unknown> }>;
+        };
+        const text = body.prompt?.["6"]?.inputs?.text;
+        positivePrompt = typeof text === "string" ? text : null;
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ prompt_id: PROMPT_ID, node_errors: {} }));
+      });
       return;
     }
     if (req.method === "GET" && url.startsWith(`/history/`)) {
@@ -88,6 +105,7 @@ async function startFakeComfy(image: Uint8Array): Promise<{ url: string; close: 
   return {
     url: `http://127.0.0.1:${port}`,
     close: () => server.close(),
+    positivePrompt: () => positivePrompt,
   };
 }
 
@@ -297,6 +315,93 @@ test("an unknown provider is a usage error", async () => {
   );
   assert.equal(code, EXIT_USAGE);
   assert.match(c.err.join("\n"), /unknown provider/);
+});
+
+/** Give the scaffold's cut-001 a character ref and a palette, and register the
+ *  character. The default scaffold declares neither, which is what makes it the
+ *  control for "a cut with no palette is unchanged". */
+async function authorCraftFields(projectDir: string): Promise<void> {
+  await writeFile(
+    join(projectDir, "webtoon.json"),
+    JSON.stringify({
+      ...JSON.parse(await readFile(join(projectDir, "webtoon.json"), "utf8")),
+      characters: [{ id: "mina", name: "Mina", lockstring: "short black bob, amber eyes" }],
+    }),
+  );
+  await writeFile(
+    join(projectDir, "episodes", "ep-001", "cuts.yaml"),
+    [
+      "- id: cut-001",
+      "  image: null",
+      "  imagePrompt: a stored scene",
+      '  negativePrompt: ""',
+      "  characters:",
+      "    - mina",
+      '  palette: "#191d28"',
+      "- id: cut-002",
+      "  image: null",
+      '  imagePrompt: ""',
+      '  negativePrompt: ""',
+      "",
+    ].join("\n"),
+  );
+}
+
+test("a cut's palette reaches the provider as WORDS, appended last (#207)", async () => {
+  const projectDir = await scaffold();
+  await authorCraftFields(projectDir);
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [
+        projectDir,
+        "--episode",
+        "ep-001",
+        "--cut",
+        "cut-001",
+        "--prompt",
+        "an explicit scene",
+        "--allow-remote",
+      ],
+      c.io,
+    );
+    assert.equal(code, EXIT_OK, c.err.join("\n"));
+    // One assertion pins the whole composition order: --prompt still beats the
+    // stored imagePrompt, the lockstring is still prepended (#92), and the
+    // palette clause is appended after both.
+    assert.equal(
+      comfy.positivePrompt(),
+      "short black bob, amber eyes, an explicit scene, very dark desaturated azure blue color palette",
+    );
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a cut with no palette sends the prompt unchanged (#207)", async () => {
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [
+        projectDir,
+        "--episode",
+        "ep-001",
+        "--cut",
+        "cut-001",
+        "--prompt",
+        "an explicit scene",
+        "--allow-remote",
+      ],
+      c.io,
+    );
+    assert.equal(code, EXIT_OK, c.err.join("\n"));
+    assert.equal(comfy.positivePrompt(), "an explicit scene");
+  } finally {
+    comfy.close();
+  }
 });
 
 test("generate rejects a flag used as another flag's value (#156)", async () => {
