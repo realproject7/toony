@@ -26,6 +26,7 @@ import {
   ProjectIoError,
   summarizeEpisodes,
 } from "@toony/project-io";
+import { FALLBACK_CUT_ASPECT } from "@toony/render";
 import type { Character, Cut, EpisodeBundle, LetteringOverlay, Transition } from "@toony/schema";
 
 export type { EpisodeSummary, Finding, LoadedProject };
@@ -131,9 +132,19 @@ export interface CutArt {
   height: number;
 }
 
+/** Nominal natural width of the default page frame. Only the RATIO reaches the
+ *  render, so this is free to be any round number. */
+const FALLBACK_ART_WIDTH = 1000;
+
 /** Default aspect when an asset is missing or its header cannot be read. The
- *  single source pages use for a cut whose art hasn't resolved (#154). */
-export const FALLBACK_ART: CutArt = { src: null, width: 1000, height: 1414 };
+ *  single source pages use for a cut whose art hasn't resolved (#154). The ratio
+ *  is the render core's, not the studio's, so the stage a reader sees for an
+ *  art-less cut is the shape the export raster gives it (#211). */
+export const FALLBACK_ART: CutArt = {
+  src: null,
+  width: FALLBACK_ART_WIDTH,
+  height: Math.round(FALLBACK_ART_WIDTH * FALLBACK_CUT_ASPECT),
+};
 
 /**
  * Resolve a cut's art for the preview: prefer the final image, then the clean

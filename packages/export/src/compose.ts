@@ -12,10 +12,12 @@ import {
   type SKRSContext2D,
 } from "@napi-rs/canvas";
 import {
+  ARTLESS_CUT_FILL,
   BAND_FONT_ID,
   type BalloonCommand,
   type BubbleRender,
   cutPlacementFrame,
+  FALLBACK_CUT_ASPECT,
   GUTTER_MARGIN_FILL,
   IMPACT_BURST_FILL,
   IMPACT_BURST_STROKE,
@@ -41,9 +43,6 @@ import { createCanvasMeasure } from "./measure.js";
 // Nunito), so studio and export draw transition text in the same face (#148).
 const BAND_FONT_REGULAR = canvasFontFamily(BAND_FONT_ID, 400, "narration");
 const BAND_FONT_BOLD = canvasFontFamily(BAND_FONT_ID, 700, "narration");
-
-/** Height/width ratio used for a cut that has no image asset yet. */
-const FALLBACK_CUT_ASPECT = 1.4;
 
 export interface ComposedCut {
   canvas: Canvas;
@@ -183,7 +182,7 @@ export async function composeCut(
   if (image) {
     ctx.drawImage(image, art.x, art.y, art.width, art.height);
   } else {
-    ctx.fillStyle = "#eceae6";
+    ctx.fillStyle = ARTLESS_CUT_FILL;
     ctx.fillRect(art.x, art.y, art.width, art.height);
   }
 

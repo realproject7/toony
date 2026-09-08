@@ -668,7 +668,11 @@ export function CutEditor({
               </svg>
             </div>
           ) : (
-            <div className="editor-stage editor-stage-empty" data-testid={`editor-stage-${cutId}`}>
+            <div
+              className="editor-stage editor-stage-empty"
+              style={{ aspectRatio }}
+              data-testid={`editor-stage-${cutId}`}
+            >
               <span className="chip">No image yet</span>
               <span className="cut-canvas-hint">
                 This cut has no linked artwork. You can still place and edit bubbles on a default
