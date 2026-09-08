@@ -959,6 +959,86 @@ function validateSequenceShape(sequence: unknown[], path: string, c: IssueCollec
   }
 }
 
+/**
+ * Validate one episode bundle's RECORDS — cuts, transitions, lettering — plus the
+ * id uniqueness, sequence integrity, and overlay→cut references that tie them
+ * together. `path` is the bundle base; record subpaths are derived from it.
+ *
+ * The bundle's `episode` is NOT validated here: callers run
+ * `validateEpisodeValue` themselves first, so `validateProject` can interleave
+ * its cross-episode id-collision checks between the two without reordering the
+ * issues it reports. Exported so an episode-bundle scaffold contributed from
+ * outside the core (a pack genre, `@toony/packs`) is checked by exactly the same
+ * code that checks a project's own episodes, instead of a second validator that
+ * could drift from this one.
+ */
+export function validateEpisodeBundleRecords(
+  bundle: Record<string, unknown>,
+  path: string,
+  c: IssueCollector,
+): void {
+  if (isArray(bundle.cuts)) {
+    for (let j = 0; j < bundle.cuts.length; j++) {
+      validateCutValue(bundle.cuts[j], joinPath(joinPath(path, "cuts"), j), c);
+    }
+  } else {
+    c.add(joinPath(path, "cuts"), "episode-bundle.cuts", "cuts must be an array.");
+  }
+
+  if (isArray(bundle.transitions)) {
+    for (let j = 0; j < bundle.transitions.length; j++) {
+      validateTransitionValue(bundle.transitions[j], joinPath(joinPath(path, "transitions"), j), c);
+    }
+  } else {
+    c.add(
+      joinPath(path, "transitions"),
+      "episode-bundle.transitions",
+      "transitions must be an array.",
+    );
+  }
+
+  if (isArray(bundle.lettering)) {
+    for (let j = 0; j < bundle.lettering.length; j++) {
+      validateLetteringOverlayValue(
+        bundle.lettering[j],
+        joinPath(joinPath(path, "lettering"), j),
+        c,
+      );
+    }
+  } else {
+    c.add(joinPath(path, "lettering"), "episode-bundle.lettering", "lettering must be an array.");
+  }
+
+  const cutIds = collectIds(bundle.cuts, "cut", joinPath(path, "cuts"), c);
+  const transitionIds = collectIds(
+    bundle.transitions,
+    "transition",
+    joinPath(path, "transitions"),
+    c,
+  );
+
+  // Overlay ids must also be unique so #8 can target edits deterministically.
+  collectIds(bundle.lettering, "overlay", joinPath(path, "lettering"), c);
+
+  const episode = bundle.episode;
+  if (isPlainObject(episode)) {
+    validateSequenceIntegrity(episode, cutIds, transitionIds, path, c);
+  }
+
+  if (isArray(bundle.lettering)) {
+    for (let j = 0; j < bundle.lettering.length; j++) {
+      const overlay = bundle.lettering[j];
+      if (isPlainObject(overlay) && isNonEmptyString(overlay.cutId) && !cutIds.has(overlay.cutId)) {
+        c.add(
+          joinPath(joinPath(joinPath(path, "lettering"), j), "cutId"),
+          "overlay.missing-cut",
+          `lettering overlay references cut "${overlay.cutId}" with no matching cut record.`,
+        );
+      }
+    }
+  }
+}
+
 export function validateProject(value: unknown): ValidationResult {
   const c = new IssueCollector();
   if (!isPlainObject(value)) {
@@ -1008,77 +1088,7 @@ export function validateProject(value: unknown): ValidationResult {
       episodeIdsCaseFold.add(caseFold);
     }
 
-    if (isArray(bundle.cuts)) {
-      for (let j = 0; j < bundle.cuts.length; j++) {
-        validateCutValue(bundle.cuts[j], joinPath(joinPath(bundlePath, "cuts"), j), c);
-      }
-    } else {
-      c.add(joinPath(bundlePath, "cuts"), "episode-bundle.cuts", "cuts must be an array.");
-    }
-
-    if (isArray(bundle.transitions)) {
-      for (let j = 0; j < bundle.transitions.length; j++) {
-        validateTransitionValue(
-          bundle.transitions[j],
-          joinPath(joinPath(bundlePath, "transitions"), j),
-          c,
-        );
-      }
-    } else {
-      c.add(
-        joinPath(bundlePath, "transitions"),
-        "episode-bundle.transitions",
-        "transitions must be an array.",
-      );
-    }
-
-    if (isArray(bundle.lettering)) {
-      for (let j = 0; j < bundle.lettering.length; j++) {
-        validateLetteringOverlayValue(
-          bundle.lettering[j],
-          joinPath(joinPath(bundlePath, "lettering"), j),
-          c,
-        );
-      }
-    } else {
-      c.add(
-        joinPath(bundlePath, "lettering"),
-        "episode-bundle.lettering",
-        "lettering must be an array.",
-      );
-    }
-
-    const cutIds = collectIds(bundle.cuts, "cut", joinPath(bundlePath, "cuts"), c);
-    const transitionIds = collectIds(
-      bundle.transitions,
-      "transition",
-      joinPath(bundlePath, "transitions"),
-      c,
-    );
-
-    // Overlay ids must also be unique so #8 can target edits deterministically.
-    collectIds(bundle.lettering, "overlay", joinPath(bundlePath, "lettering"), c);
-
-    if (isPlainObject(episode)) {
-      validateSequenceIntegrity(episode, cutIds, transitionIds, bundlePath, c);
-    }
-
-    if (isArray(bundle.lettering)) {
-      for (let j = 0; j < bundle.lettering.length; j++) {
-        const overlay = bundle.lettering[j];
-        if (
-          isPlainObject(overlay) &&
-          isNonEmptyString(overlay.cutId) &&
-          !cutIds.has(overlay.cutId)
-        ) {
-          c.add(
-            joinPath(joinPath(joinPath(bundlePath, "lettering"), j), "cutId"),
-            "overlay.missing-cut",
-            `lettering overlay references cut "${overlay.cutId}" with no matching cut record.`,
-          );
-        }
-      }
-    }
+    validateEpisodeBundleRecords(bundle, bundlePath, c);
   }
 
   return c.result();

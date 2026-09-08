@@ -9,6 +9,16 @@
 // validation package both already depend on) rather than the export engine, so
 // the option *bounds* live next to the rest of the project's validation rules.
 
+/**
+ * The export target vocabulary — the engines an export can run. It lives here
+ * with the other export-option rules (rather than in `@toony/export`) so callers
+ * that must VALIDATE a target name without pulling in the Node/canvas export
+ * engine can do so: `@toony/packs` validates a pack's export presets against it.
+ * `@toony/export` re-exports both names, so its public API is unchanged.
+ */
+export const EXPORT_TARGET_KINDS = ["platform", "stitched", "plotlink"] as const;
+export type ExportTargetKind = (typeof EXPORT_TARGET_KINDS)[number];
+
 /** Inclusive pixel-width bounds an export render width must fall within. */
 export const EXPORT_WIDTH_MIN = 1;
 export const EXPORT_WIDTH_MAX = 100_000;
