@@ -1,10 +1,15 @@
 name: CI
 
-# Backstop for the release gate: run the full check + test suite on every push
-# to main and every pull request, on both supported Node majors. `pnpm check`
-# (Biome + typecheck + public-safety + no-stub) is kept fast for pre-commit and
-# does NOT run the tests itself (#157); this workflow is what guarantees a red
-# test suite cannot merge unnoticed.
+# DISABLED (2026-09-08): this repository's GitHub Actions minutes are exhausted,
+# so the workflow is switched off and no longer runs on pushes or pull requests.
+# It is kept here, unchanged, so it can be re-enabled the moment minutes return.
+#
+# Until then the release gate is LOCAL and lives in `scripts/verify-release.sh`,
+# which does the same thing this workflow did: clean checkout, frozen install,
+# `pnpm check` + `pnpm test` on both supported Node majors. Run it before every
+# merge. `pnpm check` (Biome + typecheck + public-safety + no-stub) is kept fast
+# for pre-commit and does NOT run the tests itself (#157), so something has to
+# run them; while this file is disabled, that something is the script.
 
 on:
   push:
