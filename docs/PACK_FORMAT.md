@@ -64,12 +64,31 @@ Toony looks in these places, in order. The first pack to claim a name keeps it.
 
 With no packs installed, Toony behaves exactly as it does without this seam.
 
-Installing a pack is copying a folder:
+## Installing a pack
+
+A pack is a folder, and installing one is copying that folder into a pack root.
+The CLI does it, so you never have to know which root wins:
 
 ```sh
-mkdir -p .toony/packs
-cp -R path/to/my-pack .toony/packs/
+toony packs install path/to/my-pack              # into <project>/.toony/packs
+toony packs install path/to/my-pack --workspace  # into <workspace>/.toony/packs
+toony packs list                                 # what is installed, and where from
+toony packs remove my-pack                       # delete an installed pack
 ```
+
+`install` copies a directory that is already on your machine. Nothing is
+downloaded and there is no registry; how the folder got there is your business.
+It refuses a directory that is not a valid pack, reporting the same codes
+discovery would have, so a folder that could never load is not copied into place
+first.
+
+`install` writes only to the project and workspace roots, so `remove` deletes
+only from those two. A `TOONY_PACKS` directory is a collection you maintain, and
+these commands never delete inside one.
+
+`toony packs list` names, for every installed pack, the root it was found in and
+what it contributes after the merge. A workflow name or genre id an earlier pack
+already claimed is missing from that list rather than quietly counted.
 
 ## `toony-pack.json`
 
@@ -208,9 +227,28 @@ measures, so `@toony/packs` stays free of the measurement.
 
 ## When something is wrong
 
-A malformed pack is **skipped and reported**; it never stops the command. Toony
-prints one line per problem, naming the pack folder, the field, a stable code,
-and what to fix:
+`toony packs doctor` is how you ask. It prints the roots that were searched in
+precedence order, marking the ones that are not there yet, the packs that
+loaded, and every problem grouped by the folder it is in:
+
+```txt
+packs for my-story
+roots searched, first claim winning:
+  1  project    /w/my-story/.toony/packs  (1 pack(s))
+  2  workspace  /w/.toony/packs  (not created yet)
+loaded: example-pack
+problems: 1
+/w/my-story/.toony/packs/my-pack
+  [pack.genre.claimed] genres.noir: genre id "noir" is already provided by an
+  earlier pack; rename it in this pack.
+```
+
+It exits 1 when it finds a problem and 0 when it does not, so it can gate a
+build, and `--json` gives the same report as data.
+
+A malformed pack is **skipped and reported**; it never stops the command. Every
+other command prints one line per problem, naming the pack folder, the field, a
+stable code, and what to fix:
 
 ```txt
 pack warning [pack.unexpected-field] /w/.toony/packs/my-pack pack.main: a pack
@@ -246,6 +284,10 @@ the resolved content down to the registries in `@toony/project-io` (genres),
 name-to-path map so that package stays dependency-free). Registry lookups return
 Promises. Craft bands travel the same way as workflows, as a name-to-path map the
 measuring command reads.
+
+`toony packs` (`packages/cli/src/commands/packs.ts`) is the surface over that:
+it reports what discovery found and copies local directories in and out of the
+pack roots. It adds no way to fetch one.
 
 The seam ships in the free core and is not privileged in any way: a paid pack and
 a community pack are the same thing to Toony.

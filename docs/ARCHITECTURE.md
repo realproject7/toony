@@ -84,6 +84,12 @@ A pack is DATA — a JSON manifest plus the JSON files it names. It cannot carry
 code, reach the network, add an export engine, or redefine a built-in. With no
 packs installed the core behaves exactly as it does without the seam.
 
+`toony packs` is the operator surface over that seam: it lists what is installed
+and which root each pack came from, copies a local pack directory into the right
+root, removes one, and reports why a pack that is present is not loading.
+Installing is a local copy, so the seam gains a command without gaining a
+network.
+
 The format is documented in [PACK_FORMAT.md](./PACK_FORMAT.md).
 
 ## Craft measurement
