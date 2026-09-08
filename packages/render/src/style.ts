@@ -10,6 +10,15 @@
 // stroke, stroke weight, corner-radius scale).
 
 import type { BubbleKind, BubbleTone } from "@toony/schema";
+import {
+  BLACK,
+  compositeOver,
+  contrastRatio,
+  parseCssColor,
+  type Rgb,
+  type Rgba,
+  toHex,
+} from "./contrast.js";
 import type { OutlineDecoration } from "./geometry.js";
 
 export interface BubbleKindStyle {
@@ -48,11 +57,14 @@ const KIND_STYLE: Record<BubbleKind, BubbleKindStyle> = {
     fontWeight: 400,
     fontScale: 1,
   },
+  // A caption, not a balloon: it carries a backing PLATE (see
+  // `resolveCaptionPlate`) but no border of its own — `strokeScale: 0` keeps it
+  // borderless unless the overlay authors an explicit `border` (#186).
   narration: {
     fill: "rgba(244, 239, 230, 0.95)",
     stroke: "#6d6256",
     text: "#2a1b14",
-    strokeScale: 0.75,
+    strokeScale: 0,
     radiusScale: 0.32,
     fontWeight: 400,
     fontScale: 1,
@@ -124,18 +136,121 @@ export function kindSupportsTail(kind: BubbleKind): boolean {
 
 /**
  * Resolve the outline silhouette (#93) from a bubble's kind + tone. `"none"`
- * means NO balloon outline is drawn — sfx is bare outlined text, narration is a
- * borderless caption. Tone overrides the kind default: shout→scalloped (cloud),
- * aggressive→jagged (spiky); otherwise the per-kind default shape applies.
+ * means NO shape is drawn at all — that is sfx, which is bare outlined text.
+ * Narration is a borderless CAPTION: a plain rounded plate, never a balloon and
+ * never tone-shaped, so it is resolved before the tone rules. Tone otherwise
+ * overrides the kind default: shout→scalloped (cloud), aggressive→jagged
+ * (spiky); otherwise the per-kind default shape applies.
  */
 export function outlineDecorationFor(
   kind: BubbleKind,
   tone: BubbleTone,
 ): OutlineDecoration | "none" {
-  if (kind === "sfx" || kind === "narration") return "none";
+  if (kind === "sfx") return "none";
+  // The caption plate is a quiet rectangle whatever the tone (#186); it is
+  // borderless by `strokeScale: 0`, so "rounded" shapes a fill, not a balloon.
+  if (kind === "narration") return "rounded";
   if (tone === "shout") return "scalloped";
   if (tone === "aggressive") return "jagged";
   if (kind === "shout") return "scalloped";
   if (kind === "thought") return "bumpy";
   return "rounded";
+}
+
+/**
+ * WCAG 2.x AA contrast floor for body text. A caption that clears this over the
+ * darkest possible artwork clears it over ANY artwork.
+ */
+export const CAPTION_MIN_CONTRAST = 4.5;
+
+/** A resolved backing plate for a borderless caption (#186). */
+export interface CaptionPlate {
+  /**
+   * The plate color as an OPAQUE CSS color, so the whole plate alpha lives in
+   * `alpha` and a consumer's compositing is exactly `alpha × color + (1-alpha) ×
+   * artwork` — the model `resolveCaptionPlate` proved the contrast floor against.
+   */
+  color: string;
+  /** Plate alpha 0..1; a consumer applies it as the fill opacity. 0 draws nothing. */
+  alpha: number;
+}
+
+/**
+ * Alpha headroom over the knife edge, in 1/64ths. A raster quantizes the
+ * composited plate to 8-bit channels, so an alpha sitting exactly ON the floor
+ * can round back under it in the exported pixels. One 64th of alpha moves a
+ * light plate by ~4/255 per channel — invisible, and comfortably clear of that
+ * rounding — so the resolved alpha is rounded UP to the next 64th.
+ */
+const PLATE_ALPHA_STEP = 64;
+
+/**
+ * The smallest alpha in (0, 1] at which `plate` composited over pure BLACK still
+ * clears {@link CAPTION_MIN_CONTRAST} against `ink`, or null when even a fully
+ * opaque plate cannot (the author paired an ink and a plate that are too close).
+ *
+ * Black is the worst case: compositing a light plate over a darker background
+ * yields a darker plate, so a plate that clears the floor over black clears it
+ * over every background. Composite luminance rises monotonically with alpha, so
+ * the passing set is an interval ending at 1 and a bisection finds its start.
+ */
+function minPlateAlpha(plate: Rgb, ink: Rgb): number | null {
+  const clears = (a: number): boolean =>
+    contrastRatio(compositeOver({ ...plate, a }, BLACK), ink) >= CAPTION_MIN_CONTRAST;
+  if (!clears(1)) return null;
+  let lo = 0;
+  let hi = 1;
+  // 24 halvings resolve alpha to ~6e-8 — far finer than an 8-bit channel — and
+  // `hi` is only ever assigned a value that already clears the floor.
+  for (let i = 0; i < 24; i++) {
+    const mid = (lo + hi) / 2;
+    if (clears(mid)) hi = mid;
+    else lo = mid;
+  }
+  return Math.min(1, Math.ceil(hi * PLATE_ALPHA_STEP) / PLATE_ALPHA_STEP);
+}
+
+/**
+ * The SINGLE resolution of a borderless caption's backing plate (#186).
+ *
+ * Narration paints fixed dark ink and, before this, painted it straight onto the
+ * artwork. `layoutCut` gets no pixel data, so the renderer cannot sample what is
+ * under the caption; what it CAN do is put a surface of its own under the ink and
+ * prove that surface works over the darkest artwork possible. Returns null for
+ * every other kind (they carry a balloon body already).
+ *
+ * Resolution order:
+ *  - the plate color is the overlay's authored `fill` (both shipped examples
+ *    author one) or, absent that, the per-kind caption color;
+ *  - its alpha is the authored fill's own alpha × the overlay's `opacity`, raised
+ *    to the minimum that keeps `ink` at the AA floor over black;
+ *  - an alpha of exactly 0 is an explicit "no plate" and is honored — the
+ *    pre-#186 fully borderless caption stays reachable with no schema change;
+ *  - the floor is computed against the RESOLVED ink, so an authored `textColor`
+ *    gets the same guarantee as the per-kind one.
+ *
+ * Two cases fall back to exactly what the author wrote. A color the core cannot
+ * measure (a named color, a paint server) cannot be reasoned about at all; and a
+ * plate/ink pair that no alpha can separate — an author who picked a dark plate
+ * AND dark ink — cannot be fixed by opacity, and repainting a color the author
+ * chose is not the renderer's call. Both are the same policy every other kind
+ * already follows: pick both colors and you own the pairing.
+ *
+ * Both the studio SVG and the export canvas consume the result through the
+ * render plan's `fill`/`fillOpacity`, so neither re-derives it (#112/#135/#147).
+ */
+export function resolveCaptionPlate(
+  kind: BubbleKind,
+  opts: { fill?: string; opacity?: number; ink: string },
+): CaptionPlate | null {
+  if (kind !== "narration") return null;
+  const authored = opts.fill?.trim() ? opts.fill : KIND_STYLE.narration.fill;
+  const opacity = Number.isFinite(opts.opacity) ? Math.max(0, Math.min(1, opts.opacity ?? 1)) : 1;
+  const plate: Rgba | null = parseCssColor(authored);
+  const ink = parseCssColor(opts.ink);
+  if (!plate || !ink) return { color: authored, alpha: opacity };
+  const alpha = plate.a * opacity;
+  if (alpha <= 0) return { color: toHex(plate), alpha: 0 };
+  const floor = minPlateAlpha(plate, ink);
+  return { color: toHex(plate), alpha: floor === null ? alpha : Math.max(alpha, floor) };
 }

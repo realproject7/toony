@@ -32,14 +32,20 @@ test("speech bubble produces a visible tail and a closed SVG path", () => {
   assert.equal(r.tail.tip.y, (speechOverlay.tail?.y ?? 0) * H);
 });
 
-test("narration is a borderless caption: tailless, no balloon, text only (#93)", () => {
+test("narration is a borderless caption: tailless, no border, plate + text (#93/#186)", () => {
   const r = layoutBubble(narrationOverlay, W, H);
-  // Borderless caption: no balloon outline drawn, but it is a text-bearing kind
+  // Still borderless and tailless — but it now carries a backing PLATE (#186),
+  // so its fixed dark ink is legible over dark artwork. It is a text-bearing kind
   // (plain text, not sfx-style outlined), so it keeps hasBubble + renders lines.
   assert.ok(r.hasBubble);
   assert.equal(r.tail, null);
-  assert.equal(r.pathD, "");
-  assert.equal(r.outline.length, 0);
+  // Borderless: no default border of its own, so nothing is stroked.
+  assert.equal(r.strokeWidth, 0);
+  // A caption plate, not a balloon: a closed rounded rect, no tail detour.
+  assert.ok(r.pathD.startsWith("M "));
+  assert.ok(r.pathD.endsWith("Z"));
+  assert.ok(r.outline.length > 0);
+  assert.ok(r.fillOpacity > 0);
   assert.ok(r.lines.length >= 1);
 });
 

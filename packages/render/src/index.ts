@@ -37,8 +37,14 @@ export { cutPlacementFrame, GUTTER_BAND_FRAC, layoutBubble, layoutCut } from "./
 
 export { approximateMeasure } from "./measure.js";
 
-export type { BubbleKindStyle } from "./style.js";
-export { bubbleKindStyle, kindHasBubble, kindSupportsTail } from "./style.js";
+export type { BubbleKindStyle, CaptionPlate } from "./style.js";
+export {
+  bubbleKindStyle,
+  CAPTION_MIN_CONTRAST,
+  kindHasBubble,
+  kindSupportsTail,
+  resolveCaptionPlate,
+} from "./style.js";
 
 export type {
   BubbleTextLayout,

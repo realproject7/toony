@@ -11,6 +11,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Canvas, createCanvas } from "@napi-rs/canvas";
+import { layoutCut } from "@toony/render";
 import type { LetteringOverlay } from "@toony/schema";
 import { composeCut } from "../compose.js";
 
@@ -155,6 +156,199 @@ test("export honors textAlign: left text sits left of right-aligned text (#81)",
     rightX - leftX > 30,
     `left-aligned ink (${leftX}) must be left of right-aligned (${rightX})`,
   );
+});
+
+// --- Narration caption legibility, measured on the raster (#186) ------------
+//
+// The render core proves the caption plate clears WCAG AA using its own model of
+// compositing. These tests prove the EXPORTED PIXELS agree: they composite a
+// narration caption over real light and real dark artwork and measure the ratio
+// between the plate and the ink as actually drawn, with an independent WCAG
+// implementation written from the spec.
+
+/** WCAG 2.x relative luminance of an 8-bit sRGB pixel, written from the spec. */
+function pixelLuminance(px: readonly [number, number, number]): number {
+  const lin = (v: number): number => {
+    const c = v / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(px[0]) + 0.7152 * lin(px[1]) + 0.0722 * lin(px[2]);
+}
+
+function pixelContrast(
+  a: readonly [number, number, number],
+  b: readonly [number, number, number],
+): number {
+  const la = pixelLuminance(a);
+  const lb = pixelLuminance(b);
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+}
+
+/** A solid raster of an arbitrary color, standing in for a cut's artwork. */
+function solidArt(rgb: readonly [number, number, number], w = 300, h = 420): Uint8Array {
+  const canvas = createCanvas(w, h);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+  ctx.fillRect(0, 0, w, h);
+  return new Uint8Array(canvas.toBuffer("image/png"));
+}
+
+/** The narration caption both shipped examples author: a wide band, low in the cut. */
+function captionOverlay(over: Partial<LetteringOverlay> = {}): LetteringOverlay {
+  return {
+    id: "cap",
+    cutId: "cut-001",
+    speaker: "",
+    kind: "narration",
+    text: "The light died. The line stayed open.",
+    font: "sans-serif",
+    fill: "#f5efe2",
+    opacity: 1,
+    border: null,
+    tail: null,
+    fontSize: 26,
+    geometry: { x: 0.08, y: 0.8, width: 0.84, height: 0.13 },
+    overflow: false,
+    reviewStatus: "human-edited",
+    ...over,
+  };
+}
+
+/**
+ * The plate pixel and the ink pixel of the drawn caption, both read back off the
+ * raster. Sampling is confined to the box INSET by the plate's corner radius:
+ * outside that inset the artwork still shows through the rounded corners, and a
+ * dark corner would masquerade as ink — the measurement would then pass by
+ * comparing the plate against the artwork it was supposed to cover.
+ *
+ * The plate is the caption's left padding (no glyph lands there at any
+ * alignment); the ink is the darkest pixel in the inset region — a glyph core,
+ * which the caller confirms by checking it against the plan's resolved ink.
+ */
+function captionPixels(
+  canvas: Canvas,
+  plan: { box: { x: number; y: number; width: number; height: number }; cornerRadius: number },
+): { plate: [number, number, number]; ink: [number, number, number] } {
+  const ctx = canvas.getContext("2d");
+  const inset = Math.ceil(plan.cornerRadius) + 1;
+  const { box } = plan;
+  // Text starts at 6% of the box width (the render core's padX), so 3% is inside
+  // the plate and clear of every glyph at any alignment.
+  const px = ctx.getImageData(
+    Math.round(box.x + box.width * 0.03),
+    Math.round(box.y + box.height / 2),
+    1,
+    1,
+  ).data;
+  const plate: [number, number, number] = [px[0] ?? 0, px[1] ?? 0, px[2] ?? 0];
+
+  const { data } = ctx.getImageData(
+    Math.round(box.x + inset),
+    Math.round(box.y + inset),
+    Math.max(1, Math.round(box.width - 2 * inset)),
+    Math.max(1, Math.round(box.height - 2 * inset)),
+  );
+  let ink: [number, number, number] = plate;
+  let darkest = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < data.length; i += 4) {
+    const candidate: [number, number, number] = [data[i] ?? 0, data[i + 1] ?? 0, data[i + 2] ?? 0];
+    const l = pixelLuminance(candidate);
+    if (l < darkest) {
+      darkest = l;
+      ink = candidate;
+    }
+  }
+  return { plate, ink };
+}
+
+/** The caption's box in raster pixels, from the same plan the export draws. */
+function captionBox(overlay: LetteringOverlay, width: number, height: number) {
+  const plan = layoutCut([overlay], width, height)[0];
+  assert.ok(plan, "expected a render plan for the caption");
+  return plan;
+}
+
+/** Assert the sampled "ink" really is the caption's glyph, not something behind it. */
+function assertIsResolvedInk(sampled: readonly [number, number, number], textColor: string): void {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(textColor);
+  assert.ok(m, `expected an opaque ink, got ${textColor}`);
+  for (let c = 0; c < 3; c++) {
+    const want = Number.parseInt(m[c + 1] as string, 16);
+    assert.ok(
+      Math.abs((sampled[c] as number) - want) <= 6,
+      `sampled ink [${sampled}] is not the resolved ${textColor} — the darkest pixel in the caption is not a glyph`,
+    );
+  }
+}
+
+test("a narration caption clears WCAG AA over DARK artwork in the raster (#186)", async () => {
+  // #101319 is the mean pixel under the caption of examples/dead-air cut-007,
+  // where the unplated caption measured 1.12:1.
+  const art: [number, number, number] = [0x10, 0x13, 0x19];
+  const composed = await composeCut([captionOverlay()], solidArt(art), 480);
+  const plan = captionBox(captionOverlay(), composed.width, composed.height);
+  const { plate, ink } = captionPixels(composed.canvas, plan);
+  assertIsResolvedInk(ink, plan.textColor);
+  // The defect, reproduced: this ink on this artwork is the 1.1:1 the issue found.
+  assert.ok(pixelContrast(ink, art) < 1.5, "the unplated pairing must genuinely fail");
+  const got = pixelContrast(plate, ink);
+  assert.ok(got >= 4.5, `caption over dark art measured ${got.toFixed(2)}:1 in the raster`);
+});
+
+test("a narration caption clears WCAG AA over LIGHT artwork in the raster (#186)", async () => {
+  const composed = await composeCut([captionOverlay()], solidArt([0xe9, 0xe4, 0xda]), 480);
+  const plan = captionBox(captionOverlay(), composed.width, composed.height);
+  const { plate, ink } = captionPixels(composed.canvas, plan);
+  assertIsResolvedInk(ink, plan.textColor);
+  const got = pixelContrast(plate, ink);
+  assert.ok(got >= 4.5, `caption over light art measured ${got.toFixed(2)}:1 in the raster`);
+});
+
+test("a translucent caption plate still clears AA over pure black in the raster (#186)", async () => {
+  // A legal-but-faint authored opacity: the render core raises it to the floor,
+  // and here the RASTER — 8-bit quantized, composited by the real canvas — is
+  // measured to confirm the raised alpha survives to the exported pixels.
+  const faint = captionOverlay({ opacity: 0.2 });
+  const composed = await composeCut([faint], solidArt([0, 0, 0]), 480);
+  const plan = captionBox(faint, composed.width, composed.height);
+  assert.ok(plan.fillOpacity > 0.2 && plan.fillOpacity < 1, "expected a raised, translucent plate");
+  const { plate, ink } = captionPixels(composed.canvas, plan);
+  assertIsResolvedInk(ink, plan.textColor);
+  const got = pixelContrast(plate, ink);
+  assert.ok(got >= 4.5, `translucent caption over black measured ${got.toFixed(2)}:1`);
+});
+
+test("the raster plate matches the SVG compositing model, so studio and export agree (#186)", async () => {
+  // The studio draws the SAME plan as an SVG `<path fill fill-opacity>`, which
+  // composites source-over exactly like the canvas. Asserting the raster pixel
+  // equals that model is what makes the preview and the export the same picture —
+  // neither consumer re-derives the plate (#112/#135/#147).
+  const art: [number, number, number] = [0x10, 0x13, 0x19];
+  const faint = captionOverlay({ opacity: 0.2 });
+  const composed = await composeCut([faint], solidArt(art), 480);
+  const plan = captionBox(faint, composed.width, composed.height);
+  const { plate } = captionPixels(composed.canvas, plan);
+
+  const fillRgb = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(plan.fill);
+  assert.ok(fillRgb, `resolved plate fill must be an opaque hex, got ${plan.fill}`);
+  const a = plan.fillOpacity;
+  for (let c = 0; c < 3; c++) {
+    const source = Number.parseInt(fillRgb[c + 1] as string, 16);
+    const expected = source * a + (art[c] as number) * (1 - a);
+    assert.ok(
+      Math.abs((plate[c] as number) - expected) <= 2,
+      `channel ${c}: raster ${plate[c]} vs SVG model ${expected.toFixed(1)}`,
+    );
+  }
+});
+
+test("the caption plate is borderless unless the overlay authors a border (#186)", async () => {
+  const plain = captionBox(captionOverlay(), 480, 672);
+  assert.equal(plain.strokeWidth, 0, "a caption draws no border of its own");
+  // examples/last-train authors one; it must survive to the raster path.
+  const bordered = captionBox(captionOverlay({ border: { width: 2, color: "#141414" } }), 480, 672);
+  assert.equal(bordered.strokeWidth, 2);
+  assert.equal(bordered.stroke, "#141414");
 });
 
 // --- Bubble grammar consumption (#93) --------------------------------------

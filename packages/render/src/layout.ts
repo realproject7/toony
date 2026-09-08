@@ -35,7 +35,13 @@ import {
   type TailGeometry,
 } from "./geometry.js";
 import { approximateMeasure } from "./measure.js";
-import { bubbleKindStyle, kindHasBubble, kindSupportsTail, outlineDecorationFor } from "./style.js";
+import {
+  bubbleKindStyle,
+  kindHasBubble,
+  kindSupportsTail,
+  outlineDecorationFor,
+  resolveCaptionPlate,
+} from "./style.js";
 import {
   type BubbleTextLayout,
   defaultBubbleFontRange,
@@ -86,13 +92,22 @@ export interface BubbleRender {
   pathD: string;
   /** Resolved tail triangle, or null when tailless / tip inside the box. */
   tail: TailGeometry | null;
-  /** Resolved fill / stroke / text colors (stored style overrides defaults). */
+  /**
+   * Resolved fill / stroke / text colors (stored style overrides defaults). For
+   * `narration` the fill is the resolved caption PLATE (#186) — an opaque color
+   * whose whole alpha is `fillOpacity` — so a consumer drawing `fill` at
+   * `fillOpacity` composites exactly what the contrast floor was proven against.
+   */
   fill: string;
   stroke: string;
   textColor: string;
   /** Stroke width in pixels. */
   strokeWidth: number;
-  /** Fill opacity 0..1. */
+  /**
+   * Fill opacity 0..1: the overlay's `opacity`, or for a narration caption the
+   * resolved plate alpha (#186), which is that opacity raised to whatever keeps
+   * the caption at the WCAG AA floor over the darkest possible artwork.
+   */
   fillOpacity: number;
   /**
    * Width in px to stroke bare (SFX) text so it reads on any background. Single
@@ -340,9 +355,11 @@ export function layoutBubble(
     tail = speechTailGeometry(ox, oy, ow, oh, tip, radius);
   }
 
-  // narration is a borderless caption and sfx is bare text — both skip the
-  // balloon. The rest build the (possibly decorated) outline; a decorated span is
-  // pure line segments so the SVG path and canvas trace stay identical (#88).
+  // sfx is bare text and skips the shape entirely. Narration builds the same
+  // rounded rect every other kind builds, drawn as a borderless caption PLATE
+  // (#186: `strokeScale: 0`, no tail) rather than a balloon. The rest build the
+  // (possibly decorated) outline; a decorated span is pure line segments so the
+  // SVG path and canvas trace stay identical (#88).
   const drawsOutline = hasBubble && decoration !== "none";
   const outline = drawsOutline ? buildBalloonOutline(ox, oy, ow, oh, tail, radius, decoration) : [];
   const pathD = drawsOutline ? balloonPathD(outline) : "";
@@ -396,14 +413,27 @@ export function layoutBubble(
   // Stored style overrides per-kind defaults. A stored border width is authored
   // in px; otherwise fall back to a height-relative base scaled per kind so the
   // stroke reads consistently at preview and export scale.
-  const fill = overlay.fill?.trim() ? overlay.fill : style.fill;
   const stroke = overlay.border?.color ?? style.stroke;
   const fallbackStroke = (opts.baseStrokeWidth ?? baseStroke(height)) * style.strokeScale;
   const strokeWidth =
     overlay.border && Number.isFinite(overlay.border.width) && overlay.border.width >= 0
       ? overlay.border.width
       : fallbackStroke;
-  const fillOpacity = clamp(Number.isFinite(overlay.opacity) ? overlay.opacity : 1, 0, 1);
+  // A borderless caption's backing plate (#186). `layoutCut` never sees pixels,
+  // so the renderer cannot sample the artwork under the caption; instead the plate
+  // is resolved to a surface proven legible over the DARKEST artwork possible.
+  // Non-narration kinds resolve null and keep the authored/per-kind fill exactly.
+  // This is the one resolution every consumer reads off the plan — the studio SVG
+  // and the export canvas both draw `fill` at `fillOpacity` and re-derive nothing.
+  const plate = resolveCaptionPlate(kind, {
+    fill: overlay.fill,
+    opacity: overlay.opacity,
+    ink: textColor,
+  });
+  const fill = plate ? plate.color : overlay.fill?.trim() ? overlay.fill : style.fill;
+  const fillOpacity = plate
+    ? plate.alpha
+    : clamp(Number.isFinite(overlay.opacity) ? overlay.opacity : 1, 0, 1);
 
   // SFX (no bubble body) draws stroked-then-filled bare text; the outline width
   // is resolved here so every consumer strokes it the same. 0 when there is a
