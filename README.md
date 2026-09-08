@@ -45,10 +45,13 @@ File creation alone is not the quality bar.
 
 ## License
 
-Toony is intended to be source-available for noncommercial use. Commercial use
-requires a separate commercial license.
+Toony is source-available under the
+[PolyForm Noncommercial License 1.0.0](./LICENSE). Noncommercial use is free
+under that license. Commercial use, such as monetized publication, commissioned
+work, or studio production, requires a separate commercial license.
 
-See [LICENSE](./LICENSE).
+See [LICENSE](./LICENSE) for the terms and [COMMERCIAL.md](./COMMERCIAL.md) for
+what counts as commercial use and how to ask for a license.
 
 ## Status
 
