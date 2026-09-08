@@ -19,6 +19,7 @@ import {
 import type { LetteringOverlay } from "@toony/schema";
 import { useMemo } from "react";
 import { useBrowserMeasure } from "@/lib/browser-measure";
+import { bubbleTextStyle } from "@/lib/overlay-text-style";
 import type { CutArt } from "@/lib/project";
 import { svgLetterSpacing, svgTextAnchor } from "@/lib/text-anchor";
 
@@ -69,7 +70,9 @@ function Bubble({ plan }: { plan: BubbleRender }) {
           key={`${plan.id}-line-${i}`}
           x={line.anchorX}
           y={line.y + fontSize}
-          fontFamily={plan.fontStack}
+          // The resolved face goes on as a style, not a `font-family` attribute:
+          // an SVG presentation attribute loses to any author stylesheet rule (#229).
+          style={bubbleTextStyle(plan)}
           fontSize={fontSize}
           fontWeight={plan.fontWeight}
           textAnchor={svgTextAnchor(plan.textAlign)}

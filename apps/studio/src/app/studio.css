@@ -440,16 +440,16 @@ input[type="radio"] {
   object-fit: contain;
 }
 
+/* Nothing here may set font-family on `text`. Bubble text carries the face the
+   render plan resolved (#229); a rule on `text` outranks the element's own
+   presentation attribute and would draw every bubble in the brand display font
+   again, against a layout measured for the resolved face. */
 .cut-overlays {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
-}
-
-.cut-overlays text {
-  font-family: var(--font-display, sans-serif);
 }
 
 .cut-bubbles {
@@ -826,8 +826,10 @@ input[type="radio"] {
   height: 100%;
 }
 
+/* No font-family here. Bubble text carries the face the render plan resolved
+   (#229); a rule on `text` outranks the element's own presentation attribute and
+   would draw every bubble in the brand display font again. */
 .editor-overlays text {
-  font-family: var(--font-display, sans-serif);
   user-select: none;
 }
 
