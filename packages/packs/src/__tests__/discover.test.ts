@@ -31,7 +31,9 @@ const SCAFFOLD = {
 
 const GRAPH = { "3": { class_type: "KSampler", inputs: { seed: 0 } } };
 
-/** Write a complete pack contributing all three kinds. Returns its directory. */
+const BAND = { bandFormat: 1, metrics: { gutterRatio: { min: 0.2, max: 0.4 } } };
+
+/** Write a complete pack contributing every kind. Returns its directory. */
 async function writePack(
   root: string,
   id: string,
@@ -40,6 +42,7 @@ async function writePack(
   const dir = join(root, id);
   await mkdir(join(dir, "workflows"), { recursive: true });
   await mkdir(join(dir, "genres"), { recursive: true });
+  await mkdir(join(dir, "bands"), { recursive: true });
   const manifest = {
     packFormat: 1,
     id,
@@ -47,11 +50,13 @@ async function writePack(
     workflows: [{ name: `${id}-flow`, file: "workflows/flow.json" }],
     genres: [{ id: `${id}-genre`, title: id, file: "genres/scaffold.json" }],
     exportPresets: [{ id: `${id}-preset`, target: "platform", options: { width: 1600 } }],
+    craftBands: [{ id: `${id}-band`, file: "bands/band.json" }],
     ...overrides,
   };
   await writeFile(join(dir, "toony-pack.json"), JSON.stringify(manifest, null, 2));
   await writeFile(join(dir, "workflows", "flow.json"), JSON.stringify(GRAPH));
   await writeFile(join(dir, "genres", "scaffold.json"), JSON.stringify(SCAFFOLD));
+  await writeFile(join(dir, "bands", "band.json"), JSON.stringify(BAND));
   return dir;
 }
 
@@ -62,6 +67,7 @@ test("with no packs installed, discovery returns empty content and no issues", a
   assert.equal(loaded.content.workflows.size, 0);
   assert.deepEqual(loaded.content.genres, []);
   assert.deepEqual(loaded.content.exportPresets, []);
+  assert.equal(loaded.content.craftBands.size, 0);
 });
 
 test("an unreadable pack root is the zero-pack case, not a failure", async () => {
@@ -70,7 +76,7 @@ test("an unreadable pack root is the zero-pack case, not a failure", async () =>
   assert.deepEqual(loaded.packs, []);
 });
 
-test("a pack in <root>/.toony/packs contributes all three kinds", async () => {
+test("a pack in <root>/.toony/packs contributes every kind", async () => {
   const packsDir = join(workdir, PROJECT_PACKS_DIR);
   await mkdir(packsDir, { recursive: true });
   const dir = await writePack(packsDir, "alpha");
@@ -86,6 +92,9 @@ test("a pack in <root>/.toony/packs contributes all three kinds", async () => {
     target: "platform",
     options: { width: 1600 },
   });
+  // A band is carried as a path, like a workflow graph: the band format belongs
+  // to the package that owns the measurement, not to discovery.
+  assert.equal(loaded.content.craftBands.get("alpha-band"), join(dir, "bands", "band.json"));
 });
 
 test("TOONY_PACKS names extra pack roots and they are searched first", async () => {
@@ -153,16 +162,19 @@ test("a manifest naming a file that is not there is reported, not thrown", async
   await writePack(packsDir, "gap", {
     workflows: [{ name: "missing-flow", file: "workflows/absent.json" }],
     genres: [{ id: "missing-genre", title: "Gone", file: "genres/absent.json" }],
+    craftBands: [{ id: "missing-band", file: "bands/absent.json" }],
   });
 
   const loaded = await loadPacks(workdir);
   const codes = loaded.issues.map((i) => i.code);
   assert.ok(codes.includes("pack.workflow.file-missing"));
   assert.ok(codes.includes("pack.genre.file-missing"));
+  assert.ok(codes.includes("pack.craft-band.file-missing"));
   // The pack still counts as installed; only the broken contributions are gone.
   assert.equal(loaded.packs.length, 1);
   assert.equal(loaded.content.workflows.size, 0);
   assert.equal(loaded.content.genres.length, 0);
+  assert.equal(loaded.content.craftBands.size, 0);
   assert.equal(loaded.content.exportPresets.length, 1);
 });
 
@@ -191,6 +203,7 @@ test("the first pack to claim a name keeps it and the loser is told why", async 
     workflows: [{ name: "first-flow", file: "workflows/flow.json" }],
     genres: [{ id: "first-genre", title: "Second", file: "genres/scaffold.json" }],
     exportPresets: [{ id: "first-preset", target: "stitched", options: {} }],
+    craftBands: [{ id: "first-band", file: "bands/band.json" }],
   });
 
   const loaded = await loadPacks(workdir, { [PACKS_ENV_VAR]: envRoot });
@@ -198,10 +211,12 @@ test("the first pack to claim a name keeps it and the loser is told why", async 
   assert.equal(loaded.content.genres.length, 1);
   assert.equal(loaded.content.genres[0]?.title, "first");
   assert.equal(loaded.content.exportPresets[0]?.target, "platform");
+  assert.equal(loaded.content.craftBands.get("first-band"), join(winner, "bands", "band.json"));
   const codes = loaded.issues.map((i) => i.code);
   assert.ok(codes.includes("pack.workflow.claimed"));
   assert.ok(codes.includes("pack.genre.claimed"));
   assert.ok(codes.includes("pack.export-preset.claimed"));
+  assert.ok(codes.includes("pack.craft-band.claimed"));
 });
 
 test("two packs declaring the same pack id are reported; only the first loads", async () => {

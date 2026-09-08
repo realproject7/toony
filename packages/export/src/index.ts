@@ -2,6 +2,26 @@
 // exports built on the shared renderer, plus the export manifest schema.
 
 export { composeCut, composeTransitionBand } from "./compose.js";
+export {
+  asCraftBand,
+  CRAFT_BAND_FORMAT_VERSION,
+  CRAFT_METRIC_NAMES,
+  type CraftBand,
+  type CraftBandRange,
+  type CraftBandReport,
+  type CraftMeasurement,
+  type CraftMetricName,
+  type CraftMetrics,
+  type CraftMetricVerdict,
+  compareToCraftBand,
+  DEFAULT_SCREEN_ASPECT,
+  FLAT_ROW_STDDEV_MAX,
+  GUTTER_MIN_RUN_FRACTION,
+  type MeasureOptions,
+  measureEpisodeCraft,
+  PANEL_MIN_RUN_FRACTION,
+  validateCraftBandValue,
+} from "./craft.js";
 // Plain constants live in the Node-free `./defaults.js` (also a browser-safe
 // subpath) so consumers keep importing them from the main entry (#154).
 export {
@@ -49,4 +69,6 @@ export {
   exportPlatform,
   exportPlotlink,
   exportStitched,
+  type StitchedEpisode,
+  stitchEpisode,
 } from "./targets.js";

@@ -199,33 +199,45 @@ export async function exportPlatform(
   return { manifest, outDir: outAbs };
 }
 
-/** Export one stitched image preserving cuts, gutters, transitions, and lettering. */
-export async function exportStitched(
+/** One episode composed into a single page raster, plus what it was built from. */
+export interface StitchedEpisode {
+  canvas: Canvas;
+  width: number;
+  height: number;
+  project: Project;
+  bundle: EpisodeBundle;
+}
+
+/**
+ * Compose a whole episode into one page: every cut and transition band in
+ * reading order, stacked. This is the single composition the stitched export
+ * encodes AND the one craft measurement reads back (#196), so a measured episode
+ * is by construction the page a reader would see. It needs no provider — a cut
+ * with no image asset composes its neutral background.
+ */
+export async function stitchEpisode(
   root: string,
   episodeId: string,
-  options: ExportOptions = {},
-): Promise<ExportOutput> {
+  width?: number,
+): Promise<StitchedEpisode> {
   const { bundle, project, imageFor } = await loadEpisode(root, episodeId);
-  const width = Math.max(1, Math.round(options.width ?? STITCHED_DEFAULT_WIDTH));
-  const format: RasterFormat = options.format ?? "png";
-  const quality = format === "jpeg" ? (options.quality ?? DEFAULT_JPEG_QUALITY) : null;
+  const renderWidth = Math.max(1, Math.round(width ?? STITCHED_DEFAULT_WIDTH));
 
   const transitionsById = new Map(bundle.transitions.map((t) => [t.id, t]));
   const cutsById = new Map(bundle.cuts.map((c) => [c.id, c]));
 
-  // Compose every band in reading order, then stack them.
   const bands: { canvas: Canvas; height: number }[] = [];
   for (const item of bundle.episode.sequence) {
     if (item.type === "cut") {
       const cut = cutsById.get(item.id);
       if (!cut) continue;
       const overlays = bundle.lettering.filter((o) => o.cutId === cut.id);
-      const composed = await composeCut(overlays, imageFor(cut.id), width);
+      const composed = await composeCut(overlays, imageFor(cut.id), renderWidth);
       bands.push({ canvas: composed.canvas, height: composed.height });
     } else {
       const transition = transitionsById.get(item.id);
       if (!transition) continue;
-      const band = composeTransitionBand(transition, width);
+      const band = composeTransitionBand(transition, renderWidth);
       if (band) bands.push({ canvas: band.canvas, height: band.height });
     }
   }
@@ -234,15 +246,34 @@ export async function exportStitched(
     1,
     bands.reduce((sum, b) => sum + b.height, 0),
   );
-  const stitched = createCanvas(width, totalHeight);
-  const ctx = stitched.getContext("2d");
+  const canvas = createCanvas(renderWidth, totalHeight);
+  const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, width, totalHeight);
+  ctx.fillRect(0, 0, renderWidth, totalHeight);
   let y = 0;
   for (const band of bands) {
     ctx.drawImage(band.canvas, 0, y);
     y += band.height;
   }
+
+  return { canvas, width: renderWidth, height: totalHeight, project, bundle };
+}
+
+/** Export one stitched image preserving cuts, gutters, transitions, and lettering. */
+export async function exportStitched(
+  root: string,
+  episodeId: string,
+  options: ExportOptions = {},
+): Promise<ExportOutput> {
+  const format: RasterFormat = options.format ?? "png";
+  const quality = format === "jpeg" ? (options.quality ?? DEFAULT_JPEG_QUALITY) : null;
+  const {
+    canvas: stitched,
+    width,
+    height: totalHeight,
+    project,
+    bundle,
+  } = await stitchEpisode(root, episodeId, options.width);
 
   const outRel = `episodes/${episodeId}/exports/stitched`;
   const outAbs = `${root}/${outRel}`;

@@ -2,7 +2,7 @@
   "packFormat": 1,
   "id": "example-pack",
   "name": "Toony Example Pack",
-  "description": "A complete, working pack: one named ComfyUI workflow, one genre scaffold, and one export preset. Copy this folder to start your own. See docs/PACK_FORMAT.md.",
+  "description": "A complete, working pack: one named ComfyUI workflow, one genre scaffold, one export preset, and one craft band. Copy this folder to start your own. See docs/PACK_FORMAT.md.",
   "workflows": [
     {
       "name": "high-detail",
@@ -25,6 +25,12 @@
         "format": "jpeg",
         "quality": 88
       }
+    }
+  ],
+  "craftBands": [
+    {
+      "id": "noir-band",
+      "file": "bands/noir.json"
     }
   ]
 }

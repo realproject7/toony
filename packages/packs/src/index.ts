@@ -2,8 +2,8 @@
 // discovery of the content packs contribute.
 //
 // A pack is a directory of DATA — a `toony-pack.json` manifest plus the JSON
-// files it names — that adds named ComfyUI workflows, genre scaffolds, and
-// export presets without editing core source. See docs/PACK_FORMAT.md.
+// files it names — that adds named ComfyUI workflows, genre scaffolds, export
+// presets, and craft bands without editing core source. See docs/PACK_FORMAT.md.
 //
 // This package depends only on `@toony/schema`, and nothing in the core depends
 // on it: the CLI discovers packs once and passes the resolved content down to
@@ -25,6 +25,7 @@ export {
   PACK_MANIFEST_FILE,
   PACK_PRESET_FORMATS,
   PACKS_ENV_VAR,
+  type PackCraftBandRef,
   type PackExportOptions,
   type PackExportPreset,
   type PackGenreRef,

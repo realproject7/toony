@@ -76,12 +76,22 @@ Toony prepares PlotLink-ready content only. It does not upload or publish.
 ## Packs
 
 Content can be contributed from outside the repository by a **pack**: a local
-folder that adds a named ComfyUI workflow, a genre scaffold, or an export preset.
-The core owns registries; packs contribute entries; consumers read the merged
-registry. Extending Toony's content therefore never requires a fork.
+folder that adds a named ComfyUI workflow, a genre scaffold, an export preset, or
+a craft band. The core owns registries; packs contribute entries; consumers read
+the merged registry. Extending Toony's content therefore never requires a fork.
 
 A pack is DATA — a JSON manifest plus the JSON files it names. It cannot carry
 code, reach the network, add an export engine, or redefine a built-in. With no
 packs installed the core behaves exactly as it does without the seam.
 
 The format is documented in [PACK_FORMAT.md](./PACK_FORMAT.md).
+
+## Craft measurement
+
+A pack's own output can be graded rather than eyeballed. `toony measure` composes
+an episode exactly as the stitched export does and reads the page back as craft
+signals — gutter budget, cut heights and density, inset, and palette — so a pack
+is finished when its output lands inside a target band. The measurement is
+provider-free and deterministic, and language-dependent craft (bubble size, line
+count, text density) is deliberately left to the lints that run on our own
+content. See [CRAFT_MEASURE.md](./CRAFT_MEASURE.md).

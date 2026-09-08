@@ -12,6 +12,9 @@ usage:
   toony export <target> ...  export platform/stitched/plotlink for an episode
   toony lint [path]        lint a whole project (schema, images, overflow, manifests)
   toony lint-episode <id>  lint a single episode by id
+  toony measure [path] --episode <id>
+                           measure a rendered episode's craft signals, and grade
+                           them against a target band
   toony --help             show this help
 
 options:
@@ -36,17 +39,25 @@ options:
   lint [path] --json       emit findings as JSON instead of text
   lint-episode <id> [path] [--json]
                            lint only the named episode
+  measure [path] --episode <id> [--against <band-id|band.json>] [--json]
+          [--width <px>] [--screen-aspect <n>]
+                           renders the episode the way \`export stitched\` does —
+                           no provider, no prior export — and reports gutter,
+                           panel, and colour signals; --against grades them
+                           against a band file or a band an installed pack ships
+                           (docs/CRAFT_MEASURE.md)
 
 packs (docs/PACK_FORMAT.md):
   a pack is a local folder of DATA that adds named workflows, genre scaffolds,
-  and export presets without editing Toony. Packs are read from
+  export presets, and craft bands without editing Toony. Packs are read from
   <project>/.toony/packs, the workspace folder above it, and every directory
   named by TOONY_PACKS. Nothing in a pack can run code.
 
 exit codes (agent-readable):
   0   success; for \`validate\`, the project is valid; for \`lint\`, no error/warning findings
   1   domain error: validation errors (\`validate\`: schema errors), lint findings
-      (\`lint\`: any error/warning finding), or generation failure
+      (\`lint\`: any error/warning finding), an out-of-band measurement
+      (\`measure --against\`), or generation failure
       (\`generate\`: endpoint unreachable, provider error, or timeout)
   2   usage error or IO failure (bad arguments, missing/unreadable files)
 `;

@@ -49,6 +49,21 @@ export interface PackGenreRef {
   file: string;
 }
 
+/**
+ * A craft band: the per-metric target range `toony measure --against <id>` grades
+ * an episode with, so a pack ships the target it was built to hit (#196).
+ *
+ * Like a workflow graph, the file is carried as a path and never parsed here —
+ * the band format belongs to `@toony/export`, which owns the measurement, and
+ * this package stays dependent on `@toony/schema` alone.
+ */
+export interface PackCraftBandRef {
+  /** The id `toony measure --against <id>` selects. */
+  id: string;
+  /** Pack-relative path to the band JSON file. */
+  file: string;
+}
+
 /** Render options a preset pins. Structurally `ExportOptions` in `@toony/export`. */
 export interface PackExportOptions {
   width?: number;
@@ -80,4 +95,5 @@ export interface PackManifest {
   workflows: PackWorkflowRef[];
   genres: PackGenreRef[];
   exportPresets: PackExportPreset[];
+  craftBands: PackCraftBandRef[];
 }
