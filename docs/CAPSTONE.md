@@ -291,7 +291,8 @@ fills in the cut artwork on this same seed; the interstitial panels stay `image:
 
 # v4 Capstone — Real-Art Render Pass
 
-Status: PASSED (2026-09-08)
+Status: PASSED with one known limitation (2026-09-08) — see "Known limitation: cut-006 drifts
+off-model" at the end of this section.
 
 The interstitial-pass record above intentionally left `examples/dead-air`'s cuts at
 `image: null` — the v4 thesis only needed the transition panels to be real. This pass (#178)
@@ -342,6 +343,27 @@ run once per `<id>` in `cut-001`…`cut-007`, each with its own `--seed`, agains
 - **`toony validate` and `toony lint` both stay green** on the real-art seed, and `pnpm check`
   / `pnpm test` are unaffected — no package source changed, only `examples/dead-air` data and
   this record.
+
+## Known limitation: cut-006 drifts off-model
+
+Lockstring injection fires for every cut that references a character, but firing is not the
+same as landing. Reviewed frame by frame, Wren holds together across **002** and **004** —
+short auburn bob, amber cardigan, dark booth — and the Caller in **005** is exactly the hooded
+near-monochrome silhouette its lockstring describes. **006 drifts**: cyan eyes instead of the
+warm amber of 002, longer and lighter hair, a cream wardrobe, and a flat bright-blue field
+where the dark booth should be.
+
+The cause is in the cut's own authored prompt, not in the injection path. `cut-006`'s
+`imagePrompt` asks for "cold blue screen light reflected in the eyes", and this checkpoint
+applies that blue to the entire frame and to the iris, overpowering both "dark booth" and the
+lockstring's "muted teal-and-amber palette". Three further seeds (1006, 4242, 7331) were
+rendered against the unmodified prompt and all three came out worse — flatter backgrounds and
+less dread — so the committed frame is the best of four samples, not a first draft.
+
+Fixing it means rewriting an authored prompt, which #178 explicitly scopes out (the prompts are
+the project's own story data). The prompt fix is tracked separately. Until then this record
+should not be read as a claim that every cut is on-model: five of seven are strong, 006 is the
+weak frame, and it is named here rather than left for a reader to notice.
 
 Cut artwork: 7 PNGs, 832×1216, roughly 0.8–1.4 MB each (full-resolution `clean` source assets —
 export targets still produce their own size-budgeted rasters, e.g. the PlotLink WebPs' separate
