@@ -13,6 +13,12 @@
 // colour clause (#207) so the colour a cut asks for reaches the only lever the
 // provider has. When the endpoint is unset or unreachable the command fails with
 // a clear, actionable message — it never fabricates a result.
+//
+// `--cut` REPEATS, so this command owns the multi-cut loop instead of leaving
+// every caller to write a shell loop and invent its own error handling (#204).
+// Generation is slow and flaky against a local GPU, so a failed cut must not
+// scroll past unnoticed: the run reports a per-cut summary and exits non-zero
+// when any cut failed. Nothing is rolled back, so cuts that did generate stay.
 
 import { dirname, resolve } from "node:path";
 import {
@@ -46,12 +52,13 @@ export interface GenerateIo {
 interface Flags {
   positional: string[];
   values: Map<string, string>;
+  /** Values of flags that may be repeated, in the order they were given. */
+  lists: Map<string, string[]>;
   booleans: Set<string>;
 }
 
 const VALUE_FLAGS = new Set([
   "--episode",
-  "--cut",
   "--transition",
   "--slot",
   "--provider",
@@ -62,20 +69,24 @@ const VALUE_FLAGS = new Set([
   "--seed",
   "--workflow",
 ]);
+/** `--cut` repeats so one run covers a whole episode (#204). */
+const LIST_FLAGS = new Set(["--cut"]);
 const BOOLEAN_FLAGS = new Set(["--allow-remote"]);
 
 function parseFlags(args: string[]): Flags | { error: string } {
   const positional: string[] = [];
   const values = new Map<string, string>();
+  const lists = new Map<string, string[]>();
   const booleans = new Set<string>();
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? "";
-    if (VALUE_FLAGS.has(arg)) {
+    if (VALUE_FLAGS.has(arg) || LIST_FLAGS.has(arg)) {
       const value = args[i + 1];
       // Reject a following flag as a value (e.g. `--episode --cut x`), matching
       // export.ts / import-image.ts (#156).
       if (value === undefined || value.startsWith("-")) return { error: `${arg} requires a value` };
-      values.set(arg, value);
+      if (LIST_FLAGS.has(arg)) lists.set(arg, [...(lists.get(arg) ?? []), value]);
+      else values.set(arg, value);
       i++;
     } else if (BOOLEAN_FLAGS.has(arg)) {
       booleans.add(arg);
@@ -85,11 +96,11 @@ function parseFlags(args: string[]): Flags | { error: string } {
       positional.push(arg);
     }
   }
-  return { positional, values, booleans };
+  return { positional, values, lists, booleans };
 }
 
 const USAGE =
-  "usage: toony generate [path] --episode <id> (--cut <id> [--slot clean|final] | --transition <id>) --prompt <text> [--negative <text>] [--width <px>] [--height <px>] [--seed <n>] [--workflow <name>] [--provider comfyui] [--allow-remote]";
+  "usage: toony generate [path] --episode <id> (--cut <id> [--cut <id> ...] [--slot clean|final] | --transition <id>) --prompt <text> [--negative <text>] [--width <px>] [--height <px>] [--seed <n>] [--workflow <name>] [--provider comfyui] [--allow-remote]";
 
 function parsePositiveInt(raw: string, name: string): number | { error: string } {
   const n = Number(raw);
@@ -186,6 +197,113 @@ async function buildProvider(
   return { error: `unknown provider "${id}"; only "comfyui" is available for generation` };
 }
 
+/** One image to produce: where it goes, what to ask for, and how to name it. */
+interface Job {
+  /** Cut or transition id, as it appears in the run summary. */
+  id: string;
+  /** How the target reads in the success line. */
+  label: string;
+  target: AssetTarget;
+  request: ImageRequest;
+}
+
+interface PlanInput {
+  episodeId: string;
+  cutIds: readonly string[];
+  transitionId?: string;
+  slot: "clean" | "final";
+  prompt?: string;
+  negative?: string;
+  /** Size and seed flags, which apply to every job in the run. */
+  shared: Readonly<Record<string, string | number>>;
+}
+
+function optionsFor(
+  shared: Readonly<Record<string, string | number>>,
+  negative: string | undefined,
+): Record<string, string | number> {
+  return negative === undefined ? { ...shared } : { negativePrompt: negative, ...shared };
+}
+
+/**
+ * Resolve every requested job's prompt BEFORE any of them runs.
+ *
+ * An explicit `--prompt` wins; otherwise a cut falls back to its stored
+ * `imagePrompt`/`negativePrompt` (#38). Transitions carry no stored prompt, so
+ * `--prompt` stays required for them. The project is loaded ONCE, even when
+ * `--prompt` is given, to read each cut's `characters` refs, its `palette`, and
+ * the project registry, so lockstrings (#92) and the palette clause (#207)
+ * inject for both prompt sources. Generation writes only image refs, which
+ * nothing here reads, so one load serves the whole run.
+ *
+ * `usage` separates a caller mistake, which reprints the usage line, from a
+ * project that could not be loaded.
+ */
+async function planJobs(
+  root: string,
+  input: PlanInput,
+): Promise<{ jobs: Job[] } | { error: string; usage: boolean }> {
+  const { episodeId, cutIds, transitionId, slot, prompt, negative, shared } = input;
+  const NO_PROMPT = "generation requires --prompt <text> (or a non-empty cut imagePrompt)";
+  if (transitionId !== undefined) {
+    if (prompt === undefined || prompt.trim().length === 0)
+      return { error: NO_PROMPT, usage: true };
+    return {
+      jobs: [
+        {
+          id: transitionId,
+          label: `transition ${transitionId}`,
+          target: { kind: "transition", episodeId, transitionId },
+          request: { prompt, options: optionsFor(shared, negative) },
+        },
+      ],
+    };
+  }
+
+  let loaded: Awaited<ReturnType<typeof loadProject>>;
+  try {
+    loaded = await loadProject(root);
+  } catch (error) {
+    return { error: error instanceof ProjectIoError ? error.message : String(error), usage: false };
+  }
+  const registry: readonly Character[] = loaded.project.webtoon.characters ?? [];
+  const bundle = loaded.project.episodes.find((b) => b.episode.id === episodeId);
+
+  const jobs: Job[] = [];
+  for (const cutId of cutIds) {
+    const cut = bundle?.cuts.find((c) => c.id === cutId);
+    let cutPrompt = prompt;
+    let cutNegative = negative;
+    if (cut) {
+      if (
+        (cutPrompt === undefined || cutPrompt.trim().length === 0) &&
+        cut.imagePrompt.trim().length > 0
+      ) {
+        cutPrompt = cut.imagePrompt;
+      }
+      if (cutNegative === undefined && cut.negativePrompt.trim().length > 0) {
+        cutNegative = cut.negativePrompt;
+      }
+    }
+    if (cutPrompt === undefined || cutPrompt.trim().length === 0) {
+      return { error: `${NO_PROMPT}; ${cutId} has neither`, usage: true };
+    }
+    // Lockstrings prepend (#92), then the palette clause appends (#207), so the
+    // colour qualifies the whole scene rather than one character's description.
+    const composed = appendPaletteClause(
+      injectCharacterLockstrings(cutPrompt, cut?.characters, registry),
+      cut?.palette,
+    );
+    jobs.push({
+      id: cutId,
+      label: `cut ${cutId} (${slot})`,
+      target: { kind: "cut", episodeId, cutId, slot },
+      request: { prompt: composed, options: optionsFor(shared, cutNegative) },
+    });
+  }
+  return { jobs };
+}
+
 /** Run `toony generate`. Returns the process exit code. */
 export async function runGenerate(args: string[], io: GenerateIo): Promise<number> {
   const parsed = parseFlags(args);
@@ -196,7 +314,9 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   }
 
   const episodeId = parsed.values.get("--episode");
-  const cutId = parsed.values.get("--cut");
+  // Repeats are collapsed in first-seen order: a duplicated id would otherwise
+  // spend GPU minutes overwriting the cut it just produced.
+  const cutIds = [...new Set(parsed.lists.get("--cut") ?? [])];
   const transitionId = parsed.values.get("--transition");
   const slot = parsed.values.get("--slot") ?? "clean";
   const providerId = parsed.values.get("--provider") ?? "comfyui";
@@ -208,8 +328,8 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     io.err(USAGE);
     return EXIT_USAGE;
   }
-  if ((cutId === undefined) === (transitionId === undefined)) {
-    io.err("specify exactly one of --cut <id> or --transition <id>");
+  if ((cutIds.length === 0) === (transitionId === undefined)) {
+    io.err("specify one or more --cut <id>, or exactly one --transition <id>");
     io.err(USAGE);
     return EXIT_USAGE;
   }
@@ -219,55 +339,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   }
   const root = resolve(io.cwd, parsed.positional[0] ?? ".");
 
-  // Resolve the effective prompt: an explicit --prompt wins; otherwise a cut
-  // falls back to its stored imagePrompt/negativePrompt (#38). Transitions carry
-  // no stored prompt, so --prompt stays required for them. For a cut we load the
-  // project regardless (even with --prompt) to read its `characters` refs, its
-  // `palette`, and the project registry, so lockstrings (#92) and the palette
-  // clause (#207) inject for both prompt sources.
-  let effectivePrompt = prompt;
-  let effectiveNegative = negative;
-  let cutCharacters: readonly string[] | undefined;
-  let cutPalette: string | undefined;
-  let registry: readonly Character[] = [];
-  if (cutId !== undefined) {
-    try {
-      const loaded = await loadProject(root);
-      registry = loaded.project.webtoon.characters ?? [];
-      const bundle = loaded.project.episodes.find((b) => b.episode.id === episodeId);
-      const cut = bundle?.cuts.find((c) => c.id === cutId);
-      if (cut) {
-        cutCharacters = cut.characters;
-        cutPalette = cut.palette;
-        if (
-          (effectivePrompt === undefined || effectivePrompt.trim().length === 0) &&
-          cut.imagePrompt.trim().length > 0
-        ) {
-          effectivePrompt = cut.imagePrompt;
-        }
-        if (effectiveNegative === undefined && cut.negativePrompt.trim().length > 0) {
-          effectiveNegative = cut.negativePrompt;
-        }
-      }
-    } catch (error) {
-      io.err(error instanceof ProjectIoError ? error.message : String(error));
-      return EXIT_USAGE;
-    }
-  }
-  if (effectivePrompt === undefined || effectivePrompt.trim().length === 0) {
-    io.err("generation requires --prompt <text> (or a non-empty cut imagePrompt)");
-    io.err(USAGE);
-    return EXIT_USAGE;
-  }
-  // Prepend referenced characters' lockstrings verbatim (#92) for either source.
-  effectivePrompt = injectCharacterLockstrings(effectivePrompt, cutCharacters, registry);
-  // Then append the cut's palette as a colour clause (#207). An explicit
-  // --prompt has already won the choice of BASE prompt above; like a lockstring,
-  // the clause qualifies whichever base was chosen rather than replacing it.
-  effectivePrompt = appendPaletteClause(effectivePrompt, cutPalette);
-
-  const options: Record<string, string | number> = {};
-  if (effectiveNegative !== undefined) options.negativePrompt = effectiveNegative;
+  const shared: Record<string, string | number> = {};
   for (const [flag, key] of [
     ["--width", "width"],
     ["--height", "height"],
@@ -281,7 +353,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
         io.err("--seed must be a non-negative integer");
         return EXIT_USAGE;
       }
-      options.seed = n;
+      shared.seed = n;
       continue;
     }
     const n = parsePositiveInt(raw, flag);
@@ -289,7 +361,26 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
       io.err(n.error);
       return EXIT_USAGE;
     }
-    options[key] = n;
+    shared[key] = n;
+  }
+
+  // Plan every job BEFORE the first request. Usage problems (an unusable prompt)
+  // abort the whole run here, so a multi-cut run never spends GPU minutes on
+  // cut-001 only to discover cut-007 was never going to work. Only GENERATION
+  // failures are per-cut, and those are what the summary below reports.
+  const jobs = await planJobs(root, {
+    episodeId,
+    cutIds,
+    ...(transitionId === undefined ? {} : { transitionId }),
+    slot,
+    ...(prompt === undefined ? {} : { prompt }),
+    ...(negative === undefined ? {} : { negative }),
+    shared,
+  });
+  if ("error" in jobs) {
+    io.err(jobs.error);
+    if (jobs.usage) io.err(USAGE);
+    return EXIT_USAGE;
   }
 
   const packs = await discoverPackContent(root, io);
@@ -311,35 +402,36 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     return EXIT_USAGE;
   }
 
-  const target: AssetTarget =
-    cutId !== undefined
-      ? { kind: "cut", episodeId, cutId, slot }
-      : { kind: "transition", episodeId, transitionId: transitionId as string };
+  const generated: string[] = [];
+  const failed: string[] = [];
+  // The run reports the code the FIRST failed job would have returned alone, so
+  // a single-job run keeps exactly the exit code it has always had.
+  let failureCode: number | null = null;
 
-  const request: ImageRequest = { prompt: effectivePrompt, options };
-
-  try {
-    const result = await provider.produce(request);
-    const ingested = await ingestImageAsset(root, target, result);
-    const where =
-      target.kind === "cut"
-        ? `cut ${target.cutId} (${target.slot})`
-        : `transition ${target.transitionId}`;
-    io.out(
-      `generated ${ingested.assetPath} for ${where} in ${episodeId} — ${ingested.bytesWritten} bytes, sha256 ${ingested.sha256.slice(0, 12)}`,
-    );
-    io.out("next: toony validate");
-    return EXIT_OK;
-  } catch (cause) {
-    if (cause instanceof ProviderError) {
-      io.err(`generation failed: ${cause.message}`);
+  for (const job of jobs.jobs) {
+    try {
+      const result = await provider.produce(job.request);
+      const ingested = await ingestImageAsset(root, job.target, result);
+      io.out(
+        `generated ${ingested.assetPath} for ${job.label} in ${episodeId} — ${ingested.bytesWritten} bytes, sha256 ${ingested.sha256.slice(0, 12)}`,
+      );
+      generated.push(job.id);
+    } catch (cause) {
       // Generation/connection problems are domain errors, not CLI misuse.
-      return EXIT_VALIDATION;
+      if (cause instanceof ProviderError) failureCode ??= EXIT_VALIDATION;
+      else if (cause instanceof ProjectIoError) failureCode ??= EXIT_USAGE;
+      else throw cause;
+      io.err(`generation failed for ${job.id}: ${cause.message}`);
+      failed.push(job.id);
     }
-    if (cause instanceof ProjectIoError) {
-      io.err(`generation failed: ${cause.message}`);
-      return EXIT_USAGE;
-    }
-    throw cause;
   }
+
+  // Nothing already written is undone: a partial run leaves its finished cuts in
+  // place, and the summary says which ones are still missing.
+  if (jobs.jobs.length > 1) {
+    const counts = `${generated.length} generated, ${failed.length} failed`;
+    io.out(failed.length === 0 ? counts : `${counts}: ${failed.join(", ")}`);
+  }
+  if (generated.length > 0) io.out("next: toony validate");
+  return failureCode ?? EXIT_OK;
 }

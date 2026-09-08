@@ -54,19 +54,29 @@ function pngWithText(): Uint8Array {
 
 const PROMPT_ID = "abcd-1234";
 
-// A minimal ComfyUI-compatible server for one generation. `positivePrompt()`
-// reports the text Toony actually injected into the graph, so prompt
-// composition can be asserted on what left the process rather than on the
-// command's own report of it.
-async function startFakeComfy(image: Uint8Array): Promise<{
+// A minimal ComfyUI-compatible server.
+//
+// `prompts()` reports every positive prompt Toony injected into the graph, in
+// submission order, so prompt composition is asserted on what left the process
+// rather than on the command's own report of it. A run now submits once per cut
+// (#204), so the list is per cut. `rejectCall` is the 1-based index of the
+// /prompt submission it refuses, which is how a mid-run failure is reproduced:
+// the real one fails per request, not per process.
+async function startFakeComfy(
+  image: Uint8Array,
+  rejectCall?: number,
+): Promise<{
   url: string;
   close: () => void;
-  positivePrompt: () => string | null;
+  prompts: () => string[];
+  calls: () => number;
 }> {
-  let positivePrompt: string | null = null;
+  const prompts: string[] = [];
+  let calls = 0;
   const server: Server = createServer((req, res) => {
     const url = req.url ?? "";
     if (req.method === "POST" && url === "/prompt") {
+      calls++;
       const chunks: Buffer[] = [];
       req.on("data", (chunk: Buffer) => chunks.push(chunk));
       req.on("end", () => {
@@ -74,9 +84,13 @@ async function startFakeComfy(image: Uint8Array): Promise<{
           prompt?: Record<string, { inputs?: Record<string, unknown> }>;
         };
         const text = body.prompt?.["6"]?.inputs?.text;
-        positivePrompt = typeof text === "string" ? text : null;
+        if (typeof text === "string") prompts.push(text);
         res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify({ prompt_id: PROMPT_ID, node_errors: {} }));
+        res.end(
+          calls === rejectCall
+            ? JSON.stringify({ error: { message: "out of memory" } })
+            : JSON.stringify({ prompt_id: PROMPT_ID, node_errors: {} }),
+        );
       });
       return;
     }
@@ -105,7 +119,8 @@ async function startFakeComfy(image: Uint8Array): Promise<{
   return {
     url: `http://127.0.0.1:${port}`,
     close: () => server.close(),
-    positivePrompt: () => positivePrompt,
+    prompts: () => [...prompts],
+    calls: () => calls,
   };
 }
 
@@ -370,10 +385,39 @@ test("a cut's palette reaches the provider as WORDS, appended last (#207)", asyn
     // One assertion pins the whole composition order: --prompt still beats the
     // stored imagePrompt, the lockstring is still prepended (#92), and the
     // palette clause is appended after both.
-    assert.equal(
-      comfy.positivePrompt(),
+    assert.deepEqual(comfy.prompts(), [
       "short black bob, amber eyes, an explicit scene, very dark desaturated azure blue color palette",
-    );
+    ]);
+  } finally {
+    comfy.close();
+  }
+});
+
+/** Arguments for a run over `cutIds`, with a prompt supplied for all of them. */
+function multiCutArgs(projectDir: string, cutIds: string[]): string[] {
+  return [
+    projectDir,
+    "--episode",
+    "ep-001",
+    ...cutIds.flatMap((id) => ["--cut", id]),
+    "--prompt",
+    "a hero on a rooftop",
+    "--allow-remote",
+  ];
+}
+
+test("a multi-cut run generates every cut and reports a summary (#204)", async () => {
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(multiCutArgs(projectDir, ["cut-001", "cut-002"]), c.io);
+    assert.equal(code, EXIT_OK, c.err.join("\n"));
+    const out = c.out.join("\n");
+    assert.match(out, /generated episodes\/ep-001\/assets\/clean\/cut-001\.png/);
+    assert.match(out, /generated episodes\/ep-001\/assets\/clean\/cut-002\.png/);
+    assert.match(out, /^2 generated, 0 failed$/m);
+    assert.equal(comfy.calls(), 2);
   } finally {
     comfy.close();
   }
@@ -398,7 +442,127 @@ test("a cut with no palette sends the prompt unchanged (#207)", async () => {
       c.io,
     );
     assert.equal(code, EXIT_OK, c.err.join("\n"));
-    assert.equal(comfy.positivePrompt(), "an explicit scene");
+    assert.deepEqual(comfy.prompts(), ["an explicit scene"]);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("each cut in a multi-cut run gets its OWN palette clause (#204 + #207)", async () => {
+  // The two features meet here: one run, one shared --prompt, and a different
+  // colour per cut. A clause built once for the run instead of once per job
+  // would send the same prompt twice and this is what would catch it.
+  const projectDir = await scaffold();
+  await writeFile(
+    join(projectDir, "episodes", "ep-001", "cuts.yaml"),
+    [
+      "- id: cut-001",
+      "  image: null",
+      '  imagePrompt: ""',
+      '  negativePrompt: ""',
+      '  palette: "#191d28"',
+      "- id: cut-002",
+      "  image: null",
+      '  imagePrompt: ""',
+      '  negativePrompt: ""',
+      '  palette: "#f6e3ea"',
+      "",
+    ].join("\n"),
+  );
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(multiCutArgs(projectDir, ["cut-001", "cut-002"]), c.io);
+    assert.equal(code, EXIT_OK, c.err.join("\n"));
+    assert.deepEqual(comfy.prompts(), [
+      "a hero on a rooftop, very dark desaturated azure blue color palette",
+      "a hero on a rooftop, very light pink color palette",
+    ]);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a failed cut is named, exits non-zero, and the finished cuts stay (#204)", async () => {
+  const projectDir = await scaffold();
+  // The SECOND submission is refused: cut-001 is already on disk by then, which
+  // is what "no rollback" has to survive.
+  const comfy = await startFakeComfy(pngWithText(), 2);
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(multiCutArgs(projectDir, ["cut-001", "cut-002"]), c.io);
+    assert.equal(code, EXIT_VALIDATION);
+    assert.match(c.err.join("\n"), /generation failed for cut-002: .*out of memory/);
+    assert.match(c.out.join("\n"), /^1 generated, 1 failed: cut-002$/m);
+
+    // The finished cut survives, in the project as well as on disk.
+    const asset = join(projectDir, "episodes", "ep-001", "assets", "clean", "cut-001.png");
+    assert.ok((await readFile(asset)).length > 0);
+    const cuts = await readFile(join(projectDir, "episodes", "ep-001", "cuts.yaml"), "utf8");
+    assert.match(cuts, /assets\/clean\/cut-001\.png/);
+    assert.doesNotMatch(cuts, /cut-002\.png/);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a run keeps going after a failure, so a later cut still generates (#204)", async () => {
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText(), 1);
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(multiCutArgs(projectDir, ["cut-001", "cut-002"]), c.io);
+    assert.equal(code, EXIT_VALIDATION);
+    assert.match(c.out.join("\n"), /^1 generated, 1 failed: cut-001$/m);
+    assert.match(c.out.join("\n"), /generated episodes\/ep-001\/assets\/clean\/cut-002\.png/);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a repeated --cut id is generated once (#204)", async () => {
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(multiCutArgs(projectDir, ["cut-001", "cut-001"]), c.io);
+    assert.equal(code, EXIT_OK, c.err.join("\n"));
+    assert.equal(comfy.calls(), 1);
+    // One job left, so the run reports exactly as a single-cut run always has.
+    assert.doesNotMatch(c.out.join("\n"), /generated, .* failed/);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a single --cut prints no summary, exactly as before (#204)", async () => {
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(multiCutArgs(projectDir, ["cut-001"]), c.io);
+    assert.equal(code, EXIT_OK, c.err.join("\n"));
+    assert.equal(c.out.length, 2, c.out.join("\n"));
+    assert.equal(c.out[1], "next: toony validate");
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a cut with no usable prompt aborts before anything is generated (#204)", async () => {
+  const projectDir = await scaffold();
+  // The scaffold's imagePrompt is empty, so with no --prompt neither cut can
+  // run. A usage problem must be found up front, not after minutes of GPU time.
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--cut", "cut-002", "--allow-remote"],
+      c.io,
+    );
+    assert.equal(code, EXIT_USAGE);
+    assert.match(c.err.join("\n"), /--prompt <text>.*cut-001 has neither/);
+    assert.equal(comfy.calls(), 0, "nothing may be submitted when the run cannot complete");
   } finally {
     comfy.close();
   }
