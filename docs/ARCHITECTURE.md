@@ -72,3 +72,16 @@ PlotLink-ready export:
 - manifest included
 
 Toony prepares PlotLink-ready content only. It does not upload or publish.
+
+## Packs
+
+Content can be contributed from outside the repository by a **pack**: a local
+folder that adds a named ComfyUI workflow, a genre scaffold, or an export preset.
+The core owns registries; packs contribute entries; consumers read the merged
+registry. Extending Toony's content therefore never requires a fork.
+
+A pack is DATA — a JSON manifest plus the JSON files it names. It cannot carry
+code, reach the network, add an export engine, or redefine a built-in. With no
+packs installed the core behaves exactly as it does without the seam.
+
+The format is documented in [PACK_FORMAT.md](./PACK_FORMAT.md).

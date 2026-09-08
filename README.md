@@ -19,6 +19,8 @@ Toony includes:
 - platform image sequence export
 - stitched episode export
 - PlotLink-ready export packages
+- data-only content packs that add workflows, genre scaffolds, and export
+  presets without forking the core ([docs/PACK_FORMAT.md](./docs/PACK_FORMAT.md))
 
 Toony does not include:
 
