@@ -1,0 +1,72 @@
+[
+  {
+    "assetPath": "episodes/ep-001/assets/clean/cut-002.png",
+    "byteLength": 1020346,
+    "contentType": "image/png",
+    "providerId": "comfyui",
+    "recordId": "cut-002",
+    "recordKind": "cut",
+    "sha256": "fa163a83eba3b09b2786be93a73e0ff811e6166cab748506a50f4bc55e9e5795",
+    "source": "comfyui"
+  },
+  {
+    "assetPath": "episodes/ep-001/assets/clean/cut-001.png",
+    "byteLength": 1410556,
+    "contentType": "image/png",
+    "providerId": "comfyui",
+    "recordId": "cut-001",
+    "recordKind": "cut",
+    "sha256": "0294ef0f183b47716634dd9098ca4b836627efaea460131635e80fb5c7e3bf17",
+    "source": "comfyui"
+  },
+  {
+    "assetPath": "episodes/ep-001/assets/clean/cut-003.png",
+    "byteLength": 1315985,
+    "contentType": "image/png",
+    "providerId": "comfyui",
+    "recordId": "cut-003",
+    "recordKind": "cut",
+    "sha256": "a68ab371660bbc708c8c832b66237182d1a16ecaa16dc6dca509164397509f0c",
+    "source": "comfyui"
+  },
+  {
+    "assetPath": "episodes/ep-001/assets/clean/cut-004.png",
+    "byteLength": 865046,
+    "contentType": "image/png",
+    "providerId": "comfyui",
+    "recordId": "cut-004",
+    "recordKind": "cut",
+    "sha256": "3e211f12be584293762d66bdb93d0967895487b4dd5983c4b0bbabe1d93f1b98",
+    "source": "comfyui"
+  },
+  {
+    "assetPath": "episodes/ep-001/assets/clean/cut-005.png",
+    "byteLength": 934664,
+    "contentType": "image/png",
+    "providerId": "comfyui",
+    "recordId": "cut-005",
+    "recordKind": "cut",
+    "sha256": "974875af81f55386b9530ffdf64732b4bb56fd180b4133b92aa8345881aadeb0",
+    "source": "comfyui"
+  },
+  {
+    "assetPath": "episodes/ep-001/assets/clean/cut-006.png",
+    "byteLength": 1080025,
+    "contentType": "image/png",
+    "providerId": "comfyui",
+    "recordId": "cut-006",
+    "recordKind": "cut",
+    "sha256": "251511646b755b404df1f30d746510a39d28fe3b0671109c2e9f83e87402f277",
+    "source": "comfyui"
+  },
+  {
+    "assetPath": "episodes/ep-001/assets/clean/cut-007.png",
+    "byteLength": 1324131,
+    "contentType": "image/png",
+    "providerId": "comfyui",
+    "recordId": "cut-007",
+    "recordKind": "cut",
+    "sha256": "19240a21fe5bac70e8d9a15279a5eab75756c437cdb5b75e5c9596d559f84b0e",
+    "source": "comfyui"
+  }
+]
