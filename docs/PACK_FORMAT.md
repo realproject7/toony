@@ -1,13 +1,14 @@
 # Pack Format
 
 A **pack** is a local folder that adds content to Toony without changing Toony.
-It can contribute three things:
+It can contribute four things:
 
 | Kind | What it adds | How it is used |
 |---|---|---|
 | Named workflow | A ComfyUI workflow graph under a name | `toony generate --workflow <name> …` |
 | Genre scaffold | A starter episode `toony init` seeds | `toony init <name> --genre <id>` |
 | Export preset | A named engine + render options | `toony export <id> --episode <id>` |
+| Craft band | The measured target its output should hit | `toony measure --against <id>` |
 
 A working example lives at
 [`packages/packs/examples/example-pack`](../packages/packs/examples/example-pack).
@@ -44,6 +45,8 @@ my-pack/
   workflows/
     high-detail.workflow.json
   genres/
+    noir.json
+  bands/
     noir.json
 ```
 
@@ -88,6 +91,9 @@ cp -R path/to/my-pack .toony/packs/
       "target": "platform",
       "options": { "width": 1600, "format": "jpeg", "quality": 88 }
     }
+  ],
+  "craftBands": [
+    { "id": "noir-band", "file": "bands/noir.json" }
   ]
 }
 ```
@@ -101,6 +107,7 @@ cp -R path/to/my-pack .toony/packs/
 | `workflows` | no | Named workflow graphs. Absent means none. |
 | `genres` | no | Genre scaffolds. Absent means none. |
 | `exportPresets` | no | Export presets. Absent means none. |
+| `craftBands` | no | Craft bands. Absent means none. |
 
 Every `file` is a path **inside the pack folder** and must end in `.json`.
 
@@ -176,6 +183,29 @@ toony export webtoon-tall --episode ep-001              # the preset's width
 toony export webtoon-tall --episode ep-001 --width 900  # 900 wins
 ```
 
+### `craftBands[]`
+
+| Field | Rule |
+|---|---|
+| `id` | The id `toony measure --against <id>` selects. Unique within the pack. |
+| `file` | A **band file**: the per-metric target range the pack was built to hit. |
+
+A pack that sets craft knobs can ship the measurement it was aiming for, so its
+output can be graded instead of eyeballed:
+
+```sh
+toony measure my-story --episode ep-001 --against noir-band
+```
+
+`--against` takes a band id first and a file path otherwise, so a pack's band is
+named rather than located. The band file's own format — every metric, what is
+deliberately not measured, and why the language split matters — is documented in
+[`CRAFT_MEASURE.md`](./CRAFT_MEASURE.md).
+
+Discovery checks the file is there and carries its path, exactly as it does for a
+workflow graph; the band itself is parsed and validated by the command that
+measures, so `@toony/packs` stays free of the measurement.
+
 ## When something is wrong
 
 A malformed pack is **skipped and reported**; it never stops the command. Toony
@@ -185,8 +215,8 @@ and what to fix:
 ```txt
 pack warning [pack.unexpected-field] /w/.toony/packs/my-pack pack.main: a pack
 manifest allows only "packFormat", "id", "name", "description", "workflows",
-"genres", "exportPresets"; remove unexpected field "main". A pack is data — it
-can never declare code, a module path, or a command.
+"genres", "exportPresets", "craftBands"; remove unexpected field "main". A pack
+is data — it can never declare code, a module path, or a command.
 ```
 
 Common codes:
@@ -199,8 +229,8 @@ Common codes:
 | `pack.format-version` | `packFormat` is not `1`. |
 | `pack.file.unsafe` | A `file` escapes the pack folder or names a URL. |
 | `pack.file.extension` | A `file` is not `.json`. |
-| `pack.workflow.file-missing` / `pack.genre.file-missing` | A named file is not there. |
-| `pack.workflow.claimed` / `pack.genre.claimed` / `pack.export-preset.claimed` | An earlier pack already uses that name. |
+| `pack.workflow.file-missing` / `pack.genre.file-missing` / `pack.craft-band.file-missing` | A named file is not there. |
+| `pack.workflow.claimed` / `pack.genre.claimed` / `pack.export-preset.claimed` / `pack.craft-band.claimed` | An earlier pack already uses that name. |
 | `pack.duplicate` | Another installed pack declares the same `id`. |
 
 A scaffold that fails validation reports the project validator's own codes
@@ -214,7 +244,8 @@ in the core depends on it — the CLI discovers packs once per command and passe
 the resolved content down to the registries in `@toony/project-io` (genres),
 `@toony/export` (presets), and `@toony/providers` (workflows, injected as a plain
 name-to-path map so that package stays dependency-free). Registry lookups return
-Promises.
+Promises. Craft bands travel the same way as workflows, as a name-to-path map the
+measuring command reads.
 
 The seam ships in the free core and is not privileged in any way: a paid pack and
 a community pack are the same thing to Toony.
