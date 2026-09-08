@@ -44,8 +44,8 @@ return one `BubbleRender` per overlay:
 | `outline` | `BalloonCommand[]` — `M`/`L`/`A`, maps 1:1 to canvas and SVG |
 | `pathD` | SVG path `d` tracing the same outline (`""` for SFX) |
 | `tail` | `{tip, base1, base2}` triangle, or `null` (tailless / tip inside box) |
-| `fill`, `stroke`, `textColor` | resolved colors (stored style overrides per-kind defaults) |
-| `strokeWidth`, `fillOpacity` | resolved stroke px and fill opacity |
+| `fill`, `stroke`, `textColor` | resolved colors (stored style overrides per-kind defaults); for narration `fill` is the resolved caption plate |
+| `strokeWidth`, `fillOpacity` | resolved stroke px and fill opacity (narration: the plate alpha) |
 | `text` | `{lines, fontSize, lineHeight, overflow}` |
 | `lines` | positioned, center-anchored `RenderedTextLine[]` |
 | `textOrigin` | top-left of the body text area |
@@ -72,6 +72,25 @@ for (const c of p.outline) {
 }
 ctx.closePath(); ctx.fill(); ctx.stroke();
 ```
+
+## Narration caption plate (#186)
+
+`narration` is a borderless caption: no tail, no border of its own, fixed dark
+ink. Painted straight onto the artwork that ink disappears over dark art — and
+`layoutCut` receives no pixel data, so the core can never sample what is behind a
+caption. Instead it puts its own surface there: a **caption plate** whose alpha is
+resolved so the ink clears the WCAG AA 4.5:1 floor over pure black, and therefore
+over any artwork at all.
+
+The plate arrives on the plan as the ordinary `fill` + `fillOpacity` + `pathD`
+that every kind uses, so the SVG preview and the canvas export draw it with the
+code they already had, and **no consumer re-derives a caption color**. The plate
+color is the overlay's authored `fill` (or the per-kind caption color); its alpha
+is that fill's alpha × the overlay's `opacity`, raised to the floor when the
+authored value is too faint to be legible. An `opacity` of exactly `0` is an
+explicit "no plate" and is honored, which is how a fully borderless caption over
+art the author already reserved stays reachable. `resolveCaptionPlate` is the one
+function that decides this; `CAPTION_MIN_CONTRAST` is the floor it clears.
 
 ## Text measurement
 
@@ -103,7 +122,8 @@ const t = layoutTransition(transition);
 
 `balloonOutline`, `balloonPathD`, `speechTailGeometry`, `defaultBalloonRadius`
 are exported for callers that need the raw geometry. `bubbleKindStyle`,
-`kindHasBubble`, `kindSupportsTail` expose the per-kind defaults;
+`kindHasBubble`, `kindSupportsTail` expose the per-kind defaults, and
+`resolveCaptionPlate` / `CAPTION_MIN_CONTRAST` the caption-plate decision;
 `layoutBubbleText`, `wrapText`, `defaultBubbleFontRange` expose the text engine.
 
 ## Provenance
