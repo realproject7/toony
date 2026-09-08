@@ -66,12 +66,23 @@ for V in "${NODE_VERSIONS[@]}"; do
   fi
 
   if OUT=$(pnpm test --force 2>&1); then
-    # Per-package TAP summaries look like "pkg:test: # pass 53"; sum the counts
-    # so the gate reports real numbers rather than a bare "tests pass".
-    PASS=$(printf '%s\n' "$OUT" | grep -E '# pass [0-9]+$' | awk '{s+=$NF} END {print s+0}')
-    FAIL=$(printf '%s\n' "$OUT" | grep -E '# fail [0-9]+$' | awk '{s+=$NF} END {print s+0}')
-    PKGS=$(printf '%s\n' "$OUT" | grep -cE '# pass [0-9]+$')
-    echo "  test:    PASS ($PASS passed, $FAIL failed, $PKGS packages)"
+    # node:test defaults to the TAP reporter on Node 20 ("# pass 53") and the
+    # spec reporter on Node 24 ("i pass 53"), so match either marker or the
+    # gate silently reports zero tests on one of the two majors and calls it a
+    # pass. Counting is part of the gate: a run that reports no tests at all is
+    # a failure, not a success.
+    PASS=$(printf '%s\n' "$OUT" | grep -E '(#|[^[:alnum:]]) pass [0-9]+$' | awk '{s+=$NF} END {print s+0}')
+    FAIL=$(printf '%s\n' "$OUT" | grep -E '(#|[^[:alnum:]]) fail [0-9]+$' | awk '{s+=$NF} END {print s+0}')
+    PKGS=$(printf '%s\n' "$OUT" | grep -cE '(#|[^[:alnum:]]) pass [0-9]+$')
+    if [ "$PASS" -eq 0 ]; then
+      echo "  test:    FAIL (command succeeded but reported no tests — reporter or counting is broken)"
+      FAILED=1
+    elif [ "$FAIL" -ne 0 ]; then
+      echo "  test:    FAIL ($PASS passed, $FAIL failed, $PKGS packages)"
+      FAILED=1
+    else
+      echo "  test:    PASS ($PASS passed, $FAIL failed, $PKGS packages)"
+    fi
   else
     echo "  test:    FAIL"
     printf '%s\n' "$OUT" | grep -B2 -A8 -iE 'not ok|# fail [1-9]|SyntaxError|Error:' | head -40
