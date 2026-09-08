@@ -283,5 +283,67 @@ toony export stitched  --episode ep-001   # one tall episode.png
   across the studio.
 
 Cut artwork is generated locally via the provider-neutral ComfyUI flow (as in the v3 capstone);
-the committed seed keeps `image: null`, and the v4 focus — the no-art interstitial panels — needs
-no artwork to render.
+at the time of this test the committed seed kept `image: null` on every cut, since the v4
+focus — the no-art interstitial panels — needed no artwork to render. The real-art pass below
+fills in the cut artwork on this same seed; the interstitial panels stay `image: null`.
+
+---
+
+# v4 Capstone — Real-Art Render Pass
+
+Status: PASSED (2026-09-08)
+
+The interstitial-pass record above intentionally left `examples/dead-air`'s cuts at
+`image: null` — the v4 thesis only needed the transition panels to be real. This pass (#178)
+closes that gap: all 7 cuts were rendered for real through `toony generate` against a running
+local ComfyUI, at the actual production checkpoint and the episode's final export dimensions,
+and ingested back into the same committed seed — while the six interstitial panels
+(tr-001…tr-006) stay exactly as they were: `image: null`.
+
+## Command form
+
+Each cut was generated individually, with `--prompt` omitted so `toony generate` falls back to
+the cut's own stored `imagePrompt` (#38) and injects its referenced character's lockstring
+verbatim (#92) — exactly the path the v3 capstone documented, now exercised for real instead of
+by unit test:
+
+```bash
+toony generate . --episode ep-001 --cut <id> --width 832 --height 1216 --seed <n> --allow-remote
+```
+
+run once per `<id>` in `cut-001`…`cut-007`, each with its own `--seed`, against:
+
+- **Provider:** local ComfyUI (`TOONY_COMFYUI_URL` pointed at a local endpoint; `--allow-remote`
+  is required because the ComfyUI provider always transmits prompt content to its configured
+  server, local or not).
+- **Checkpoint:** `animagine-xl-3.1` — the same checkpoint the v2/v3 capstones used.
+- **Output:** one 832×1216 PNG per cut, ingested to `episodes/ep-001/assets/clean/cut-NNN.png`
+  and associated via `cut.image.clean` in `cuts.yaml`.
+
+## What this run proves
+
+- **The generate → ingest → strip pipeline runs against real provider output, not a test
+  double.** `packages/providers`'s `stripImageMetadata` ran on each ComfyUI PNG before it was
+  ever written to disk; the repo's own gate — `scripts/scan-public-safety.mjs`, which blocks
+  `tEXt`/`iTXt`/`zTXt`/`eXIf` PNG chunks — reports zero findings across all 7 committed images.
+  The metadata contract isn't only unit-tested against a synthetic fixture PNG anymore; it held
+  on a real generation run.
+- **Prompt fallback and lockstring injection both fire under real generation.** No `--prompt`
+  flag was passed; every cut's stored `imagePrompt` drove its render, and Wren's and the
+  Caller's lockstrings were prepended verbatim (#92) for cuts 002/004/006 and cut 005.
+  `toony lint`'s image-quality checks (decode, dimension, blank, darkness, contrast) pass clean
+  on the real output — the render isn't just present, it isn't blank or corrupt either.
+- **The v4 thesis survives contact with real art.** The point of the interstitial-pass record
+  above was that transitions are panels in their own right, independent of cut artwork. With
+  every cut now carrying a real generated image, `tr-001`…`tr-006` are still `image: null` —
+  `transitions.yaml` is byte-for-byte unchanged from the interstitial-pass commit. The
+  interstitials were never "art not rendered yet"; they are art-free by design, and this run is
+  the proof that holds once the rest of the episode carries real generated art instead of `null`.
+- **`toony validate` and `toony lint` both stay green** on the real-art seed, and `pnpm check`
+  / `pnpm test` are unaffected — no package source changed, only `examples/dead-air` data and
+  this record.
+
+Cut artwork: 7 PNGs, 832×1216, roughly 0.8–1.4 MB each (full-resolution `clean` source assets —
+export targets still produce their own size-budgeted rasters, e.g. the PlotLink WebPs' separate
+≤1 MB cap). Provenance for all 7 (sha256, byte length, provider, source) is logged at
+[`episodes/ep-001/logs/ingest.json`](../examples/dead-air/episodes/ep-001/logs/ingest.json).
