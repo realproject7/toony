@@ -71,12 +71,17 @@ const SEQUENCE = [
 function buildPanel(item, columnWidth) {
   const el = document.createElement("div");
   el.className = "panel";
-  // Scale the authored panel height into the reading column, exactly as a
-  // renderer scales a panel drawn at project width to its display width.
+  // Shrink the authored panel height by the same factor the export raster is
+  // shrunk by to fit this column.
   const scaled = Math.round((item.height * columnWidth) / PROJECT_WIDTH);
   el.style.minHeight = `${scaled}px`;
+  // The fade span is authored in project pixels against the panel's project
+  // height, so it has to shrink with the panel. Expressed as a percentage it
+  // stays correct at every column width; as raw px it clamped to zero here and
+  // the fade swallowed the whole panel.
+  const fadeStart = item.fade ? Math.max(0, 100 - (item.fade.length / item.height) * 100) : 0;
   el.style.background = item.fade
-    ? `linear-gradient(to bottom, ${item.fill} 0, ${item.fill} calc(100% - ${item.fade.length}px), ${item.fade.color} 100%)`
+    ? `linear-gradient(to bottom, ${item.fill} 0, ${item.fill} ${fadeStart}%, ${item.fade.color} 100%)`
     : item.fill;
   el.style.color = PANEL_TEXT;
   if (item.text) el.textContent = item.text;

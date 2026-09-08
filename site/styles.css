@@ -21,6 +21,17 @@
   --highlight-soft: #fdf4d2;
   --highlight-on: #4a3a00;
 
+  /* Ink for text sitting ON a filled brand color. Two tokens, because the two
+     fills move differently between themes: --accent flips to a light blue in
+     dark and needs dark ink, while --accent-2-strong stays dark in both and
+     always needs white. The panel ink mirrors PANEL_TEXT_COLOR in
+     packages/render/src/transition.ts, so the strip uses the ink the renderer
+     itself resolves. */
+  --on-accent: #ffffff;
+  --on-accent-2: #ffffff;
+  --reader-ground: #000000;
+  --panel-ink: #f3ece0;
+
   --canvas: #fcf9f3;
   --surface: #ffffff;
   --sunken: #f4efe4;
@@ -64,6 +75,8 @@
     --accent-hover: #74c8e0;
     --accent-soft: #10333f;
     --highlight-soft: #3a3113;
+    /* The dark accent is a light blue, so text on it must be dark ink. */
+    --on-accent: #06222b;
     --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-2: 0 1px 3px rgba(0, 0, 0, 0.45), 0 4px 12px rgba(0, 0, 0, 0.35);
     --shadow-3: 0 4px 14px rgba(0, 0, 0, 0.5), 0 14px 34px rgba(0, 0, 0, 0.45);
@@ -180,12 +193,12 @@ h3 {
 
 .nav .nav-repo {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .nav .nav-repo:hover {
   background: var(--accent-hover);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* --------------------------------------------------------------- hero ---- */
@@ -249,7 +262,7 @@ h3 {
 
 .btn-primary {
   background: var(--accent-2-strong);
-  color: #fff;
+  color: var(--on-accent-2);
   box-shadow: var(--shadow-2);
 }
 
@@ -410,7 +423,7 @@ h3 {
 
 .tag-teal {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .card ul {
@@ -440,7 +453,7 @@ h3 {
   border-radius: var(--radius-4);
   overflow: hidden;
   box-shadow: var(--shadow-3);
-  background: #000;
+  background: var(--reader-ground);
 }
 
 .reader img,
@@ -455,7 +468,7 @@ h3 {
   justify-content: center;
   padding: 1.5rem;
   text-align: center;
-  color: #f3ece0;
+  color: var(--panel-ink);
   font-size: 0.9375rem;
   line-height: 1.45;
 }
@@ -495,7 +508,7 @@ h3 {
   height: 2rem;
   border-radius: var(--radius-round);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 800;
   font-size: 0.9375rem;
 }
@@ -572,20 +585,6 @@ h3 {
 
   .hero-art img {
     width: min(190px, 55%);
-  }
-}
-
-/* --------------------------------------------------------- dark overrides -
-   These must come AFTER the component rules: the dark accent is a light blue,
-   so the white-on-accent fills of the light theme would fall to ~2.3:1 if the
-   override sat with the token block at the top of this file. */
-
-@media (prefers-color-scheme: dark) {
-  .nav .nav-repo,
-  .nav .nav-repo:hover,
-  .tag-teal,
-  .step-n {
-    color: #06222b;
   }
 }
 
