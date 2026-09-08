@@ -283,5 +283,92 @@ toony export stitched  --episode ep-001   # one tall episode.png
   across the studio.
 
 Cut artwork is generated locally via the provider-neutral ComfyUI flow (as in the v3 capstone);
-the committed seed keeps `image: null`, and the v4 focus — the no-art interstitial panels — needs
-no artwork to render.
+at the time of this test the committed seed kept `image: null` on every cut, since the v4
+focus — the no-art interstitial panels — needed no artwork to render. The real-art pass below
+fills in the cut artwork on this same seed; the interstitial panels stay `image: null`.
+
+---
+
+# v4 Capstone — Real-Art Render Pass
+
+Status: PASSED (2026-09-08)
+
+The interstitial-pass record above intentionally left `examples/dead-air`'s cuts at
+`image: null` — the v4 thesis only needed the transition panels to be real. This pass (#178)
+closes that gap: all 7 cuts were rendered for real through `toony generate` against a running
+local ComfyUI, at the actual production checkpoint and the episode's final export dimensions,
+and ingested back into the same committed seed — while the six interstitial panels
+(tr-001…tr-006) stay exactly as they were: `image: null`.
+
+## Command form
+
+Each cut was generated individually, with `--prompt` omitted so `toony generate` falls back to
+the cut's own stored `imagePrompt` (#38) and injects its referenced character's lockstring
+verbatim (#92) — exactly the path the v3 capstone documented, now exercised for real instead of
+by unit test:
+
+```bash
+toony generate . --episode ep-001 --cut <id> --width 832 --height 1216 --seed <n> --allow-remote
+```
+
+run once per `<id>` in `cut-001`…`cut-007`, each with its own `--seed`, against:
+
+- **Provider:** local ComfyUI (`TOONY_COMFYUI_URL` pointed at a local endpoint; `--allow-remote`
+  is required because the ComfyUI provider always transmits prompt content to its configured
+  server, local or not).
+- **Checkpoint:** `animagine-xl-3.1` — the same checkpoint the v2/v3 capstones used.
+- **Output:** one 832×1216 PNG per cut, ingested to `episodes/ep-001/assets/clean/cut-NNN.png`
+  and associated via `cut.image.clean` in `cuts.yaml`.
+
+## What this run proves
+
+- **The generate → ingest → strip pipeline runs against real provider output, not a test
+  double.** `packages/providers`'s `stripImageMetadata` ran on each ComfyUI PNG before it was
+  ever written to disk; the repo's own gate — `scripts/scan-public-safety.mjs`, which blocks
+  `tEXt`/`iTXt`/`zTXt`/`eXIf` PNG chunks — reports zero findings across all 7 committed images.
+  The metadata contract isn't only unit-tested against a synthetic fixture PNG anymore; it held
+  on a real generation run.
+- **Prompt fallback and lockstring injection both fire under real generation.** No `--prompt`
+  flag was passed; every cut's stored `imagePrompt` drove its render, and Wren's and the
+  Caller's lockstrings were prepended verbatim (#92) for cuts 002/004/006 and cut 005.
+  `toony lint`'s image-quality checks (decode, dimension, blank, darkness, contrast) pass clean
+  on the real output — the render isn't just present, it isn't blank or corrupt either.
+- **The v4 thesis survives contact with real art.** The point of the interstitial-pass record
+  above was that transitions are panels in their own right, independent of cut artwork. With
+  every cut now carrying a real generated image, `tr-001`…`tr-006` are still `image: null` —
+  `transitions.yaml` is byte-for-byte unchanged from the interstitial-pass commit. The
+  interstitials were never "art not rendered yet"; they are art-free by design, and this run is
+  the proof that holds once the rest of the episode carries real generated art instead of `null`.
+- **`toony validate` and `toony lint` both stay green** on the real-art seed, and `pnpm check`
+  / `pnpm test` are unaffected — no package source changed, only `examples/dead-air` data and
+  this record.
+
+## Prompt fidelity: what the first pass got wrong, and the fix
+
+The first render pass proved the pipeline but produced four frames that did not
+show what their cut described. Reviewed frame by frame:
+
+| Cut | First pass | Cause |
+|---|---|---|
+| 004 | a full portrait of Wren, near-duplicate of 002 | the cut referenced a character, so `injectCharacterLockstrings` prepended `1girl, Wren, …` onto a disembodied-hand prompt and `1girl` won |
+| 006 | cyan eyes, lighter hair, flat blue field | its prompt asked for "cold blue screen light", which this checkpoint applied to the whole frame and the irises |
+| 007 | a lit booth with an unrequested character | nothing in the prompt or negative prompt excluded people from a beat that is an empty blackout |
+| 001 | no ON AIR sign, no desk lamp | the props were named late in a long prompt |
+
+Three of the four were fixed in the cuts' own data, not by post-processing:
+
+- **004** no longer references a character at all. An insert shot of a hand has no
+  business carrying a full-body lockstring; removing the reference is the fix, and
+  the re-render is the hand-and-button insert the beat asks for.
+- **006** now leads with the booth's darkness and describes the blue as a small
+  monitor glow on one cheek, with the wrong readings named in the negative prompt.
+  Wren comes back on-model: amber eyes matching 002, the short auburn bob, and the
+  headphones around the neck her lockstring specifies.
+- **007** names the empty booth first and excludes people in the negative prompt.
+  The re-render is the dark, unpeopled console the blackout beat needs.
+- **001 was left alone.** The rewrite was tried and made the frame worse — it lost
+  the empty swivel chair and the red sign the original had — so the original prompt
+  and the original render both stand. Not every attempted fix is an improvement,
+  and this one was reverted rather than shipped.
+
+Seeds for the re-rendered cuts: 004 → 2104, 006 → 2106, 007 → 2107.
