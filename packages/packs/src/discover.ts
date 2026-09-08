@@ -42,12 +42,32 @@ export interface PackGenre {
   bundle: EpisodeBundle;
 }
 
+/** The names one pack put into the merged content. */
+export interface PackContributions {
+  /** Workflow names. */
+  workflows: readonly string[];
+  /** Genre ids. */
+  genres: readonly string[];
+  /** Export preset ids. */
+  exportPresets: readonly string[];
+  /** Craft band ids. */
+  craftBands: readonly string[];
+}
+
 /** One discovered, valid pack. */
 export interface PackSummary {
   id: string;
   name: string;
   /** Absolute path to the pack directory. */
   dir: string;
+  /** Absolute path to the pack root the directory was found in. */
+  root: string;
+  /**
+   * What this pack contributed AFTER the merge, not what its manifest declared.
+   * A name an earlier pack already claimed, and a file that could not be read,
+   * are absent here and carried in `issues` instead.
+   */
+  contributes: PackContributions;
 }
 
 /** A problem with one pack. The pack is skipped; the core keeps working. */
@@ -123,8 +143,12 @@ function issuesFor(dir: string, issues: readonly ValidationIssue[]): PackIssue[]
   return issues.map((issue) => ({ ...issue, pack: dir }));
 }
 
-/** Read + validate one pack's manifest. Returns the manifest or its issues. */
-async function readManifest(dir: string): Promise<PackManifest | PackIssue[]> {
+/**
+ * Read + validate one pack directory's manifest. Returns the manifest or the
+ * issues that made it unusable, with the same codes discovery reports, so a
+ * caller checking a directory before discovery sees it fail the same way.
+ */
+export async function readPackManifest(dir: string): Promise<PackManifest | PackIssue[]> {
   const file = resolve(dir, PACK_MANIFEST_FILE);
   let text: string;
   try {
@@ -230,7 +254,7 @@ export async function loadPacks(
 
   for (const packRoot of packRoots(root, env)) {
     for (const dir of await listPackDirs(packRoot)) {
-      const manifest = await readManifest(dir);
+      const manifest = await readPackManifest(dir);
       if (Array.isArray(manifest)) {
         issues.push(...manifest);
         continue;
@@ -346,7 +370,18 @@ export async function loadPacks(
         exportPresets.push(preset);
       }
       packIds.add(manifest.id);
-      packs.push({ id: manifest.id, name: manifest.name, dir });
+      packs.push({
+        id: manifest.id,
+        name: manifest.name,
+        dir,
+        root: packRoot,
+        contributes: {
+          workflows: contributedWorkflows.map(([name]) => name),
+          genres: contributedGenres.map((genre) => genre.id),
+          exportPresets: contributedPresets.map((preset) => preset.id),
+          craftBands: contributedBands.map(([id]) => id),
+        },
+      });
     }
   }
 

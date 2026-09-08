@@ -18,8 +18,8 @@ material and its own output; see
 ## Try it
 
 ```sh
-mkdir -p .toony/packs
-cp -R <toony>/packages/packs/examples/example-pack .toony/packs/
+toony packs install <toony>/packages/packs/examples/example-pack
+toony packs list
 toony init my-story --genre noir
 toony export webtoon-tall my-story --episode ep-001
 toony measure my-story --episode ep-001 --against noir-band

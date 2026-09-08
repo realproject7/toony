@@ -15,6 +15,8 @@ usage:
   toony measure [path] --episode <id>
                            measure a rendered episode's craft signals, and grade
                            them against a target band
+  toony packs <list|doctor|install|remove> ...
+                           see, install, remove, and diagnose installed packs
   toony --help             show this help
 
 options:
@@ -46,18 +48,32 @@ options:
                            panel, and colour signals; --against grades them
                            against a band file or a band an installed pack ships
                            (docs/CRAFT_MEASURE.md)
+  packs list [path] [--json]
+                           every installed pack, the root it was found in, and
+                           what it contributes
+  packs doctor [path] [--json]
+                           why a pack is not loading: the roots searched, the
+                           packs that loaded, and every problem with its path,
+                           code, and what to fix
+  packs install <pack-dir> [path] [--workspace] [--force]
+                           copy a pack directory that is already on this machine
+                           into <project>/.toony/packs, or one level up with
+                           --workspace; nothing is fetched
+  packs remove <id> [path] delete an installed pack; a TOONY_PACKS collection is
+                           never touched
 
 packs (docs/PACK_FORMAT.md):
   a pack is a local folder of DATA that adds named workflows, genre scaffolds,
   export presets, and craft bands without editing Toony. Packs are read from
   <project>/.toony/packs, the workspace folder above it, and every directory
-  named by TOONY_PACKS. Nothing in a pack can run code.
+  named by TOONY_PACKS. Nothing in a pack can run code, and nothing about a pack
+  is downloaded: \`toony packs install\` copies a local folder.
 
 exit codes (agent-readable):
   0   success; for \`validate\`, the project is valid; for \`lint\`, no error/warning findings
   1   domain error: validation errors (\`validate\`: schema errors), lint findings
       (\`lint\`: any error/warning finding), an out-of-band measurement
-      (\`measure --against\`), or generation failure
+      (\`measure --against\`), a pack problem (\`packs doctor\`), or generation failure
       (\`generate\`: endpoint unreachable, provider error, or timeout)
   2   usage error or IO failure (bad arguments, missing/unreadable files)
 `;

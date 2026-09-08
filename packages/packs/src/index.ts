@@ -15,10 +15,12 @@ export {
   type LoadedPacks,
   loadPacks,
   type PackContent,
+  type PackContributions,
   type PackGenre,
   type PackIssue,
   type PackSummary,
   packRoots,
+  readPackManifest,
 } from "./discover.js";
 export {
   PACK_FORMAT_VERSION,

@@ -83,7 +83,22 @@ test("a pack in <root>/.toony/packs contributes every kind", async () => {
 
   const loaded = await loadPacks(workdir);
   assert.deepEqual(loaded.issues, []);
-  assert.deepEqual(loaded.packs, [{ id: "alpha", name: "alpha", dir }]);
+  // The summary carries the root it was found in and the names it put into the
+  // merged content, so a report can name both without re-reading the manifest.
+  assert.deepEqual(loaded.packs, [
+    {
+      id: "alpha",
+      name: "alpha",
+      dir,
+      root: packsDir,
+      contributes: {
+        workflows: ["alpha-flow"],
+        genres: ["alpha-genre"],
+        exportPresets: ["alpha-preset"],
+        craftBands: ["alpha-band"],
+      },
+    },
+  ]);
   assert.equal(loaded.content.workflows.get("alpha-flow"), join(dir, "workflows", "flow.json"));
   assert.equal(loaded.content.genres[0]?.id, "alpha-genre");
   assert.equal(loaded.content.genres[0]?.bundle.episode.id, "ep-001");
@@ -123,8 +138,9 @@ test("a pack installed for the workspace is visible from inside a project", asyn
 
   const loaded = await loadPacks(project);
   assert.deepEqual(
-    loaded.packs.map((p) => p.id),
-    ["shared"],
+    loaded.packs.map((p) => [p.id, p.root]),
+    [["shared", packsDir]],
+    "the summary names the workspace root it was found in, not the project's",
   );
 });
 
@@ -217,6 +233,17 @@ test("the first pack to claim a name keeps it and the loser is told why", async 
   assert.ok(codes.includes("pack.genre.claimed"));
   assert.ok(codes.includes("pack.export-preset.claimed"));
   assert.ok(codes.includes("pack.craft-band.claimed"));
+
+  // The loser is still an installed pack, and its summary says plainly that it
+  // contributed nothing. Reporting what it DECLARED here would tell a user their
+  // genre is available when it is not.
+  assert.deepEqual(loaded.packs[1]?.contributes, {
+    workflows: [],
+    genres: [],
+    exportPresets: [],
+    craftBands: [],
+  });
+  assert.deepEqual(loaded.packs[0]?.contributes.genres, ["first-genre"]);
 });
 
 test("two packs declaring the same pack id are reported; only the first loads", async () => {
@@ -260,7 +287,10 @@ test("dot directories and node_modules are not packs, but a real one still warns
 
   const quiet = await loadPacks(workdir);
   assert.deepEqual(quiet.issues, [], "skipped entries must not report as packs");
-  assert.deepEqual(quiet.packs, [{ id: "alpha", name: "alpha", dir }]);
+  assert.deepEqual(
+    quiet.packs.map((pack) => [pack.id, pack.dir]),
+    [["alpha", dir]],
+  );
 
   // Control: a genuinely malformed pack must still be reported, so the fix
   // cannot have been "stop warning".
