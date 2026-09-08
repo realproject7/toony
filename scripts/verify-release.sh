@@ -65,6 +65,18 @@ for V in "${NODE_VERSIONS[@]}"; do
     FAILED=1
   fi
 
+  # `check` typechecks with each package's tsconfig.json; `build` uses
+  # tsconfig.build.json and, for packages/cli, also runs bundle-studio — work no
+  # other step performs. A gate that skips build reports green on a repo that
+  # does not ship.
+  if pnpm build >/dev/null 2>&1; then
+    echo "  build:   PASS"
+  else
+    echo "  build:   FAIL"
+    pnpm build 2>&1 | tail -20
+    FAILED=1
+  fi
+
   if OUT=$(pnpm test --force 2>&1); then
     # node:test defaults to the TAP reporter on Node 20 ("# pass 53") and the
     # spec reporter on Node 24 ("i pass 53"), so match either marker or the
