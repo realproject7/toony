@@ -53,17 +53,19 @@ import {
 /** A positioned line of wrapped body text, in the caller's pixel space. */
 export interface RenderedTextLine {
   text: string;
-  /** Baseline-independent top-left x of the centered line. */
+  /** Baseline-independent top-left x of this line's own column. */
   x: number;
   /** Top y of the line's box (line index * lineHeight from the text origin). */
   y: number;
   /** Center x of the bubble's text column (for center-anchored rendering). */
   centerX: number;
   /**
-   * X to anchor this line at for the resolved `textAlign`: the text column's
+   * X to anchor this line at for the resolved `textAlign`: THIS LINE's column
    * left edge (left), center (center), or right edge (right). A renderer draws
    * the line at `anchorX` with the matching text-anchor. For center alignment
    * this equals `centerX`, so existing center-anchored consumers are unchanged.
+   * The left/right edges are per line, not per bubble: a rounded balloon's corner
+   * arcs narrow the column on the lines nearest the top and bottom edges (#210).
    */
   anchorX: number;
 }
@@ -379,6 +381,11 @@ export function layoutBubble(
     fontFamily,
     lineHeightFactor,
     letterSpacing,
+    // Wrap inside the DRAWN silhouette, not the body rect (#210). The corner arcs
+    // cut into the rect exactly where the first and last lines sit, which is where
+    // the wrap lets lines grow widest. Zero when no shape is drawn (bare SFX
+    // text), so those layouts are unchanged.
+    cornerRadius: drawsOutline ? radius : 0,
   });
 
   // Text origin: inside the box padding.
@@ -399,16 +406,24 @@ export function layoutBubble(
         : 0;
   const textOriginY = oy + padY + vOffset;
   const centerX = ox + ow / 2;
-  const rightX = ox + ow - padX;
-  const anchorX = textAlign === "left" ? textOriginX : textAlign === "right" ? rightX : centerX;
 
-  const lines: RenderedTextLine[] = text.lines.map((line, i) => ({
-    text: line,
-    x: textOriginX,
-    y: textOriginY + i * text.lineHeight,
-    centerX,
-    anchorX,
-  }));
+  const lines: RenderedTextLine[] = text.lines.map((line, i) => {
+    // The corner arcs narrow the column on the lines nearest the top and bottom
+    // edges (#210). The wrap already respects that; a left- or right-anchored
+    // line has to move in by the same amount or it lands on the arc it was
+    // wrapped to clear. Center anchoring is unaffected: the shape insets both
+    // sides equally, so the column's center never moves.
+    const inset = text.lineInsets[i] ?? 0;
+    const lineLeft = textOriginX + inset;
+    return {
+      text: line,
+      x: lineLeft,
+      y: textOriginY + i * text.lineHeight,
+      centerX,
+      anchorX:
+        textAlign === "left" ? lineLeft : textAlign === "right" ? ox + ow - padX - inset : centerX,
+    };
+  });
 
   // Stored style overrides per-kind defaults. A stored border width is authored
   // in px; otherwise fall back to a height-relative base scaled per kind so the

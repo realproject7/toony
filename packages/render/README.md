@@ -92,6 +92,19 @@ explicit "no plate" and is honored, which is how a fully borderless caption over
 art the author already reserved stays reachable. `resolveCaptionPlate` is the one
 function that decides this; `CAPTION_MIN_CONTRAST` is the floor it clears.
 
+## Text clears the balloon, not the box (#210)
+
+A balloon is a rounded rect, and its corner arcs cut inside the body rectangle
+near the top and bottom edges, which is where the first and last lines sit. So
+the wrap reserves its horizontal padding from the **drawn silhouette**: lines nearest
+either edge are narrower than the middle ones by the arc's own bite at that
+depth. The per-line amount is on the plan as `text.lineInsets`, and it is already
+folded into each line's `anchorX`. **Draw a line at its own `anchorX`.** Do not
+re-derive a column from `box` + padding, or left/right-aligned lettering lands on
+the arc the wrap moved it off. Centered text is unaffected: the arcs bite both
+sides equally. A bubble with `cornerRadius: 0` has no arcs and is laid out
+exactly as before.
+
 ## Text measurement
 
 Layout is deterministic **given a `measure` function**. By default the core uses
