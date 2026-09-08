@@ -40,7 +40,7 @@ const SEQUENCE = [
   {
     kind: "cut",
     src: "/episode/cut-004.jpg",
-    alt: "Wren at the console under a warm lamp, leaning on her hand",
+    alt: "A hand hovering over a glowing red call-line button on the mixing desk",
   },
   { kind: "panel", height: 180, fill: CARD_FILL, text: "...is someone there?" },
   {
@@ -52,7 +52,7 @@ const SEQUENCE = [
   {
     kind: "cut",
     src: "/episode/cut-006.jpg",
-    alt: "A close-up of Wren, wide-eyed and sweating in cold blue light",
+    alt: "A close-up of Wren in the dark booth, wide-eyed and sweating",
   },
   {
     kind: "panel",
@@ -64,7 +64,7 @@ const SEQUENCE = [
   {
     kind: "cut",
     src: "/episode/cut-007.jpg",
-    alt: "The booth in near-darkness, lit red, a figure silhouetted at the console",
+    alt: "The empty booth after the blackout, the console lit only by red",
   },
 ];
 
