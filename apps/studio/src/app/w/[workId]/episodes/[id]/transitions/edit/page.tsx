@@ -5,6 +5,7 @@
 // (`TransitionEditor`). Edits persist through `/api/transitions`, scoped to this
 // work, which validates and writes `transitions.yaml` + `episode.yaml`.
 
+import { resolveReferenceWidth } from "@toony/schema";
 import { notFound } from "next/navigation";
 import { LoadError } from "@/components/load-error";
 import { TransitionEditor } from "@/components/transition-editor";
@@ -51,6 +52,7 @@ export default async function TransitionEditorPage({
       initialTransitions={bundle.transitions}
       initialSequence={bundle.episode.sequence}
       imageUrls={imageUrls}
+      referenceWidth={resolveReferenceWidth(loaded.project.webtoon.referenceWidth)}
     />
   );
 }

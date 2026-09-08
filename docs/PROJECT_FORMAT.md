@@ -34,6 +34,7 @@ my-webtoon/
   "schemaVersion": 1,
   "projectId": "my-webtoon",
   "title": "My Webtoon",
+  "referenceWidth": 800,
   "languages": {
     "defaultLanguage": "en",
     "supportedLanguages": ["en"],
@@ -46,6 +47,12 @@ my-webtoon/
   }
 }
 ```
+
+`referenceWidth` is the reading column, in px, the project's vertical
+measurements are written against. A transition's `gutterHeight` is a length on
+that column, and an export at any other width scales it by the ratio, so the
+episode reads the same at every resolution. Optional: a project without it
+declares the 800px standard canvas the spacing vocabulary is calibrated to.
 
 ## Canonical Episode Sequence
 

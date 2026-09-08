@@ -34,7 +34,10 @@ letting that pass for craft. Measure an episode after its art is in.
 ## What is measured
 
 Every run length is a share of the **render width**, so the numbers do not change
-when you render wider. A screen is `width × screenAspect`, and `--screen-aspect`
+when you render wider. The page they read is width-invariant too: a transition's
+`gutterHeight` is px on the project's `referenceWidth` column and is scaled to
+whatever column the export renders at, so a band grades the work rather than the
+file. A screen is `width × screenAspect`, and `--screen-aspect`
 (default `2`) is the reading viewport the measurement assumes. Only
 `panelsPerScreen` and `gutterIntrusionsPerScreen` read it, and they scale
 linearly with it: double the aspect and both counts double. Every other metric

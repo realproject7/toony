@@ -826,3 +826,25 @@ test("transition gradient validates from/to/direction when present (#115)", () =
   } as unknown as typeof transition.gradient;
   assert.ok(codes(validateProject(project)).includes("transition.gradient-direction"));
 });
+
+// --- Reference column (#217) ------------------------------------------------
+
+test("a project without a reference column is valid (back-compat)", () => {
+  // validProject has no webtoon.referenceWidth; render falls back to the
+  // standard canvas, which is what its px were always written against.
+  assert.equal(validateProject(validProject).valid, true);
+  assert.equal(validProject.webtoon.referenceWidth, undefined);
+});
+
+test("a declared reference column must be a positive whole number of px", () => {
+  const project = cloneValidProject();
+  project.webtoon.referenceWidth = 1200;
+  assert.equal(validateWebtoon(project.webtoon).valid, true);
+  for (const bad of [0, -800, 720.5, Number.NaN, "800" as unknown as number]) {
+    project.webtoon.referenceWidth = bad;
+    assert.ok(
+      codes(validateWebtoon(project.webtoon)).includes("webtoon.reference-width"),
+      `referenceWidth ${String(bad)} should be rejected`,
+    );
+  }
+});

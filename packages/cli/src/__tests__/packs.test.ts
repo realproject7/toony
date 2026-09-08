@@ -12,6 +12,11 @@
 // so the five genre digests moved with it; the neutral scaffold has no lettering
 // and its digest is unchanged from af8bd07, which is the evidence that only the
 // retired field moved.
+//
+// #217 added `webtoon.referenceWidth`, the column a project's px are authored on,
+// so all six moved. `diff -r` over the six scaffolds written before and after
+// reports exactly one changed line in each: the added field in webtoon.json.
+// Nothing else in any tree moved.
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -28,14 +33,14 @@ import { runLint } from "../commands/lint.js";
 import { runValidate } from "../commands/validate.js";
 import { EXIT_OK, EXIT_USAGE } from "../exit.js";
 
-/** Tree digest of `toony init` output, per `--genre`; genre digests as of #208. */
+/** Tree digest of `toony init` output, per `--genre`; all six as of #217. */
 const INIT_TREE_DIGESTS: Record<string, string> = {
-  "": "ffc46179e61e1bc9011d4a944dedf058224f6bf6999fa6c257eee53f26165a45",
-  romance: "833151197939d0d8542f5d847e7dec2b5495a548d080eb4e651d683219d77efe",
-  comedy: "ad52cc311bc7fff86200de53d83c996cc9904c7612b199658c28f68879154d86",
-  action: "cfe021281353ea5116250e8d47504298d8d17421283d4a09571d266cba7fa4cb",
-  thriller: "980e9438ded27cc583bbd9842d69053ceee20c4f7f7159e45e6bb8de6cd74402",
-  "slice-of-life": "817e269e7ab53f68a41c1d17749f3450011a1c8f685bb4ab8f98a1c33ca4ec7a",
+  "": "24fc0c0dcca40332df8f5852840dcb5cd49ae2e6dee1c53a5f6e2f6f36cef2cc",
+  romance: "46da53d4a44776829b32c1da21b30fa689eb13966018ea2c393ec517bb2cccad",
+  comedy: "fe0e38f3cedc69f213eac5bfde797ceba4af9964cf6fa2189f98a363a86824ed",
+  action: "60ad151ec3552e9b115387b72b446099d29bd902771ca37329514f0494be8163",
+  thriller: "4ee63ea73e971968f20357cd7e07d9efced09f527d49e779e731d69b71da32b5",
+  "slice-of-life": "107a77fc4618aa3aa0d9c4af88fd68d2d54795f7000781455854ebbc3fb30741",
 };
 
 let workdir: string;

@@ -23,6 +23,7 @@ import {
   layoutTransition,
   resolveBandBackground,
   resolveBandDivider,
+  resolveBandFade,
   resolveBandHeight,
 } from "@toony/render";
 import type { Transition } from "@toony/schema";
@@ -56,9 +57,17 @@ const pct = (v: number, total: number): string => `${(v / Math.max(1, total)) * 
 
 export function TransitionBlock({
   transition,
+  referenceWidth,
   readOnly,
 }: {
   transition: Transition;
+  /**
+   * The column the project's px gutter heights were authored against (#217),
+   * already resolved by the page. The preview column is narrower than an export
+   * column, so a band scales down here exactly as the art does; passing the
+   * project's own value is what keeps read and export the same page.
+   */
+  referenceWidth: number;
   readOnly?: boolean;
 }) {
   const plan = layoutTransition(transition);
@@ -79,8 +88,8 @@ export function TransitionBlock({
   }, []);
 
   // Panel height + legibility floor from the shared single source (#147) — the
-  // SAME height the export canvas draws.
-  const height = resolveBandHeight(plan, width);
+  // SAME height the export canvas draws, scaled from the same reference column.
+  const height = resolveBandHeight(plan, width, referenceWidth);
 
   // Background fill from the shared precedence resolver (#147): a gradient maps
   // to a CSS `linear-gradient`, a solid to the color — with NO local fallback
@@ -93,10 +102,12 @@ export function TransitionBlock({
         }, ${bg.gradient.direction === "top_bottom" ? bg.gradient.to : bg.gradient.from})`
       : bg.color;
 
-  // Optional fade overlay (#115), over the fill, under text.
+  // Optional fade overlay (#115), over the fill, under text. The span is scaled
+  // to this column by the shared resolver, never read off the plan raw (#217).
+  const resolvedFade = resolveBandFade(plan, width, height, referenceWidth);
   let fadeBg: string | null = null;
-  if (plan.fade) {
-    const { color, length, direction } = plan.fade;
+  if (resolvedFade) {
+    const { color, length, direction } = resolvedFade;
     fadeBg =
       direction === "top_bottom"
         ? `linear-gradient(to bottom, ${rgba(color, 0)} calc(100% - ${length}px), ${rgba(color, 1)} 100%)`

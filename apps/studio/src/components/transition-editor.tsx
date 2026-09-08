@@ -84,6 +84,12 @@ export interface TransitionEditorProps {
   initialSequence: SequenceItem[];
   /** Served asset URL for each transition's image (by transition id), or null. */
   imageUrls: Record<string, string | null>;
+  /**
+   * The column this project's px gutter heights were authored against (#217),
+   * resolved by the page. Every row preview scales its band from it, so editing
+   * shows the proportions the export will draw.
+   */
+  referenceWidth: number;
 }
 
 /** A freshly inserted transition with schema-valid defaults. */
@@ -117,6 +123,7 @@ export function TransitionEditor({
   initialTransitions,
   initialSequence,
   imageUrls,
+  referenceWidth,
 }: TransitionEditorProps) {
   const [transitions, setTransitions] = useState<Transition[]>(initialTransitions);
   const [sequence, setSequence] = useState<SequenceItem[]>(initialSequence);
@@ -272,6 +279,7 @@ export function TransitionEditor({
                   <TransitionRow
                     key={key}
                     transition={transition}
+                    referenceWidth={referenceWidth}
                     selected={transition.id === selectedId}
                     onSelect={() => setSelectedId(transition.id)}
                   />
@@ -338,10 +346,12 @@ export function TransitionEditor({
  */
 function TransitionRow({
   transition,
+  referenceWidth,
   selected,
   onSelect,
 }: {
   transition: Transition;
+  referenceWidth: number;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -351,7 +361,7 @@ function TransitionRow({
       data-selected={selected ? "true" : undefined}
       data-testid={`transition-row-${transition.id}`}
     >
-      <TransitionBlock transition={transition} />
+      <TransitionBlock transition={transition} referenceWidth={referenceWidth} />
       {/* Transparent full-bleed hit target keeps the panel preview (a <div>) intact
           while giving the row real <button> semantics + keyboard support. */}
       <button

@@ -39,7 +39,11 @@ export type TransitionTreatment = "gutter" | "fade" | "card" | "break" | "band";
 export interface ResolvedFade {
   type: FadeType;
   direction: FadeDirection;
-  /** Fade span in px, clamped to [1, panel height]. */
+  /**
+   * Fade span in px on the REFERENCE column, clamped to [1, authored gutter
+   * height]. Consumers draw `resolveBandFade`'s span, never this one: the two
+   * differ at every column but the reference one (#217).
+   */
   length: number;
   /** Concrete end color the panel fades into. */
   color: string;
@@ -58,7 +62,11 @@ export interface ResolvedGradient {
 export interface TransitionRender {
   id: string;
   type: TransitionType;
-  /** Clamped gutter height in px — the concrete vertical rhythm. */
+  /**
+   * The authored vertical rhythm: clamped gutter height in px on the project's
+   * REFERENCE column. Not a drawn height. `resolveBandHeight` scales it to the
+   * column being rendered (#217).
+   */
   gutterHeight: number;
   /** How the band is drawn. */
   treatment: TransitionTreatment;
@@ -254,16 +262,66 @@ export function resolveBandBackground(render: TransitionRender): BandBackground 
   return { kind: "solid", color: GUTTER_MARGIN_FILL };
 }
 
+// --- Reference-column scaling (#217) ----------------------------------------
+//
+// A cut's art is scaled to fill the column, so its drawn height is a fixed
+// multiple of the column width. A band's authored `gutterHeight` is px on the
+// project's reference column. Drawing that number raw made the ratio between the
+// two, which is the page rhythm, a function of the export width. The same
+// episode at 1600px had gutters half the relative size it had at 800px, 23% more
+// panels per screen, and graded against a different half of its craft band.
+// Scaling by the column ratio makes an export the same comic, larger.
+
 /**
- * The drawn band height at panel `width`: honor the authored gutter height, but
- * cards/breaks and the v3 solid bands get a width-derived legibility floor
+ * The scale from a project's reference column to the column being rendered.
+ * `referenceWidth` comes from `resolveReferenceWidth`, so it is always positive.
+ */
+function columnScale(width: number, referenceWidth: number): number {
+  return width / Math.max(1, referenceWidth);
+}
+
+/**
+ * The drawn band height at panel `width`, for a project whose px are authored
+ * against `referenceWidth`: scale the authored gutter height to this column, but
+ * give cards/breaks and the v3 solid bands a width-derived legibility floor
  * (`round(width*0.1)`) so a small authored gutter still reads. The single source
  * both the export canvas and the studio panel use to size a band.
+ *
+ * The floor was already column-relative, which is why a card's text stayed
+ * legible at every width while the gutters around it did not.
  */
-export function resolveBandHeight(render: TransitionRender, width: number): number {
+export function resolveBandHeight(
+  render: TransitionRender,
+  width: number,
+  referenceWidth: number,
+): number {
+  const scaled = Math.round(render.gutterHeight * columnScale(width, referenceWidth));
   const floored = render.isCard || render.treatment === "band";
   const floor = floored ? Math.round(width * 0.1) : 0;
-  return Math.max(render.gutterHeight, floor);
+  return Math.max(scaled, floor);
+}
+
+/**
+ * The drawn panel fade at `width`×`height`, or null when the transition has none.
+ *
+ * The authored span is reference-column px like the gutter height, so it scales
+ * with the column too. Left unscaled it would cover a different share of the band
+ * at every export width, which is the same defect one level down. Clamped to the
+ * drawn height so the fade never runs past the panel.
+ */
+export function resolveBandFade(
+  render: TransitionRender,
+  width: number,
+  height: number,
+  referenceWidth: number,
+): ResolvedFade | null {
+  if (!render.fade) return null;
+  const length = clamp(
+    Math.round(render.fade.length * columnScale(width, referenceWidth)),
+    1,
+    Math.max(1, height),
+  );
+  return { ...render.fade, length };
 }
 
 /** Scene-break divider geometry/color at a given panel `height`. */

@@ -123,12 +123,17 @@ layoutBubble(overlay, w, h, { measure: (t, size, weight) => {
 ## Transition layout API
 
 ```ts
-import { layoutTransition, type TransitionRender } from "@toony/render";
+import { layoutTransition, resolveBandHeight, type TransitionRender } from "@toony/render";
 
 const t = layoutTransition(transition);
-// t.gutterHeight  — clamped px height (the vertical rhythm)
+// t.gutterHeight  = clamped px height on the project's REFERENCE column
 // t.treatment     — "gutter" | "fade" | "card" | "break"
 // t.label, t.detail, t.isSfx, t.isCard
+
+// Never draw t.gutterHeight. The band's drawn height is that number scaled from
+// the column it was authored on to the one being rendered, so a bigger export is
+// the same page at a bigger size rather than a page with thinner gutters.
+const height = resolveBandHeight(t, columnWidth, webtoon.referenceWidth ?? 800);
 ```
 
 ## Lower-level geometry

@@ -6,6 +6,7 @@
 // #11 consumes these validators for production-readiness linting.
 
 import { IssueCollector, joinPath, type ValidationResult } from "./errors.js";
+import { EXPORT_WIDTH_MAX, EXPORT_WIDTH_MIN } from "./export-options.js";
 import {
   isArray,
   isBoolean,
@@ -219,6 +220,18 @@ export function validateWebtoonValue(value: unknown, path: string, c: IssueColle
   // Character registry (#92) is OPTIONAL + back-compat: absent → no characters.
   if (value.characters !== undefined) {
     validateCharactersValue(value.characters, joinPath(path, "characters"), c);
+  }
+  // Reference column (#217) is OPTIONAL + back-compat: absent → the standard
+  // canvas. It is a column width, so it obeys the bounds an export width does.
+  const reference = value.referenceWidth;
+  if (reference !== undefined) {
+    if (!isInteger(reference) || reference < EXPORT_WIDTH_MIN || reference > EXPORT_WIDTH_MAX) {
+      c.add(
+        joinPath(path, "referenceWidth"),
+        "webtoon.reference-width",
+        `referenceWidth must be an integer in px between ${EXPORT_WIDTH_MIN} and ${EXPORT_WIDTH_MAX}.`,
+      );
+    }
   }
 }
 

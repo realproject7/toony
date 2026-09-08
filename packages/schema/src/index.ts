@@ -41,6 +41,7 @@ export {
   PANEL_HEIGHT_PRESETS,
   type PanelHeightPreset,
   panelHeightPx,
+  resolveReferenceWidth,
   SPACING_PRESET_NAMES,
   SPACING_PRESETS,
   type SpacingPreset,

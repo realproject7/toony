@@ -30,6 +30,7 @@ import {
   type ResolvedGradient,
   resolveBandBackground,
   resolveBandDivider,
+  resolveBandFade,
   resolveBandHeight,
   type TransitionRender,
 } from "@toony/render";
@@ -329,20 +330,23 @@ function drawPanelText(
 }
 
 /**
- * Compose a transition into a band of `targetWidth` × its gutter height. Card and
- * break treatments get a floor height so their label/detail is legible; a plain
- * gutter of zero height yields null (pure spacing, nothing to draw).
+ * Compose a transition into a band of `targetWidth` × its gutter height, scaled
+ * from the project's `referenceWidth` (#217). Card and break treatments get a
+ * floor height so their label/detail is legible; a plain gutter of zero height
+ * yields null (pure spacing, nothing to draw).
  */
 export function composeTransitionBand(
   transition: Transition,
   targetWidth: number,
+  referenceWidth: number,
 ): { canvas: Canvas; width: number; height: number } | null {
   const render = layoutTransition(transition);
   const width = Math.max(1, Math.round(targetWidth));
   // Cards/breaks and the v3 solid bands (#99) get a floor so they stay legible/
   // visible even when authored with a small gutter; plain gutters honor the exact
-  // height. Height + floor come from the shared single source (#147).
-  const height = resolveBandHeight(render, width);
+  // height. Height + floor come from the shared single source (#147), which also
+  // scales the authored px from the reference column to this one (#217).
+  const height = resolveBandHeight(render, width, referenceWidth);
   if (height <= 0) return null;
 
   // Band labels draw with a bundled curated face; register before drawing.
@@ -363,8 +367,10 @@ export function composeTransitionBand(
     ctx.fillRect(0, 0, width, height);
   }
 
-  // Panel fade (#115): an additive gradient over the fill, under any text.
-  if (render.fade) drawFade(ctx, render.fade, width, height);
+  // Panel fade (#115): an additive gradient over the fill, under any text. Its
+  // span is scaled to this column by the shared resolver, never read raw (#217).
+  const fade = resolveBandFade(render, width, height, referenceWidth);
+  if (fade) drawFade(ctx, fade, width, height);
 
   // Foreground per treatment (text/divider), drawn over the background. The v4
   // text panels honor the plan's H+V anchoring; legacy cards keep drawBandText.

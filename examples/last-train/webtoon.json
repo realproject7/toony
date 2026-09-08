@@ -12,6 +12,7 @@
     ]
   },
   "projectId": "last-train",
+  "referenceWidth": 800,
   "schemaVersion": 1,
   "title": "Last Train"
 }

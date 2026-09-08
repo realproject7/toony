@@ -24,6 +24,7 @@
     ]
   },
   "projectId": "dead-air",
+  "referenceWidth": 800,
   "schemaVersion": 1,
   "title": "Dead Air"
 }
