@@ -42,8 +42,6 @@ export interface ComfyUIClientDeps {
 // own EmptyLatentImage defaults (#154 item 4, dropped): the JSON is the graph's
 // own defaults, this is the request fallback — coupling them would mean parsing a
 // JSON asset for constants, not worth it. They may match today; that's fine.
-const DEFAULT_WIDTH = 832;
-const DEFAULT_HEIGHT = 1216;
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -61,10 +59,10 @@ function readOption(
   return options?.[key];
 }
 
-function intOption(options: ImageRequest["options"], key: string, fallback: number): number {
+/** A caller-supplied size, or undefined to leave the workflow's own value alone. */
+function explicitSize(options: ImageRequest["options"], key: string): number | undefined {
   const raw = readOption(options, key);
-  if (typeof raw === "number" && Number.isInteger(raw) && raw > 0) return raw;
-  return fallback;
+  return typeof raw === "number" && Number.isInteger(raw) && raw > 0 ? raw : undefined;
 }
 
 /**
@@ -137,8 +135,12 @@ export class ComfyUIProvider implements ImageProvider {
     const params: WorkflowParams = {
       positivePrompt,
       negativePrompt: typeof negativeRaw === "string" ? negativeRaw : "",
-      width: intOption(request.options, "width", DEFAULT_WIDTH),
-      height: intOption(request.options, "height", DEFAULT_HEIGHT),
+      // Only pass a size when one was explicitly requested. Absent, the
+      // workflow's own dimensions stand — a pack ships a graph sized for its
+      // genre, and overwriting that with a portrait default made every pack
+      // render at 832x1216 no matter what it declared (#202).
+      width: explicitSize(request.options, "width"),
+      height: explicitSize(request.options, "height"),
       seed:
         typeof seedRaw === "number" && Number.isInteger(seedRaw) && seedRaw >= 0
           ? seedRaw

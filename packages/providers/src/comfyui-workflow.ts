@@ -68,8 +68,14 @@ export const DEFAULT_INJECTION_MAP: WorkflowInjectionMap = {
 export interface WorkflowParams {
   positivePrompt: string;
   negativePrompt: string;
-  width: number;
-  height: number;
+  /**
+   * Image size, in px. OPTIONAL on purpose: when absent the workflow graph's own
+   * dimensions stand. Injecting a default here would silently overwrite what a
+   * pack's workflow declares, and cut aspect is the largest single lever a style
+   * pack has over whether generated art sits in its genre's rhythm.
+   */
+  width?: number;
+  height?: number;
   seed: number;
   /** Optional checkpoint filename, applied only when the map names a node. */
   checkpoint?: string;
@@ -154,8 +160,12 @@ export function buildWorkflow(
     params.negativePrompt,
     "the negative prompt",
   );
-  setInput(graph, map.widthNode, map.widthInput, params.width, "the image width");
-  setInput(graph, map.heightNode, map.heightInput, params.height, "the image height");
+  if (params.width !== undefined) {
+    setInput(graph, map.widthNode, map.widthInput, params.width, "the image width");
+  }
+  if (params.height !== undefined) {
+    setInput(graph, map.heightNode, map.heightInput, params.height, "the image height");
+  }
   setInput(graph, map.seedNode, map.seedInput, params.seed, "the sampler seed");
 
   if (

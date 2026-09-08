@@ -65,6 +65,8 @@ test("produce submits, polls until complete, fetches bytes, and returns a result
       const body = JSON.parse(String(init?.body));
       assert.equal(body.prompt["6"].inputs.text, "a webtoon hero");
       assert.equal(body.prompt["7"].inputs.text, "blurry");
+      // This call passes width: 832 explicitly, and an explicit size must still
+      // win over the workflow's own value (#202).
       assert.equal(body.prompt["5"].inputs.width, 832);
       assert.equal(typeof body.client_id, "string");
       return jsonResponse(promptAcceptedResponse());
@@ -209,4 +211,45 @@ test("a non-loopback endpoint still requires the remote opt-in (#180)", () => {
 test("an unparseable endpoint reads as remote rather than local (#180)", () => {
   const provider = new ComfyUIProvider({ ...testConfig(), url: "not a url" });
   assert.equal(provider.transmitsRemotely, true);
+});
+
+// #202: a pack ships a workflow sized for its genre, and cut aspect is the
+// largest single lever it has. These assert the POSTed GRAPH, not that a call
+// happened — the bug was invisible to any test that only checked the latter.
+
+async function submittedGraph(
+  options: Readonly<Record<string, string | number | boolean>>,
+): Promise<Record<string, unknown>> {
+  let graph: Record<string, { inputs: Record<string, unknown> }> = {};
+  const fetch: FetchLike = async (url, init) => {
+    if (url.endsWith("/prompt")) {
+      graph = JSON.parse(String(init?.body)).prompt;
+      return jsonResponse(promptAcceptedResponse());
+    }
+    if (url.includes("/history/")) return jsonResponse(historyCompleteResponse(PROMPT_ID));
+    return new Response(pngWithMetadata(), { headers: { "content-type": "image/png" } });
+  };
+  const provider = new ComfyUIProvider(testConfig(), { fetch, sleep: async () => {} });
+  await provider.produce({ prompt: "x", options });
+  const latent = graph["5"];
+  assert.ok(latent, "the submitted graph must carry the latent node");
+  return latent.inputs;
+}
+
+test("without size options the workflow's own dimensions are kept (#202)", async () => {
+  const latent = await submittedGraph({});
+  assert.equal(latent.width, 512, "workflow width must survive");
+  assert.equal(latent.height, 512, "workflow height must survive");
+});
+
+test("explicit size options still override the workflow (#202)", async () => {
+  const latent = await submittedGraph({ width: 1024, height: 576 });
+  assert.equal(latent.width, 1024);
+  assert.equal(latent.height, 576);
+});
+
+test("one explicit dimension overrides only that dimension (#202)", async () => {
+  const latent = await submittedGraph({ width: 1024 });
+  assert.equal(latent.width, 1024, "explicit width wins");
+  assert.equal(latent.height, 512, "unset height keeps the workflow value");
 });
