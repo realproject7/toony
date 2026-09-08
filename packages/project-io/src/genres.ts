@@ -122,7 +122,6 @@ function buildGenreEpisode(spec: GenreSpec): EpisodeBundle {
     speaker: o.speaker ?? "",
     kind: o.kind,
     text: o.text,
-    font: "sans-serif",
     fill: "#ffffff",
     opacity: 1,
     border: null,

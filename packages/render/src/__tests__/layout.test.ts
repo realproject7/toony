@@ -168,6 +168,26 @@ test("fontFamily resolves to the curated family stack, with a per-kind default",
   assert.equal(fallback.fontStack, getFontFamily(defaultFontFamilyForKind("shout"))?.stack);
 });
 
+test("the retired `font` field never decides the face, whatever it holds (#208)", () => {
+  const base = overlay({ id: "legacy-font", kind: "speech", text: "Hello there" });
+  const modern = { ...base };
+  delete modern.font;
+  const plan = layoutBubble(modern, W, H);
+  assert.equal(plan.fontFamily, defaultFontFamilyForKind("speech"));
+
+  // `font` was free text, so a pre-#208 file can hold anything — including a
+  // string that spells a curated family id. None of it may reach the face.
+  for (const legacy of ["bangers", "Nanum Gothic", "sans-serif", ""]) {
+    assert.deepEqual(layoutBubble({ ...modern, font: legacy }, W, H), plan);
+  }
+
+  // Negative control: the comparison above CAN see a family change, so the
+  // equalities are evidence rather than an artifact of an inert assertion.
+  const chosen = layoutBubble({ ...modern, fontFamily: "bangers" }, W, H);
+  assert.equal(chosen.fontFamily, "bangers");
+  assert.notDeepEqual(chosen, plan);
+});
+
 test("textAlign controls each line's anchor x", () => {
   const left = layoutBubble(overlay({ id: "l", textAlign: "left" }), W, H);
   for (const line of left.lines) assert.equal(line.anchorX, left.textOrigin.x);
