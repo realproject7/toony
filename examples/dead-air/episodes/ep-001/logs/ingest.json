@@ -68,5 +68,35 @@
     "recordKind": "cut",
     "sha256": "19240a21fe5bac70e8d9a15279a5eab75756c437cdb5b75e5c9596d559f84b0e",
     "source": "comfyui"
+  },
+  {
+    "assetPath": "episodes/ep-001/assets/clean/cut-004.png",
+    "byteLength": 939582,
+    "contentType": "image/png",
+    "providerId": "comfyui",
+    "recordId": "cut-004",
+    "recordKind": "cut",
+    "sha256": "aa79d9627347ef3ea8c4256d90ed5b989ca98a5ad51f530f64ebf1f79751583c",
+    "source": "comfyui"
+  },
+  {
+    "assetPath": "episodes/ep-001/assets/clean/cut-006.png",
+    "byteLength": 955184,
+    "contentType": "image/png",
+    "providerId": "comfyui",
+    "recordId": "cut-006",
+    "recordKind": "cut",
+    "sha256": "78e4b7ad52c82d13bad8784efa95878219b662ebc9adebcc66eb2b07a8fc6cd9",
+    "source": "comfyui"
+  },
+  {
+    "assetPath": "episodes/ep-001/assets/clean/cut-007.png",
+    "byteLength": 941019,
+    "contentType": "image/png",
+    "providerId": "comfyui",
+    "recordId": "cut-007",
+    "recordKind": "cut",
+    "sha256": "18215aec1aae7fc3a8e983109184a9a5bb0735b49b1c6f235bc1e0c976001d6e",
+    "source": "comfyui"
   }
 ]

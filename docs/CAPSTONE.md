@@ -291,8 +291,7 @@ fills in the cut artwork on this same seed; the interstitial panels stay `image:
 
 # v4 Capstone — Real-Art Render Pass
 
-Status: PASSED with one known limitation (2026-09-08) — see "Known limitation: cut-006 drifts
-off-model" at the end of this section.
+Status: PASSED (2026-09-08)
 
 The interstitial-pass record above intentionally left `examples/dead-air`'s cuts at
 `image: null` — the v4 thesis only needed the transition panels to be real. This pass (#178)
@@ -344,28 +343,32 @@ run once per `<id>` in `cut-001`…`cut-007`, each with its own `--seed`, agains
   / `pnpm test` are unaffected — no package source changed, only `examples/dead-air` data and
   this record.
 
-## Known limitation: cut-006 drifts off-model
+## Prompt fidelity: what the first pass got wrong, and the fix
 
-Lockstring injection fires for every cut that references a character, but firing is not the
-same as landing. Reviewed frame by frame, Wren holds together across **002** and **004** —
-short auburn bob, amber cardigan, dark booth — and the Caller in **005** is exactly the hooded
-near-monochrome silhouette its lockstring describes. **006 drifts**: cyan eyes instead of the
-warm amber of 002, longer and lighter hair, a cream wardrobe, and a flat bright-blue field
-where the dark booth should be.
+The first render pass proved the pipeline but produced four frames that did not
+show what their cut described. Reviewed frame by frame:
 
-The cause is in the cut's own authored prompt, not in the injection path. `cut-006`'s
-`imagePrompt` asks for "cold blue screen light reflected in the eyes", and this checkpoint
-applies that blue to the entire frame and to the iris, overpowering both "dark booth" and the
-lockstring's "muted teal-and-amber palette". Three further seeds (1006, 4242, 7331) were
-rendered against the unmodified prompt and all three came out worse — flatter backgrounds and
-less dread — so the committed frame is the best of four samples, not a first draft.
+| Cut | First pass | Cause |
+|---|---|---|
+| 004 | a full portrait of Wren, near-duplicate of 002 | the cut referenced a character, so `injectCharacterLockstrings` prepended `1girl, Wren, …` onto a disembodied-hand prompt and `1girl` won |
+| 006 | cyan eyes, lighter hair, flat blue field | its prompt asked for "cold blue screen light", which this checkpoint applied to the whole frame and the irises |
+| 007 | a lit booth with an unrequested character | nothing in the prompt or negative prompt excluded people from a beat that is an empty blackout |
+| 001 | no ON AIR sign, no desk lamp | the props were named late in a long prompt |
 
-Fixing it means rewriting an authored prompt, which #178 explicitly scopes out (the prompts are
-the project's own story data). The prompt fix is tracked separately. Until then this record
-should not be read as a claim that every cut is on-model: five of seven are strong, 006 is the
-weak frame, and it is named here rather than left for a reader to notice.
+Three of the four were fixed in the cuts' own data, not by post-processing:
 
-Cut artwork: 7 PNGs, 832×1216, roughly 0.8–1.4 MB each (full-resolution `clean` source assets —
-export targets still produce their own size-budgeted rasters, e.g. the PlotLink WebPs' separate
-≤1 MB cap). Provenance for all 7 (sha256, byte length, provider, source) is logged at
-[`episodes/ep-001/logs/ingest.json`](../examples/dead-air/episodes/ep-001/logs/ingest.json).
+- **004** no longer references a character at all. An insert shot of a hand has no
+  business carrying a full-body lockstring; removing the reference is the fix, and
+  the re-render is the hand-and-button insert the beat asks for.
+- **006** now leads with the booth's darkness and describes the blue as a small
+  monitor glow on one cheek, with the wrong readings named in the negative prompt.
+  Wren comes back on-model: amber eyes matching 002, the short auburn bob, and the
+  headphones around the neck her lockstring specifies.
+- **007** names the empty booth first and excludes people in the negative prompt.
+  The re-render is the dark, unpeopled console the blackout beat needs.
+- **001 was left alone.** The rewrite was tried and made the frame worse — it lost
+  the empty swivel chair and the red sign the original had — so the original prompt
+  and the original render both stand. Not every attempted fix is an improvement,
+  and this one was reverted rather than shipped.
+
+Seeds for the re-rendered cuts: 004 → 2104, 006 → 2106, 007 → 2107.
