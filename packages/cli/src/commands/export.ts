@@ -11,6 +11,8 @@ import {
   exportPlatform,
   exportPlotlink,
   exportStitched,
+  listExportPresetIds,
+  resolveExportPreset,
 } from "@toony/export";
 import { ProjectIoError } from "@toony/project-io";
 import {
@@ -21,18 +23,20 @@ import {
   validateExportInt,
 } from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE } from "../exit.js";
+import { discoverPackContent } from "../packs.js";
 
 export interface ExportIo {
   cwd: string;
   out: (line: string) => void;
   err: (line: string) => void;
+  /** Process environment; `TOONY_PACKS` names extra pack directories. */
+  env?: Record<string, string | undefined>;
 }
 
-const TARGETS = new Set(["platform", "stitched", "plotlink"]);
 const VALUE_FLAGS = new Set(["--episode", "--width", "--format", "--quality"]);
 
 const USAGE =
-  "usage: toony export <platform|stitched|plotlink> [path] --episode <id> [--width <px>] [--format png|jpg] [--quality <0-100>]";
+  "usage: toony export <platform|stitched|plotlink|preset> [path] --episode <id> [--width <px>] [--format png|jpg] [--quality <0-100>]";
 
 interface Parsed {
   positional: string[];
@@ -83,9 +87,20 @@ export async function runExport(args: string[], io: ExportIo): Promise<number> {
     return EXIT_USAGE;
   }
 
-  const target = parsed.positional[0];
-  if (target === undefined || !TARGETS.has(target)) {
-    io.err("first argument must be one of: platform, stitched, plotlink");
+  const root = resolve(io.cwd, parsed.positional[1] ?? ".");
+
+  // The first argument names an export PRESET: one of the three built-ins, or
+  // one contributed by an installed pack (#192). A preset selects a built-in
+  // engine and pins render options; with no packs installed the registry holds
+  // exactly the three built-ins with nothing pinned, so this resolves to the
+  // same engine and the same options as before the seam existed.
+  const packs = await discoverPackContent(root, io);
+  const presetId = parsed.positional[0];
+  const preset =
+    presetId === undefined ? undefined : await resolveExportPreset(presetId, packs.exportPresets);
+  if (preset === undefined) {
+    const available = await listExportPresetIds(packs.exportPresets);
+    io.err(`first argument must be one of: ${available.join(", ")}`);
     io.err(USAGE);
     return EXIT_USAGE;
   }
@@ -124,23 +139,23 @@ export async function runExport(args: string[], io: ExportIo): Promise<number> {
     return EXIT_USAGE;
   }
 
+  // An explicit flag always wins over what the preset pins; an option neither
+  // supplies stays undefined so the engine applies its own default.
   const options: ExportOptions = {
-    width: typeof width === "number" ? width : undefined,
-    format: formatArg === undefined ? undefined : formatArg === "png" ? "png" : "jpeg",
-    quality: typeof quality === "number" ? quality : undefined,
+    width: typeof width === "number" ? width : preset.options.width,
+    format: formatArg === undefined ? preset.options.format : formatArg === "png" ? "png" : "jpeg",
+    quality: typeof quality === "number" ? quality : preset.options.quality,
   };
-
-  const root = resolve(io.cwd, parsed.positional[1] ?? ".");
 
   try {
     let result: ExportOutput;
-    if (target === "platform") result = await exportPlatform(root, episodeId, options);
-    else if (target === "stitched") result = await exportStitched(root, episodeId, options);
+    if (preset.target === "platform") result = await exportPlatform(root, episodeId, options);
+    else if (preset.target === "stitched") result = await exportStitched(root, episodeId, options);
     else result = await exportPlotlink(root, episodeId, options);
 
     const { manifest } = result;
     io.out(
-      `exported ${target}: ${manifest.files.length} file(s) for ${episodeId} → ${relative(root, result.outDir)}`,
+      `exported ${preset.id}: ${manifest.files.length} file(s) for ${episodeId} → ${relative(root, result.outDir)}`,
     );
     if (manifest.markdown) {
       io.out(`markdown: ${manifest.markdown.characters} chars at ${manifest.markdown.path}`);

@@ -23,16 +23,25 @@ options:
                            strips image metadata at ingest; provider-neutral
   generate --episode <id> (--cut <id> [--slot clean|final] | --transition <id>)
            --prompt <text> [--negative <text>] [--width <px>] [--height <px>]
-           [--seed <n>] [--provider comfyui] [--allow-remote]
+           [--seed <n>] [--workflow <name>] [--provider comfyui] [--allow-remote]
                            generates and ingests an image; the provider endpoint
                            and workflow come from local runtime config/env
-                           (e.g. TOONY_COMFYUI_URL), never from webtoon.json
-  export <platform|stitched|plotlink> [path] --episode <id>
+                           (e.g. TOONY_COMFYUI_URL), never from webtoon.json;
+                           --workflow selects a workflow a pack contributed
+  export <platform|stitched|plotlink|preset> [path] --episode <id>
          [--width <px>] [--format png|jpg] [--quality <0-100>]
-                           writes into the project's exports/ folder + manifest
+                           writes into the project's exports/ folder + manifest;
+                           the first argument is an export preset — the three
+                           built-ins, or one an installed pack contributes
   lint [path] --json       emit findings as JSON instead of text
   lint-episode <id> [path] [--json]
                            lint only the named episode
+
+packs (docs/PACK_FORMAT.md):
+  a pack is a local folder of DATA that adds named workflows, genre scaffolds,
+  and export presets without editing Toony. Packs are read from
+  <project>/.toony/packs, the workspace folder above it, and every directory
+  named by TOONY_PACKS. Nothing in a pack can run code.
 
 exit codes (agent-readable):
   0   success; for \`validate\`, the project is valid; for \`lint\`, no error/warning findings

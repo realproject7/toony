@@ -1,0 +1,150 @@
+{
+  "episode": {
+    "schemaVersion": 1,
+    "id": "ep-001",
+    "title": "Episode 1",
+    "sequence": [
+      { "type": "cut", "id": "cut-001" },
+      { "type": "transition", "id": "tr-001" },
+      { "type": "cut", "id": "cut-002" },
+      { "type": "transition", "id": "tr-002" },
+      { "type": "cut", "id": "cut-003" },
+      { "type": "transition", "id": "tr-003" },
+      { "type": "cut", "id": "cut-004" }
+    ]
+  },
+  "cuts": [
+    {
+      "id": "cut-001",
+      "image": null,
+      "imagePrompt": "Rain-slicked street at night, one streetlight burning, long reflections on wet asphalt.",
+      "negativePrompt": "",
+      "shotType": "establishing_wide",
+      "palette": "#1a1d24",
+      "layer": "reality"
+    },
+    {
+      "id": "cut-002",
+      "image": null,
+      "imagePrompt": "Close-up of a hat brim and a lit cigarette, most of the face in shadow.",
+      "negativePrompt": "",
+      "shotType": "close_up",
+      "palette": "#22262e"
+    },
+    {
+      "id": "cut-003",
+      "image": null,
+      "imagePrompt": "Medium shot through a rain-streaked office window; a figure waits inside, backlit.",
+      "negativePrompt": "",
+      "shotType": "medium",
+      "palette": "#2a2f38",
+      "styleTag": "high-contrast"
+    },
+    {
+      "id": "cut-004",
+      "image": null,
+      "imagePrompt": "Small centered cut: a business card face-down in a puddle, ink bleeding.",
+      "negativePrompt": "",
+      "shotType": "small_centered",
+      "palette": "#151820"
+    }
+  ],
+  "transitions": [
+    {
+      "id": "tr-001",
+      "type": "title_card",
+      "gutterHeight": 48,
+      "text": "TUESDAY. STILL RAINING.",
+      "sfx": null,
+      "agentNote": null,
+      "humanNote": null,
+      "image": null,
+      "reviewStatus": "draft",
+      "color": "#101319"
+    },
+    {
+      "id": "tr-002",
+      "type": "gutter",
+      "gutterHeight": 48,
+      "text": null,
+      "sfx": null,
+      "agentNote": null,
+      "humanNote": null,
+      "image": null,
+      "reviewStatus": "draft"
+    },
+    {
+      "id": "tr-003",
+      "type": "fade",
+      "gutterHeight": 48,
+      "text": null,
+      "sfx": null,
+      "agentNote": null,
+      "humanNote": null,
+      "image": null,
+      "reviewStatus": "draft"
+    }
+  ],
+  "lettering": [
+    {
+      "id": "ov-001",
+      "cutId": "cut-001",
+      "speaker": "",
+      "kind": "narration",
+      "text": "The city keeps its own hours.",
+      "font": "sans-serif",
+      "fill": "#ffffff",
+      "opacity": 1,
+      "border": null,
+      "tail": null,
+      "geometry": { "x": 0.08, "y": 0.07, "width": 0.84, "height": 0.16 },
+      "overflow": false,
+      "reviewStatus": "draft"
+    },
+    {
+      "id": "ov-002",
+      "cutId": "cut-002",
+      "speaker": "Vance",
+      "kind": "thought",
+      "text": "She lied about the time.",
+      "font": "sans-serif",
+      "fill": "#ffffff",
+      "opacity": 1,
+      "border": null,
+      "tail": null,
+      "geometry": { "x": 0.08, "y": 0.07, "width": 0.84, "height": 0.16 },
+      "overflow": false,
+      "reviewStatus": "draft"
+    },
+    {
+      "id": "ov-003",
+      "cutId": "cut-003",
+      "speaker": "Della",
+      "kind": "speech",
+      "text": "You're late.",
+      "font": "sans-serif",
+      "fill": "#ffffff",
+      "opacity": 1,
+      "border": null,
+      "tail": null,
+      "geometry": { "x": 0.08, "y": 0.07, "width": 0.84, "height": 0.16 },
+      "overflow": false,
+      "reviewStatus": "draft"
+    },
+    {
+      "id": "ov-004",
+      "cutId": "cut-004",
+      "speaker": "",
+      "kind": "narration",
+      "text": "So was the truth.",
+      "font": "sans-serif",
+      "fill": "#ffffff",
+      "opacity": 1,
+      "border": null,
+      "tail": null,
+      "geometry": { "x": 0.08, "y": 0.07, "width": 0.84, "height": 0.16 },
+      "overflow": false,
+      "reviewStatus": "draft"
+    }
+  ]
+}

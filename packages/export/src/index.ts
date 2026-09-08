@@ -38,6 +38,12 @@ export {
   PLOTLINK_MARKDOWN_MIN,
 } from "./markdown.js";
 export {
+  BUILTIN_EXPORT_PRESETS,
+  type ExportPreset,
+  listExportPresetIds,
+  resolveExportPreset,
+} from "./presets.js";
+export {
   type ExportOptions,
   type ExportOutput,
   exportPlatform,

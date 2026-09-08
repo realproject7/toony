@@ -1,0 +1,30 @@
+{
+  "packFormat": 1,
+  "id": "example-pack",
+  "name": "Toony Example Pack",
+  "description": "A complete, working pack: one named ComfyUI workflow, one genre scaffold, and one export preset. Copy this folder to start your own. See docs/PACK_FORMAT.md.",
+  "workflows": [
+    {
+      "name": "high-detail",
+      "file": "workflows/high-detail.workflow.json"
+    }
+  ],
+  "genres": [
+    {
+      "id": "noir",
+      "title": "Noir",
+      "file": "genres/noir.json"
+    }
+  ],
+  "exportPresets": [
+    {
+      "id": "webtoon-tall",
+      "target": "platform",
+      "options": {
+        "width": 1600,
+        "format": "jpeg",
+        "quality": 88
+      }
+    }
+  ]
+}

@@ -332,3 +332,50 @@ const SPECS: Record<Genre, GenreSpec> = {
 export function buildGenreEpisodeBundle(genre: Genre): EpisodeBundle {
   return buildGenreEpisode(SPECS[genre]);
 }
+
+// --- Genre registry ---------------------------------------------------------
+// `GENRES` above is the CORE's closed vocabulary and stays that way. The lookup
+// below is the open one: it answers with a built-in genre first and only then
+// considers scaffolds contributed from outside the repo (packs, #192), so a
+// contributed scaffold can never redefine a genre the core already ships.
+
+/**
+ * A genre scaffold contributed from outside the core — one ready-to-seed episode
+ * bundle under an id. Declared here, structurally identical to `@toony/packs`'
+ * `PackGenre`, so this package keeps no dependency on the pack loader: the
+ * caller discovers packs and passes the scaffolds in (the same injection shape
+ * `@toony/providers` uses for the workspace ComfyUI config).
+ */
+export interface GenreScaffold {
+  id: string;
+  title: string;
+  bundle: EpisodeBundle;
+}
+
+/**
+ * Every genre id `toony init --genre` accepts: the built-in five, then any
+ * contributed scaffold whose id does not collide with them.
+ *
+ * Async because this is a registry lookup. The first implementation answers from
+ * memory, but making the seam async from day one means a later resolution
+ * strategy is a change here rather than a refactor of every consumer.
+ */
+export async function listGenreIds(scaffolds: readonly GenreScaffold[] = []): Promise<string[]> {
+  const ids = [...GENRES];
+  const extra = scaffolds
+    .map((s) => s.id)
+    .filter((id) => !(GENRES as readonly string[]).includes(id));
+  return [...ids, ...new Set(extra)];
+}
+
+/**
+ * Resolve a genre id to the starter episode bundle `toony init` seeds, or
+ * `undefined` when no built-in genre and no contributed scaffold claims it.
+ */
+export async function resolveGenreBundle(
+  id: string,
+  scaffolds: readonly GenreScaffold[] = [],
+): Promise<EpisodeBundle | undefined> {
+  if (isGenre(id)) return buildGenreEpisodeBundle(id);
+  return scaffolds.find((scaffold) => scaffold.id === id)?.bundle;
+}

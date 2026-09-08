@@ -31,6 +31,7 @@ import {
 } from "@toony/providers";
 import type { Character } from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
+import { discoverPackContent } from "../packs.js";
 
 export interface GenerateIo {
   cwd: string;
@@ -56,6 +57,7 @@ const VALUE_FLAGS = new Set([
   "--width",
   "--height",
   "--seed",
+  "--workflow",
 ]);
 const BOOLEAN_FLAGS = new Set(["--allow-remote"]);
 
@@ -84,7 +86,7 @@ function parseFlags(args: string[]): Flags | { error: string } {
 }
 
 const USAGE =
-  "usage: toony generate [path] --episode <id> (--cut <id> [--slot clean|final] | --transition <id>) --prompt <text> [--negative <text>] [--width <px>] [--height <px>] [--seed <n>] [--provider comfyui] [--allow-remote]";
+  "usage: toony generate [path] --episode <id> (--cut <id> [--slot clean|final] | --transition <id>) --prompt <text> [--negative <text>] [--width <px>] [--height <px>] [--seed <n>] [--workflow <name>] [--provider comfyui] [--allow-remote]";
 
 function parsePositiveInt(raw: string, name: string): number | { error: string } {
   const n = Number(raw);
@@ -156,11 +158,21 @@ async function buildProvider(
   id: string,
   root: string,
   io: GenerateIo,
+  workflows: ReadonlyMap<string, string>,
+  workflowName: string | undefined,
 ): Promise<ImageProvider | { error: string }> {
   if (id === "comfyui") {
     try {
       const toonyConfig = await readWorkspaceComfyConfig(root);
-      const config = await resolveComfyUIConfig({ env: io.env ?? {}, toonyConfig });
+      // `workflows` is the named-workflow registry contributed by installed
+      // packs (#192), injected as plain data so `@toony/providers` resolves a
+      // workflow by name without depending on the pack loader.
+      const config = await resolveComfyUIConfig({
+        env: io.env ?? {},
+        toonyConfig,
+        workflows,
+        ...(workflowName === undefined ? {} : { workflowName }),
+      });
       return new ComfyUIProvider(config);
     } catch (cause) {
       if (cause instanceof ProviderError) return { error: cause.message };
@@ -270,7 +282,14 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     options[key] = n;
   }
 
-  const provider = await buildProvider(providerId, root, io);
+  const packs = await discoverPackContent(root, io);
+  const provider = await buildProvider(
+    providerId,
+    root,
+    io,
+    packs.workflows,
+    parsed.values.get("--workflow"),
+  );
   if ("error" in provider) {
     io.err(provider.error);
     return EXIT_USAGE;
