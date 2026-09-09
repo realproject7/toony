@@ -4,7 +4,7 @@
 > solid color fields, narration-only captions, dialogue-on-color, title/time cards, and
 > silence/beat gaps — that carry transition, time, and emotional pacing in vertical-scroll
 > webtoons. Method: two web-research passes (creator guides, sequential-art theory, color
-> theory) + live observation of real episodes on webtoons.com. **Skills only — no specific
+> theory) + live observation of real published episodes. **Skills only — no specific
 > work's text, art, characters, or compositions are copied.**
 
 This study reframes Toony's **transition** primitive: a transition is not an on-screen gap or
@@ -123,5 +123,7 @@ Vertical paneling & pacing: comistitch.com vertical-scroll paneling guide; conte
 model; mattreadscomics vertical-scroll strengths; Wikipedia *Infinite canvas*; ClipStudio Tips scene-
 transition & ultimate guides; comicsai webtoon guide; teachmefirstcomic. Closure theory: McCloud
 *Understanding Comics* study notes. Color: TV Tropes *Colour-Coded Emotions*; toonsmag color psychology.
-Typesetting: webtoonish typesetting guide. Genre/horror pacing: KComicsBeat / WEBTOON creator talks.
-Live observation: webtoons.com Originals episode viewers (interstitial/beat structure only; nothing copied).
+Typesetting: webtoonish typesetting guide. Genre/horror pacing: KComicsBeat / platform creator talks.
+Live observation: published episode viewers on a major vertical-scroll platform (interstitial/beat
+structure only; nothing copied). The platform is not named here by policy — see the reference
+collection's local notes.
