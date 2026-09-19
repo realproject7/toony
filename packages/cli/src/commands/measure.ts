@@ -112,29 +112,66 @@ function textReport(
       `  note: ${measurement.cutsWithoutImage} of ${measurement.cuts} cuts have no image asset; their neutral fill measures as empty space.`,
     );
   }
+  // What the band was measured from, before the numbers it produced: a range
+  // read off two sampled episodes and one read off twenty whole ones are not
+  // the same claim, and only this says which one is on screen.
+  const provenance = report?.provenance ?? null;
+  if (provenance !== null) {
+    const episodes = provenance.works.reduce((sum, work) => sum + work.episodes, 0);
+    lines.push(`  measured from ${provenance.works.length} work(s), ${episodes} episode(s)`);
+    // The capture facts are per work, so they print per work: two works captured
+    // differently would be misreported by any single summary line.
+    for (const work of provenance.works) {
+      const detail = [
+        `${work.episodes} episode(s)`,
+        `${work.captureMode} capture`,
+        `${work.constantColumnWidth ? "constant" : "varying"} column width`,
+      ];
+      if (work.language !== undefined) detail.push(work.language);
+      if (work.pageLengthInWidths !== undefined) {
+        detail.push(`${work.pageLengthInWidths} column widths of page`);
+      }
+      lines.push(`    ${work.label} — ${detail.join(", ")}`);
+    }
+  }
   const graded = new Map(report?.metrics.map((verdict) => [verdict.metric, verdict]) ?? []);
+  const kept = new Map(report?.recorded.map((entry) => [entry.metric, entry]) ?? []);
   const names = Object.keys(measurement.metrics) as (keyof CraftMeasurement["metrics"])[];
   const width = Math.max(...names.map((name) => name.length));
   for (const name of names) {
     const value = measurement.metrics[name];
     const shown = value === null ? "—" : String(value);
     const verdict = graded.get(name);
-    if (!verdict) {
-      lines.push(`  ${name.padEnd(width)}  ${shown.padStart(8)}`);
+    if (verdict) {
+      const range = `${verdict.min ?? "*"}..${verdict.max ?? "*"}`;
+      lines.push(
+        `  ${name.padEnd(width)}  ${shown.padStart(8)}  ${range.padEnd(14)} ${verdict.inBand ? "in" : "OUT"}`,
+      );
       continue;
     }
-    const range = `${verdict.min ?? "*"}..${verdict.max ?? "*"}`;
-    lines.push(
-      `  ${name.padEnd(width)}  ${shown.padStart(8)}  ${range.padEnd(14)} ${verdict.inBand ? "in" : "OUT"}`,
-    );
+    // A recorded metric shows the range the band measured in the same column,
+    // marked so it can never be read as a passed or failed grade.
+    const entry = kept.get(name);
+    if (entry) {
+      const range = `${entry.min ?? "*"}..${entry.max ?? "*"}`;
+      lines.push(
+        `  ${name.padEnd(width)}  ${shown.padStart(8)}  ${range.padEnd(14)} recorded, not graded`,
+      );
+      continue;
+    }
+    lines.push(`  ${name.padEnd(width)}  ${shown.padStart(8)}`);
   }
   if (report) {
     const out = report.metrics.filter((verdict) => !verdict.inBand).length;
     const label = report.name === null ? "band" : `band "${report.name}"`;
+    const also =
+      report.recorded.length === 0
+        ? ""
+        : ` (${report.recorded.length} further metric(s) recorded, not graded)`;
     lines.push(
       report.inBand
-        ? `verdict: IN BAND — ${report.metrics.length} metric(s) graded against ${label}`
-        : `verdict: OUT OF BAND — ${out} of ${report.metrics.length} metric(s) outside ${label}`,
+        ? `verdict: IN BAND — ${report.metrics.length} metric(s) graded against ${label}${also}`
+        : `verdict: OUT OF BAND — ${out} of ${report.metrics.length} metric(s) outside ${label}${also}`,
     );
   }
   return lines;

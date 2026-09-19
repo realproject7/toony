@@ -24,7 +24,10 @@
 import type { SKRSContext2D } from "@napi-rs/canvas";
 import {
   IssueCollector,
+  isArray,
+  isBoolean,
   isFiniteNumber,
+  isInteger,
   isPlainObject,
   isString,
   joinPath,
@@ -450,13 +453,78 @@ export interface CraftBandRange {
   max?: number;
 }
 
-/** A target band: per-metric ranges, plus the screen the numbers assume. */
+/**
+ * How the pages behind one studied work were captured.
+ *
+ * `contiguous` is every frame of an episode, in order; `sampled` is a subset.
+ * The distinction is not bookkeeping: a median over run heights is read off
+ * whole regions of a page, so dropping part of an episode moves it by more than
+ * the differences such medians are used to argue about, and nothing in the
+ * measured numbers themselves says which kind of capture produced them.
+ */
+export const CRAFT_CAPTURE_MODES = ["contiguous", "sampled"] as const;
+
+export type CraftCaptureMode = (typeof CRAFT_CAPTURE_MODES)[number];
+
+/**
+ * One studied work a band was measured from, and how it was captured.
+ *
+ * The capture facts sit HERE rather than on the provenance, because they are
+ * facts about a capture and a band can hold several. A band whose two works were
+ * captured differently would otherwise have to state one answer and be wrong
+ * about one of them — silently, since neither fact is visible in the numbers.
+ *
+ * The work is named by a NEUTRAL LABEL and nothing else. There is deliberately
+ * no field for a title, for the place the pages came from, or for a link: a band
+ * ships inside a pack, and a field that invites one of those is how one gets
+ * published. The label is the operator's own handle for the work, the counts say
+ * how much of it was measured, and that is the whole of what a grader needs.
+ */
+export interface CraftBandWork {
+  /** The neutral label the work is studied under, e.g. "thriller work C". */
+  label: string;
+  /** Episodes of this work that were measured. */
+  episodes: number;
+  captureMode: CraftCaptureMode;
+  /**
+   * Whether every page captured from this work was the same column width. Every
+   * run length in this measurement is a share of the width, so a capture set
+   * with mixed widths normalizes each page by a different number and inflates
+   * lengths across the set without any single number looking wrong.
+   */
+  constantColumnWidth: boolean;
+  /** Language of the captured pages, as a short tag ("eng", "ko", "ko-KR"). */
+  language?: string;
+  /**
+   * How much page this work contributed, as ONE extent in column widths —
+   * summed episode height over column width. It is the sample size behind every
+   * median in the band, and works differ in it by a factor of four at the same
+   * episode count.
+   */
+  pageLengthInWidths?: number;
+}
+
+/** Where a band's numbers came from: the works, each with its own capture facts. */
+export interface CraftBandProvenance {
+  works: CraftBandWork[];
+}
+
+/**
+ * A target band: per-metric ranges, plus the screen the numbers assume.
+ *
+ * `metrics` is what the band GRADES. `recorded` is what it measured and chose
+ * not to grade — kept because deleting a range that should not decide a verdict
+ * also throws away the only record of what was measured.
+ */
 export interface CraftBand {
   bandFormat: number;
   name?: string;
   /** Screen aspect the band was measured at; the measurement adopts it. */
   screenAspect?: number;
   metrics: Partial<Record<CraftMetricName, CraftBandRange>>;
+  /** Measured ranges the band keeps but never grades against. */
+  recorded?: Partial<Record<CraftMetricName, CraftBandRange>>;
+  provenance?: CraftBandProvenance;
 }
 
 /** One metric's verdict against the band. */
@@ -468,15 +536,95 @@ export interface CraftMetricVerdict {
   inBand: boolean;
 }
 
-/** The full comparison: every graded metric, plus the overall verdict. */
+/**
+ * One metric the band records without grading: the measured range beside the
+ * value, and NO verdict field — a recorded metric cannot be summed into a
+ * verdict by a caller that forgot the difference, because it carries none.
+ */
+export interface CraftRecordedMetric {
+  metric: CraftMetricName;
+  value: number | null;
+  min: number | null;
+  max: number | null;
+}
+
+/** The full comparison: every graded metric, what was only recorded, the verdict. */
 export interface CraftBandReport {
   name: string | null;
   inBand: boolean;
   metrics: CraftMetricVerdict[];
+  recorded: CraftRecordedMetric[];
+  provenance: CraftBandProvenance | null;
 }
 
-const BAND_KEYS = ["bandFormat", "name", "screenAspect", "metrics"] as const;
+const BAND_KEYS = [
+  "bandFormat",
+  "name",
+  "screenAspect",
+  "metrics",
+  "recorded",
+  "provenance",
+] as const;
 const RANGE_KEYS = ["min", "max"] as const;
+const PROVENANCE_KEYS = ["works"] as const;
+const WORK_KEYS = [
+  "label",
+  "episodes",
+  "captureMode",
+  "constantColumnWidth",
+  "language",
+  "pageLengthInWidths",
+] as const;
+
+/**
+ * A work label carries a link or a domain. Either one names the source the pages
+ * came from, which is exactly what this field must not hold.
+ *
+ * This is a BACKSTOP, not a guarantee. It catches the obvious forms and misses
+ * an IP address, an internationalized host, and any of the ways a domain can be
+ * written to get past a pattern. The guarantee is structural and sits elsewhere:
+ * no field exists for a source, so there is nowhere one belongs.
+ */
+const LABEL_LINK_PATTERN = /:\/\/|[A-Za-z0-9-]\.[A-Za-z]{2,}/;
+
+/**
+ * Anything a terminal reads as more than one line, or as a control sequence.
+ *
+ * A band's free text is printed straight into the report, so a label carrying a
+ * newline can forge a verdict line above the real one. C0, DEL and C1 are all
+ * refused: none of them belongs in a label or a band name. So are the Unicode
+ * line separators, which anything that splits text the Unicode way reads as a
+ * line break even where a terminal does not, and the bidi overrides, which
+ * reverse the rest of a printed line.
+ */
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) return true;
+    if (code === 0x2028 || code === 0x2029) return true;
+    if ((code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069)) return true;
+  }
+  return false;
+}
+
+/**
+ * A language tag as the docs promise it: a primary alpha tag, an optional
+ * four-letter script, an optional region. Free subtags are not accepted —
+ * an open-ended tail is room for a source shorthand to ride into a pack.
+ */
+const LANGUAGE_TAG_PATTERN = /^[A-Za-z]{2,3}(-[A-Za-z]{4})?(-([A-Za-z]{2}|[0-9]{3}))?$/;
+
+/** Longest a band name or a work label may be. Both are printed in the report. */
+const BAND_TEXT_MAX_LENGTH = 80;
+
+/** Most works one band may list: far above any real study, far below a flood. */
+const BAND_WORKS_MAX = 100;
+
+/** Most episodes one work may declare. Above the longest work anyone publishes. */
+const WORK_EPISODES_MAX = 10000;
+
+/** Longest page extent one work may declare, in column widths. */
+const WORK_PAGE_LENGTH_MAX = 1000000;
 
 function allowlistKeys(
   value: Record<string, unknown>,
@@ -493,6 +641,17 @@ function allowlistKeys(
       `${what} allows only ${allowed.map((k) => `"${k}"`).join(", ")}; remove unexpected field "${key}".`,
     );
   }
+}
+
+/**
+ * Text a band carries that the report prints verbatim.
+ *
+ * One line, bounded length. Without this a label of `work A\nverdict: IN BAND`
+ * validates and prints a forged verdict above the real one — the report is
+ * plain lines, so anything that can hold a newline can write one.
+ */
+function isBandText(value: unknown): value is string {
+  return isString(value) && value.length <= BAND_TEXT_MAX_LENGTH && !hasControlCharacter(value);
 }
 
 function validateRange(value: unknown, path: string, c: IssueCollector): void {
@@ -522,6 +681,161 @@ function validateRange(value: unknown, path: string, c: IssueCollector): void {
   }
 }
 
+/**
+ * Validate the metrics a band records without grading.
+ *
+ * `graded` is the band's own `metrics`, so a metric claimed on both sides is a
+ * rejection: a band that both grades and records one metric says two different
+ * things about whether it decides the verdict.
+ */
+function validateRecorded(
+  value: unknown,
+  graded: Record<string, unknown>,
+  c: IssueCollector,
+): void {
+  const path = "band.recorded";
+  if (!isPlainObject(value)) {
+    c.add(path, "band.recorded.type", "recorded must be an object of metric ranges.");
+    return;
+  }
+  if (Object.keys(value).length === 0) {
+    c.add(path, "band.recorded.empty", "recorded must keep at least one metric, or be left out.");
+  }
+  for (const [key, range] of Object.entries(value)) {
+    const keyPath = joinPath(path, key);
+    if (!(CRAFT_METRIC_NAMES as readonly string[]).includes(key)) {
+      c.add(
+        keyPath,
+        "band.metric.unknown",
+        `"${key}" is not a measured metric; expected one of: ${CRAFT_METRIC_NAMES.join(", ")}.`,
+      );
+      continue;
+    }
+    if (Object.hasOwn(graded, key)) {
+      c.add(
+        keyPath,
+        "band.recorded.graded",
+        `"${key}" is already graded in metrics; a metric is graded or recorded, never both.`,
+      );
+    }
+    validateRange(range, keyPath, c);
+  }
+}
+
+function validateProvenanceWork(
+  value: unknown,
+  path: string,
+  labels: Set<string>,
+  c: IssueCollector,
+): void {
+  if (!isPlainObject(value)) {
+    c.add(path, "band.provenance.work.type", "a studied work must be an object.");
+    return;
+  }
+  allowlistKeys(value, WORK_KEYS, path, "a studied work", c);
+  if (!isBandText(value.label) || value.label.length === 0) {
+    c.add(
+      joinPath(path, "label"),
+      "band.provenance.work.label",
+      `label must be one line of 1 to ${BAND_TEXT_MAX_LENGTH} characters: the neutral label the work is studied under.`,
+    );
+  } else if (LABEL_LINK_PATTERN.test(value.label)) {
+    c.add(
+      joinPath(path, "label"),
+      "band.provenance.work.label.link",
+      "label must be a neutral label, not a link or a domain.",
+    );
+  } else if (labels.has(value.label)) {
+    c.add(
+      joinPath(path, "label"),
+      "band.provenance.work.duplicate",
+      `duplicate work label "${value.label}" in this band.`,
+    );
+  } else {
+    labels.add(value.label);
+  }
+  if (!isInteger(value.episodes) || value.episodes < 1 || value.episodes > WORK_EPISODES_MAX) {
+    c.add(
+      joinPath(path, "episodes"),
+      "band.provenance.work.episodes",
+      `episodes must be a whole number from 1 to ${WORK_EPISODES_MAX}.`,
+    );
+  }
+  // Both capture facts are required, not optional detail: each one was invisible
+  // in the measured numbers and each one silently moved them.
+  if (
+    !isString(value.captureMode) ||
+    !(CRAFT_CAPTURE_MODES as readonly string[]).includes(value.captureMode)
+  ) {
+    c.add(
+      joinPath(path, "captureMode"),
+      "band.provenance.capture",
+      `captureMode must be one of: ${CRAFT_CAPTURE_MODES.join(", ")}.`,
+    );
+  }
+  if (!isBoolean(value.constantColumnWidth)) {
+    c.add(
+      joinPath(path, "constantColumnWidth"),
+      "band.provenance.column-width",
+      "constantColumnWidth must be true or false: whether every page captured from this work was one column width.",
+    );
+  }
+  if (
+    value.language !== undefined &&
+    !(isString(value.language) && LANGUAGE_TAG_PATTERN.test(value.language))
+  ) {
+    c.add(
+      joinPath(path, "language"),
+      "band.provenance.work.language",
+      'language must be a language tag: a primary tag, an optional script, an optional region ("ko", "eng", "ko-Hang-KR").',
+    );
+  }
+  if (
+    value.pageLengthInWidths !== undefined &&
+    !(
+      isFiniteNumber(value.pageLengthInWidths) &&
+      value.pageLengthInWidths > 0 &&
+      value.pageLengthInWidths <= WORK_PAGE_LENGTH_MAX
+    )
+  ) {
+    c.add(
+      joinPath(path, "pageLengthInWidths"),
+      "band.provenance.work.page-widths",
+      `pageLengthInWidths must be a number greater than 0 and at most ${WORK_PAGE_LENGTH_MAX}: how much page was measured, in column widths.`,
+    );
+  }
+}
+
+/** Validate what a band says it was measured from. */
+function validateProvenance(value: unknown, c: IssueCollector): void {
+  const path = "band.provenance";
+  if (!isPlainObject(value)) {
+    c.add(path, "band.provenance.type", "provenance must be an object.");
+    return;
+  }
+  allowlistKeys(value, PROVENANCE_KEYS, path, "band provenance", c);
+  const worksPath = joinPath(path, "works");
+  if (!isArray(value.works)) {
+    c.add(worksPath, "band.provenance.works.type", "works must be an array of studied works.");
+    return;
+  }
+  if (value.works.length === 0) {
+    c.add(worksPath, "band.provenance.works.empty", "provenance must name at least one work.");
+  }
+  if (value.works.length > BAND_WORKS_MAX) {
+    c.add(
+      worksPath,
+      "band.provenance.works.count",
+      `a band may list at most ${BAND_WORKS_MAX} works; this one lists ${value.works.length}.`,
+    );
+    return;
+  }
+  const labels = new Set<string>();
+  for (let i = 0; i < value.works.length; i++) {
+    validateProvenanceWork(value.works[i], joinPath(worksPath, i), labels, c);
+  }
+}
+
 /** Validate a parsed band file. Never throws. */
 export function validateCraftBandValue(value: unknown): ValidationResult {
   const c = new IssueCollector();
@@ -537,8 +851,14 @@ export function validateCraftBandValue(value: unknown): ValidationResult {
       `bandFormat must be ${CRAFT_BAND_FORMAT_VERSION}.`,
     );
   }
-  if (value.name !== undefined && !isString(value.name)) {
-    c.add("band.name", "band.name", "name must be a string.");
+  // The name is printed in the verdict line, so it is held to the same rule a
+  // work label is: one line, bounded. A newline here forges a verdict too.
+  if (value.name !== undefined && (!isBandText(value.name) || value.name.length === 0)) {
+    c.add(
+      "band.name",
+      "band.name",
+      `name must be one line of 1 to ${BAND_TEXT_MAX_LENGTH} characters.`,
+    );
   }
   if (value.screenAspect !== undefined) {
     if (!isFiniteNumber(value.screenAspect) || (value.screenAspect as number) <= 0) {
@@ -549,60 +869,95 @@ export function validateCraftBandValue(value: unknown): ValidationResult {
       );
     }
   }
+  // A band still has to GRADE something: recording metrics is an addition to a
+  // target, never a way to ship one that decides nothing.
   if (!isPlainObject(value.metrics)) {
     c.add("band.metrics", "band.metrics.type", "metrics must be an object of metric ranges.");
-    return c.result();
-  }
-  const metrics = value.metrics;
-  if (Object.keys(metrics).length === 0) {
-    c.add("band.metrics", "band.metrics.empty", "a band must grade at least one metric.");
-  }
-  for (const [key, range] of Object.entries(metrics)) {
-    const path = joinPath("band.metrics", key);
-    if (!(CRAFT_METRIC_NAMES as readonly string[]).includes(key)) {
-      c.add(
-        path,
-        "band.metric.unknown",
-        `"${key}" is not a measured metric; expected one of: ${CRAFT_METRIC_NAMES.join(", ")}.`,
-      );
-      continue;
+  } else {
+    const metrics = value.metrics;
+    if (Object.keys(metrics).length === 0) {
+      c.add("band.metrics", "band.metrics.empty", "a band must grade at least one metric.");
     }
-    validateRange(range, path, c);
+    for (const [key, range] of Object.entries(metrics)) {
+      const path = joinPath("band.metrics", key);
+      if (!(CRAFT_METRIC_NAMES as readonly string[]).includes(key)) {
+        c.add(
+          path,
+          "band.metric.unknown",
+          `"${key}" is not a measured metric; expected one of: ${CRAFT_METRIC_NAMES.join(", ")}.`,
+        );
+        continue;
+      }
+      validateRange(range, path, c);
+    }
   }
+  if (value.recorded !== undefined) {
+    validateRecorded(value.recorded, isPlainObject(value.metrics) ? value.metrics : {}, c);
+  }
+  if (value.provenance !== undefined) validateProvenance(value.provenance, c);
   return c.result();
 }
 
-/** Narrow an already-validated band value. Only call after validation passed. */
+/**
+ * Narrow an already-validated band value. Only call after validation passed.
+ *
+ * Every nested value is carried across whole, exactly as `metrics` is. Copying
+ * provenance field by field would mean a field added to the allowlist and the
+ * docs later validates, round-trips through a band file, and then disappears
+ * here with nothing failing.
+ */
 export function asCraftBand(value: Record<string, unknown>): CraftBand {
   return {
     bandFormat: value.bandFormat as number,
     ...(typeof value.name === "string" ? { name: value.name } : {}),
     ...(typeof value.screenAspect === "number" ? { screenAspect: value.screenAspect } : {}),
     metrics: value.metrics as CraftBand["metrics"],
+    ...(isPlainObject(value.recorded) ? { recorded: value.recorded as CraftBand["recorded"] } : {}),
+    ...(isPlainObject(value.provenance)
+      ? { provenance: value.provenance as unknown as CraftBandProvenance }
+      : {}),
   };
 }
 
 /**
- * Grade measured metrics against a band. Only the metrics the band declares are
+ * Grade measured metrics against a band. Only the metrics the band GRADES are
  * graded; a metric with no measurable value (an episode with no colour at all
  * has no hue) can never be inside a declared range, so it fails rather than
  * passing by absence.
+ *
+ * A recorded metric is measured against nothing. Its value and the range the
+ * band measured are reported side by side, and the verdict is computed from
+ * `verdicts` alone — the recorded list is never read for it, and its entries
+ * carry no verdict to read.
  */
 export function compareToCraftBand(metrics: CraftMetrics, band: CraftBand): CraftBandReport {
   const verdicts: CraftMetricVerdict[] = [];
+  const recorded: CraftRecordedMetric[] = [];
   for (const name of CRAFT_METRIC_NAMES) {
     const range = band.metrics[name];
-    if (range === undefined) continue;
-    const value = metrics[name];
-    const min = range.min ?? null;
-    const max = range.max ?? null;
-    const inBand =
-      value !== null && (min === null || value >= min) && (max === null || value <= max);
-    verdicts.push({ metric: name, value, min, max, inBand });
+    if (range !== undefined) {
+      const value = metrics[name];
+      const min = range.min ?? null;
+      const max = range.max ?? null;
+      const inBand =
+        value !== null && (min === null || value >= min) && (max === null || value <= max);
+      verdicts.push({ metric: name, value, min, max, inBand });
+    }
+    const kept = band.recorded?.[name];
+    if (kept !== undefined) {
+      recorded.push({
+        metric: name,
+        value: metrics[name],
+        min: kept.min ?? null,
+        max: kept.max ?? null,
+      });
+    }
   }
   return {
     name: band.name ?? null,
     inBand: verdicts.every((verdict) => verdict.inBand),
     metrics: verdicts,
+    recorded,
+    provenance: band.provenance ?? null,
   };
 }
