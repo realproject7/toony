@@ -592,12 +592,17 @@ const LABEL_LINK_PATTERN = /:\/\/|[A-Za-z0-9-]\.[A-Za-z]{2,}/;
  *
  * A band's free text is printed straight into the report, so a label carrying a
  * newline can forge a verdict line above the real one. C0, DEL and C1 are all
- * refused: none of them belongs in a label or a band name.
+ * refused: none of them belongs in a label or a band name. So are the Unicode
+ * line separators, which anything that splits text the Unicode way reads as a
+ * line break even where a terminal does not, and the bidi overrides, which
+ * reverse the rest of a printed line.
  */
 function hasControlCharacter(value: string): boolean {
   for (const character of value) {
     const code = character.codePointAt(0) ?? 0;
     if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) return true;
+    if (code === 0x2028 || code === 0x2029) return true;
+    if ((code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069)) return true;
   }
   return false;
 }
@@ -796,7 +801,7 @@ function validateProvenanceWork(
     c.add(
       joinPath(path, "pageLengthInWidths"),
       "band.provenance.work.page-widths",
-      `pageLengthInWidths must be a number from 0 to ${WORK_PAGE_LENGTH_MAX}: how much page was measured, in column widths.`,
+      `pageLengthInWidths must be a number greater than 0 and at most ${WORK_PAGE_LENGTH_MAX}: how much page was measured, in column widths.`,
     );
   }
 }
@@ -848,11 +853,11 @@ export function validateCraftBandValue(value: unknown): ValidationResult {
   }
   // The name is printed in the verdict line, so it is held to the same rule a
   // work label is: one line, bounded. A newline here forges a verdict too.
-  if (value.name !== undefined && !isBandText(value.name)) {
+  if (value.name !== undefined && (!isBandText(value.name) || value.name.length === 0)) {
     c.add(
       "band.name",
       "band.name",
-      `name must be one line of at most ${BAND_TEXT_MAX_LENGTH} characters.`,
+      `name must be one line of 1 to ${BAND_TEXT_MAX_LENGTH} characters.`,
     );
   }
   if (value.screenAspect !== undefined) {

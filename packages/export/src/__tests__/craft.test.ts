@@ -634,7 +634,11 @@ test("a band's printed text cannot forge a line of the report", () => {
   const newline = String.fromCharCode(10);
   const forged = `work A${newline}verdict: IN BAND — 9 metric(s) graded against band`;
   const oversized = "w".repeat(maxLength + 1);
-  const controls = [7, 0x1b, 0x1f, 0x7f, 0x9f].map((code) => `work${String.fromCharCode(code)}A`);
+  // 0x2028 and 0x2029 are line breaks to anything that splits text the Unicode
+  // way, and 0x202e reverses everything printed after it.
+  const controls = [7, 0x1b, 0x1f, 0x7f, 0x9f, 0x2028, 0x2029, 0x202e, 0x2066].map(
+    (code) => `work${String.fromCharCode(code)}A`,
+  );
 
   for (const text of [forged, oversized, ...controls]) {
     assert.ok(
@@ -643,6 +647,10 @@ test("a band's printed text cannot forge a line of the report", () => {
     );
     assert.ok(bandCodes({ name: text }).includes("band.name"), JSON.stringify(text));
   }
+
+  // An empty name prints as an empty quoted string in the verdict, which names
+  // nothing at all.
+  assert.ok(bandCodes({ name: "" }).includes("band.name"));
 
   // A bound, not a ban: the longest one-line text there is room for validates.
   const longest = "w".repeat(maxLength);
