@@ -221,6 +221,12 @@ named rather than located. The band file's own format — every metric, what is
 deliberately not measured, and why the language split matters — is documented in
 [`CRAFT_MEASURE.md`](./CRAFT_MEASURE.md).
 
+A band can also keep a range it measured without grading it (`recorded`) and say
+what its numbers were measured from (`provenance`: the works by neutral label,
+episodes and page measured per work, the capture mode, and whether the column
+width was constant). Both are optional, neither changes a verdict, and both are
+documented in [`CRAFT_MEASURE.md`](./CRAFT_MEASURE.md#band-files).
+
 Discovery checks the file is there and carries its path, exactly as it does for a
 workflow graph; the band itself is parsed and validated by the command that
 measures, so `@toony/packs` stays free of the measurement.

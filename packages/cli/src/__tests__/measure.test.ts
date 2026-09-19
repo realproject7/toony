@@ -303,3 +303,174 @@ test("measure defaults to the current directory like lint does", async () => {
   assert.equal(await runMeasure(["--episode", "ep-001"], c.io), EXIT_OK, c.err.join("\n"));
   assert.match(c.out.join("\n"), /measured ep-001/);
 });
+
+// --- A band records what it does not grade, and says what it came from (#235) ---
+
+/** The provenance used below: two works, both capture facts, one thin row. */
+const PROVENANCE = {
+  capture: "contiguous",
+  constantColumnWidth: true,
+  works: [
+    { label: "thriller work A", episodes: 2, language: "eng", pageWidths: 118.4 },
+    { label: "thriller work C (KOR)", episodes: 2, language: "ko" },
+  ],
+};
+
+/**
+ * A band the scaffold passes on one graded metric, records a second metric the
+ * scaffold misses by a mile, and declares where its numbers came from.
+ */
+async function writeStyleBandFor(dir: string, file: string): Promise<string> {
+  const c = capture();
+  assert.equal(await runMeasure([dir, "--episode", "ep-001", "--json"], c.io), EXIT_OK);
+  const measured = JSON.parse(c.out.join("\n")) as { metrics: Record<string, number> };
+  const gutterRatio = measured.metrics.gutterRatio as number;
+  const path = join(workdir, file);
+  await writeFile(
+    path,
+    JSON.stringify({
+      bandFormat: 1,
+      name: "style",
+      metrics: { gutterRatio: { min: gutterRatio - 0.05, max: gutterRatio + 0.05 } },
+      // No page can carry 900 floating elements per screen.
+      recorded: { gutterIntrusionsPerScreen: { min: 900, max: 1000 } },
+      provenance: PROVENANCE,
+    }),
+  );
+  return path;
+}
+
+test("--against shows the provenance and marks recorded metrics in the table", async () => {
+  const dir = await scaffoldWithArt();
+  const band = await writeStyleBandFor(dir, "style.json");
+
+  const c = capture();
+  assert.equal(
+    await runMeasure([dir, "--episode", "ep-001", "--against", band], c.io),
+    EXIT_OK,
+    c.err.join("\n"),
+  );
+  const text = c.out.join("\n");
+
+  // Where the numbers came from, in the report that grades against them.
+  assert.match(
+    text,
+    /measured from 2 work\(s\), 4 episode\(s\) — contiguous capture, constant column width/,
+  );
+  assert.match(text, /thriller work A — 2 episode\(s\), eng, 118\.4 column widths of page/);
+  assert.match(text, /thriller work C \(KOR\) — 2 episode\(s\), ko$/m);
+
+  // The recorded metric is far outside the range the band kept for it, and the
+  // verdict is IN BAND anyway — marked, not graded, and not in the exit code.
+  assert.match(text, /gutterIntrusionsPerScreen\s+[\d.]+\s+900\.\.1000\s+recorded, not graded$/m);
+  assert.match(
+    text,
+    /verdict: IN BAND — 1 metric\(s\) graded against band "style" \(1 further metric\(s\) recorded, not graded\)/,
+  );
+  // A graded metric still reads as a verdict, so the two can be told apart.
+  assert.match(text, /gutterRatio\s+[\d.]+\s+[\d.-]+\.\.[\d.-]+\s+in$/m);
+});
+
+test("--json keeps recorded metrics apart from graded ones and carries the provenance", async () => {
+  const dir = await scaffoldWithArt();
+  const band = await writeStyleBandFor(dir, "style.json");
+
+  const c = capture();
+  assert.equal(
+    await runMeasure([dir, "--episode", "ep-001", "--against", band, "--json"], c.io),
+    EXIT_OK,
+    c.err.join("\n"),
+  );
+  const report = JSON.parse(c.out.join("\n"));
+
+  assert.equal(report.band.inBand, true);
+  assert.deepEqual(
+    report.band.metrics.map((verdict: { metric: string }) => verdict.metric),
+    ["gutterRatio"],
+  );
+  assert.deepEqual(report.band.recorded, [
+    {
+      metric: "gutterIntrusionsPerScreen",
+      value: report.metrics.gutterIntrusionsPerScreen,
+      min: 900,
+      max: 1000,
+    },
+  ]);
+  assert.deepEqual(report.band.provenance, PROVENANCE);
+});
+
+test("a band with neither new field reports neither, and grades as it always did", async () => {
+  const dir = await scaffoldWithArt();
+  const band = await writeBandFor(dir, "band.json");
+  const c = capture();
+  assert.equal(
+    await runMeasure([dir, "--episode", "ep-001", "--against", band, "--json"], c.io),
+    EXIT_OK,
+    c.err.join("\n"),
+  );
+  const report = JSON.parse(c.out.join("\n"));
+  assert.equal(report.band.inBand, true);
+  assert.deepEqual(report.band.recorded, []);
+  assert.equal(report.band.provenance, null);
+
+  const text = capture();
+  assert.equal(await runMeasure([dir, "--episode", "ep-001", "--against", band], text.io), EXIT_OK);
+  const lines = text.out.join("\n");
+  assert.doesNotMatch(lines, /recorded/);
+  assert.doesNotMatch(lines, /measured from/);
+  assert.match(lines, /verdict: IN BAND — 2 metric\(s\) graded against band "scaffold"$/m);
+});
+
+test("a malformed new field is a usage error naming the field and the code", async () => {
+  const dir = await scaffold();
+  const cases: [string, Record<string, unknown>, RegExp][] = [
+    [
+      "recorded-graded.json",
+      { recorded: { gutterRatio: { min: 0, max: 1 } } },
+      /band\.recorded\.graded.*band\.recorded\.gutterRatio/s,
+    ],
+    [
+      "recorded-unknown.json",
+      { recorded: { bubbleDensity: { min: 1 } } },
+      /band\.metric\.unknown.*band\.recorded\.bubbleDensity/s,
+    ],
+    [
+      "capture.json",
+      { provenance: { ...PROVENANCE, capture: "partial" } },
+      /band\.provenance\.capture.*band\.provenance\.capture/s,
+    ],
+    [
+      "work-label.json",
+      {
+        provenance: {
+          ...PROVENANCE,
+          works: [{ label: "a.invalid work A", episodes: 2 }],
+        },
+      },
+      /band\.provenance\.work\.label\.link.*works\[0\]\.label/s,
+    ],
+    [
+      "work-title.json",
+      {
+        provenance: {
+          ...PROVENANCE,
+          works: [{ label: "work A", episodes: 2, title: "not a field" }],
+        },
+      },
+      /band\.unexpected-field.*works\[0\]\.title/s,
+    ],
+  ];
+  for (const [file, extra, expected] of cases) {
+    await writeFile(
+      join(workdir, file),
+      JSON.stringify({ bandFormat: 1, metrics: { gutterRatio: { min: 0, max: 1 } }, ...extra }),
+    );
+    const c = capture();
+    assert.equal(
+      await runMeasure([dir, "--episode", "ep-001", "--against", join(workdir, file)], c.io),
+      EXIT_USAGE,
+      file,
+    );
+    assert.match(c.err.join("\n"), expected, file);
+  }
+});

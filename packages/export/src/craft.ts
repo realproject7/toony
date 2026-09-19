@@ -24,7 +24,11 @@
 import type { SKRSContext2D } from "@napi-rs/canvas";
 import {
   IssueCollector,
+  isArray,
+  isBoolean,
   isFiniteNumber,
+  isInteger,
+  isNonEmptyString,
   isPlainObject,
   isString,
   joinPath,
@@ -450,13 +454,72 @@ export interface CraftBandRange {
   max?: number;
 }
 
-/** A target band: per-metric ranges, plus the screen the numbers assume. */
+/**
+ * How the pages behind a band were captured.
+ *
+ * `contiguous` is every frame of an episode, in order; `sampled` is a subset.
+ * The distinction is not bookkeeping: a median over run heights is read off
+ * whole regions of a page, so dropping part of an episode moves it by more than
+ * the differences such medians are used to argue about, and nothing in the nine
+ * numbers themselves says which kind of capture produced them.
+ */
+export const CRAFT_CAPTURE_MODES = ["contiguous", "sampled"] as const;
+
+export type CraftCaptureMode = (typeof CRAFT_CAPTURE_MODES)[number];
+
+/**
+ * One studied work a band was measured from.
+ *
+ * The work is named by a NEUTRAL LABEL and nothing else. There is deliberately
+ * no field for a title, for the place the pages came from, or for a link: a band
+ * ships inside a pack, and a field that invites one of those is how one gets
+ * published. The label is the operator's own handle for the work, the counts say
+ * how much of it was measured, and that is the whole of what a grader needs.
+ */
+export interface CraftBandWork {
+  /** The neutral label the work is studied under, e.g. "thriller work C". */
+  label: string;
+  /** Episodes of this work that were measured. */
+  episodes: number;
+  /** Language of the captured pages, as a short tag ("eng", "ko"). */
+  language?: string;
+  /**
+   * How much page this work contributed, in column widths — episode height over
+   * column width, summed. It is the sample size behind every median in the band,
+   * and works differ in it by a factor of four at the same episode count.
+   */
+  pageWidths?: number;
+}
+
+/** Where a band's numbers came from. */
+export interface CraftBandProvenance {
+  capture: CraftCaptureMode;
+  /**
+   * Whether every captured page was the same column width. Every run length in
+   * this measurement is a share of the width, so a capture set with mixed widths
+   * normalizes each page by a different number and inflates lengths across the
+   * set without any single number looking wrong.
+   */
+  constantColumnWidth: boolean;
+  works: CraftBandWork[];
+}
+
+/**
+ * A target band: per-metric ranges, plus the screen the numbers assume.
+ *
+ * `metrics` is what the band GRADES. `recorded` is what it measured and chose
+ * not to grade — kept because deleting a range that should not decide a verdict
+ * also throws away the only record of what was measured.
+ */
 export interface CraftBand {
   bandFormat: number;
   name?: string;
   /** Screen aspect the band was measured at; the measurement adopts it. */
   screenAspect?: number;
   metrics: Partial<Record<CraftMetricName, CraftBandRange>>;
+  /** Measured ranges the band keeps but never grades against. */
+  recorded?: Partial<Record<CraftMetricName, CraftBandRange>>;
+  provenance?: CraftBandProvenance;
 }
 
 /** One metric's verdict against the band. */
@@ -468,15 +531,48 @@ export interface CraftMetricVerdict {
   inBand: boolean;
 }
 
-/** The full comparison: every graded metric, plus the overall verdict. */
+/**
+ * One metric the band records without grading: the measured range beside the
+ * value, and NO verdict field — a recorded metric cannot be summed into a
+ * verdict by a caller that forgot the difference, because it carries none.
+ */
+export interface CraftRecordedMetric {
+  metric: CraftMetricName;
+  value: number | null;
+  min: number | null;
+  max: number | null;
+}
+
+/** The full comparison: every graded metric, what was only recorded, the verdict. */
 export interface CraftBandReport {
   name: string | null;
   inBand: boolean;
   metrics: CraftMetricVerdict[];
+  recorded: CraftRecordedMetric[];
+  provenance: CraftBandProvenance | null;
 }
 
-const BAND_KEYS = ["bandFormat", "name", "screenAspect", "metrics"] as const;
+const BAND_KEYS = [
+  "bandFormat",
+  "name",
+  "screenAspect",
+  "metrics",
+  "recorded",
+  "provenance",
+] as const;
 const RANGE_KEYS = ["min", "max"] as const;
+const PROVENANCE_KEYS = ["capture", "constantColumnWidth", "works"] as const;
+const WORK_KEYS = ["label", "episodes", "language", "pageWidths"] as const;
+
+/**
+ * A work label carries a link or a domain. Either one names the source the pages
+ * came from, which is exactly what this field must not hold, so it is rejected
+ * rather than trusted to the author's memory.
+ */
+const LABEL_LINK_PATTERN = /:\/\/|[A-Za-z0-9-]\.[A-Za-z]{2,}/;
+
+/** A short language tag: "ko", "eng", "ko-KR". Nothing with a space in it. */
+const LANGUAGE_TAG_PATTERN = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/;
 
 function allowlistKeys(
   value: Record<string, unknown>,
@@ -522,6 +618,149 @@ function validateRange(value: unknown, path: string, c: IssueCollector): void {
   }
 }
 
+/**
+ * Validate the metrics a band records without grading.
+ *
+ * `graded` is the band's own `metrics`, so a metric claimed on both sides is a
+ * rejection: a band that both grades and records one metric says two different
+ * things about whether it decides the verdict.
+ */
+function validateRecorded(
+  value: unknown,
+  graded: Record<string, unknown>,
+  c: IssueCollector,
+): void {
+  const path = "band.recorded";
+  if (!isPlainObject(value)) {
+    c.add(path, "band.recorded.type", "recorded must be an object of metric ranges.");
+    return;
+  }
+  if (Object.keys(value).length === 0) {
+    c.add(path, "band.recorded.empty", "recorded must keep at least one metric, or be left out.");
+  }
+  for (const [key, range] of Object.entries(value)) {
+    const keyPath = joinPath(path, key);
+    if (!(CRAFT_METRIC_NAMES as readonly string[]).includes(key)) {
+      c.add(
+        keyPath,
+        "band.metric.unknown",
+        `"${key}" is not a measured metric; expected one of: ${CRAFT_METRIC_NAMES.join(", ")}.`,
+      );
+      continue;
+    }
+    if (Object.hasOwn(graded, key)) {
+      c.add(
+        keyPath,
+        "band.recorded.graded",
+        `"${key}" is already graded in metrics; a metric is graded or recorded, never both.`,
+      );
+    }
+    validateRange(range, keyPath, c);
+  }
+}
+
+function validateProvenanceWork(
+  value: unknown,
+  path: string,
+  labels: Set<string>,
+  c: IssueCollector,
+): void {
+  if (!isPlainObject(value)) {
+    c.add(path, "band.provenance.work.type", "a studied work must be an object.");
+    return;
+  }
+  allowlistKeys(value, WORK_KEYS, path, "a studied work", c);
+  if (!isNonEmptyString(value.label)) {
+    c.add(
+      joinPath(path, "label"),
+      "band.provenance.work.label",
+      "label must be a non-empty string: the neutral label the work is studied under.",
+    );
+  } else if (LABEL_LINK_PATTERN.test(value.label)) {
+    c.add(
+      joinPath(path, "label"),
+      "band.provenance.work.label.link",
+      "label must be a neutral label, not a link or a domain.",
+    );
+  } else if (labels.has(value.label)) {
+    c.add(
+      joinPath(path, "label"),
+      "band.provenance.work.duplicate",
+      `duplicate work label "${value.label}" in this band.`,
+    );
+  } else {
+    labels.add(value.label);
+  }
+  if (!isInteger(value.episodes) || value.episodes < 1) {
+    c.add(
+      joinPath(path, "episodes"),
+      "band.provenance.work.episodes",
+      "episodes must be a whole number of 1 or more.",
+    );
+  }
+  if (
+    value.language !== undefined &&
+    !(isString(value.language) && LANGUAGE_TAG_PATTERN.test(value.language))
+  ) {
+    c.add(
+      joinPath(path, "language"),
+      "band.provenance.work.language",
+      'language must be a short language tag such as "ko" or "eng".',
+    );
+  }
+  if (
+    value.pageWidths !== undefined &&
+    !(isFiniteNumber(value.pageWidths) && value.pageWidths > 0)
+  ) {
+    c.add(
+      joinPath(path, "pageWidths"),
+      "band.provenance.work.page-widths",
+      "pageWidths must be a positive number: how much page was measured, in column widths.",
+    );
+  }
+}
+
+/** Validate what a band says it was measured from. */
+function validateProvenance(value: unknown, c: IssueCollector): void {
+  const path = "band.provenance";
+  if (!isPlainObject(value)) {
+    c.add(path, "band.provenance.type", "provenance must be an object.");
+    return;
+  }
+  allowlistKeys(value, PROVENANCE_KEYS, path, "band provenance", c);
+  // Both capture facts are required, not optional detail: each one was invisible
+  // in the measured numbers and each one silently moved them.
+  if (
+    !isString(value.capture) ||
+    !(CRAFT_CAPTURE_MODES as readonly string[]).includes(value.capture)
+  ) {
+    c.add(
+      joinPath(path, "capture"),
+      "band.provenance.capture",
+      `capture must be one of: ${CRAFT_CAPTURE_MODES.join(", ")}.`,
+    );
+  }
+  if (!isBoolean(value.constantColumnWidth)) {
+    c.add(
+      joinPath(path, "constantColumnWidth"),
+      "band.provenance.column-width",
+      "constantColumnWidth must be true or false: whether every captured page was one column width.",
+    );
+  }
+  const worksPath = joinPath(path, "works");
+  if (!isArray(value.works)) {
+    c.add(worksPath, "band.provenance.works.type", "works must be an array of studied works.");
+    return;
+  }
+  if (value.works.length === 0) {
+    c.add(worksPath, "band.provenance.works.empty", "provenance must name at least one work.");
+  }
+  const labels = new Set<string>();
+  for (let i = 0; i < value.works.length; i++) {
+    validateProvenanceWork(value.works[i], joinPath(worksPath, i), labels, c);
+  }
+}
+
 /** Validate a parsed band file. Never throws. */
 export function validateCraftBandValue(value: unknown): ValidationResult {
   const c = new IssueCollector();
@@ -549,27 +788,47 @@ export function validateCraftBandValue(value: unknown): ValidationResult {
       );
     }
   }
+  // A band still has to GRADE something: recording metrics is an addition to a
+  // target, never a way to ship one that decides nothing.
   if (!isPlainObject(value.metrics)) {
     c.add("band.metrics", "band.metrics.type", "metrics must be an object of metric ranges.");
-    return c.result();
-  }
-  const metrics = value.metrics;
-  if (Object.keys(metrics).length === 0) {
-    c.add("band.metrics", "band.metrics.empty", "a band must grade at least one metric.");
-  }
-  for (const [key, range] of Object.entries(metrics)) {
-    const path = joinPath("band.metrics", key);
-    if (!(CRAFT_METRIC_NAMES as readonly string[]).includes(key)) {
-      c.add(
-        path,
-        "band.metric.unknown",
-        `"${key}" is not a measured metric; expected one of: ${CRAFT_METRIC_NAMES.join(", ")}.`,
-      );
-      continue;
+  } else {
+    const metrics = value.metrics;
+    if (Object.keys(metrics).length === 0) {
+      c.add("band.metrics", "band.metrics.empty", "a band must grade at least one metric.");
     }
-    validateRange(range, path, c);
+    for (const [key, range] of Object.entries(metrics)) {
+      const path = joinPath("band.metrics", key);
+      if (!(CRAFT_METRIC_NAMES as readonly string[]).includes(key)) {
+        c.add(
+          path,
+          "band.metric.unknown",
+          `"${key}" is not a measured metric; expected one of: ${CRAFT_METRIC_NAMES.join(", ")}.`,
+        );
+        continue;
+      }
+      validateRange(range, path, c);
+    }
   }
+  if (value.recorded !== undefined) {
+    validateRecorded(value.recorded, isPlainObject(value.metrics) ? value.metrics : {}, c);
+  }
+  if (value.provenance !== undefined) validateProvenance(value.provenance, c);
   return c.result();
+}
+
+/** Narrow validated provenance, keeping only the fields the allowlist admits. */
+function asProvenance(value: Record<string, unknown>): CraftBandProvenance {
+  return {
+    capture: value.capture as CraftCaptureMode,
+    constantColumnWidth: value.constantColumnWidth as boolean,
+    works: (value.works as Record<string, unknown>[]).map((work) => ({
+      label: work.label as string,
+      episodes: work.episodes as number,
+      ...(typeof work.language === "string" ? { language: work.language } : {}),
+      ...(typeof work.pageWidths === "number" ? { pageWidths: work.pageWidths } : {}),
+    })),
+  };
 }
 
 /** Narrow an already-validated band value. Only call after validation passed. */
@@ -579,30 +838,50 @@ export function asCraftBand(value: Record<string, unknown>): CraftBand {
     ...(typeof value.name === "string" ? { name: value.name } : {}),
     ...(typeof value.screenAspect === "number" ? { screenAspect: value.screenAspect } : {}),
     metrics: value.metrics as CraftBand["metrics"],
+    ...(isPlainObject(value.recorded) ? { recorded: value.recorded as CraftBand["recorded"] } : {}),
+    ...(isPlainObject(value.provenance) ? { provenance: asProvenance(value.provenance) } : {}),
   };
 }
 
 /**
- * Grade measured metrics against a band. Only the metrics the band declares are
+ * Grade measured metrics against a band. Only the metrics the band GRADES are
  * graded; a metric with no measurable value (an episode with no colour at all
  * has no hue) can never be inside a declared range, so it fails rather than
  * passing by absence.
+ *
+ * A recorded metric is measured against nothing. Its value and the range the
+ * band measured are reported side by side, and the verdict is computed from
+ * `verdicts` alone — the recorded list is never read for it, and its entries
+ * carry no verdict to read.
  */
 export function compareToCraftBand(metrics: CraftMetrics, band: CraftBand): CraftBandReport {
   const verdicts: CraftMetricVerdict[] = [];
+  const recorded: CraftRecordedMetric[] = [];
   for (const name of CRAFT_METRIC_NAMES) {
     const range = band.metrics[name];
-    if (range === undefined) continue;
-    const value = metrics[name];
-    const min = range.min ?? null;
-    const max = range.max ?? null;
-    const inBand =
-      value !== null && (min === null || value >= min) && (max === null || value <= max);
-    verdicts.push({ metric: name, value, min, max, inBand });
+    if (range !== undefined) {
+      const value = metrics[name];
+      const min = range.min ?? null;
+      const max = range.max ?? null;
+      const inBand =
+        value !== null && (min === null || value >= min) && (max === null || value <= max);
+      verdicts.push({ metric: name, value, min, max, inBand });
+    }
+    const kept = band.recorded?.[name];
+    if (kept !== undefined) {
+      recorded.push({
+        metric: name,
+        value: metrics[name],
+        min: kept.min ?? null,
+        max: kept.max ?? null,
+      });
+    }
   }
   return {
     name: band.name ?? null,
     inBand: verdicts.every((verdict) => verdict.inBand),
     metrics: verdicts,
+    recorded,
+    provenance: band.provenance ?? null,
   };
 }

@@ -98,8 +98,8 @@ across languages, and how much text fits inside it cannot.
 
 ## Band files
 
-A band is the target: a range per metric. Only the metrics it declares are
-graded, so a band can start with one number and grow.
+A band is the target: a range per metric. Only the metrics it declares under
+`metrics` are graded, so a band can start with one number and grow.
 
 ```json
 {
@@ -119,7 +119,9 @@ graded, so a band can start with one number and grow.
 | `bandFormat` | yes | Must be `1`. |
 | `name` | no | Shown in the verdict. |
 | `screenAspect` | no | The viewport the band was measured at. The measurement adopts it, unless `--screen-aspect` says otherwise. |
-| `metrics` | yes | At least one metric. Each is `{ "min": n }`, `{ "max": n }`, or both — inclusive. |
+| `metrics` | yes | At least one metric. Each is `{ "min": n }`, `{ "max": n }`, or both — inclusive. Every one of them is **graded**. |
+| `recorded` | no | Ranges the band measured and does not grade. |
+| `provenance` | no | What the band's numbers were measured from. |
 
 Like a pack manifest, a band is checked against a strict allowlist: an unknown
 key or an unknown metric name is a **rejection**, not something quietly ignored,
@@ -130,6 +132,85 @@ range rather than passing by absence.
 A pack ships its band in the manifest's `craftBands`, and `--against` then takes
 the band **id** instead of a path. See
 [`PACK_FORMAT.md`](./PACK_FORMAT.md#craftbands).
+
+### Metrics a band records without grading
+
+A metric the band measured but should not grade goes in `recorded` rather than
+`metrics`:
+
+```json
+{
+  "bandFormat": 1,
+  "metrics": { "gutterRatio": { "min": 0.34, "max": 0.48 } },
+  "recorded": { "gutterIntrusionsPerScreen": { "min": 0.4, "max": 3.1 } }
+}
+```
+
+The range shape is the same. What differs is that a recorded metric is measured
+against nothing: `--against` prints it beside the graded rows marked
+`recorded, not graded`, and it moves neither the verdict nor the exit code. In
+`--json` it is a separate `band.recorded` list whose entries carry no `inBand`
+field at all, so a reader cannot fold the two lists together by accident.
+
+The alternative is deleting the range, and deleting it throws away the only
+record of what was measured. `gutterIntrusionsPerScreen` is the standing case:
+it moves by up to 1.7x between two episodes of one work, so no band should fail
+a render on it — and a reader of the band still needs to see what the studied
+pages did.
+
+A metric is graded or recorded, never both. An empty `recorded`, an unknown
+metric name, and an empty range are rejected here exactly as they are under
+`metrics`, and a band with nothing in `metrics` is still a band that grades
+nothing: recording is an addition to a target, not a way to ship one without.
+
+### Where a band's numbers came from
+
+`provenance` says what was measured. The same nine numbers read off two sampled
+episodes and off twenty contiguous ones are not the same claim, and nothing in
+the numbers themselves says which one is on screen:
+
+```json
+{
+  "bandFormat": 1,
+  "metrics": { "gutterRatio": { "min": 0.34, "max": 0.48 } },
+  "provenance": {
+    "capture": "contiguous",
+    "constantColumnWidth": true,
+    "works": [
+      { "label": "thriller work A", "episodes": 2, "language": "eng", "pageWidths": 118.4 },
+      { "label": "thriller work C (KOR)", "episodes": 2, "language": "ko" }
+    ]
+  }
+}
+```
+
+| Field | Required | Rule |
+|---|---|---|
+| `capture` | yes | `contiguous` — every frame of an episode, in order — or `sampled`. |
+| `constantColumnWidth` | yes | Whether every captured page was one column width. |
+| `works[].label` | yes | The neutral label the work is studied under. Unique within the band. |
+| `works[].episodes` | yes | Episodes of that work measured. A whole number, 1 or more. |
+| `works[].language` | no | A short language tag: `ko`, `eng`, `ko-KR`. |
+| `works[].pageWidths` | no | How much page that work contributed, in column widths (episode height ÷ column width). |
+
+Both capture facts are required, because each one is invisible in the measured
+numbers and each one moves them. Every length here is a share of the column
+width, so a capture set of mixed widths normalizes each page by a different
+number and inflates lengths across the whole set while no single number looks
+wrong. A median over run heights is read off whole regions of a page, so
+dropping part of an episode moves it further than the differences such medians
+are used to argue about. `pageWidths` is the sample size behind every median,
+and two works at the same episode count can differ four-fold in it.
+
+**No field holds a title, the place the pages came from, or a link, and there is
+no free-text field either.** A band ships inside a pack, so a field that invites
+one of those is how one gets published. A work is named by the operator's own
+neutral label and nothing else: a key like `title` or `source` is rejected as an
+unknown key, and a label carrying a link or a domain is rejected on its own
+error.
+
+`--against` prints the provenance above the metric table and carries it in
+`--json` as `band.provenance`.
 
 ## The loop this closes
 

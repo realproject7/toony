@@ -344,3 +344,248 @@ test("the declared reference column is what the export scales from", async () =>
     `gutterRatio ${onWiderColumn.metrics.gutterRatio} vs ${authored.metrics.gutterRatio}`,
   );
 });
+
+// --- A band records what it does not grade, and says what it came from (#235) ---
+//
+// Two claims are load-bearing here and both are asserted against the OTHER
+// outcome rather than on their own: a recorded range is shown to be one the page
+// genuinely fails, by grading it and watching the verdict flip, so "the verdict
+// did not change" cannot pass because the range was satisfiable; and a band of
+// the shape shipped today is shown to grade LIVE ranges, by moving one metric
+// out of them, so "it grades as it did" cannot pass on a band that grades
+// nothing.
+
+/** The nine metrics a shipped band grades, in the order the report lists them. */
+const SHIPPED_METRICS: readonly CraftMetricName[] = [
+  "gutterRatio",
+  "gutterMedian",
+  "panelHeightMedian",
+  "panelsPerScreen",
+  "gutterIntrusionsPerScreen",
+  "panelInset",
+  "valueMean",
+  "saturationMean",
+  "hueBias",
+];
+
+/**
+ * A band of the shape shipped before this change: `bandFormat` 1, a name, an
+ * aspect, nine ranges, and no other key. Each range is a 10% window around the
+ * measured value, so the band is a real target rather than one wide enough to
+ * accept anything.
+ */
+function shippedBandFor(measured: CraftMeasurement): Record<string, unknown> {
+  const metrics: Record<string, { min: number; max: number }> = {};
+  for (const name of SHIPPED_METRICS) {
+    const value = measured.metrics[name];
+    assert.ok(value !== null, `${name} is measurable on this fixture`);
+    const slack = Math.abs(value) * 0.1 + 0.001;
+    metrics[name] = { min: value - slack, max: value + slack };
+  }
+  return { bandFormat: 1, name: "thriller cold", screenAspect: 2, metrics };
+}
+
+/** Provenance every field of which is valid, to vary one field at a time from. */
+const PROVENANCE = {
+  capture: "contiguous",
+  constantColumnWidth: true,
+  works: [
+    { label: "thriller work A", episodes: 2, language: "eng", pageWidths: 118.4 },
+    { label: "thriller work C (KOR)", episodes: 2, language: "ko" },
+  ],
+};
+
+/** Validation codes for a minimal valid band plus the fields under test. */
+function bandCodes(extra: Record<string, unknown>): string[] {
+  const value = { bandFormat: 1, metrics: { gutterRatio: { min: 0, max: 1 } }, ...extra };
+  return validateCraftBandValue(value).issues.map((issue) => issue.code);
+}
+
+test("a recorded metric is kept and reported, and never changes the verdict", () => {
+  // No page can measure a mean luminance of 900 on a 0..255 scale.
+  const unreachable = { min: 900, max: 1000 };
+  const graded: CraftBand = { bandFormat: 1, metrics: { gutterRatio: { min: 0, max: 1 } } };
+
+  // The range is one this episode genuinely misses: graded, it fails the band.
+  const ifGraded = compareToCraftBand(calm.metrics, {
+    bandFormat: 1,
+    metrics: { gutterRatio: { min: 0, max: 1 }, valueMean: unreachable },
+  });
+  assert.equal(ifGraded.inBand, false);
+
+  const recorded = compareToCraftBand(calm.metrics, {
+    ...graded,
+    recorded: { valueMean: unreachable },
+  });
+  const plain = compareToCraftBand(calm.metrics, graded);
+  assert.equal(recorded.inBand, true);
+  assert.deepEqual(recorded.metrics, plain.metrics);
+  assert.deepEqual(recorded.recorded, [
+    { metric: "valueMean", value: calm.metrics.valueMean, min: 900, max: 1000 },
+  ]);
+  assert.deepEqual(plain.recorded, []);
+  // A recorded entry carries no verdict field at all, so no caller can fold one
+  // into a verdict by treating the two lists alike.
+  assert.ok(!Object.hasOwn(recorded.recorded[0] as object, "inBand"));
+});
+
+test("a band of the shape shipped today validates and grades exactly as it did", () => {
+  const value = shippedBandFor(calm);
+  assert.deepEqual(validateCraftBandValue(value).issues, []);
+
+  const band = asCraftBand(value);
+  // Narrowing an old band must not invent the new fields, or a band read and
+  // written back would gain keys it never declared.
+  assert.ok(!Object.hasOwn(band, "recorded"));
+  assert.ok(!Object.hasOwn(band, "provenance"));
+
+  const report = compareToCraftBand(calm.metrics, band);
+  assert.equal(report.inBand, true);
+  assert.deepEqual(
+    report.metrics.map((verdict) => verdict.metric),
+    [...SHIPPED_METRICS],
+  );
+  assert.deepEqual(report.recorded, []);
+  assert.equal(report.provenance, null);
+
+  // The nine ranges decide something: one metric moved off its measured value
+  // leaves the band, and only that metric.
+  const moved = compareToCraftBand(
+    { ...calm.metrics, valueMean: calm.metrics.valueMean * 2 + 10 },
+    band,
+  );
+  assert.equal(moved.inBand, false);
+  assert.deepEqual(
+    moved.metrics.filter((verdict) => !verdict.inBand).map((verdict) => verdict.metric),
+    ["valueMean"],
+  );
+
+  // The same band with the new fields added grades identically: the recorded
+  // metric and the provenance are beside the verdict, never inside it.
+  const extended = asCraftBand({
+    ...value,
+    recorded: { valueSpread: { min: 0, max: 0.0001 } },
+    provenance: PROVENANCE,
+  });
+  const after = compareToCraftBand(calm.metrics, extended);
+  assert.deepEqual(after.metrics, report.metrics);
+  assert.equal(after.inBand, report.inBand);
+  assert.equal(after.recorded.length, 1);
+});
+
+test("provenance round-trips through validation, narrowing, and the report", () => {
+  const value = {
+    bandFormat: 1,
+    name: "thriller cold",
+    metrics: { gutterRatio: { min: 0, max: 1 } },
+    provenance: PROVENANCE,
+  };
+  assert.deepEqual(validateCraftBandValue(value).issues, []);
+
+  const band = asCraftBand(value);
+  assert.deepEqual(band.provenance, PROVENANCE);
+  // A work that declared no page count does not acquire one.
+  assert.ok(!Object.hasOwn(band.provenance?.works[1] as object, "pageWidths"));
+  assert.deepEqual(compareToCraftBand(calm.metrics, band).provenance, PROVENANCE);
+});
+
+test("each new band field is rejected for every way it can be wrong", () => {
+  assert.ok(bandCodes({ recorded: "valueMean" }).includes("band.recorded.type"));
+  assert.ok(bandCodes({ recorded: {} }).includes("band.recorded.empty"));
+  assert.ok(bandCodes({ recorded: { bubbleDensity: { min: 1 } } }).includes("band.metric.unknown"));
+  assert.ok(bandCodes({ recorded: { valueMean: {} } }).includes("band.range.empty"));
+  // A metric cannot be graded and recorded at once: the band would be saying
+  // both that it decides the verdict and that it does not.
+  assert.ok(
+    bandCodes({ recorded: { gutterRatio: { min: 0, max: 1 } } }).includes("band.recorded.graded"),
+  );
+
+  const works = (entries: unknown[]) => ({ provenance: { ...PROVENANCE, works: entries } });
+  assert.ok(bandCodes({ provenance: "two works" }).includes("band.provenance.type"));
+  assert.ok(
+    bandCodes({ provenance: { ...PROVENANCE, capture: "partial" } }).includes(
+      "band.provenance.capture",
+    ),
+  );
+  assert.ok(
+    bandCodes({ provenance: { ...PROVENANCE, constantColumnWidth: "yes" } }).includes(
+      "band.provenance.column-width",
+    ),
+  );
+  assert.ok(bandCodes(works({} as unknown[])).includes("band.provenance.works.type"));
+  assert.ok(bandCodes(works([])).includes("band.provenance.works.empty"));
+  assert.ok(bandCodes(works(["work A"])).includes("band.provenance.work.type"));
+  assert.ok(bandCodes(works([{ episodes: 2 }])).includes("band.provenance.work.label"));
+  assert.ok(
+    bandCodes(works([{ label: "work A", episodes: 0 }])).includes("band.provenance.work.episodes"),
+  );
+  assert.ok(
+    bandCodes(works([{ label: "work A", episodes: 1.5 }])).includes(
+      "band.provenance.work.episodes",
+    ),
+  );
+  assert.ok(
+    bandCodes(works([{ label: "work A", episodes: 2, language: "a long spoken name" }])).includes(
+      "band.provenance.work.language",
+    ),
+  );
+  assert.ok(
+    bandCodes(works([{ label: "work A", episodes: 2, pageWidths: 0 }])).includes(
+      "band.provenance.work.page-widths",
+    ),
+  );
+  assert.ok(
+    bandCodes(
+      works([
+        { label: "work A", episodes: 2 },
+        { label: "work A", episodes: 1 },
+      ]),
+    ).includes("band.provenance.work.duplicate"),
+  );
+
+  // Like every other band error, a new one names the field it is about.
+  const issues = validateCraftBandValue({
+    bandFormat: 1,
+    metrics: { gutterRatio: { min: 0, max: 1 } },
+    provenance: { ...PROVENANCE, works: [{ label: "work A", episodes: 0 }] },
+  }).issues;
+  assert.deepEqual(
+    issues.map((issue) => issue.path),
+    ["band.provenance.works[0].episodes"],
+  );
+});
+
+test("no band field can hold a title, a source, or a link", () => {
+  // There is no key to put one in, at either level.
+  for (const field of [{ title: "x" }, { source: "x" }, { url: "https://a.invalid/x" }]) {
+    assert.ok(
+      bandCodes({
+        provenance: { ...PROVENANCE, works: [{ label: "work A", episodes: 2, ...field }] },
+      }).includes("band.unexpected-field"),
+      `works[0].${Object.keys(field)[0]}`,
+    );
+  }
+  assert.ok(
+    bandCodes({ provenance: { ...PROVENANCE, source: "x" } }).includes("band.unexpected-field"),
+  );
+  // Nor a free-text field at the top level, which is where one would end up.
+  assert.ok(bandCodes({ note: "captured from ..." }).includes("band.unexpected-field"));
+
+  // And the one free-text field there is cannot smuggle one in.
+  for (const label of ["https://a.invalid/work-a", "a.invalid work A", "work A (a.invalid)"]) {
+    assert.ok(
+      bandCodes({ provenance: { ...PROVENANCE, works: [{ label, episodes: 2 }] } }).includes(
+        "band.provenance.work.label.link",
+      ),
+      label,
+    );
+  }
+  // A neutral label with punctuation in it is still accepted.
+  for (const label of ["thriller work C (KOR)", "medieval-europe work C", "work no.2"]) {
+    assert.deepEqual(
+      bandCodes({ provenance: { ...PROVENANCE, works: [{ label, episodes: 2 }] } }),
+      [],
+      label,
+    );
+  }
+});
