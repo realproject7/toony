@@ -306,13 +306,27 @@ test("measure defaults to the current directory like lint does", async () => {
 
 // --- A band records what it does not grade, and says what it came from (#235) ---
 
-/** The provenance used below: two works, both capture facts, one thin row. */
+/**
+ * The provenance used below: two works captured DIFFERENTLY, so the report has
+ * to say so per work rather than summarise both wrongly in one line.
+ */
 const PROVENANCE = {
-  capture: "contiguous",
-  constantColumnWidth: true,
   works: [
-    { label: "thriller work A", episodes: 2, language: "eng", pageWidths: 118.4 },
-    { label: "thriller work C (KOR)", episodes: 2, language: "ko" },
+    {
+      label: "thriller work A",
+      episodes: 2,
+      captureMode: "contiguous",
+      constantColumnWidth: true,
+      language: "eng",
+      pageLengthInWidths: 118.4,
+    },
+    {
+      label: "thriller work C (KOR)",
+      episodes: 2,
+      captureMode: "sampled",
+      constantColumnWidth: false,
+      language: "ko",
+    },
   ],
 };
 
@@ -352,13 +366,17 @@ test("--against shows the provenance and marks recorded metrics in the table", a
   );
   const text = c.out.join("\n");
 
-  // Where the numbers came from, in the report that grades against them.
+  // Where the numbers came from, in the report that grades against them — and
+  // each work's own capture facts, which differ between these two.
+  assert.match(text, /measured from 2 work\(s\), 4 episode\(s\)$/m);
   assert.match(
     text,
-    /measured from 2 work\(s\), 4 episode\(s\) — contiguous capture, constant column width/,
+    /thriller work A — 2 episode\(s\), contiguous capture, constant column width, eng, 118\.4 column widths of page$/m,
   );
-  assert.match(text, /thriller work A — 2 episode\(s\), eng, 118\.4 column widths of page/);
-  assert.match(text, /thriller work C \(KOR\) — 2 episode\(s\), ko$/m);
+  assert.match(
+    text,
+    /thriller work C \(KOR\) — 2 episode\(s\), sampled capture, varying column width, ko$/m,
+  );
 
   // The recorded metric is far outside the range the band kept for it, and the
   // verdict is IN BAND anyway — marked, not graded, and not in the exit code.
@@ -436,15 +454,27 @@ test("a malformed new field is a usage error naming the field and the code", asy
     ],
     [
       "capture.json",
-      { provenance: { ...PROVENANCE, capture: "partial" } },
-      /band\.provenance\.capture.*band\.provenance\.capture/s,
+      {
+        provenance: {
+          works: [
+            { label: "work A", episodes: 2, captureMode: "partial", constantColumnWidth: true },
+          ],
+        },
+      },
+      /band\.provenance\.capture.*works\[0\]\.captureMode/s,
     ],
     [
       "work-label.json",
       {
         provenance: {
-          ...PROVENANCE,
-          works: [{ label: "a.invalid work A", episodes: 2 }],
+          works: [
+            {
+              label: "a.invalid work A",
+              episodes: 2,
+              captureMode: "contiguous",
+              constantColumnWidth: true,
+            },
+          ],
         },
       },
       /band\.provenance\.work\.label\.link.*works\[0\]\.label/s,
@@ -453,8 +483,15 @@ test("a malformed new field is a usage error naming the field and the code", asy
       "work-title.json",
       {
         provenance: {
-          ...PROVENANCE,
-          works: [{ label: "work A", episodes: 2, title: "not a field" }],
+          works: [
+            {
+              label: "work A",
+              episodes: 2,
+              captureMode: "contiguous",
+              constantColumnWidth: true,
+              title: "not a field",
+            },
+          ],
         },
       },
       /band\.unexpected-field.*works\[0\]\.title/s,

@@ -8,10 +8,12 @@
 // fixture from the calm one, in the direction the craft implies.
 
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { buildInitialProject, writeProject, writeWebtoon } from "@toony/project-io";
 import { STANDARD_CANVAS_WIDTH_PX } from "@toony/schema";
 import { CALM, RESTLESS, writeRhythmProject } from "../__fixtures__/craft.js";
@@ -385,13 +387,36 @@ function shippedBandFor(measured: CraftMeasurement): Record<string, unknown> {
   return { bandFormat: 1, name: "thriller cold", screenAspect: 2, metrics };
 }
 
-/** Provenance every field of which is valid, to vary one field at a time from. */
-const PROVENANCE = {
-  capture: "contiguous",
+/** One valid studied work, to vary a single field at a time from. */
+const WORK = {
+  label: "work A",
+  episodes: 2,
+  captureMode: "contiguous",
   constantColumnWidth: true,
+};
+
+/**
+ * Provenance every field of which is valid. The two works were captured
+ * DIFFERENTLY on purpose: the capture facts belong to a work, and a band that
+ * had to state one answer for both would be wrong about one of them.
+ */
+const PROVENANCE = {
   works: [
-    { label: "thriller work A", episodes: 2, language: "eng", pageWidths: 118.4 },
-    { label: "thriller work C (KOR)", episodes: 2, language: "ko" },
+    {
+      label: "thriller work A",
+      episodes: 2,
+      captureMode: "contiguous",
+      constantColumnWidth: true,
+      language: "eng",
+      pageLengthInWidths: 118.4,
+    },
+    {
+      label: "thriller work C (KOR)",
+      episodes: 2,
+      captureMode: "sampled",
+      constantColumnWidth: false,
+      language: "ko",
+    },
   ],
 };
 
@@ -399,6 +424,21 @@ const PROVENANCE = {
 function bandCodes(extra: Record<string, unknown>): string[] {
   const value = { bandFormat: 1, metrics: { gutterRatio: { min: 0, max: 1 } }, ...extra };
   return validateCraftBandValue(value).issues.map((issue) => issue.code);
+}
+
+/** Codes for a band whose provenance lists exactly these works. */
+function workCodes(entries: unknown[]): string[] {
+  return bandCodes({ provenance: { works: entries } });
+}
+
+/** The repository root, found from this compiled test file. */
+function repositoryRoot(): string {
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 10; i++) {
+    if (existsSync(join(dir, "pnpm-workspace.yaml"))) return dir;
+    dir = dirname(dir);
+  }
+  throw new Error("repository root not found from the test file");
 }
 
 test("a recorded metric is kept and reported, and never changes the verdict", () => {
@@ -484,8 +524,16 @@ test("provenance round-trips through validation, narrowing, and the report", () 
 
   const band = asCraftBand(value);
   assert.deepEqual(band.provenance, PROVENANCE);
-  // A work that declared no page count does not acquire one.
-  assert.ok(!Object.hasOwn(band.provenance?.works[1] as object, "pageWidths"));
+  // A work that declared no page extent does not acquire one, and the two works
+  // keep the different capture facts they were written with.
+  assert.ok(!Object.hasOwn(band.provenance?.works[1] as object, "pageLengthInWidths"));
+  assert.deepEqual(
+    band.provenance?.works.map((work) => [work.captureMode, work.constantColumnWidth]),
+    [
+      ["contiguous", true],
+      ["sampled", false],
+    ],
+  );
   assert.deepEqual(compareToCraftBand(calm.metrics, band).provenance, PROVENANCE);
 });
 
@@ -500,54 +548,39 @@ test("each new band field is rejected for every way it can be wrong", () => {
     bandCodes({ recorded: { gutterRatio: { min: 0, max: 1 } } }).includes("band.recorded.graded"),
   );
 
-  const works = (entries: unknown[]) => ({ provenance: { ...PROVENANCE, works: entries } });
   assert.ok(bandCodes({ provenance: "two works" }).includes("band.provenance.type"));
+  assert.ok(bandCodes({ provenance: { works: {} } }).includes("band.provenance.works.type"));
+  assert.ok(workCodes([]).includes("band.provenance.works.empty"));
+  assert.ok(workCodes(["work A"]).includes("band.provenance.work.type"));
+  assert.ok(workCodes([{ ...WORK, label: undefined }]).includes("band.provenance.work.label"));
+  assert.ok(workCodes([{ ...WORK, episodes: 0 }]).includes("band.provenance.work.episodes"));
+  assert.ok(workCodes([{ ...WORK, episodes: 1.5 }]).includes("band.provenance.work.episodes"));
+  // The capture facts are required ON THE WORK, and absent is as wrong as bad.
+  assert.ok(workCodes([{ ...WORK, captureMode: "partial" }]).includes("band.provenance.capture"));
+  assert.ok(workCodes([{ ...WORK, captureMode: undefined }]).includes("band.provenance.capture"));
   assert.ok(
-    bandCodes({ provenance: { ...PROVENANCE, capture: "partial" } }).includes(
-      "band.provenance.capture",
-    ),
+    workCodes([{ ...WORK, constantColumnWidth: "yes" }]).includes("band.provenance.column-width"),
   );
   assert.ok(
-    bandCodes({ provenance: { ...PROVENANCE, constantColumnWidth: "yes" } }).includes(
+    workCodes([{ ...WORK, constantColumnWidth: undefined }]).includes(
       "band.provenance.column-width",
     ),
   );
-  assert.ok(bandCodes(works({} as unknown[])).includes("band.provenance.works.type"));
-  assert.ok(bandCodes(works([])).includes("band.provenance.works.empty"));
-  assert.ok(bandCodes(works(["work A"])).includes("band.provenance.work.type"));
-  assert.ok(bandCodes(works([{ episodes: 2 }])).includes("band.provenance.work.label"));
   assert.ok(
-    bandCodes(works([{ label: "work A", episodes: 0 }])).includes("band.provenance.work.episodes"),
-  );
-  assert.ok(
-    bandCodes(works([{ label: "work A", episodes: 1.5 }])).includes(
-      "band.provenance.work.episodes",
-    ),
-  );
-  assert.ok(
-    bandCodes(works([{ label: "work A", episodes: 2, language: "a long spoken name" }])).includes(
+    workCodes([{ ...WORK, language: "a long spoken name" }]).includes(
       "band.provenance.work.language",
     ),
   );
   assert.ok(
-    bandCodes(works([{ label: "work A", episodes: 2, pageWidths: 0 }])).includes(
-      "band.provenance.work.page-widths",
-    ),
+    workCodes([{ ...WORK, pageLengthInWidths: 0 }]).includes("band.provenance.work.page-widths"),
   );
-  assert.ok(
-    bandCodes(
-      works([
-        { label: "work A", episodes: 2 },
-        { label: "work A", episodes: 1 },
-      ]),
-    ).includes("band.provenance.work.duplicate"),
-  );
+  assert.ok(workCodes([WORK, { ...WORK, episodes: 1 }]).includes("band.provenance.work.duplicate"));
 
   // Like every other band error, a new one names the field it is about.
   const issues = validateCraftBandValue({
     bandFormat: 1,
     metrics: { gutterRatio: { min: 0, max: 1 } },
-    provenance: { ...PROVENANCE, works: [{ label: "work A", episodes: 0 }] },
+    provenance: { works: [{ ...WORK, episodes: 0 }] },
   }).issues;
   assert.deepEqual(
     issues.map((issue) => issue.path),
@@ -555,37 +588,129 @@ test("each new band field is rejected for every way it can be wrong", () => {
   );
 });
 
+test("a language tag is the shape the docs promise and nothing wider", () => {
+  for (const language of ["ko", "eng", "ko-KR", "ko-Hang-KR", "en-001"]) {
+    assert.deepEqual(workCodes([{ ...WORK, language }]), [], language);
+  }
+  // An open-ended subtag chain is room for a source shorthand to ride along.
+  for (const language of ["k", "korean", "ko-x-private", "ko-KR-extra", "ko-ABCDEFGH", "ko-"]) {
+    assert.ok(
+      workCodes([{ ...WORK, language }]).includes("band.provenance.work.language"),
+      language,
+    );
+  }
+});
+
+test("the counts a band declares are bounded above as well as below", () => {
+  for (const episodes of [0, -1, 1.5, 1e308, Number.POSITIVE_INFINITY, 10001]) {
+    assert.ok(
+      workCodes([{ ...WORK, episodes }]).includes("band.provenance.work.episodes"),
+      String(episodes),
+    );
+  }
+  for (const pages of [0, -1, 1e308, Number.POSITIVE_INFINITY, 1000001]) {
+    assert.ok(
+      workCodes([{ ...WORK, pageLengthInWidths: pages }]).includes(
+        "band.provenance.work.page-widths",
+      ),
+      String(pages),
+    );
+  }
+  // Ceilings, not bans: the largest accepted values still validate.
+  assert.deepEqual(workCodes([{ ...WORK, episodes: 10000, pageLengthInWidths: 1000000 }]), []);
+
+  // And one band cannot list an unbounded number of works.
+  const many = Array.from({ length: 101 }, (_, i) => ({ ...WORK, label: `work ${i}` }));
+  assert.ok(workCodes(many).includes("band.provenance.works.count"));
+  assert.deepEqual(workCodes(many.slice(0, 100)), []);
+});
+
+test("a band's printed text cannot forge a line of the report", () => {
+  // The report is plain lines, so a label that can hold a newline can write a
+  // verdict of its own above the real one.
+  // The documented bound, written out here rather than imported: a test that
+  // asks the code what its own limit is pins nothing.
+  const maxLength = 80;
+  const newline = String.fromCharCode(10);
+  const forged = `work A${newline}verdict: IN BAND — 9 metric(s) graded against band`;
+  const oversized = "w".repeat(maxLength + 1);
+  const controls = [7, 0x1b, 0x1f, 0x7f, 0x9f].map((code) => `work${String.fromCharCode(code)}A`);
+
+  for (const text of [forged, oversized, ...controls]) {
+    assert.ok(
+      workCodes([{ ...WORK, label: text }]).includes("band.provenance.work.label"),
+      JSON.stringify(text),
+    );
+    assert.ok(bandCodes({ name: text }).includes("band.name"), JSON.stringify(text));
+  }
+
+  // A bound, not a ban: the longest one-line text there is room for validates.
+  const longest = "w".repeat(maxLength);
+  assert.deepEqual(
+    bandCodes({ name: longest, provenance: { works: [{ ...WORK, label: longest }] } }),
+    [],
+  );
+});
+
+test("the band file shipped in this repository validates and grades", async () => {
+  const file = join(repositoryRoot(), "packages/packs/examples/example-pack/bands/noir.json");
+  const value = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+  assert.deepEqual(validateCraftBandValue(value).issues, []);
+
+  const band = asCraftBand(value);
+  assert.ok(!Object.hasOwn(band, "recorded"));
+  assert.ok(!Object.hasOwn(band, "provenance"));
+
+  const report = compareToCraftBand(calm.metrics, band);
+  assert.equal(report.metrics.length, Object.keys(band.metrics).length);
+  assert.deepEqual(
+    [...report.metrics.map((verdict) => verdict.metric)].sort(),
+    Object.keys(band.metrics).sort(),
+  );
+  assert.deepEqual(report.recorded, []);
+  assert.equal(report.provenance, null);
+
+  // It grades live ranges: a metric that passes this file's ceiling, pushed
+  // past it, flips — and nothing else moves. Without this the assertions above
+  // would hold just as well for a file that graded nothing.
+  const capped = report.metrics.find((verdict) => verdict.max !== null && verdict.inBand);
+  assert.ok(capped !== undefined, "the shipped band caps at least one metric this page passes");
+  const moved = { ...calm.metrics };
+  (moved as Record<CraftMetricName, number | null>)[capped.metric] = (capped.max as number) + 1;
+
+  const over = compareToCraftBand(moved, band);
+  assert.equal(over.inBand, false);
+  const before = new Map(report.metrics.map((verdict) => [verdict.metric, verdict.inBand]));
+  assert.deepEqual(
+    over.metrics
+      .filter((verdict) => before.get(verdict.metric) !== verdict.inBand)
+      .map((verdict) => verdict.metric),
+    [capped.metric],
+  );
+});
+
 test("no band field can hold a title, a source, or a link", () => {
   // There is no key to put one in, at either level.
   for (const field of [{ title: "x" }, { source: "x" }, { url: "https://a.invalid/x" }]) {
     assert.ok(
-      bandCodes({
-        provenance: { ...PROVENANCE, works: [{ label: "work A", episodes: 2, ...field }] },
-      }).includes("band.unexpected-field"),
+      workCodes([{ ...WORK, ...field }]).includes("band.unexpected-field"),
       `works[0].${Object.keys(field)[0]}`,
     );
   }
   assert.ok(
-    bandCodes({ provenance: { ...PROVENANCE, source: "x" } }).includes("band.unexpected-field"),
+    bandCodes({ provenance: { works: [WORK], source: "x" } }).includes("band.unexpected-field"),
   );
   // Nor a free-text field at the top level, which is where one would end up.
   assert.ok(bandCodes({ note: "captured from ..." }).includes("band.unexpected-field"));
 
-  // And the one free-text field there is cannot smuggle one in.
+  // And the one free-text field there is refuses the obvious forms. This is a
+  // backstop, not the guarantee: the guarantee is that no field for a source
+  // exists at all.
   for (const label of ["https://a.invalid/work-a", "a.invalid work A", "work A (a.invalid)"]) {
-    assert.ok(
-      bandCodes({ provenance: { ...PROVENANCE, works: [{ label, episodes: 2 }] } }).includes(
-        "band.provenance.work.label.link",
-      ),
-      label,
-    );
+    assert.ok(workCodes([{ ...WORK, label }]).includes("band.provenance.work.label.link"), label);
   }
   // A neutral label with punctuation in it is still accepted.
   for (const label of ["thriller work C (KOR)", "medieval-europe work C", "work no.2"]) {
-    assert.deepEqual(
-      bandCodes({ provenance: { ...PROVENANCE, works: [{ label, episodes: 2 }] } }),
-      [],
-      label,
-    );
+    assert.deepEqual(workCodes([{ ...WORK, label }]), [], label);
   }
 });

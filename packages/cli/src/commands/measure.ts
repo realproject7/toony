@@ -118,13 +118,19 @@ function textReport(
   const provenance = report?.provenance ?? null;
   if (provenance !== null) {
     const episodes = provenance.works.reduce((sum, work) => sum + work.episodes, 0);
-    lines.push(
-      `  measured from ${provenance.works.length} work(s), ${episodes} episode(s) — ${provenance.capture} capture, ${provenance.constantColumnWidth ? "constant" : "varying"} column width`,
-    );
+    lines.push(`  measured from ${provenance.works.length} work(s), ${episodes} episode(s)`);
+    // The capture facts are per work, so they print per work: two works captured
+    // differently would be misreported by any single summary line.
     for (const work of provenance.works) {
-      const detail = [`${work.episodes} episode(s)`];
+      const detail = [
+        `${work.episodes} episode(s)`,
+        `${work.captureMode} capture`,
+        `${work.constantColumnWidth ? "constant" : "varying"} column width`,
+      ];
       if (work.language !== undefined) detail.push(work.language);
-      if (work.pageWidths !== undefined) detail.push(`${work.pageWidths} column widths of page`);
+      if (work.pageLengthInWidths !== undefined) {
+        detail.push(`${work.pageLengthInWidths} column widths of page`);
+      }
       lines.push(`    ${work.label} — ${detail.join(", ")}`);
     }
   }

@@ -222,10 +222,13 @@ deliberately not measured, and why the language split matters — is documented 
 [`CRAFT_MEASURE.md`](./CRAFT_MEASURE.md).
 
 A band can also keep a range it measured without grading it (`recorded`) and say
-what its numbers were measured from (`provenance`: the works by neutral label,
-episodes and page measured per work, the capture mode, and whether the column
-width was constant). Both are optional, neither changes a verdict, and both are
-documented in [`CRAFT_MEASURE.md`](./CRAFT_MEASURE.md#band-files).
+what its numbers were measured from (`provenance`: each studied work by neutral
+label, with its episodes, capture mode, whether its column width was constant,
+its language, and how much page was measured). Both are optional and neither
+changes a verdict. Because a band rejects unknown keys, a band using either one
+is refused outright by a toony older than the field, so a pack that ships one
+should state the minimum toony version it needs. Both are documented in
+[`CRAFT_MEASURE.md`](./CRAFT_MEASURE.md#band-files).
 
 Discovery checks the file is there and carries its path, exactly as it does for a
 workflow graph; the band itself is parsed and validated by the command that

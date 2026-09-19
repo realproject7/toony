@@ -28,7 +28,6 @@ import {
   isBoolean,
   isFiniteNumber,
   isInteger,
-  isNonEmptyString,
   isPlainObject,
   isString,
   joinPath,
@@ -455,20 +454,25 @@ export interface CraftBandRange {
 }
 
 /**
- * How the pages behind a band were captured.
+ * How the pages behind one studied work were captured.
  *
  * `contiguous` is every frame of an episode, in order; `sampled` is a subset.
  * The distinction is not bookkeeping: a median over run heights is read off
  * whole regions of a page, so dropping part of an episode moves it by more than
- * the differences such medians are used to argue about, and nothing in the nine
- * numbers themselves says which kind of capture produced them.
+ * the differences such medians are used to argue about, and nothing in the
+ * measured numbers themselves says which kind of capture produced them.
  */
 export const CRAFT_CAPTURE_MODES = ["contiguous", "sampled"] as const;
 
 export type CraftCaptureMode = (typeof CRAFT_CAPTURE_MODES)[number];
 
 /**
- * One studied work a band was measured from.
+ * One studied work a band was measured from, and how it was captured.
+ *
+ * The capture facts sit HERE rather than on the provenance, because they are
+ * facts about a capture and a band can hold several. A band whose two works were
+ * captured differently would otherwise have to state one answer and be wrong
+ * about one of them — silently, since neither fact is visible in the numbers.
  *
  * The work is named by a NEUTRAL LABEL and nothing else. There is deliberately
  * no field for a title, for the place the pages came from, or for a link: a band
@@ -481,26 +485,27 @@ export interface CraftBandWork {
   label: string;
   /** Episodes of this work that were measured. */
   episodes: number;
-  /** Language of the captured pages, as a short tag ("eng", "ko"). */
-  language?: string;
+  captureMode: CraftCaptureMode;
   /**
-   * How much page this work contributed, in column widths — episode height over
-   * column width, summed. It is the sample size behind every median in the band,
-   * and works differ in it by a factor of four at the same episode count.
-   */
-  pageWidths?: number;
-}
-
-/** Where a band's numbers came from. */
-export interface CraftBandProvenance {
-  capture: CraftCaptureMode;
-  /**
-   * Whether every captured page was the same column width. Every run length in
-   * this measurement is a share of the width, so a capture set with mixed widths
-   * normalizes each page by a different number and inflates lengths across the
-   * set without any single number looking wrong.
+   * Whether every page captured from this work was the same column width. Every
+   * run length in this measurement is a share of the width, so a capture set
+   * with mixed widths normalizes each page by a different number and inflates
+   * lengths across the set without any single number looking wrong.
    */
   constantColumnWidth: boolean;
+  /** Language of the captured pages, as a short tag ("eng", "ko", "ko-KR"). */
+  language?: string;
+  /**
+   * How much page this work contributed, as ONE extent in column widths —
+   * summed episode height over column width. It is the sample size behind every
+   * median in the band, and works differ in it by a factor of four at the same
+   * episode count.
+   */
+  pageLengthInWidths?: number;
+}
+
+/** Where a band's numbers came from: the works, each with its own capture facts. */
+export interface CraftBandProvenance {
   works: CraftBandWork[];
 }
 
@@ -561,18 +566,60 @@ const BAND_KEYS = [
   "provenance",
 ] as const;
 const RANGE_KEYS = ["min", "max"] as const;
-const PROVENANCE_KEYS = ["capture", "constantColumnWidth", "works"] as const;
-const WORK_KEYS = ["label", "episodes", "language", "pageWidths"] as const;
+const PROVENANCE_KEYS = ["works"] as const;
+const WORK_KEYS = [
+  "label",
+  "episodes",
+  "captureMode",
+  "constantColumnWidth",
+  "language",
+  "pageLengthInWidths",
+] as const;
 
 /**
  * A work label carries a link or a domain. Either one names the source the pages
- * came from, which is exactly what this field must not hold, so it is rejected
- * rather than trusted to the author's memory.
+ * came from, which is exactly what this field must not hold.
+ *
+ * This is a BACKSTOP, not a guarantee. It catches the obvious forms and misses
+ * an IP address, an internationalized host, and any of the ways a domain can be
+ * written to get past a pattern. The guarantee is structural and sits elsewhere:
+ * no field exists for a source, so there is nowhere one belongs.
  */
 const LABEL_LINK_PATTERN = /:\/\/|[A-Za-z0-9-]\.[A-Za-z]{2,}/;
 
-/** A short language tag: "ko", "eng", "ko-KR". Nothing with a space in it. */
-const LANGUAGE_TAG_PATTERN = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/;
+/**
+ * Anything a terminal reads as more than one line, or as a control sequence.
+ *
+ * A band's free text is printed straight into the report, so a label carrying a
+ * newline can forge a verdict line above the real one. C0, DEL and C1 are all
+ * refused: none of them belongs in a label or a band name.
+ */
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) return true;
+  }
+  return false;
+}
+
+/**
+ * A language tag as the docs promise it: a primary alpha tag, an optional
+ * four-letter script, an optional region. Free subtags are not accepted —
+ * an open-ended tail is room for a source shorthand to ride into a pack.
+ */
+const LANGUAGE_TAG_PATTERN = /^[A-Za-z]{2,3}(-[A-Za-z]{4})?(-([A-Za-z]{2}|[0-9]{3}))?$/;
+
+/** Longest a band name or a work label may be. Both are printed in the report. */
+const BAND_TEXT_MAX_LENGTH = 80;
+
+/** Most works one band may list: far above any real study, far below a flood. */
+const BAND_WORKS_MAX = 100;
+
+/** Most episodes one work may declare. Above the longest work anyone publishes. */
+const WORK_EPISODES_MAX = 10000;
+
+/** Longest page extent one work may declare, in column widths. */
+const WORK_PAGE_LENGTH_MAX = 1000000;
 
 function allowlistKeys(
   value: Record<string, unknown>,
@@ -589,6 +636,17 @@ function allowlistKeys(
       `${what} allows only ${allowed.map((k) => `"${k}"`).join(", ")}; remove unexpected field "${key}".`,
     );
   }
+}
+
+/**
+ * Text a band carries that the report prints verbatim.
+ *
+ * One line, bounded length. Without this a label of `work A\nverdict: IN BAND`
+ * validates and prints a forged verdict above the real one — the report is
+ * plain lines, so anything that can hold a newline can write one.
+ */
+function isBandText(value: unknown): value is string {
+  return isString(value) && value.length <= BAND_TEXT_MAX_LENGTH && !hasControlCharacter(value);
 }
 
 function validateRange(value: unknown, path: string, c: IssueCollector): void {
@@ -670,11 +728,11 @@ function validateProvenanceWork(
     return;
   }
   allowlistKeys(value, WORK_KEYS, path, "a studied work", c);
-  if (!isNonEmptyString(value.label)) {
+  if (!isBandText(value.label) || value.label.length === 0) {
     c.add(
       joinPath(path, "label"),
       "band.provenance.work.label",
-      "label must be a non-empty string: the neutral label the work is studied under.",
+      `label must be one line of 1 to ${BAND_TEXT_MAX_LENGTH} characters: the neutral label the work is studied under.`,
     );
   } else if (LABEL_LINK_PATTERN.test(value.label)) {
     c.add(
@@ -691,11 +749,30 @@ function validateProvenanceWork(
   } else {
     labels.add(value.label);
   }
-  if (!isInteger(value.episodes) || value.episodes < 1) {
+  if (!isInteger(value.episodes) || value.episodes < 1 || value.episodes > WORK_EPISODES_MAX) {
     c.add(
       joinPath(path, "episodes"),
       "band.provenance.work.episodes",
-      "episodes must be a whole number of 1 or more.",
+      `episodes must be a whole number from 1 to ${WORK_EPISODES_MAX}.`,
+    );
+  }
+  // Both capture facts are required, not optional detail: each one was invisible
+  // in the measured numbers and each one silently moved them.
+  if (
+    !isString(value.captureMode) ||
+    !(CRAFT_CAPTURE_MODES as readonly string[]).includes(value.captureMode)
+  ) {
+    c.add(
+      joinPath(path, "captureMode"),
+      "band.provenance.capture",
+      `captureMode must be one of: ${CRAFT_CAPTURE_MODES.join(", ")}.`,
+    );
+  }
+  if (!isBoolean(value.constantColumnWidth)) {
+    c.add(
+      joinPath(path, "constantColumnWidth"),
+      "band.provenance.column-width",
+      "constantColumnWidth must be true or false: whether every page captured from this work was one column width.",
     );
   }
   if (
@@ -705,17 +782,21 @@ function validateProvenanceWork(
     c.add(
       joinPath(path, "language"),
       "band.provenance.work.language",
-      'language must be a short language tag such as "ko" or "eng".',
+      'language must be a language tag: a primary tag, an optional script, an optional region ("ko", "eng", "ko-Hang-KR").',
     );
   }
   if (
-    value.pageWidths !== undefined &&
-    !(isFiniteNumber(value.pageWidths) && value.pageWidths > 0)
+    value.pageLengthInWidths !== undefined &&
+    !(
+      isFiniteNumber(value.pageLengthInWidths) &&
+      value.pageLengthInWidths > 0 &&
+      value.pageLengthInWidths <= WORK_PAGE_LENGTH_MAX
+    )
   ) {
     c.add(
-      joinPath(path, "pageWidths"),
+      joinPath(path, "pageLengthInWidths"),
       "band.provenance.work.page-widths",
-      "pageWidths must be a positive number: how much page was measured, in column widths.",
+      `pageLengthInWidths must be a number from 0 to ${WORK_PAGE_LENGTH_MAX}: how much page was measured, in column widths.`,
     );
   }
 }
@@ -728,25 +809,6 @@ function validateProvenance(value: unknown, c: IssueCollector): void {
     return;
   }
   allowlistKeys(value, PROVENANCE_KEYS, path, "band provenance", c);
-  // Both capture facts are required, not optional detail: each one was invisible
-  // in the measured numbers and each one silently moved them.
-  if (
-    !isString(value.capture) ||
-    !(CRAFT_CAPTURE_MODES as readonly string[]).includes(value.capture)
-  ) {
-    c.add(
-      joinPath(path, "capture"),
-      "band.provenance.capture",
-      `capture must be one of: ${CRAFT_CAPTURE_MODES.join(", ")}.`,
-    );
-  }
-  if (!isBoolean(value.constantColumnWidth)) {
-    c.add(
-      joinPath(path, "constantColumnWidth"),
-      "band.provenance.column-width",
-      "constantColumnWidth must be true or false: whether every captured page was one column width.",
-    );
-  }
   const worksPath = joinPath(path, "works");
   if (!isArray(value.works)) {
     c.add(worksPath, "band.provenance.works.type", "works must be an array of studied works.");
@@ -754,6 +816,14 @@ function validateProvenance(value: unknown, c: IssueCollector): void {
   }
   if (value.works.length === 0) {
     c.add(worksPath, "band.provenance.works.empty", "provenance must name at least one work.");
+  }
+  if (value.works.length > BAND_WORKS_MAX) {
+    c.add(
+      worksPath,
+      "band.provenance.works.count",
+      `a band may list at most ${BAND_WORKS_MAX} works; this one lists ${value.works.length}.`,
+    );
+    return;
   }
   const labels = new Set<string>();
   for (let i = 0; i < value.works.length; i++) {
@@ -776,8 +846,14 @@ export function validateCraftBandValue(value: unknown): ValidationResult {
       `bandFormat must be ${CRAFT_BAND_FORMAT_VERSION}.`,
     );
   }
-  if (value.name !== undefined && !isString(value.name)) {
-    c.add("band.name", "band.name", "name must be a string.");
+  // The name is printed in the verdict line, so it is held to the same rule a
+  // work label is: one line, bounded. A newline here forges a verdict too.
+  if (value.name !== undefined && !isBandText(value.name)) {
+    c.add(
+      "band.name",
+      "band.name",
+      `name must be one line of at most ${BAND_TEXT_MAX_LENGTH} characters.`,
+    );
   }
   if (value.screenAspect !== undefined) {
     if (!isFiniteNumber(value.screenAspect) || (value.screenAspect as number) <= 0) {
@@ -817,21 +893,14 @@ export function validateCraftBandValue(value: unknown): ValidationResult {
   return c.result();
 }
 
-/** Narrow validated provenance, keeping only the fields the allowlist admits. */
-function asProvenance(value: Record<string, unknown>): CraftBandProvenance {
-  return {
-    capture: value.capture as CraftCaptureMode,
-    constantColumnWidth: value.constantColumnWidth as boolean,
-    works: (value.works as Record<string, unknown>[]).map((work) => ({
-      label: work.label as string,
-      episodes: work.episodes as number,
-      ...(typeof work.language === "string" ? { language: work.language } : {}),
-      ...(typeof work.pageWidths === "number" ? { pageWidths: work.pageWidths } : {}),
-    })),
-  };
-}
-
-/** Narrow an already-validated band value. Only call after validation passed. */
+/**
+ * Narrow an already-validated band value. Only call after validation passed.
+ *
+ * Every nested value is carried across whole, exactly as `metrics` is. Copying
+ * provenance field by field would mean a field added to the allowlist and the
+ * docs later validates, round-trips through a band file, and then disappears
+ * here with nothing failing.
+ */
 export function asCraftBand(value: Record<string, unknown>): CraftBand {
   return {
     bandFormat: value.bandFormat as number,
@@ -839,7 +908,9 @@ export function asCraftBand(value: Record<string, unknown>): CraftBand {
     ...(typeof value.screenAspect === "number" ? { screenAspect: value.screenAspect } : {}),
     metrics: value.metrics as CraftBand["metrics"],
     ...(isPlainObject(value.recorded) ? { recorded: value.recorded as CraftBand["recorded"] } : {}),
-    ...(isPlainObject(value.provenance) ? { provenance: asProvenance(value.provenance) } : {}),
+    ...(isPlainObject(value.provenance)
+      ? { provenance: value.provenance as unknown as CraftBandProvenance }
+      : {}),
   };
 }
 
