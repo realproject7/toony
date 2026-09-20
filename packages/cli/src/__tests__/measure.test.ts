@@ -6,7 +6,7 @@
 // from an installed pack instead of a file path.
 
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
@@ -311,6 +311,63 @@ test("a height range with no gap to measure prints as neither passed nor failed"
   assert.match(text, /height\s+—\s+0\.3\.\.0\.4\s+no gap of these kinds/);
   // And it is not printed as a pass, which is the whole point of the marker.
   assert.doesNotMatch(text, /height\s+—\s+0\.3\.\.0\.4\s+in/);
+});
+
+test("the verdict line counts the entries that failed, not just the entries", async () => {
+  const dir = await scaffoldWithArt();
+  const path = join(workdir, "two-entries.json");
+  await writeFile(
+    path,
+    JSON.stringify({
+      bandFormat: 1,
+      name: "two",
+      metrics: { gutterRatio: { min: 0, max: 1 } },
+      transitionVocabulary: [
+        // The scaffold's one gap is a gutter: this entry passes.
+        { kinds: ["gutter"], share: { min: 0.5, max: 1 } },
+        // …and this one cannot.
+        { kinds: ["void"], share: { min: 0.5, max: 1 } },
+      ],
+    }),
+  );
+  const c = capture();
+  assert.equal(
+    await runMeasure([dir, "--episode", "ep-001", "--against", path], c.io),
+    EXIT_VALIDATION,
+  );
+  // One of two, not two of two and not one of one: the failing count and the
+  // total are different numbers and the line has to carry both.
+  assert.ok(
+    c.out.some(
+      (line) =>
+        line ===
+        'verdict: OUT OF BAND — 0 of 1 metric(s) and 1 of 2 transition entry(s) outside band "two"',
+    ),
+    c.out.join("\n"),
+  );
+});
+
+test("a transition that draws nothing is reported rather than silently dropped", async () => {
+  const dir = await scaffold();
+  // The scaffold's one transition, flattened to zero height: it composes no
+  // band at all, so the episode has no gaps and the report has to say why
+  // rather than look like an episode with no transitions in it.
+  const file = join(dir, "episodes", "ep-001", "transitions.yaml");
+  await writeFile(
+    file,
+    (await readFile(file, "utf8")).replace("gutterHeight: 48", "gutterHeight: 0"),
+  );
+
+  const c = capture();
+  assert.equal(await runMeasure([dir, "--episode", "ep-001"], c.io), EXIT_OK, c.err.join("\n"));
+  const text = c.out.join("\n");
+  assert.match(text, /transition mix — 0 gap\(s\) drawn/);
+  assert.match(text, /note: 1 transition\(s\) draw no band at all and are not counted as gaps\./);
+
+  const json = capture();
+  assert.equal(await runMeasure([dir, "--episode", "ep-001", "--json"], json.io), EXIT_OK);
+  const report = JSON.parse(json.out.join("\n"));
+  assert.deepEqual(report.transitions, { gaps: 0, undrawn: 1, kinds: [] });
 });
 
 test("a band whose vocabulary is malformed is refused, naming the field", async () => {

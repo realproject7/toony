@@ -22,6 +22,7 @@ import {
   type EpisodeBundle,
   type SequenceItem,
   STANDARD_CANVAS_WIDTH_PX,
+  TRANSITION_TYPES,
   type Transition,
   type TransitionType,
 } from "@toony/schema";
@@ -231,6 +232,34 @@ test("a transition that draws no band at all is reported, and is not a gap", () 
   );
 });
 
+test("every kind the core has is counted as itself", () => {
+  // One gap of each of the fifteen kinds, at fifteen distinct heights. Without
+  // this the mix was only ever exercised on five of them, and any pair of kinds
+  // could be folded together — `hard-cut` into `gutter`, say — with nothing
+  // failing. Heights start above the card/band legibility floor so each one
+  // draws at the height it was authored.
+  const heights = TRANSITION_TYPES.map((_, index) => 120 + index * 20);
+  const mix = measureTransitionMix(
+    bundleOf(
+      TRANSITION_TYPES.map((type, index) =>
+        transition(`tr-${String(index + 1).padStart(3, "0")}`, type, heights[index] as number, {
+          text: "a line",
+        }),
+      ),
+    ),
+    REFERENCE,
+  );
+  assert.equal(mix.gaps, TRANSITION_TYPES.length);
+  assert.deepEqual(
+    mix.kinds.map((kind) => kind.kind),
+    [...TRANSITION_TYPES],
+  );
+  assert.deepEqual(
+    mix.kinds.map((kind) => [kind.count, kind.heightMedian]),
+    TRANSITION_TYPES.map((_, index) => [1, (heights[index] as number) / REFERENCE]),
+  );
+});
+
 test("a transition the reading sequence never reaches is not on the page", () => {
   const bundle = bundleOf([transition("tr-001", "gutter", 200)]);
   bundle.transitions.push(transition("tr-002", "void", 400));
@@ -286,6 +315,28 @@ test("an entry's share is a share of ALL the episode's gaps, named or not", () =
   assert.equal(verdict?.share.value, 0.25);
 });
 
+test("a graded share divides by the gaps DRAWN, not by every transition", () => {
+  // Two drawn gaps and two that draw nothing. The share of `void` is a half,
+  // and a denominator that counted the undrawn ones would report a quarter —
+  // which the band below admits, so only this assertion catches it.
+  const mix = measureTransitionMix(
+    bundleOf([
+      transition("tr-001", "gutter", 0),
+      transition("tr-002", "gutter", 400),
+      transition("tr-003", "hard-cut", 0),
+      transition("tr-004", "void", 400),
+    ]),
+    REFERENCE,
+  );
+  assert.equal(mix.gaps, 2);
+  assert.equal(mix.undrawn, 2);
+  const [verdict] = compareToTransitionVocabulary(mix, [
+    { kinds: ["void"], share: { min: 0.5, max: 0.5 } },
+  ]);
+  assert.equal(verdict?.share.value, 0.5);
+  assert.equal(verdict?.inBand, true);
+});
+
 test("a multi-kind entry pools its gaps rather than averaging its kinds", () => {
   // `gutter` runs short three times, `void` runs long once. Pooled, the median
   // is the short height; taken over the two per-kind medians it is the long one.
@@ -306,6 +357,10 @@ test("a height range with no gap of its kinds grades nothing, and says so", () =
   ]);
   assert.equal(allowed?.height?.value, null);
   assert.equal(allowed?.inBand, true);
+  // And it carries NO verdict field at all, so a reader diffing two reports
+  // cannot mistake "there was nothing to grade" for "it passed".
+  assert.ok(!Object.hasOwn(allowed?.height as object, "inBand"));
+  assert.equal((allowed?.height as { graded: boolean }).graded, false);
 
   // And when zero is NOT allowed, the share fails — the absent height never
   // rescues it, and never stands in for it either.
@@ -326,12 +381,21 @@ test("an entry fails on either half, and the report says which", () => {
   ];
   const verdicts = compareToTransitionVocabulary(mix, entries);
   assert.deepEqual(
-    verdicts.map((verdict) => [verdict.share.inBand, verdict.height?.inBand, verdict.inBand]),
+    verdicts.map((verdict) => {
+      const height = verdict.height;
+      return [
+        verdict.share.inBand,
+        height !== null && "inBand" in height && height.inBand,
+        verdict.inBand,
+      ];
+    }),
     [
       [true, false, false],
       [false, true, false],
     ],
   );
+  // A graded height carries a verdict; only the ungraded shape does not.
+  for (const verdict of verdicts) assert.ok(Object.hasOwn(verdict.height as object, "inBand"));
 });
 
 test("an out-of-band vocabulary fails a band whose every metric passes", () => {
@@ -505,6 +569,56 @@ test("every way a vocabulary can be wrong is refused, not ignored", () => {
       { kinds: ["gutter"], share: { min: 0.6, max: 1 } },
       { kinds: ["void"], share: { min: 0.4, max: 1 } },
     ]),
+    [],
+  );
+
+  // More entries than the core has kinds is refused — and the complaint does
+  // not swallow the others, or one extra entry would hide an unknown kind.
+  const tooMany = bandCodes([
+    ...TRANSITION_TYPES.map((kind) => ({ kinds: [kind], share: { min: 0, max: 1 } })),
+    { kinds: ["slow_wipe"], share: { min: 0, max: 1 } },
+  ]);
+  assert.ok(tooMany.includes("band.transitions.count"));
+  assert.ok(tooMany.includes("band.transitions.kind.unknown"));
+});
+
+test("a floor that only floating point puts over 1 is not refused", () => {
+  // 0.197 + 0.687 + 0.116 is 1.0000000000000002 in doubles and exactly 1 at the
+  // four places a measured share is rounded to. An episode can hit it, so the
+  // band must not be refused — and refused with a message that rounds for
+  // display and therefore contradicts the test that produced it.
+  assert.deepEqual(
+    bandCodes([
+      { kinds: ["gutter"], share: { min: 0.197, max: 1 } },
+      { kinds: ["void"], share: { min: 0.687, max: 1 } },
+      { kinds: ["color_field"], share: { min: 0.116, max: 1 } },
+    ]),
+    [],
+  );
+  // A floor genuinely over 1 at that precision is still refused.
+  assert.ok(
+    bandCodes([
+      { kinds: ["gutter"], share: { min: 0.1971, max: 1 } },
+      { kinds: ["void"], share: { min: 0.687, max: 1 } },
+      { kinds: ["color_field"], share: { min: 0.116, max: 1 } },
+    ]).includes("band.transitions.unsatisfiable"),
+  );
+});
+
+test("entries claiming every kind must leave room for a whole episode", () => {
+  // One entry per kind, each capped at 0.05. Every gap falls in some entry, so
+  // the shares must add to 1, and these add to 0.75: every episode grades OUT
+  // and no single entry looks wrong.
+  const capped = TRANSITION_TYPES.map((kind) => ({ kinds: [kind], share: { min: 0, max: 0.05 } }));
+  assert.ok(bandCodes(capped).includes("band.transitions.unsatisfiable"));
+
+  // Leave ONE kind unclaimed and the remainder has somewhere to go, so the same
+  // maximums are satisfiable and the band stands.
+  assert.deepEqual(bandCodes(capped.slice(1)), []);
+
+  // Claiming every kind is fine when the maximums can reach a whole episode.
+  assert.deepEqual(
+    bandCodes(TRANSITION_TYPES.map((kind) => ({ kinds: [kind], share: { min: 0, max: 1 } }))),
     [],
   );
 });

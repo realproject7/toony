@@ -545,7 +545,10 @@ test("provenance round-trips through validation, narrowing, and the report", () 
   assert.deepEqual(compareToCraftBand(calm, band).provenance, PROVENANCE);
 });
 
-test("each new band field is rejected for every way it can be wrong", () => {
+// `transitionVocabulary` is not covered here: it has its own file, and a name
+// claiming "each new band field" while covering two of three is the kind of
+// over-claim a later reader trusts.
+test("`recorded` and `provenance` are rejected for every way they can be wrong", () => {
   assert.ok(bandCodes({ recorded: "valueMean" }).includes("band.recorded.type"));
   assert.ok(bandCodes({ recorded: {} }).includes("band.recorded.empty"));
   assert.ok(bandCodes({ recorded: { bubbleDensity: { min: 1 } } }).includes("band.metric.unknown"));

@@ -20,11 +20,20 @@ Exit codes: `0` measured (and in band, when a band was given), `1` out of band,
 
 It composes the episode exactly the way `toony export stitched` does — the same
 cuts, gutters, transitions, and lettering, stacked into one page — and reads the
-pixels of that page. So:
+**pixels** of that page. So:
 
 - **no image provider is involved**, and no prior export is needed;
-- what is measured is what a reader would see, not a model of it;
+- the eleven craft metrics are what a reader would see, not a model of it;
 - the same episode always measures identically. Run it twice, diff the JSON.
+
+**One thing this command reports is not read off pixels.** The transition mix —
+which kind of gap sits between each pair of cuts — comes from the declared
+`type` on each transition record, because the episode declares it and a
+re-derivation from the page would be lossy. That is a different kind of evidence
+from everything above, and it is deliberate; the reasons and the cost are in
+[the transition vocabulary a band declares](#the-transition-vocabulary-a-band-declares).
+Read a geometry number as a claim about the page and a mix number as a claim
+about the script.
 
 A cut with no image asset yet composes a flat neutral background, which honestly
 measures as empty space. That would read as a very high gutter ratio and a very
@@ -434,11 +443,16 @@ per kind name would force a pack to invent a split that was never measured. A
 single-kind entry is the same thing with a set of one.
 
 **`share` is required and `height` is not.** A height range says how tall a gap of
-these kinds runs *when one occurs*; it says nothing when none does. An entry
-carrying only a height range could therefore be satisfied by using none of its
-kinds at all, and only a share range answers whether zero is allowed. When the
-episode draws no gap of an entry's kinds, `--against` prints the height row as
-`no gap of these kinds` rather than as a pass.
+these kinds runs *when one occurs* and says nothing when none does, so an entry
+carrying only a height range grades nothing at all against an episode that uses
+none of its kinds. Requiring the share forces the band to **state** how often,
+so zero is an answer the band gave rather than one it never addressed. It forces
+a range, **not a floor**: `{ "max": 0.3 }` is a share range and is satisfied by
+zero of the kind. A band that means "this kind must appear" writes a minimum.
+
+When the episode draws no gap of an entry's kinds, `--against` prints the height
+row as `no gap of these kinds` rather than as a pass, and `--json` gives it no
+verdict field at all.
 
 **A share is a share of every gap the episode drew**, not of the gaps the band
 happened to name. Kinds no entry claims are legal and are not an error — a band
@@ -446,8 +460,15 @@ grades what it declares, exactly as `metrics` does — and their gaps still coun
 in the denominator. The measured mix prints in full beside the verdict, so what
 was left ungraded is visible.
 
-The share minimums are also checked against each other: minimums that add past 1
-describe an episode that cannot exist, and that is invisible entry by entry.
+The shares are also checked against each other, because a vocabulary no episode
+can satisfy is a defect that is invisible entry by entry. Minimums that add past
+1 describe an episode that is more than all of itself. And when the entries
+between them claim **every** kind, every gap falls in some entry, so the shares
+must add to exactly 1 and maximums adding to less than 1 grade every episode
+out. With one kind left unclaimed the remainder has somewhere to go, and no sum
+of maximums is impossible. Both ends are compared at the four decimal places a
+measured share is rounded to, so a floor that only floating point puts over 1 —
+`0.197 + 0.687 + 0.116` is `1.0000000000000002` — is not refused.
 
 #### What the comparison reads, and what it cannot see
 
@@ -481,9 +502,42 @@ band at all — a plain gutter at zero height — is not a gap: it is counted an
 reported separately, so an episode whose transitions mostly vanish does not look
 like an episode that has few of them.
 
+#### `gutterMedian` and a gutter entry's height are different numbers
+
+Both are printed under the word "gutter" and they measure different populations.
+
+`gutterMedian` is the median over **every flat run on the page** — every gap
+whatever kind it is, plus any flat region inside the art. A vocabulary entry's
+height is the median over **only the gaps its own kinds account for**. On a page
+whose gaps are mostly one kind the two land close together, which is how they
+coincide in both shipped packs; on a page with a wide mix they do not, and
+neither is wrong.
+
+They also round differently in one respect worth knowing: `median` here is the
+reference analyzer's `sorted(xs)[len(xs) // 2]`, taken element-wise and never
+averaged, so on an **even** count it returns the **upper** of the two middles.
+An entry covering four gaps is graded on the third-smallest, which leaves the
+tallest unbounded by the range; an entry covering two is graded on the taller.
+Both sides of the comparison use that rule, so it is not a divergence — but a
+band author who reads "median" as the average of two middles will expect a
+different number than this returns.
+
+#### What `--json` carries
+
+`transitions` is the measured mix: `gaps`, `undrawn`, and `kinds`, one entry per
+kind the episode draws. Each kind carries `count`, `share`, `heightMedian`, and
+`heights` — **every one of that kind's gap heights, in reading order**. That
+last field grows with the episode, so a report is not a fixed-size record; it is
+there because a multi-kind entry's height is the median over its kinds pooled,
+and pooling needs the gaps rather than the per-kind medians.
+
+`band.transitions` carries one verdict per declared entry. A height range with
+no gap to measure appears with `"value": null` and `"graded": false` and **no
+`inBand` field at all**, the same device `band.recorded` uses: a reader diffing
+two reports cannot mistake "there was nothing to grade" for "it passed".
+
 `toony measure` prints the measured mix with or without a band, because that mix
-is what you read to author a range in the first place, and carries it in `--json`
-as `transitions` (with the per-entry verdicts under `band.transitions`).
+is what you read to author a range in the first place.
 
 ## The loop this closes
 

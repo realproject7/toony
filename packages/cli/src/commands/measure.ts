@@ -114,7 +114,7 @@ function rangeOf(verdict: { min: number | null; max: number | null }): string {
  */
 function transitionLines(
   mix: CraftMeasurement["transitions"],
-  graded: NonNullable<CraftBandReport["transitions"]>,
+  graded: CraftBandReport["transitions"],
 ): string[] {
   const lines = [`  transition mix — ${mix.gaps} gap(s) drawn, from the declared kinds`];
   if (mix.undrawn > 0) {
@@ -135,13 +135,16 @@ function transitionLines(
     lines.push(
       `      share   ${String(entry.share.value).padStart(7)}  ${rangeOf(entry.share).padEnd(16)} ${entry.share.inBand ? "in" : "OUT"}`,
     );
-    if (entry.height === null) continue;
+    const height = entry.height;
+    if (height === null) continue;
     // A height range with no gap of these kinds to measure is NOT a pass, and
     // must never print as one: the share range above already decided whether
-    // zero of them was allowed, and this row has nothing left to say.
-    const height = entry.height;
-    const shown = height.value === null ? "—" : String(height.value);
-    const mark = height.value === null ? "no gap of these kinds" : height.inBand ? "in" : "OUT";
+    // zero of them was allowed, and this row has nothing left to say. The
+    // report carries no verdict for it at all, which is what `in` / `OUT` reads
+    // off here.
+    const graded = "inBand" in height;
+    const shown = graded ? String(height.value) : "—";
+    const mark = !graded ? "no gap of these kinds" : height.inBand ? "in" : "OUT";
     lines.push(`      height  ${shown.padStart(7)}  ${rangeOf(height).padEnd(16)} ${mark}`);
   }
   return lines;

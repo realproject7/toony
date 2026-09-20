@@ -234,7 +234,22 @@ function runsOf(flags: readonly boolean[]): Run[] {
   return runs;
 }
 
-/** Lower median, matching the reference analyzer's `sorted(xs)[len(xs) // 2]`. */
+/**
+ * The reference analyzer's median: `sorted(xs)[len(xs) // 2]`, taken element-
+ * wise and never averaged. On an EVEN count that is the UPPER of the two middle
+ * values, not the lower — the comment here said "lower" and was wrong about its
+ * own code, while the code has always matched the reference, which is the half
+ * that has to be right.
+ *
+ * Worth saying out loud because it decides what an even-count median grades. A
+ * vocabulary entry covering four gaps is graded on the third-smallest, so the
+ * tallest is not itself bounded by the range and can carry arbitrary page
+ * length; an entry covering two is graded on the taller one, which pushes such
+ * a median toward the top of its range rather than the middle. Neither is a
+ * defect against the reference — it is the same rule on both sides — but a band
+ * author reading "median" as the conventional average of two middles will
+ * expect a different number than this returns.
+ */
 function median(values: readonly number[]): number {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -507,10 +522,20 @@ export interface TransitionMix {
   gaps: number;
   /**
    * Transitions in the sequence that draw NOTHING. A plain gutter authored at
-   * zero height composes no band at all, so it is not a gap on the page and
-   * counting it would make the declared mix disagree with what is read. It is
-   * reported rather than dropped, for the same reason `cutsWithoutImage` is:
-   * an episode whose transitions mostly vanish should not look like an episode
+   * zero height composes no band at all, so it is not a gap: a share of the
+   * gaps counting something with no extent is not the quantity the reference
+   * measured, which counted gaps it could see.
+   *
+   * That is the rule, and it holds on the REFERENCE column, which is the column
+   * the authored px mean something on and the one this is measured against. It
+   * does not make the mix agree with every render: a gutter authored at 1px on
+   * an 800px reference is a gap here and rounds away to nothing at `--width
+   * 300`, so that page shows one fewer gap than the mix counts. Sub-pixel
+   * gutters are the only case, and no column is the right one to privilege —
+   * the reference column at least does not move with the export.
+   *
+   * Reported rather than dropped, for the same reason `cutsWithoutImage` is: an
+   * episode whose transitions mostly vanish should not look like an episode
    * that has few of them.
    */
   undrawn: number;
@@ -767,10 +792,14 @@ export interface CraftBandProvenance {
  * — the report prints the kinds it covers.
  *
  * `share` is REQUIRED and `height` is not. A height range says how tall a gap of
- * these kinds runs WHEN ONE OCCURS; it says nothing when none does. So an entry
- * carrying a height range and no share range could be satisfied by using none of
- * its kinds at all, and requiring the share is what closes that: whether zero is
- * allowed is a question only a share range answers.
+ * these kinds runs WHEN ONE OCCURS and says nothing when none does, so an entry
+ * carrying only a height range grades nothing at all against an episode that
+ * uses none of its kinds. Requiring the share forces the band to STATE how
+ * often, so zero is an answer the band gave rather than one it never addressed.
+ *
+ * It forces a range, not a floor: `{ "max": 0.3 }` is a share range and is
+ * satisfied by zero of the kind. A band that means "this kind must appear"
+ * writes a minimum; this rule only guarantees there is somewhere it could have.
  */
 export interface TransitionVocabularyEntry {
   /** The transition kinds this entry covers, from `TRANSITION_TYPES`. */
@@ -829,11 +858,34 @@ export interface CraftRecordedMetric {
 
 /** One declared range of a vocabulary entry, measured and graded. */
 export interface TransitionRangeVerdict {
-  /** The measured figure, or null when there is nothing to measure. */
-  value: number | null;
+  /** The measured figure. */
+  value: number;
   min: number | null;
   max: number | null;
   inBand: boolean;
+}
+
+/**
+ * A declared height range with no gap of its kinds to measure.
+ *
+ * It carries NO `inBand` field, which is the same device `CraftRecordedMetric`
+ * uses: a reader diffing two reports cannot mistake "there was nothing to
+ * grade" for "it passed", because there is no verdict to read. The text report
+ * carried that distinction from the start and `--json` did not, so a consumer
+ * comparing reports read a `true` as a pass.
+ *
+ * A height range grades the gaps that occur, and whether zero of them is
+ * acceptable was already decided by `share`. That is why this is not the
+ * `hueBias` case, where a null value FAILS: a page with no colour at all is a
+ * degenerate page and the metric was measurable in principle, while using none
+ * of a kind is an ordinary authoring outcome another range already grades.
+ */
+export interface TransitionRangeUngraded {
+  value: null;
+  min: number | null;
+  max: number | null;
+  /** Always false. Present so the two shapes are told apart by a field, not by a type. */
+  graded: false;
 }
 
 /** One vocabulary entry's verdict: the kinds it covers, and what they did. */
@@ -844,17 +896,11 @@ export interface TransitionVocabularyVerdict {
   count: number;
   share: TransitionRangeVerdict;
   /**
-   * The height verdict, or null when the entry declares no height range.
-   *
-   * With a range declared and NO gap of these kinds drawn, `value` is null and
-   * `inBand` is true: a height range grades the gaps that occur, and whether
-   * zero of them is acceptable was already decided by `share`. This is the one
-   * place a null value does not fail, and it is not the `hueBias` case — there,
-   * a page with no colour at all is a degenerate page and the metric was
-   * measurable in principle; here, using none of a kind is an ordinary
-   * authoring outcome that the share range grades on its own.
+   * The height verdict: `null` when the entry declares no height range, and a
+   * `TransitionRangeUngraded` when it declares one that no gap can be measured
+   * against. Only the graded shape carries `inBand`.
    */
-  height: TransitionRangeVerdict | null;
+  height: TransitionRangeVerdict | TransitionRangeUngraded | null;
   inBand: boolean;
 }
 
@@ -1104,17 +1150,19 @@ function validateTransitionVocabulary(value: unknown, c: IssueCollector): void {
     return;
   }
   // One entry per kind at most, so the vocabulary cannot be longer than the
-  // vocabulary the core has.
+  // vocabulary the core has. Reported and then carried on: returning here would
+  // suppress every other diagnostic on the band, so one extra entry would hide
+  // an unknown kind name and a malformed range behind a length complaint.
   if (value.length > TRANSITION_TYPES.length) {
     c.add(
       path,
       "band.transitions.count",
       `a vocabulary may declare at most ${TRANSITION_TYPES.length} entries; this one declares ${value.length}.`,
     );
-    return;
   }
   const claimed = new Set<string>();
   let shareFloor = 0;
+  let shareCeiling = 0;
   for (let i = 0; i < value.length; i++) {
     const entry = value[i];
     const entryPath = joinPath(path, i);
@@ -1133,8 +1181,11 @@ function validateTransitionVocabulary(value: unknown, c: IssueCollector): void {
     } else {
       const sharePath = joinPath(entryPath, "share");
       validateBoundedRange(entry.share, sharePath, "band.transitions.share", 0, 1, "share", c);
-      if (isPlainObject(entry.share) && isFiniteNumber(entry.share.min)) {
-        shareFloor += entry.share.min as number;
+      if (isPlainObject(entry.share)) {
+        // An absent end does not bind, so it contributes the widest thing it
+        // could be: nothing to the floor, a whole episode to the ceiling.
+        shareFloor += isFiniteNumber(entry.share.min) ? (entry.share.min as number) : 0;
+        shareCeiling += isFiniteNumber(entry.share.max) ? (entry.share.max as number) : 1;
       }
     }
     if (entry.height !== undefined) {
@@ -1149,14 +1200,35 @@ function validateTransitionVocabulary(value: unknown, c: IssueCollector): void {
       );
     }
   }
-  // Shares are shares of one episode's gaps, so minimums that add past 1 cannot
-  // all be met at once. A band that no episode can pass is a defect in the band,
-  // and it is invisible entry by entry.
-  if (shareFloor > 1) {
+  // Shares are shares of ONE episode's gaps, so ranges that cannot add to 1
+  // describe an episode that does not exist. A band no episode can pass is a
+  // defect in the band, and it is invisible entry by entry.
+  //
+  // Both ends are compared at the precision the verdict is decided at.
+  // `compareToTransitionVocabulary` rounds a measured share to four places, and
+  // a floor summed in raw doubles does not: 0.197 + 0.687 + 0.116 is
+  // 1.0000000000000002, which would refuse a band an episode satisfies exactly
+  // — and refuse it with a message that rounds for display and so contradicts
+  // the test that produced it.
+  const floor = round(shareFloor, 4);
+  if (floor > 1) {
     c.add(
       path,
       "band.transitions.unsatisfiable",
-      `the declared share minimums add up to ${round(shareFloor, 4)}; no episode can be more than 1 of its own gaps.`,
+      `the declared share minimums add up to ${floor}; no episode can be more than 1 of its own gaps.`,
+    );
+  }
+  // The ceiling only decides anything when the entries between them claim EVERY
+  // kind: then every gap the episode can draw falls in some entry, the shares
+  // must add to exactly 1, and a set of maxima adding to less than 1 grades
+  // every episode out. With a kind left unclaimed the remainder has somewhere
+  // to go, and no sum of maxima is impossible.
+  const ceiling = round(shareCeiling, 4);
+  if (claimed.size === TRANSITION_TYPES.length && ceiling < 1) {
+    c.add(
+      path,
+      "band.transitions.unsatisfiable",
+      `these entries claim every transition kind, so their shares must add up to 1, and the declared maximums add up to only ${ceiling}.`,
     );
   }
 }
@@ -1436,27 +1508,30 @@ export function compareToTransitionVocabulary(
       max: entry.share.max ?? null,
       inBand: within(share, entry.share),
     };
-    let height: TransitionRangeVerdict | null = null;
+    let height: TransitionRangeVerdict | TransitionRangeUngraded | null = null;
     if (entry.height !== undefined) {
       // The median over the entry's kinds POOLED — the same figure the reference
       // read off a page, which never knew which of two card kinds it was looking
       // at. Taken over the per-kind medians instead it would weight a kind used
       // once exactly like a kind used thirty times.
       const heights = covered.flatMap((kind) => kind.heights);
-      const measured = heights.length === 0 ? null : median(heights);
-      height = {
-        value: measured,
-        min: entry.height.min ?? null,
-        max: entry.height.max ?? null,
-        inBand: measured === null || within(measured, entry.height),
-      };
+      const min = entry.height.min ?? null;
+      const max = entry.height.max ?? null;
+      if (heights.length === 0) {
+        height = { value: null, min, max, graded: false };
+      } else {
+        const measured = median(heights);
+        height = { value: measured, min, max, inBand: within(measured, entry.height) };
+      }
     }
     return {
       kinds: [...entry.kinds],
       count,
       share: shareVerdict,
       height,
-      inBand: shareVerdict.inBand && (height === null || height.inBand),
+      // An ungraded height carries no verdict, so it contributes none: the
+      // share range above has already graded whether zero gaps was allowed.
+      inBand: shareVerdict.inBand && (height === null || !("inBand" in height) || height.inBand),
     };
   });
 }
