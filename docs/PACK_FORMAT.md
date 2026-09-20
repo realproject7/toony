@@ -188,12 +188,28 @@ stop was above anything the strip could letter, so the bubble reported overflow
 whatever you did to its box, and the only way out was to pin a `fontSize`. The
 stop now comes off the width instead, capped at the default strip.
 
-So one thing renders differently from before: **a gutter bubble whose text did
-not fit at any size now fits, at a smaller one.** That is the bug this fixes, and
-it is the whole of what moves. A bubble that already fitted keeps the exact size
-it had — the auto-fit returns the largest size that fits and reads the stop only
-as a stop, so lowering the stop can only add candidates below a size that was
-already rejected — and nothing outside a gutter strip is touched at all.
+What moves is **gutter bubbles that were reporting overflow**, and only those.
+Two shapes of it:
+
+- a bubble whose text did not fit at any size now fits, at a smaller one — the
+  bug this exists to fix;
+- a bubble whose text still does not fit is now drawn at the new stop, which is
+  much smaller than the old one. On an 800x1600 cut with the default strip that
+  is 8.64px where it was 35.20px; on 1200x1275, 12.96px where it was 28.05px.
+  It is still flagged, so `toony lint` still tells you to fix it, but the
+  best-effort drawing under the warning is smaller than it used to be.
+
+A bubble that already fitted keeps the exact size it had: the auto-fit returns
+the largest size that fits and reads the stop only as a stop, so lowering the
+stop can only add candidates below a size that was already rejected. Nothing
+outside a gutter strip moves at all — measured over 210 composed cuts, 45
+differed and every one of them was a gutter bubble.
+
+Declaring a **different** strip width is a separate thing, and it moves more than
+the bubbles in the strip: the artwork rect is what is left over, so widening the
+strip narrows the art, and anything sized from the art moves with it — a
+full-width `impact_band` SFX most visibly. On an 800px cut, going from `0.18` to
+`0.40` takes the artwork from 656px to 480px.
 
 A wider strip buys room for a longer line, not larger minimum text: the stop
 does not climb as the strip grows. Below the default strip it scales down with
@@ -208,10 +224,14 @@ it. Two caveats worth knowing before you size a strip:
   height, or pin a `fontSize`.
 - **A single unbreakable token can behave oddly across widths.** The corner
   radius grows with the box and so with the strip, while the vertical padding
-  the arcs are measured from does not. Between roughly `0.10` and `0.18` a long
-  token that fits a narrower strip can stop fitting, and start again above that.
-  Wrappable prose does not hit this; a long unhyphenated word or an SFX-like run
-  of glyphs can.
+  the arcs are measured from does not, so there is a window where a token that
+  fits a narrower strip stops fitting and then fits again above it. Sweeping
+  realistic cut sizes and box heights, that window ran from about `0.06` to
+  about `0.25` — it can start well below the default strip and continue above
+  it — and every affected case fitted again by `0.30`. It takes a token of
+  roughly 16 to 24 glyphs; shorter ones always fit and longer ones never did.
+  Wrappable prose does not hit this at all; a long unhyphenated word or an
+  SFX-like run of glyphs can.
 
 A scaffold file is one episode's records:
 

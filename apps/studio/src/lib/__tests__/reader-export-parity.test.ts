@@ -127,10 +127,12 @@ function inkInFraction(
 }
 
 /**
- * The first and last raster columns carrying LETTERING: a pixel that is neither
- * the neutral paper the artwork rect is filled with nor the white margin a
- * reserved strip is filled with. Used to ask the raster where the bubble
- * actually landed, rather than only whether it stayed out of somewhere.
+ * The first and last raster columns carrying anything DRAWN: a pixel that is
+ * neither the neutral paper the artwork rect is filled with nor the white margin
+ * a reserved strip is filled with. For a narration bubble that is its caption
+ * plate as well as its glyphs, which is fine for what this is used for — asking
+ * the raster where the bubble landed — because the plate is centred on the same
+ * box as the text. It is NOT a glyph detector.
  */
 function letteringColumns(raster: Raster): { first: number; last: number } {
   let first = -1;
@@ -348,8 +350,11 @@ test("a gutter bubble's lettering lands WHERE the declared strip puts it", async
   // against the DEFAULT one puts the same text here instead — further right,
   // still inside the declared strip, so nothing crosses any edge and a
   // one-sided probe stays silent. That is the mutation this separation catches.
+  const authored = overlays[0]?.geometry;
+  assert.ok(authored, "the fixture must author a box for the guard below to use");
   const defaultBand = art.width * 0.18;
-  const defaultCentre = (art.width - defaultBand + defaultBand * (0.04 + 0.92 / 2)) * scale;
+  const defaultCentre =
+    (art.width - defaultBand + defaultBand * (authored.x + authored.width / 2)) * scale;
   assert.ok(
     defaultCentre - planCentre > 3 * 10,
     "the fixture no longer separates the declared strip from the default one",

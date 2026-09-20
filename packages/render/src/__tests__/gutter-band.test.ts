@@ -164,6 +164,21 @@ test("a gutter bubble's normalized geometry is a share of the strip at any width
   }
 });
 
+test("a degenerate canvas reserves no strip at all", () => {
+  // A zero-width rect is truthy, so reporting it as a band would have a consumer
+  // inset its artwork out of a margin that does not exist — where before the
+  // strip existed it drew full-bleed. On a zero-width cut there is no strip.
+  for (const side of ["left", "right"] as const) {
+    const frame = cutPlacementFrame([gutter({ placementSide: side })], 0, H);
+    assert.deepEqual(frame.bands, [], `${side}: a zero-width canvas reported a strip`);
+    assert.equal(frame.art.x, 0);
+    assert.ok(frame.art.width > 0, "the art rect must stay drawable");
+  }
+  // And a canvas with width still reserves one, so the guard is about zero and
+  // not about switching the feature off.
+  assert.equal(cutPlacementFrame([gutter()], W, H).bands.length, 1);
+});
+
 test("a width outside the declarable range still yields a drawable strip", () => {
   // `validateWebtoonValue` rejects these, but a caller can reach the layout
   // without it; a band wider than the column would make the art rect negative.

@@ -15,9 +15,10 @@
 // place of the artwork. The edit preview keeps the compact "No image yet" empty
 // state, because its text list already shows the author every bubble.
 
-import { ARTLESS_CUT_FILL, cutPlacementFrame, GUTTER_MARGIN_FILL } from "@toony/render";
+import { ARTLESS_CUT_FILL, GUTTER_MARGIN_FILL } from "@toony/render";
 import type { Cut, LetteringOverlay } from "@toony/schema";
 import Link from "next/link";
+import { resolveCutStage } from "@/lib/cut-stage";
 import type { CutArt } from "@/lib/project";
 import { CutOverlay } from "./cut-overlay";
 
@@ -70,21 +71,12 @@ export function CutCanvas({
   // gets the compact empty state, since the text list below carries the bubbles.
   const drawsStage = hasArt || readOnly === true;
   const aspectRatio = `${art.width} / ${art.height}`;
-  // Gutter placement (#98): reserve the strip(s) — the artwork occupies only the
-  // `art` rect (the band(s) become a white reading margin where gutter bubbles
-  // sit), using the SAME cut-frame the export canvas reserves → parity. With no
-  // gutter bubbles the art fills the whole stage (back-compat, unchanged).
-  const frame = cutPlacementFrame(bubbles, art.width, art.height, gutterBandWidth);
-  const reserved = frame.bands.length > 0;
-  const artStyle = reserved
-    ? {
-        position: "absolute" as const,
-        left: `${(frame.art.x / art.width) * 100}%`,
-        top: 0,
-        width: `${(frame.art.width / art.width) * 100}%`,
-        height: "100%",
-      }
-    : undefined;
+  // Gutter placement (#98/#215): reserve the strip(s) — the artwork occupies
+  // only the `art` rect (the band(s) become a white reading margin where gutter
+  // bubbles sit), at the width the PROJECT declares and via the SAME cut-frame
+  // the export canvas reserves → parity. With no gutter bubbles the art fills
+  // the whole stage (back-compat, unchanged).
+  const { reserved, artStyle } = resolveCutStage(bubbles, art.width, art.height, gutterBandWidth);
 
   return (
     <div className="cut-block" data-testid={`cut-${cut.id}`}>

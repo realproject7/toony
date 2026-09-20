@@ -9,17 +9,27 @@
 //
 // That failure is invisible to the test suite in one specific way: a consumer
 // that substitutes the DEFAULT still renders something plausible, and every
-// assertion about the default keeps passing. The studio is where it bites, and
-// `CutCanvas` is React, so a node test cannot drive the component's own call.
-// So this is checked at the source instead:
+// assertion about the default keeps passing. Where it bites hardest is the
+// studio, whose components a node test cannot execute: the studio's sources are
+// written for a bundler (extensionless relative imports, `@/` aliases, Next
+// subpath imports), none of which plain Node ESM resolves. The geometry those
+// components compute is therefore extracted into `@/lib/cut-stage` and tested
+// directly; what remains unexecutable is the call sites, and those are what this
+// checks:
 //
 //   1. A project-derived render input is never bound to a literal. Not
-//      `gutterBandWidth={0.18}`, not `dialogueLanguage: "en"` — the value comes
-//      from the project or from a variable that does.
-//   2. A studio or package source that calls `cutPlacementFrame` or `layoutCut`
-//      passes a gutter band width. Reserving the strip and lettering inside it
-//      are two halves of one number; a call that omits it silently takes the
-//      default for its half.
+//      `gutterBandWidth={0.18}`, not `dialogueLanguage: "en"`.
+//   2. A source that calls one of the render entry points below passes a gutter
+//      band width, and passes a REFERENCE to one — not `0.18`, not `undefined`,
+//      not an expression. Reserving the strip and lettering inside it are two
+//      halves of one number.
+//   3. The studio neither names the default nor hands the resolver a substitute.
+//
+// WHAT THIS IS: per-line and per-call TEXT matching. There is no dataflow
+// analysis, so a reference that is itself assigned a constant somewhere else, or
+// a value reaching a call through a spread, passes. It catches the reversion
+// shapes, not every possible one. Behaviour that CAN be executed belongs in a
+// test, not here.
 //
 // Per-line escape hatch, matching the other scanners:
 //   - Append `render-input-ignore: <reason>` to the line.
@@ -54,8 +64,17 @@ function literalBinding(name) {
   return new RegExp(`\\b${name}\\s*(?::|=)\\s*\\{?\\s*(?:-?\\d|["'\`])`);
 }
 
-/** Render entry points whose gutter band width must be supplied explicitly. */
-const BAND_CALLS = ["cutPlacementFrame", "layoutCut"];
+/**
+ * Render entry points that take the strip width. `cutPlacementFrame` and the
+ * studio's `resolveCutStage` take it as the 4th positional argument; `layoutCut`
+ * and `layoutBubble` take it on their options object.
+ */
+const BAND_CALLS = [
+  { name: "cutPlacementFrame", position: 4 },
+  { name: "resolveCutStage", position: 4 },
+  { name: "layoutCut", options: true },
+  { name: "layoutBubble", options: true },
+];
 
 /**
  * The studio must resolve the strip FROM the project, so naming the default in
@@ -67,6 +86,22 @@ const STUDIO_ONLY_BANNED = { pattern: /\bGUTTER_BAND_WIDTH_DEFAULT\b/, scope: /^
 /** The resolver has to be handed the project's field, not a substitute. */
 const RESOLVER = "resolveGutterBandWidth";
 
+/**
+ * A plain property reference — `gutterBandWidth`, `opts.gutterBandWidth`,
+ * `loaded.project.webtoon.gutterBandWidth`. Deliberately narrow: a literal, a
+ * call, and any arithmetic are all rejected, so `0.18`, `undefined` and
+ * `webtoon.gutterBandWidth * 0` cannot pass for the project's value.
+ */
+const PLAIN_REFERENCE = /^[A-Za-z_$][\w$]*(?:\s*\??\.\s*[A-Za-z_$][\w$]*)*$/;
+const NOT_A_VALUE = new Set(["undefined", "null", "NaN", "Infinity", "void"]);
+
+function isProjectReference(text) {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return false;
+  if (NOT_A_VALUE.has(trimmed.split(/[\s.?]/)[0] ?? "")) return false;
+  return PLAIN_REFERENCE.test(trimmed);
+}
+
 function listTrackedFiles() {
   return execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" })
     .split("\0")
@@ -74,24 +109,29 @@ function listTrackedFiles() {
 }
 
 /**
- * The source text of one call's argument list, from the `(` after `name` to its
- * matching `)`. Returns null when the call is not found past `from`.
+ * Every call of `name` in `content`, whitespace- and optional-call-tolerant:
+ * `name(`, `name (`, `name?.(`. Each entry carries the argument-list source and
+ * the index the name starts at.
  */
-function callArguments(content, name, from) {
-  const start = content.indexOf(`${name}(`, from);
-  if (start < 0) return null;
-  let depth = 0;
-  for (let i = start + name.length; i < content.length; i++) {
-    const ch = content[i];
-    if (ch === "(") depth++;
-    else if (ch === ")") {
-      depth--;
-      if (depth === 0) {
-        return { text: content.slice(start + name.length + 1, i), start, end: i };
+function findCalls(content, name) {
+  const pattern = new RegExp(`\\b${name}\\s*(?:\\?\\.\\s*)?\\(`, "g");
+  const calls = [];
+  for (let match = pattern.exec(content); match !== null; match = pattern.exec(content)) {
+    const open = match.index + match[0].length - 1;
+    let depth = 0;
+    for (let i = open; i < content.length; i++) {
+      const ch = content[i];
+      if (ch === "(") depth++;
+      else if (ch === ")") {
+        depth--;
+        if (depth === 0) {
+          calls.push({ start: match.index, text: content.slice(open + 1, i) });
+          break;
+        }
       }
     }
   }
-  return null;
+  return calls;
 }
 
 /** Split an argument list on TOP-LEVEL commas only. */
@@ -127,6 +167,32 @@ function isDeclaration(content, index) {
   return /\bfunction\s+$/.test(content.slice(Math.max(0, index - 40), index));
 }
 
+/**
+ * How an options object supplies the strip width: `"reference"` when it names it
+ * and gives it a project reference, `"spread"` when it forwards a whole options
+ * object by name (which this cannot see into), `"pinned"` when it names it and
+ * gives it something else, `"absent"` when it does not name it at all.
+ *
+ * Only a spread OF A REFERENCE counts: `{ ...opts }` may be carrying the width,
+ * but `{ ...(measure ? { measure } : {}) }` demonstrably is not, and treating
+ * every spread as a maybe let exactly that shape through.
+ */
+function optionsSupply(text) {
+  const entries = topLevelArgs(text.replace(/^\s*\{/, "").replace(/\}\s*$/, ""));
+  for (const entry of entries) {
+    const trimmed = entry.trim();
+    if (trimmed === "gutterBandWidth") return "reference"; // shorthand
+    if (trimmed.startsWith("gutterBandWidth")) {
+      const value = trimmed.slice("gutterBandWidth".length).replace(/^\s*:/, "");
+      return isProjectReference(value) ? "reference" : "pinned";
+    }
+  }
+  const forwards = entries.some(
+    (entry) => entry.trim().startsWith("...") && isProjectReference(entry.trim().slice(3)),
+  );
+  return forwards ? "spread" : "absent";
+}
+
 function scanFile(file) {
   const findings = [];
   let content;
@@ -136,6 +202,9 @@ function scanFile(file) {
     return findings;
   }
   const lines = content.split(/\r?\n/);
+  const ignored = (index) => (lines[lineOf(content, index) - 1] ?? "").includes(IGNORE_MARKER);
+  const add = (index, rule, detail) =>
+    findings.push({ file, line: lineOf(content, index), rule, detail });
 
   for (const input of PROJECT_INPUTS) {
     if (!input.scope.test(file)) continue;
@@ -170,48 +239,58 @@ function scanFile(file) {
   }
 
   // The resolver turns an absent field into the default, so handing it anything
-  // but the project's field is how the default gets in wearing a resolver's coat.
-  for (let from = 0; ; ) {
-    const found = callArguments(content, RESOLVER, from);
-    if (!found) break;
-    from = found.end + 1;
-    const line = lines[lineOf(content, found.start) - 1] ?? "";
-    if (line.includes(IGNORE_MARKER)) continue;
-    if (isDeclaration(content, found.start)) continue;
-    if (!found.text.includes("gutterBandWidth")) {
-      findings.push({
-        file,
-        line: lineOf(content, found.start),
-        rule: "resolver-input",
-        detail: `${RESOLVER}(…) is not being given the project's gutterBandWidth`,
-      });
+  // but the project's own field is how the default gets in wearing a resolver's
+  // coat — including an expression that merely mentions the field.
+  for (const call of findCalls(content, RESOLVER)) {
+    if (ignored(call.start) || isDeclaration(content, call.start)) continue;
+    const arg = topLevelArgs(call.text)[0] ?? "";
+    if (!isProjectReference(arg) || !/(^|\.)\s*gutterBandWidth$/.test(arg.trim())) {
+      add(
+        call.start,
+        "resolver-input",
+        `${RESOLVER}(${arg.trim()}) is not the project's gutterBandWidth`,
+      );
     }
   }
 
-  // A call that reserves the strip, or lays bubbles into it, must say which
-  // strip. `cutPlacementFrame(overlays, w, h)` and a `layoutCut` options object
-  // without the key both take the default for their half of the reservation.
+  // A call that reserves the strip, or lays bubbles into it, must say WHICH
+  // strip — and say it by reference. A call that omits it, or pins it, takes the
+  // default for its half of one reservation.
   for (const call of BAND_CALLS) {
-    let from = 0;
-    for (;;) {
-      const found = callArguments(content, call, from);
-      if (!found) break;
-      from = found.end + 1;
-      const line = lines[lineOf(content, found.start) - 1] ?? "";
-      if (line.includes(IGNORE_MARKER)) continue;
-      if (isDeclaration(content, found.start)) continue;
+    for (const found of findCalls(content, call.name)) {
+      if (ignored(found.start) || isDeclaration(content, found.start)) continue;
       const args = topLevelArgs(found.text);
-      const supplied =
-        call === "cutPlacementFrame"
-          ? args.length >= 4
-          : args.some((arg) => arg.includes("gutterBandWidth"));
-      if (!supplied) {
-        findings.push({
-          file,
-          line: lineOf(content, found.start),
-          rule: "band-width",
-          detail: `${call}(…) does not pass a gutter band width, so it takes the default`,
-        });
+      if (call.position) {
+        const arg = args[call.position - 1];
+        if (arg === undefined) {
+          add(
+            found.start,
+            "band-width",
+            `${call.name}(…) does not pass a gutter band width, so it takes the default`,
+          );
+        } else if (!isProjectReference(arg)) {
+          add(
+            found.start,
+            "band-width",
+            `${call.name}(…, ${arg.trim()}) pins the gutter band width instead of passing the project's`,
+          );
+        }
+        continue;
+      }
+      const options = args[3];
+      const supply = options === undefined ? "absent" : optionsSupply(options);
+      if (supply === "absent") {
+        add(
+          found.start,
+          "band-width",
+          `${call.name}(…) does not pass a gutter band width, so it takes the default`,
+        );
+      } else if (supply === "pinned") {
+        add(
+          found.start,
+          "band-width",
+          `${call.name}(…) pins the gutter band width instead of passing the project's`,
+        );
       }
     }
   }

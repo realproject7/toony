@@ -18,7 +18,6 @@
 // to the preview without writing.
 
 import {
-  cutPlacementFrame,
   IMPACT_BURST_FILL,
   IMPACT_BURST_STROKE,
   IMPACT_RAY_COLOR,
@@ -31,6 +30,7 @@ import Link from "next/link";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useBrowserMeasure } from "@/lib/browser-measure";
 import { clamp } from "@/lib/clamp";
+import { resolveCutStage } from "@/lib/cut-stage";
 import { persistWithGuard } from "@/lib/editor-save";
 import { newOverlay } from "@/lib/new-overlay";
 import { bubbleTextStyle } from "@/lib/overlay-text-style";
@@ -125,20 +125,10 @@ export function CutEditor({
   // artwork occupies only the `art` rect — the SAME cut-frame the preview and
   // export reserve — and gutter-aware overlay geometry sits over the inset art,
   // not full-bleed. With no gutter bubbles the art fills the stage (back-compat).
-  const frame = useMemo(
-    () => cutPlacementFrame(bubbles, width, height, gutterBandWidth),
+  const { reserved, artStyle } = useMemo(
+    () => resolveCutStage(bubbles, width, height, gutterBandWidth),
     [bubbles, width, height, gutterBandWidth],
   );
-  const reserved = frame.bands.length > 0;
-  const artStyle = reserved
-    ? {
-        position: "absolute" as const,
-        left: `${(frame.art.x / width) * 100}%`,
-        top: 0,
-        width: `${(frame.art.width / width) * 100}%`,
-        height: "100%",
-      }
-    : undefined;
   const selected = bubbles.find((b) => b.id === selectedId) ?? null;
   const selectedPlan = plans.find((plan) => plan.id === selectedId) ?? null;
 
