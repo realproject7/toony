@@ -135,13 +135,13 @@ What follows from that, and what a band author needs to know:
   `0.2734`. Do not treat any figure as a safe noise floor. Re-measure.
 - **Gutters do not count.** Only the middle row of a **panel** run is measured, so
   inter-panel space never contributes, whatever colour it is.
-- **The one case where this rule and the left-anchored one agree is a page
-  UNIFORM at both edges** — one value, the same at both ends, all the way to the
-  art. "The same colour" by eye is not that test. A page whose two edge pixels
-  differ by 7 levels is inside the ±10 tolerance and still reads differently
-  under the two rules: drawn that way, with the right margin easing off rather
-  than stopping, the same page measures `0.1983` left-anchored and `0.5767`
-  per-edge. A reviewer's gentler version of the same page moved by `0.09`.
+- **The two rules agree when each margin is a single constant colour and the
+  right one is within the tolerance of the left-most pixel.** That is the case
+  the reference captures were read under: art inset in one page background on
+  both sides. A margin that eases off rather than stopping reads differently
+  even when both edges look the same: a page whose edge pixels sit 7 levels
+  apart, inside the tolerance, measures `0.1983` left-anchored and `0.5767`
+  per edge.
 
 **The colour metrics do not use this rule.** `valueMean`, `valueSpread`,
 `saturationMean` and `hueBias` trim each sampled row through the **pre-#255**
