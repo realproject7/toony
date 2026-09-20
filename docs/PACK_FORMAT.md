@@ -313,7 +313,24 @@ Rules worth knowing before you author a whole episode of them:
   composes at that art's aspect, whatever it declares: nothing re-cuts an image
   to match a declaration made after it. Re-generate the cut
   (`toony generate --cut <id>`) to bind the new shape. Until then the page is the
-  page, and the declaration describes the next render of it.
+  page, and the declaration describes the next render of it — and `toony lint`
+  **blocks on it**, with a `cut/panel-aspect-mismatch` warning naming both
+  shapes. Warnings are blocking (exit 1, `"clean": false`), so an episode whose
+  declaration and art disagree does not pass until you re-generate the cut or
+  drop the declaration. Finding out no longer means measuring an export.
+- **A declared cut's BUBBLES are measured at the shape it declares.** Before its
+  art exists — which is every cut in a scaffold — the overflow check
+  (`lettering/overflow`) stages the cut at its `panelAspect` rather than at a
+  fixed portrait canvas, and the export raster and the studio reader stage it
+  there too. Bubble text that does not fit the panel your pack asks for is a lint
+  finding without a GPU round trip. A cut declaring nothing is staged exactly as
+  before.
+
+  The `craft/` checks are the exception, deliberately: line-wrap, line count and
+  the rest count wrapped lines on ONE fixed reference canvas for every cut in
+  every project (#154), so that a craft finding is reproducible and not a
+  property of one cut's shape. They read a declared 0.3 strip exactly as they
+  read a portrait cut.
 - **`--width` re-columns it; `--height` overrides it.** A pinned width becomes
   the column the shape is a multiple of. A pinned height replaces the shape for
   that run, and the run says on stderr which cuts it overrode. A column off the

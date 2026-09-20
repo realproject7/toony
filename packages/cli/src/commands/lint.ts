@@ -2,7 +2,8 @@
 // `@toony/lint` checks against a loaded project.
 //
 // All lint logic lives in `@toony/lint` (schema/sequence, image analysis,
-// bubble-text overflow via `@toony/render`, export-manifest completeness via
+// bubble-text overflow and declared-vs-rendered panel shape via `@toony/render`,
+// export-manifest completeness via
 // `@toony/export`'s manifest contract). This command loads the project from disk
 // via `@toony/project-io`, resolves cut images and export manifests, aggregates
 // findings, and reports them with agent-readable exit codes.
@@ -23,6 +24,7 @@ import {
   lintCharacterRefs,
   lintCraft,
   lintManifestCompleteness,
+  lintPanelShape,
   lintProjectSchema,
   type ManifestFileProbe,
   sortFindings,
@@ -143,9 +145,9 @@ async function lintEpisode(
     if (bytes) findings.push(...analyzeImageBuffer(bytes, cut.id));
   }
 
-  findings.push(
-    ...lintBubbleOverflow(bundle, (cutId) => images.get(cutId) ?? null, { gutterBandWidth }),
-  );
+  const imageFor = (cutId: string): Uint8Array | null => images.get(cutId) ?? null;
+  findings.push(...lintBubbleOverflow(bundle, imageFor, { gutterBandWidth }));
+  findings.push(...lintPanelShape(bundle, imageFor));
   findings.push(...(await lintEpisodeManifests(root, bundle.episode.id)));
   return findings;
 }

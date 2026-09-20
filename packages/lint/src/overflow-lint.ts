@@ -5,19 +5,26 @@
 // minimum font size. The render layout already exposes this as `overflow`, so
 // this module does not re-measure or re-lay-out text; it only attributes the
 // flag to a finding. Cut pixel dimensions come from the Phase-1 image header
-// reader when an image is present; a documented fallback size is used otherwise.
+// reader when an image is present; otherwise the cut is staged at the shape it
+// declares, and only a cut declaring nothing falls all the way to the documented
+// fallback size.
 
-import { layoutCut } from "@toony/render";
+import { cutHeightAt, layoutCut, resolveCutAspect } from "@toony/render";
 import type { EpisodeBundle } from "@toony/schema";
+import { type ResolveCutImage, readCutDimensions } from "./cut-image.js";
 import { type Finding, finding } from "./findings.js";
-import { readImageDimensions } from "./image/dimensions.js";
 import { REFERENCE_RENDER } from "./reference.js";
 
 /**
  * Fallback cut render size used when a cut has no image, or its image header is
- * unreadable. Overflow depends on the box-to-font ratio, and the minimum font
- * is derived from the render height, so a stable fallback keeps the lint
- * deterministic. The default approximates a typical portrait webtoon cut.
+ * unreadable, AND declares no shape of its own. Overflow depends on the
+ * box-to-font ratio, and the minimum font is derived from the render height, so
+ * a stable fallback keeps the lint deterministic. The default approximates a
+ * typical portrait webtoon cut.
+ *
+ * Its WIDTH is the column every art-less cut is staged at, declared or not — a
+ * cut's width belongs to the column it is read at, never to the cut (#217). Only
+ * the height moves, and only for a cut that declares a shape (#260).
  */
 export const DEFAULT_OVERFLOW_FALLBACK = REFERENCE_RENDER;
 
@@ -36,14 +43,17 @@ export interface OverflowLintOptions {
   gutterBandWidth?: number;
 }
 
-/** Resolve a cut's encoded image bytes, or null when no image is associated. */
-export type ResolveCutImage = (cutId: string) => Uint8Array | null;
-
 /**
  * Lint every cut's overlays for text overflow. For each cut, overlays are laid
- * out at the cut's real pixel size (from its image header) or the documented
- * fallback, and any overlay whose text overflows its box at the minimum font is
- * reported. Returns one warning finding per overflowing overlay.
+ * out at the cut's real pixel size (from its image header), else at the shape
+ * the cut declares, else at the documented fallback, and any overlay whose text
+ * overflows its box at the minimum font is reported. Returns one warning finding
+ * per overflowing overlay.
+ *
+ * Sizing an art-less cut at its DECLARED shape is the point of #260: every cut
+ * in a pack's genre scaffold is art-less, so a scaffold declaring a 0.3-of-a-
+ * width strip used to be measured on a tall portrait canvas and a bubble that
+ * cannot fit the panel the pack asks for passed.
  */
 export function lintBubbleOverflow(
   bundle: EpisodeBundle,
@@ -57,15 +67,19 @@ export function lintBubbleOverflow(
     const overlays = bundle.lettering.filter((overlay) => overlay.cutId === cut.id);
     if (overlays.length === 0) continue;
 
-    let width = fallback.width;
-    let height = fallback.height;
-    const bytes = resolveImage(cut.id);
-    if (bytes) {
-      const dims = readImageDimensions(bytes);
-      if (dims && dims.width > 0 && dims.height > 0) {
-        width = dims.width;
-        height = dims.height;
-      }
+    const dims = readCutDimensions(resolveImage(cut.id));
+    let width: number;
+    let height: number;
+    if (dims) {
+      width = dims.width;
+      height = dims.height;
+    } else {
+      width = fallback.width;
+      // No image is offered to the resolver because there is none in this
+      // branch: the answer is the declaration, else the fallback shape — which
+      // reproduces `fallback.height` exactly for a cut that declares nothing.
+      const shape = resolveCutAspect(cut.panelAspect, null, fallback.height / fallback.width);
+      height = cutHeightAt(width, shape.aspect);
     }
 
     for (const render of layoutCut(overlays, width, height, {

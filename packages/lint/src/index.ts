@@ -16,6 +16,7 @@ export {
   TRANSITION_HEIGHT_TOLERANCE_PX,
   TRANSITION_MONOTONY_RUN_MAX,
 } from "./craft-lint.js";
+export type { ResolveCutImage } from "./cut-image.js";
 export type { Finding, Severity } from "./findings.js";
 export { finding, isClean, sortFindings } from "./findings.js";
 export type { ImageAnalysisOptions } from "./image/analyze.js";
@@ -32,6 +33,7 @@ export type { ChannelCount, Raster } from "./image/raster.js";
 export { expectedByteLength, isRasterWellFormed, luma, lumaSamples } from "./image/raster.js";
 export type { ManifestFileProbe, ResolveManifestFile } from "./manifest-lint.js";
 export { lintManifestCompleteness } from "./manifest-lint.js";
-export type { OverflowLintOptions, ResolveCutImage } from "./overflow-lint.js";
+export type { OverflowLintOptions } from "./overflow-lint.js";
 export { DEFAULT_OVERFLOW_FALLBACK, lintBubbleOverflow } from "./overflow-lint.js";
+export { lintPanelShape, PANEL_ASPECT_TOLERANCE } from "./panel-shape-lint.js";
 export { lintProjectSchema } from "./schema-lint.js";

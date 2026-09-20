@@ -224,8 +224,13 @@ const SFX_TEXT_OUTLINE_FACTOR = 0.12;
 // 1.414 apart, and the fill had no studio counterpart at all.
 
 /**
- * Height/width ratio of the stage a cut gets when it has no usable image. The
- * export raster has shipped at this ratio, so it is the value both sides take.
+ * Height/width ratio of the stage a cut gets when it has no usable image AND
+ * declares no shape of its own. The export raster has shipped at this ratio, so
+ * it is the value both sides take.
+ *
+ * It is the LAST of the three answers in `./panel-shape.ts`, not the only one:
+ * a cut that declares `panelAspect` is staged at what it declares. Reach it
+ * through `resolveCutAspect`, or a declared shape is invisible again (#260).
  */
 export const FALLBACK_CUT_ASPECT = 1.4;
 

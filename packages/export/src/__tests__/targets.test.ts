@@ -205,3 +205,57 @@ test("an export reserves the gutter strip the project declares (#215)", async ()
     "declaring the default strip changed the exported bytes",
   );
 });
+
+// --- A declared panel shape reaches the raster targets (#260) ---------------
+
+/** A project whose art-less cuts declare `panelAspect`, with no images on disk. */
+async function declaredShapeProject(aspects: (number | undefined)[]): Promise<string> {
+  const base = await mkdtemp(join(tmpdir(), "toony-export-shape-"));
+  const root = join(base, "proj");
+  const project = buildInitialProject("Shape Sample");
+  const bundle = project.episodes[0];
+  if (!bundle) throw new Error("fixture missing episode");
+  bundle.cuts = bundle.cuts.map((cut, i) => {
+    const aspect = aspects[i];
+    return aspect === undefined ? cut : { ...cut, panelAspect: aspect };
+  });
+  await writeProject(root, project);
+  return root;
+}
+
+test("each exported cut is staged at the shape THAT cut declares (#260)", async () => {
+  // Per cut, not per project: the targets read the field off the cut record, so
+  // two cuts in one episode take two heights. A wiring that passed only the
+  // project's values down would export both at the fallback.
+  const root = await declaredShapeProject([0.3, 2.6]);
+  const out = await exportPlatform(root, "ep-001", { width: 400, format: "png" });
+  assert.deepEqual(
+    out.manifest.files.map((f) => f.height),
+    [Math.round(400 * 0.3), Math.round(400 * 2.6)],
+  );
+});
+
+test("a cut that declares nothing still exports at the fallback shape (#260)", async () => {
+  const root = await declaredShapeProject([undefined, undefined]);
+  const out = await exportPlatform(root, "ep-001", { width: 400, format: "png" });
+  assert.deepEqual(
+    out.manifest.files.map((f) => f.height),
+    [Math.round(400 * 1.4), Math.round(400 * 1.4)],
+  );
+});
+
+test("the stitched page is as much taller as the declarations make it (#260)", async () => {
+  // The stitched target composes the same cuts, so a page of declared shapes is
+  // a different LENGTH — which is what pacing means in a vertical scroll.
+  const shaped = await exportStitched(await declaredShapeProject([0.3, 2.6]), "ep-001", {
+    width: 400,
+  });
+  const flat = await exportStitched(await declaredShapeProject([undefined, undefined]), "ep-001", {
+    width: 400,
+  });
+  const band = (flat.manifest.files[0]?.height ?? 0) - 2 * Math.round(400 * 1.4);
+  assert.equal(
+    shaped.manifest.files[0]?.height,
+    Math.round(400 * 0.3) + Math.round(400 * 2.6) + band,
+  );
+});

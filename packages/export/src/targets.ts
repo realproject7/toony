@@ -113,11 +113,16 @@ async function loadEpisode(root: string, episodeId: string): Promise<LoadedEpiso
  * (#213); it declares how much column a gutter strip takes (#215). Both are the
  * same fields the studio preview reads, so an exported cut lands on the same
  * face, in the same strip, as what was read.
+ *
+ * The cut is passed too because one of the terms is not the project's: a cut
+ * declares its own panel shape (#237), and without it an art-less cut composes
+ * at the fallback whatever the pack asked for (#260).
  */
-function composeOptions(project: Project): ComposeCutOptions {
+function composeOptions(project: Project, cut: Cut): ComposeCutOptions {
   return {
     dialogueLanguage: project.webtoon.languages.dialogueLanguage,
     gutterBandWidth: project.webtoon.gutterBandWidth,
+    panelAspect: cut.panelAspect,
   };
 }
 
@@ -195,7 +200,12 @@ export async function exportPlatform(
   for (let i = 0; i < cuts.length; i++) {
     const cut = cuts[i] as Cut;
     const overlays = bundle.lettering.filter((o) => o.cutId === cut.id);
-    const composed = await composeCut(overlays, imageFor(cut.id), width, composeOptions(project));
+    const composed = await composeCut(
+      overlays,
+      imageFor(cut.id),
+      width,
+      composeOptions(project, cut),
+    );
     const bytes = encodeCanvas(composed.canvas, format, quality ?? undefined);
     const name = `${String(i + 1).padStart(3, "0")}.${ext(format)}`;
     await writeFileSafe(`${outAbs}/${name}`, bytes, "a platform image");
@@ -256,7 +266,7 @@ export async function stitchEpisode(
         overlays,
         imageFor(cut.id),
         renderWidth,
-        composeOptions(project),
+        composeOptions(project, cut),
       );
       bands.push({ canvas: composed.canvas, height: composed.height });
     } else {
@@ -350,7 +360,12 @@ export async function exportPlotlink(
   for (let i = 0; i < cuts.length; i++) {
     const cut = cuts[i] as Cut;
     const overlays = bundle.lettering.filter((o) => o.cutId === cut.id);
-    const composed = await composeCut(overlays, imageFor(cut.id), width, composeOptions(project));
+    const composed = await composeCut(
+      overlays,
+      imageFor(cut.id),
+      width,
+      composeOptions(project, cut),
+    );
     const fit = encodeWebpToFit(
       composed.canvas,
       PLOTLINK_MAX_BYTES,
