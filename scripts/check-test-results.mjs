@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Independent package identities and per-package floors. A successful command
 // is insufficient: every current test task must report a complete node:test run.
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
@@ -12,7 +12,9 @@ export function testPackages(root) {
   for (const directory of ["packages", "apps"]) {
     for (const entry of readdirSync(join(root, directory), { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
-      const pkg = JSON.parse(readFileSync(join(root, directory, entry.name, "package.json"), "utf8"));
+      const pkg = JSON.parse(
+        readFileSync(join(root, directory, entry.name, "package.json"), "utf8"),
+      );
       if (typeof pkg.scripts?.test === "string" && pkg.scripts.test.trim()) names.push(pkg.name);
     }
   }
@@ -65,7 +67,8 @@ export function checkTestResults(raw, names, baseline) {
   // Explicit node:test markers, independent of locale. POSIX [^[:alnum:]]
   // rejected Node 24's U+2139 in C.UTF-8 while accepting it in C (#282).
   for (const line of stripVTControlCharacters(raw).split(/\r?\n/)) {
-    const match = /^(.+):test:\s+(?:#|ℹ)\s+(tests|pass|fail|cancelled|skipped|todo)\s+(\d+)\s*$/.exec(line);
+    const match =
+      /^(.+):test:\s+(?:#|ℹ)\s+(tests|pass|fail|cancelled|skipped|todo)\s+(\d+)\s*$/.exec(line);
     if (!match) continue;
     const [, name, field, value] = match;
     if (!names.includes(name)) throw new Error(`unexpected test report: ${name}`);
@@ -85,12 +88,17 @@ export function checkTestResults(raw, names, baseline) {
     if (report.fail || report.cancelled || report.pass === 0) {
       throw new Error(`unsuccessful test run: ${name} (${JSON.stringify(report)})`);
     }
-    if (report.tests !== report.pass + report.fail + report.cancelled + report.skipped + report.todo) {
+    if (
+      report.tests !==
+      report.pass + report.fail + report.cancelled + report.skipped + report.todo
+    ) {
       throw new Error(`inconsistent test totals for ${name}`);
     }
     const minimum = floors.get(name) ?? 1;
     if (report.pass < minimum) {
-      throw new Error(`test reduction: ${name} passed ${report.pass}, baseline requires ${minimum}`);
+      throw new Error(
+        `test reduction: ${name} passed ${report.pass}, baseline requires ${minimum}`,
+      );
     }
     total += report.pass;
     lines.push(`  ${name}: ${report.pass} passed (floor ${minimum})`);

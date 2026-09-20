@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { createRequire } from "node:module";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { inspectTaskOutputs } from "../check-task-outputs.mjs";
@@ -28,7 +28,13 @@ function fixture(options, run) {
     writeFileSync(
       join(root, "tsconfig.json"),
       JSON.stringify({
-        compilerOptions: { outDir: "dist", lib: ["es5"], types: [], skipLibCheck: true, ...options },
+        compilerOptions: {
+          outDir: "dist",
+          lib: ["es5"],
+          types: [],
+          skipLibCheck: true,
+          ...options,
+        },
         include: ["src/*.ts"],
       }),
     );
@@ -71,7 +77,12 @@ const cases = [
   ["config noEmit", { noEmit: true }, [], []],
   ["outDir does not enable emit", { noEmit: true }, ["--outDir", "override"], []],
   ["explicit false enables emit", { noEmit: true }, ["--noEmit", "false"], ["dist/index.js"]],
-  ["explicit false and outDir", { noEmit: true }, ["--noEmit", "false", "--outDir", "override"], ["override/index.js"]],
+  [
+    "explicit false and outDir",
+    { noEmit: true },
+    ["--noEmit", "false", "--outDir", "override"],
+    ["override/index.js"],
+  ],
   ["default emit", {}, [], ["dist/index.js"]],
   ["bare noEmit disables emit", {}, ["--noEmit"], []],
   ["outDir overrides destination", {}, ["--outDir", "override"], ["override/index.js"]],
@@ -79,11 +90,13 @@ const cases = [
 
 for (const [name, options, flags, expected] of cases) {
   test(`pinned compiler disk output: ${name}`, () => {
-    fixture(options, (root) => {
+    fixture({ rootDir: "src", ...options }, (root) => {
       const args = ["-p", "tsconfig.json", ...flags];
       const result = compile(root, args);
       assert.equal(result.status, 0, result.stdout + result.stderr);
-      const emitted = files(root).filter((path) => !["src/index.ts", "tsconfig.json"].includes(path));
+      const emitted = files(root).filter(
+        (path) => !["src/index.ts", "tsconfig.json"].includes(path),
+      );
       assert.deepEqual(emitted, expected);
       const verdict = inspect(root, args);
       // The conflicting task is real checker input. A disk emit must be flagged;
@@ -102,7 +115,11 @@ for (const mode of ["incremental", "composite"]) {
   for (const [name, options, expected] of [
     ["no rootDir", {}, "dist/tsconfig.tsbuildinfo"],
     ["source rootDir", { rootDir: "src" }, "tsconfig.tsbuildinfo"],
-    ["explicit build info", { tsBuildInfoFile: "cache/custom.tsbuildinfo" }, "cache/custom.tsbuildinfo"],
+    [
+      "explicit build info",
+      { tsBuildInfoFile: "cache/custom.tsbuildinfo" },
+      "cache/custom.tsbuildinfo",
+    ],
   ]) {
     test(`noEmit ${mode} build information: ${name}`, () => {
       fixture({ noEmit: true, [mode]: true, ...options }, (root) => {
@@ -129,7 +146,9 @@ for (const args of [
       assert.notEqual(result.status, 0);
       assert.match(result.stdout + result.stderr, /TS5023/);
       assert.deepEqual(files(root), ["src/index.ts", "tsconfig.json"]);
-      assert.ok(inspect(root, args).findings.some((finding) => /unsupported inline/.test(finding.detail)));
+      assert.ok(
+        inspect(root, args).findings.some((finding) => /unsupported inline/.test(finding.detail)),
+      );
     });
   });
 }

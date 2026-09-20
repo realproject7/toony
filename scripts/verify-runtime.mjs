@@ -4,9 +4,13 @@ import { readFileSync, realpathSync } from "node:fs";
 const expectedManager = JSON.parse(readFileSync("package.json", "utf8")).packageManager;
 const actualManager = execFileSync("pnpm", ["--version"], { encoding: "utf8" }).trim();
 const child = JSON.parse(
-  execFileSync("pnpm", ["exec", "node", "-p", "JSON.stringify({version:process.version,execPath:process.execPath})"], {
-    encoding: "utf8",
-  }),
+  execFileSync(
+    "pnpm",
+    ["exec", "node", "-p", "JSON.stringify({version:process.version,execPath:process.execPath})"],
+    {
+      encoding: "utf8",
+    },
+  ),
 );
 console.log(`selected Node: ${process.version} (${process.execPath})`);
 console.log(`pnpm entry: ${process.argv[2]}; version: ${actualManager}`);
