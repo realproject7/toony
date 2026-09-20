@@ -10,7 +10,12 @@ import { resolveGutterBandWidth } from "@toony/schema";
 import { notFound } from "next/navigation";
 import { CutEditor } from "@/components/cut-editor";
 import { LoadError } from "@/components/load-error";
-import { findEpisodeBundle, loadWork, ProjectIoError, resolveCutArt } from "@/lib/project";
+import {
+  findEpisodeBundle,
+  loadWork,
+  ProjectIoError,
+  resolveCutReviewArtwork,
+} from "@/lib/project";
 import { resolveWork } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +45,7 @@ export default async function CutEditorPage({
   const cut = bundle.cuts.find((c) => c.id === targetCutId);
   if (!cut) notFound();
 
-  const art = await resolveCutArt(work.id, work.root, cut);
+  const { art, artworkRevision } = await resolveCutReviewArtwork(work.id, work.root, cut);
   const bubbles = bundle.lettering.filter((overlay) => overlay.cutId === cut.id);
 
   // Cut review is a narrow, independent write. Prompts, craft metadata, and
@@ -55,6 +60,7 @@ export default async function CutEditorPage({
       art={art}
       initialBubbles={bubbles}
       initialReviewStatus={cut.reviewStatus}
+      artworkRevision={artworkRevision}
       dialogueLanguage={loaded.project.webtoon.languages.dialogueLanguage}
       gutterBandWidth={resolveGutterBandWidth(loaded.project.webtoon.gutterBandWidth)}
     />

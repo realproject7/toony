@@ -60,6 +60,7 @@ export interface CutEditorProps {
   art: CutArt;
   initialBubbles: LetteringOverlay[];
   initialReviewStatus?: ReviewStatus;
+  artworkRevision: string;
   /**
    * The project's declared dialogue language (`languages.dialogueLanguage`). It
    * picks the default dialogue face (#213), so the editor lays out with the same
@@ -88,6 +89,7 @@ export function CutEditor({
   art,
   initialBubbles,
   initialReviewStatus,
+  artworkRevision,
   dialogueLanguage,
   gutterBandWidth,
 }: CutEditorProps) {
@@ -479,6 +481,7 @@ export function CutEditor({
             episodeId={episodeId}
             cutId={cutId}
             initialReviewStatus={initialReviewStatus}
+            artworkRevision={artworkRevision}
           />
           <div className="editor-toolbar">
             <button type="button" className="btn" onClick={addBubble} data-testid="editor-add">

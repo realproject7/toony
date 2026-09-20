@@ -11,6 +11,7 @@
 // read arbitrary files (#76). Read-only: it never writes, uploads, or publishes
 // — consistent with the local-first, account-free product boundary.
 
+import { createHash } from "node:crypto";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { extname, sep } from "node:path";
 import { resolveWorkAsset } from "@/lib/project";
@@ -59,6 +60,10 @@ export async function GET(request: Request): Promise<Response> {
     const info = await lstat(realTarget);
     if (!info.isFile()) return new Response("not a file", { status: 404 });
     const bytes = await readFile(realTarget);
+    const revision = searchParams.get("revision");
+    if (revision !== null && createHash("sha256").update(bytes).digest("hex") !== revision) {
+      return new Response("artwork changed; reload the editor", { status: 409 });
+    }
     return new Response(new Uint8Array(bytes), {
       status: 200,
       headers: {

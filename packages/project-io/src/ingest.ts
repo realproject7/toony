@@ -24,7 +24,7 @@ import {
   stripImageMetadata,
 } from "@toony/providers";
 import type { ImageAssetRef } from "@toony/schema";
-import { atomicWrite } from "./atomic.js";
+import { atomicWrite, atomicWriteAll } from "./atomic.js";
 import { ProjectIoError } from "./errors.js";
 import { encodeJson, encodeYaml } from "./format.js";
 import { cutsFile, episodeDir, transitionsFile } from "./paths.js";
@@ -250,15 +250,34 @@ export async function ingestImageAsset(
   const assetPath = `episodes/${target.episodeId}/${episodeRelative}`;
   const absolutePath = join(episodeDir(root, target.episodeId), episodeRelative);
 
+  // Reviewed artwork must be invalidated on disk BEFORE its bytes can change.
+  // Keep the old image references in that first write, so every interrupted
+  // window still points to an existing image. Unreviewed cuts keep the existing
+  // asset-first association order.
+  let reviewInvalidation: { original: string; draft: string } | undefined;
+
   // Locate and update the in-memory record before touching disk.
   if (target.kind === "cut") {
     const cut = bundle.cuts.find((c) => c.id === target.cutId);
     if (!cut) {
       throw new ProjectIoError(`cut not found: ${target.cutId}`, cutsFile(root, target.episodeId));
     }
-    // A replaced plate needs review again. This stays in memory until the asset
-    // has been accepted and written; failed production/import leaves disk alone.
+    const wasReviewed = cut.reviewStatus === "final" || cut.reviewStatus === "human-edited";
+    let original: string | undefined;
+    if (wasReviewed) {
+      try {
+        original = await readFile(cutsFile(root, target.episodeId), "utf8");
+      } catch {
+        throw new ProjectIoError(
+          "could not read the current cuts before replacing reviewed artwork.",
+          cutsFile(root, target.episodeId),
+        );
+      }
+    }
     cut.reviewStatus = "draft";
+    if (original !== undefined) {
+      reviewInvalidation = { original, draft: encodeYaml(bundle.cuts) };
+    }
     const prev: ImageAssetRef = cut.image ?? { clean: null, final: null };
     cut.image = {
       clean: target.slot === "clean" ? assetPath : prev.clean,
@@ -278,11 +297,47 @@ export async function ingestImageAsset(
   // Strip metadata so the asset is public-safe by construction, then write it.
   const stripped = stripImageMetadata(result.bytes, result.format);
   await mkdirSafe(dirname(absolutePath), "the asset directory");
-  await writeFileSafe(absolutePath, stripped, "the ingested asset");
+  if (reviewInvalidation !== undefined) {
+    const file = cutsFile(root, target.episodeId);
+    try {
+      // Stage BOTH files before either rename. An unwritable cuts directory
+      // therefore cannot replace the approved image first. Once commit begins,
+      // the cut becomes draft before the new image is installed, even on crash.
+      await atomicWriteAll([
+        { file, data: reviewInvalidation.draft },
+        { file: absolutePath, data: stripped },
+      ]);
+    } catch {
+      // The image rename is the last operation: any failure here means the
+      // original image is intact. Restore approval if invalidation committed.
+      // If restoration itself fails, the safe durable state remains draft over
+      // the ORIGINAL image; never an old approval over replacement bytes.
+      try {
+        if ((await readFile(file, "utf8")) !== reviewInvalidation.original) {
+          await atomicWrite(file, reviewInvalidation.original);
+        }
+      } catch {
+        throw new ProjectIoError(
+          "the image was not replaced, but the previous cut review could not be restored.",
+          file,
+        );
+      }
+      throw new ProjectIoError(
+        "could not replace the reviewed image; the original is unchanged.",
+        file,
+      );
+    }
+  } else {
+    await writeFileSafe(absolutePath, stripped, "the ingested asset");
+  }
 
-  // Persist the updated record file (deterministic YAML).
+  // Persist updated associations after the asset exists. For a same-path
+  // replacement the draft write already contains the complete final record.
   if (target.kind === "cut") {
-    await writeFileSafe(cutsFile(root, target.episodeId), encodeYaml(bundle.cuts), "the cuts file");
+    const data = encodeYaml(bundle.cuts);
+    if (data !== reviewInvalidation?.draft) {
+      await writeFileSafe(cutsFile(root, target.episodeId), data, "the cuts file");
+    }
   } else {
     await writeFileSafe(
       transitionsFile(root, target.episodeId),

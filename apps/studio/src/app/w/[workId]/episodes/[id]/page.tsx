@@ -11,8 +11,8 @@ import { notFound } from "next/navigation";
 import { CutCanvas } from "@/components/cut-canvas";
 import { LoadError } from "@/components/load-error";
 import { TransitionBlock } from "@/components/transition-block";
-import { cutReviewCounts } from "@/lib/cut-review";
 import {
+  cutReviewCounts,
   FALLBACK_ART,
   findEpisodeBundle,
   loadWork,

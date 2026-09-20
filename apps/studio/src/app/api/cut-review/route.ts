@@ -1,7 +1,8 @@
 // A narrow artwork review edit. Resolve every id against trusted records before
 // writing; never accept a cut snapshot or a filesystem path from the browser.
-import { isCutReviewPayload, saveCutReview } from "@/lib/cut-review";
+
 import { safeErrorMessage } from "@/lib/errors";
+import { isCutReviewPayload, saveCutReview } from "@/lib/project";
 import { resolveWork } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +16,10 @@ export async function POST(request: Request): Promise<Response> {
   }
   if (!isCutReviewPayload(payload)) {
     return Response.json(
-      { ok: false, error: "provide workId, episodeId, cutId, and a valid reviewStatus" },
+      {
+        ok: false,
+        error: "provide workId, episodeId, cutId, artworkRevision, and a valid reviewStatus",
+      },
       { status: 400 },
     );
   }
@@ -25,7 +29,7 @@ export async function POST(request: Request): Promise<Response> {
   }
   try {
     const result = await saveCutReview(work.root, payload);
-    return Response.json(result, { status: result.ok ? 200 : 400 });
+    return Response.json(result, { status: result.ok ? 200 : result.conflict ? 409 : 400 });
   } catch (cause) {
     return Response.json(
       { ok: false, error: safeErrorMessage(cause, "could not save the cut review") },

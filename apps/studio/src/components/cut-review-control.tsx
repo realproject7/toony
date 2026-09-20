@@ -9,11 +9,13 @@ export function CutReviewControl({
   episodeId,
   cutId,
   initialReviewStatus,
+  artworkRevision,
 }: {
   workId: string;
   episodeId: string;
   cutId: string;
   initialReviewStatus?: ReviewStatus;
+  artworkRevision: string;
 }) {
   const [status, setStatus] = useState(initialReviewStatus ?? "draft");
   const [saved, setSaved] = useState(initialReviewStatus ?? "draft");
@@ -27,7 +29,7 @@ export function CutReviewControl({
       const response = await fetch("/api/cut-review", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ workId, episodeId, cutId, reviewStatus: status }),
+        body: JSON.stringify({ workId, episodeId, cutId, reviewStatus: status, artworkRevision }),
       });
       const result = (await response.json()) as { ok?: boolean; error?: string };
       if (!response.ok || !result.ok) {

@@ -9,7 +9,8 @@
 // it here. This keeps the project-scoped routes (`/w/<id>/...`, issue #51) and
 // the write/asset APIs reading the same code.
 
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, normalize, resolve, sep } from "node:path";
 import { readImageDimensions } from "@toony/lint";
 import {
@@ -18,9 +19,17 @@ import {
   loadProject,
   ProjectIoError,
   summarizeEpisodes,
+  writeCuts,
 } from "@toony/project-io";
 import { cutHeightAt, FALLBACK_CUT_ASPECT, resolveCutAspect } from "@toony/render";
-import type { Cut, EpisodeBundle, LetteringOverlay, Transition } from "@toony/schema";
+import {
+  type Cut,
+  type EpisodeBundle,
+  type LetteringOverlay,
+  REVIEW_STATUSES,
+  type ReviewStatus,
+  type Transition,
+} from "@toony/schema";
 
 export type { EpisodeSummary, LoadedProject };
 export { ProjectIoError, summarizeEpisodes };
@@ -208,4 +217,116 @@ export async function resolveEpisodeRenderInputs(
   );
   const artByCut = new Map<string, CutArt>(artEntries);
   return { cutById, transitionById, bubblesByCut, artByCut };
+}
+
+// Artwork review: content identity, progress, and narrow persistence (#239).
+
+export interface CutReviewPayload {
+  workId: string;
+  episodeId: string;
+  cutId: string;
+  reviewStatus: ReviewStatus;
+  artworkRevision: string;
+}
+
+export function isCutReviewPayload(value: unknown): value is CutReviewPayload {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.workId === "string" &&
+    typeof v.episodeId === "string" &&
+    typeof v.cutId === "string" &&
+    typeof v.artworkRevision === "string" &&
+    /^[a-f0-9]{64}$/.test(v.artworkRevision) &&
+    REVIEW_STATUSES.some((status) => status === v.reviewStatus)
+  );
+}
+
+/** Read only assets the local asset route may serve, including its realpath guard. */
+async function readArtwork(root: string, path: string | null) {
+  const absolute = path === null ? null : resolveWorkAsset(root, path);
+  if (absolute === null) return { path, bytes: null, digest: null };
+  try {
+    const [realRoot, realTarget] = await Promise.all([realpath(root), realpath(absolute)]);
+    if (realTarget !== realRoot && !realTarget.startsWith(realRoot + sep)) {
+      return { path, bytes: null, digest: null };
+    }
+    const bytes = await readFile(realTarget);
+    return { path, bytes, digest: createHash("sha256").update(bytes).digest("hex") };
+  } catch {
+    return { path, bytes: null, digest: null };
+  }
+}
+
+async function artworkSnapshot(root: string, cut: Cut) {
+  const assets = await Promise.all([
+    readArtwork(root, cut.image?.clean ?? null),
+    readArtwork(root, cut.image?.final ?? null),
+  ]);
+  const revision = createHash("sha256")
+    .update(JSON.stringify(assets.map(({ path, digest }) => ({ path, digest }))))
+    .digest("hex");
+  return { revision, visible: assets[cut.image?.final ? 1 : 0] };
+}
+
+/**
+ * Bind the editor's review token and image URL to the same bytes. The asset
+ * route checks the URL's digest, so an intervening same-path replacement cannot
+ * silently display different artwork under the review token issued here.
+ */
+export async function resolveCutReviewArtwork(
+  workId: string,
+  root: string,
+  cut: Cut,
+): Promise<{ art: CutArt; artworkRevision: string }> {
+  const { revision, visible } = await artworkSnapshot(root, cut);
+  const fallback = await resolveCutArt(workId, root, { ...cut, image: null });
+  const url = assetUrl(workId, root, visible?.path ?? null);
+  if (!url || !visible?.bytes || !visible.digest) {
+    return { art: fallback, artworkRevision: revision };
+  }
+  const dimensions = readImageDimensions(visible.bytes);
+  return {
+    art: {
+      ...fallback,
+      ...(dimensions && dimensions.width > 0 && dimensions.height > 0 ? dimensions : {}),
+      src: `${url}&revision=${visible.digest}`,
+    },
+    artworkRevision: revision,
+  };
+}
+
+export function cutReviewCounts(cuts: readonly Cut[]): Record<ReviewStatus, number> {
+  const counts = { draft: 0, "human-edited": 0, final: 0 };
+  for (const cut of cuts) counts[cut.reviewStatus ?? "draft"] += 1;
+  return counts;
+}
+
+/**
+ * Apply only the review field to the current on-disk cuts. The browser never
+ * supplies cut records, so metadata edited since the page loaded is preserved.
+ * Lettering has its own file and save guard and is never part of this write.
+ */
+export async function saveCutReview(
+  root: string,
+  payload: CutReviewPayload,
+): Promise<{ ok: true } | { ok: false; error: string; conflict?: boolean }> {
+  const loaded = await loadProject(root);
+  const bundle = loaded.project.episodes.find((b) => b.episode.id === payload.episodeId);
+  if (!bundle) return { ok: false, error: `unknown episode "${payload.episodeId}"` };
+  const cut = bundle.cuts.find((c) => c.id === payload.cutId);
+  if (!cut) return { ok: false, error: `unknown cut "${payload.cutId}"` };
+  if ((await artworkSnapshot(root, cut)).revision !== payload.artworkRevision) {
+    return {
+      ok: false,
+      conflict: true,
+      error: "Artwork changed. Save any lettering edits, then reload before reviewing this cut.",
+    };
+  }
+  await writeCuts(
+    root,
+    bundle.episode.id,
+    bundle.cuts.map((c) => (c.id === cut.id ? { ...c, reviewStatus: payload.reviewStatus } : c)),
+  );
+  return { ok: true };
 }
