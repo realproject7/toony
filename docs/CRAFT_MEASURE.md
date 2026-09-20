@@ -518,15 +518,22 @@ the assumption, and it is not a small one: `Transition.color` and
 band into a different bucket than the one the band counts it in — a `void`
 filled `#ffffff`, or a `color_field` filled at a value any luminance rule reads
 as a void. `toony lint` reports that as **`craft/transition-appearance`**, an
-`info` finding naming both buckets; the grading here neither sees it nor is
-changed by it.
+`info` finding naming what the kind's default draws and what the authored fill
+draws; the grading here neither sees it nor is changed by it.
 
 | Bucket | Kinds, at their default fill |
 |---|---|
 | page background | `gutter`, `hard-cut`, `fade`, and `scene-break` while it carries no text |
 | void | `void`, `black_band`, and `beat`, `time-skip`, `title_card`, `narration_card`, `dialogue_card`, `time_card` while they carry no text |
-| color field | `color_field`, `palette_shift`, `desaturate_repeat` |
+| color field | `color_field`, `palette_shift` |
 | card | `beat`, `time-skip`, `scene-break`, `title_card`, `narration_card`, `dialogue_card`, `time_card` — once they carry text |
+| none of the four | `desaturate_repeat` |
+
+**`desaturate_repeat` is in no bucket, and that is an answer rather than a
+gap.** Its neutral grey default is over the void ceiling and under the
+colour-field saturation, so the reference's own rule puts it nowhere, and both
+shipped bands leave the kind unclaimed on exactly that ground. A band that
+claimed it would be claiming a bucket its pages never showed.
 
 **Seven kinds appear twice, and a table from kind to bucket cannot be written
 because of them.** The card and break treatments are the ones that DRAW the
@@ -534,23 +541,61 @@ transition's text, so what they read as depends on whether there is any: a
 text-bearing one is a card, and a text-less one is the bare ground it sits on —
 the dark card fill for six of them, the reading white for `scene-break`, which
 falls through to it. Both of this repo's own `examples/last-train` scene-breaks
-carry a label, so both are cards; a scene-break without one is not. The type
-LABEL a card treatment always draws does not count: it names the kind rather
-than carrying a line, and a dark rectangle with a small label on it is a void to
-anything reading the page.
+carry a label, so both are cards; a scene-break without one is not.
 
-Both boundaries between the three colour buckets are Rec. 709 luminance on
-0..255, the same coefficients as everything else here, and both are bounded by
-the core's own default fills rather than chosen: each default has to land in its
-own kind's bucket, which leaves `BAND_VOID_MAX_VALUE` a window of (17.6, 104.5)
-and `BAND_PAGE_BACKGROUND_MIN_VALUE` one of (149.4, 233.7]. Each constant sits
-at the round value nearest the middle of its window.
+Nothing a band draws for its own sake counts as carrying a line. `beat`,
+`time-skip` and `title_card` draw a small type LABEL with no detail at all, and
+it names the kind rather than carrying a line — a dark rectangle with a small
+label on it is a void to anything reading the page. The other four draw even
+less: a text-less `narration_card`, `dialogue_card` or `time_card` composes a
+single flat colour, and a text-less `scene-break` its divider and nothing else.
 
-Two things it does not see. A band's **`fade` overlay** is not read — it covers
-part of the band rather than filling it, and a fill and a fade that disagree
-pass. And a fill in a form the core cannot parse — a named CSS colour, a paint
-server — yields no bucket and no finding, because a colour nothing can measure
-is one nothing should make claims about.
+The text a card kind draws is its `detail`, which is `text`, then `sfx`, then
+`humanNote`, then `agentNote` — so a `beat` with only a production note on it is
+grouped as a card and one without it as a void. The renderer really does draw
+that note, so the grouping is faithful to the page rather than a quirk of this
+rule, but it does mean an annotation moves a bucket.
+
+**Two of the three boundaries are the reference analyzer's own, recorded
+verbatim** in the transition-vocabulary note in `packages/export/src/craft.ts`:
+*flat under luminance 60 is a void, flat over saturation 0.18 is a colour
+field*. `BAND_VOID_VALUE` and `BAND_COLOR_FIELD_SATURATION` are those two
+numbers and are not tunable here — moving one makes this classifier disagree
+with the measurement whose buckets it names, which is this ticket's own defect
+one level up. Value is Rec. 709 luminance on 0..255 and saturation is
+`(max - min) / max`, both the definitions `sampleColor` grades a page with, and
+the tests order them as the rule lists them: a dark saturated fill is a void
+before it is anything else.
+
+The third is not the reference's. Its rule says *flat and page-coloured is an
+empty gutter* and records no number for page-coloured, so
+`BAND_PAGE_BACKGROUND_MIN_VALUE` is chosen here — against the renderer's own
+defaults rather than freely. Every default has to land in the bucket its kind is
+grouped under, which leaves a window of (149.4, 233.7]: above `#9a958c`, which
+must stay unclassified, and at or below the fade treatment's default gradient,
+the **darkest** page ground the renderer draws (its ends average 233.7; the
+`#ffffff` of a plain gutter is the palest at 255 and constrains nothing). 190 is
+the round value nearest that window's middle.
+
+What it does not see, in full:
+
+- **A band's `fade` overlay.** It covers part of the band rather than filling
+  it, so a fill and a fade that disagree pass.
+- **A fill the core cannot parse** — a named CSS colour, a paint server. It
+  yields no bucket and no finding, because a colour nothing can measure is one
+  nothing should make claims about. A card kind carrying a line is a card before
+  any colour is read, so an unparseable fill on one still reads as a card.
+- **A transition the reading sequence never reaches.** Like the mix above, this
+  reads the sequence, so an orphan transition record is never classified.
+- **A transition that draws no band.** A zero-height plain gutter is counted
+  `undrawn` by the mix and graded against nothing, so no band counts it in any
+  bucket and there is nothing for a fill to contradict; the lint skips it
+  through the same `resolveBandHeight` the mix resolves it with.
+- **Anything but the band's fill.** Text colour, the scene-break divider and the
+  card label are not read.
+- **Whether the reference analyzer would agree in the cases it records no rule
+  for.** Its thresholds are not in this repository; the two numbers above are
+  quoted from a record of them, and the third is this side's own definition.
 
 #### `gutterMedian` and a gutter entry's height are different numbers
 

@@ -8,9 +8,12 @@
 //
 // See README.md for the full API contract and usage from SVG and canvas.
 
-// The one Rec. 709 luminance in the repo: the render core's own band-appearance
-// buckets and the craft measurement both read a colour with it, and two copies of
-// it would be two definitions of what a measured page value means.
+// Shared with `@toony/export`'s craft measurement: the render core's band
+// buckets name the very values that measurement grades, so two copies of the
+// formula would be two definitions of one measured page value. It is NOT the
+// only Rec. 709 luminance in the repository — `packages/cli/src/palette.ts`
+// keeps a third for the reason stated there, and `toony-cli` has no dependency
+// on this package to share one through.
 export { rec709Luminance } from "./contrast.js";
 export type {
   BalloonCommand,
@@ -72,6 +75,7 @@ export type {
   BandBackground,
   BandBackgroundSource,
   BandDivider,
+  BandReading,
   CardTextLayout,
   CardTextLine,
   PanelTextLayout,
@@ -82,11 +86,12 @@ export type {
   TransitionTreatment,
 } from "./transition.js";
 export {
+  BAND_COLOR_FIELD_SATURATION,
   BAND_FONT_ID,
   BAND_FONT_STACK,
   BAND_PAGE_BACKGROUND_MIN_VALUE,
   BAND_TEXT_MAX_WIDTH_FRAC,
-  BAND_VOID_MAX_VALUE,
+  BAND_VOID_VALUE,
   bandAppearanceLabel,
   declaredBandAppearance,
   defaultBandBackground,

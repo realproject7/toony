@@ -323,31 +323,51 @@ export function defaultBandBackground(type: TransitionType): BandBackground {
 export type BandAppearance = "page-background" | "void" | "color-field" | "card";
 
 /**
- * A band at or below this value reads as a void; at or above the page floor
- * below, as the page's own ground; between them, as a colour field. Both are
- * Rec. 709 luminance on 0..255 — `rec709Luminance`, the coefficients the craft
- * measurement and the reference captures were both read with, because a boundary
- * computed any other way cannot be compared with the reference's buckets.
+ * What a band reads as. THREE outcomes, and they are not the same claim:
  *
- * Neither number is picked freely. Every default fill the renderer draws has to
- * land in its own kind's bucket, and those defaults bound both windows:
- *
- *   - void ceiling: above the card default `#15110d` (17.6, the ground a
- *     text-less card kind draws) and below the darkest colour-field default
- *     `#5a6b7a` (104.5) — the window (17.6, 104.5).
- *   - page floor: above the lightest colour-field default `#9a958c` (149.4) and
- *     at or below the palest page ground the renderer draws, the fade
- *     treatment's default gradient (233.7 across its ends) — the window
- *     (149.4, 233.7].
- *
- * Each constant is the round value nearest the middle of its own window, so it
- * sits as far from every default as the defaults allow rather than as close to
- * one of them as some example demanded. The mapping test in
- * `__tests__/band-appearance.test.ts` pins every kind's default against them, so
- * a default fill that moves into another bucket fails there rather than silently
- * regrouping the kind.
+ *   - one of the four buckets;
+ *   - `"unclassified"`, a fill the reference's rule puts in NONE of them — a
+ *     mid-value band with too little colour in it to be a colour field. This is
+ *     an answer, not ignorance: #236's shipped bands leave `desaturate_repeat`
+ *     unclaimed for exactly this reason, and a band that claimed it would be
+ *     claiming a bucket its pages never showed;
+ *   - null, a fill the core cannot parse at all, which is ignorance.
  */
-export const BAND_VOID_MAX_VALUE = 60;
+export type BandReading = BandAppearance | "unclassified" | null;
+
+/**
+ * Below this value a band is a void, and over this saturation it is a colour
+ * field. Both numbers are the REFERENCE ANALYZER'S OWN, recorded verbatim in
+ * `@toony/export`'s transition-vocabulary note: "flat under luminance 60 is a
+ * void, flat over saturation 0.18 is a colour field". Neither is chosen here, so
+ * neither may be tuned here — moving one makes this classifier disagree with the
+ * measurement whose buckets it exists to name, which is this ticket's own defect
+ * one level up.
+ *
+ * Value is Rec. 709 luminance on 0..255 (`rec709Luminance`) and saturation is
+ * `(max - min) / max` on the same channels, both the definitions
+ * `@toony/export`'s `sampleColor` grades a page with.
+ */
+export const BAND_VOID_VALUE = 60;
+export const BAND_COLOR_FIELD_SATURATION = 0.18;
+
+/**
+ * At or above this value a band with too little colour to be a colour field is
+ * the page's own ground; below it, it is in no bucket at all.
+ *
+ * This one is NOT the reference's. Its rule says "flat and page-coloured is an
+ * empty gutter" and records no number for page-coloured, so a number has to be
+ * chosen here, and it is chosen against the renderer's own defaults rather than
+ * freely: every default fill has to land in the bucket its kind is grouped
+ * under, which leaves a window of (149.4, 233.7] — above `desaturate_repeat`'s
+ * `#9a958c`, which must stay unclassified, and at or below the fade treatment's
+ * default gradient, the DARKEST page ground the renderer draws (its two ends
+ * average 233.7; the `#ffffff` of a plain gutter is the palest at 255, and a
+ * palest bound would not constrain anything). 190 is the round value nearest
+ * that window's middle, 191.6, so it sits as far from both bounds as the
+ * defaults allow. `__tests__/band-appearance.test.ts` pins the window, the
+ * rounding, and the constant itself.
+ */
 export const BAND_PAGE_BACKGROUND_MIN_VALUE = 190;
 
 /**
@@ -357,30 +377,52 @@ export const BAND_PAGE_BACKGROUND_MIN_VALUE = 190;
  */
 const PAGE_GROUND: Rgb = { r: 255, g: 255, b: 255 };
 
-/** The value one fill reads at, or null for a colour the core cannot measure. */
-function fillValue(color: string): number | null {
-  const parsed = parseCssColor(color);
-  if (parsed === null) return null;
-  const opaque = parsed.a >= 1 ? parsed : compositeOver(parsed, PAGE_GROUND);
-  return rec709Luminance(opaque.r, opaque.g, opaque.b);
+/** What one fill reads at, on the two axes the reference's rule uses. */
+interface FillReading {
+  value: number;
+  saturation: number;
 }
 
 /**
- * The value a whole band reads at. A gradient is its two ends averaged: the band
- * is one region of page and the reader sees all of it, so neither end alone is
- * what it reads as.
+ * One fill's reading, or null for a colour the core cannot measure.
+ *
+ * The value is rounded to the four decimals `@toony/export` reports every craft
+ * number at, and that rounding is load bearing at a boundary rather than
+ * cosmetic: the three coefficients sum to one, so a grey of 190 should read at
+ * exactly the page floor, and in binary floating point it reads at
+ * 189.99999999999997 and falls on the wrong side of it.
+ */
+function fillReading(color: string): FillReading | null {
+  const parsed = parseCssColor(color);
+  if (parsed === null) return null;
+  const opaque = parsed.a >= 1 ? parsed : compositeOver(parsed, PAGE_GROUND);
+  const max = Math.max(opaque.r, opaque.g, opaque.b);
+  const min = Math.min(opaque.r, opaque.g, opaque.b);
+  return {
+    value: Math.round(rec709Luminance(opaque.r, opaque.g, opaque.b) * 1e4) / 1e4,
+    saturation: max === 0 ? 0 : (max - min) / max,
+  };
+}
+
+/**
+ * What a whole band reads at. A gradient is its two ends averaged on both axes:
+ * the band is one region of page and the reader sees all of it, so neither end
+ * alone is what it reads as.
  *
  * The `fade` OVERLAY (`Transition.fade`) is deliberately NOT folded in. It is a
  * blend over part of the band rather than the band's fill, and covering a share
  * of the band with another colour is a question about geometry this has no
  * height to answer. A band whose fill and fade disagree is invisible here.
  */
-function bandValue(background: BandBackground): number | null {
-  if (background.kind === "solid") return fillValue(background.color);
-  const from = fillValue(background.gradient.from);
-  const to = fillValue(background.gradient.to);
+function bandReading(background: BandBackground): FillReading | null {
+  if (background.kind === "solid") return fillReading(background.color);
+  const from = fillReading(background.gradient.from);
+  const to = fillReading(background.gradient.to);
   if (from === null || to === null) return null;
-  return (from + to) / 2;
+  return {
+    value: (from.value + to.value) / 2,
+    saturation: (from.saturation + to.saturation) / 2,
+  };
 }
 
 /**
@@ -388,21 +430,31 @@ function bandValue(background: BandBackground): number | null {
  * break treatments do: a `color_field` or a `void` carrying a note renders the
  * same bare field it would without one.
  *
- * The type LABEL a card treatment always draws does not count. It is chrome
- * naming the kind, not the line the panel exists to carry, and a page classifier
- * reading a dark rectangle with a small label on it is reading a void.
+ * `detail` is `text ?? sfx ?? humanNote ?? agentNote`, so an annotated card
+ * kind reads as a card where an unannotated one does not. That is faithful
+ * rather than a quirk of this rule — the renderer really does draw the note —
+ * but it means a production note changes which bucket a band counts the
+ * transition in.
+ *
+ * `beat`, `time-skip` and `title_card` also draw a small type LABEL with no
+ * detail at all, and it does not count: it names the kind rather than carrying a
+ * line, and a page classifier reading a dark rectangle with a small label on it
+ * is reading a void. The other four card and break kinds do not even draw that —
+ * a text-less `narration_card`, `dialogue_card` or `time_card` composes a single
+ * flat colour, and a text-less `scene-break` its divider and nothing else.
  */
 function carriesWords(render: Pick<TransitionRender, "treatment" | "detail">): boolean {
   return (render.treatment === "card" || render.treatment === "break") && render.detail !== null;
 }
 
-function appearanceOf(background: BandBackground, words: boolean): BandAppearance | null {
+function appearanceOf(background: BandBackground, words: boolean): BandReading {
   if (words) return "card";
-  const value = bandValue(background);
-  if (value === null) return null;
-  if (value <= BAND_VOID_MAX_VALUE) return "void";
-  if (value >= BAND_PAGE_BACKGROUND_MIN_VALUE) return "page-background";
-  return "color-field";
+  const read = bandReading(background);
+  if (read === null) return null;
+  if (read.value < BAND_VOID_VALUE) return "void";
+  if (read.saturation > BAND_COLOR_FIELD_SATURATION) return "color-field";
+  if (read.value >= BAND_PAGE_BACKGROUND_MIN_VALUE) return "page-background";
+  return "unclassified";
 }
 
 /**
@@ -423,27 +475,33 @@ function appearanceOf(background: BandBackground, words: boolean): BandAppearanc
  * falls through to the reading white. Every other kind's bucket is the same
  * whatever it carries, because its treatment draws no text at all.
  *
- * Null for a default the core cannot measure, which no shipped kind has.
+ * `desaturate_repeat` is `"unclassified"`: its neutral grey default is over the
+ * void ceiling and under the colour-field saturation, so the reference's rule
+ * puts it in no bucket, and #236's shipped bands leave it unclaimed on exactly
+ * that ground. Never null — every default is measurable.
  */
-export function declaredBandAppearance(render: TransitionRender): BandAppearance | null {
+export function declaredBandAppearance(render: TransitionRender): BandReading {
   return appearanceOf(defaultBandBackground(render.type), carriesWords(render));
 }
 
 /**
  * The bucket the transition's AUTHORED appearance actually draws: the resolved
- * background, not the kind's default. Null when the resolved fill is a colour
- * the core cannot parse — a colour it cannot measure is one it must not make
- * claims about.
+ * background, not the kind's default.
+ *
+ * Null ONLY when the fill is one the core cannot parse AND the band's bucket
+ * turns on that fill — a card kind carrying a line is a card before any colour
+ * is read, so an unparseable colour on one still reads `card`.
  */
-export function drawnBandAppearance(render: TransitionRender): BandAppearance | null {
+export function drawnBandAppearance(render: TransitionRender): BandReading {
   return appearanceOf(resolveBandBackground(render), carriesWords(render));
 }
 
-/** How a bucket is written in a report, so every consumer words it once. */
-export function bandAppearanceLabel(appearance: BandAppearance): string {
-  if (appearance === "page-background") return "page background";
-  if (appearance === "color-field") return "color field";
-  return appearance;
+/** How a reading is written in a report, so every consumer words it once. */
+export function bandAppearanceLabel(reading: BandAppearance | "unclassified"): string {
+  if (reading === "page-background") return "page background";
+  if (reading === "color-field") return "color field";
+  if (reading === "unclassified") return "none of the four buckets";
+  return reading;
 }
 
 // --- Reference-column scaling (#217) ----------------------------------------

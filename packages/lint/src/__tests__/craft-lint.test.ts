@@ -2,6 +2,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { measureTransitionMix } from "@toony/export";
 import type {
   BubbleGeometry,
   Character,
@@ -435,6 +436,70 @@ test("craft/transition-appearance flags an authored fill in another bucket (info
     ).length,
     1,
   );
+});
+
+test("craft/transition-appearance reads the channels in Rec. 709 order (#267)", () => {
+  // Every other fixture in this file is grey, near-grey, white, black or
+  // symmetric in r/b, and a transposed channel order survives all of them. A
+  // saturated red is well over the void ceiling and the same shape in blue is
+  // well under it, so each produces a finding the transposition silences.
+  const red = appearance(panelBundle([{ type: "void", gutterHeight: 300, color: "#ff2000" }]));
+  assert.equal(red.length, 1);
+  assert.match(red[0]?.message ?? "", /authored fill draws color field/);
+  const blue = appearance(
+    panelBundle([{ type: "color_field", gutterHeight: 300, color: "#0020ff" }]),
+  );
+  assert.equal(blue.length, 1);
+  assert.match(blue[0]?.message ?? "", /authored fill draws void/);
+});
+
+test("craft/transition-appearance reports a fill in none of the four buckets (#267)", () => {
+  // A neutral mid-value band is over the void ceiling and under the colour-field
+  // saturation, so the reference's rule puts it in no bucket at all — which a
+  // band cannot count as a colour field either.
+  const found = appearance(
+    panelBundle([{ type: "color_field", gutterHeight: 300, color: "#9a958c" }]),
+  );
+  assert.equal(found.length, 1);
+  assert.match(found[0]?.message ?? "", /authored fill draws none of the four buckets/);
+});
+
+test("craft/transition-appearance skips a transition that draws no band (#267)", () => {
+  // `measureTransitionMix` counts a zero-height gutter as `undrawn` and grades
+  // it against nothing, so no craft band counts it as anything and there is no
+  // grouping for a fill to contradict. Claiming one would be false.
+  assert.deepEqual(
+    appearance(panelBundle([{ type: "gutter", gutterHeight: 0, color: "#000000" }])),
+    [],
+  );
+  assert.deepEqual(
+    appearance(panelBundle([{ type: "fade", gutterHeight: 0, color: "#000000" }])),
+    [],
+  );
+  // One drawn pixel of band is a gap, and is checked.
+  assert.equal(
+    appearance(panelBundle([{ type: "gutter", gutterHeight: 1, color: "#000000" }])).length,
+    1,
+  );
+  // A kind with the legibility floor draws a band at ANY authored height, so a
+  // zero-height one of those is still checked.
+  assert.equal(
+    appearance(panelBundle([{ type: "void", gutterHeight: 0, color: "#ffffff" }])).length,
+    1,
+  );
+  // The two instruments, checked against each other on the same fixtures rather
+  // than each against its own idea of the rule: what this lint skips is exactly
+  // what the measurement counts as `undrawn`, and what it checks is exactly what
+  // the measurement counts as a gap. The reference column is the caller's, so
+  // both answers are asserted at two of them.
+  for (const width of [800, 1600]) {
+    const undrawn = panelBundle([{ type: "gutter", gutterHeight: 0, color: "#000000" }]);
+    assert.deepEqual(measureTransitionMix(undrawn, width), { gaps: 0, undrawn: 1, kinds: [] });
+    assert.deepEqual(appearance(undrawn), [], `width ${width}: skipped`);
+    const drawn = panelBundle([{ type: "gutter", gutterHeight: 1, color: "#000000" }]);
+    assert.equal(measureTransitionMix(drawn, width).gaps, 1);
+    assert.equal(appearance(drawn).length, 1, `width ${width}: checked`);
+  }
 });
 
 test("craft/transition-appearance is silent on every kind with no override (#267)", () => {

@@ -420,8 +420,9 @@ puts several kinds together is asserting they fall in the same one of the four
 buckets the reference was measured in, and which bucket a kind falls in is
 [written down once](./CRAFT_MEASURE.md#which-bucket-a-kind-belongs-in-and-what-that-rests-on-267)
 — including the seven kinds that change bucket depending on whether they carry
-text, and the `craft/transition-appearance` finding for a transition whose
-authored fill draws a different bucket than its kind.
+text, the one kind the reference's rule puts in no bucket at all, and the
+`craft/transition-appearance` finding for a transition whose authored fill draws
+a different bucket than its kind.
 
 **A pack selects kinds; it never adds one.** Every name in `kinds` must be one of
 the core's transition types, and a name the core does not have is a rejection.

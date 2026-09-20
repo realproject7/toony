@@ -9,6 +9,7 @@ import {
   drawnBandAppearance,
   layoutBubble,
   layoutTransition,
+  resolveBandHeight,
 } from "@toony/render";
 import {
   type Character,
@@ -325,7 +326,17 @@ export function lintCraft(
   // band's grouping, which is a note to whoever grades the pack, not a defect in
   // the episode. Nothing here reads the `fade` overlay, so a fill and a fade that
   // disagree pass — see `drawnBandAppearance`.
+  //
+  // A transition that draws NO band is skipped, by `measureTransitionMix`'s own
+  // rule rather than a second one: it resolves the same drawn height through the
+  // same `resolveBandHeight`, and a band of no height is counted as `undrawn` and
+  // graded against nothing. Saying a craft band counts such a transition as
+  // anything would be false — no band counts it at all. The height is resolved at
+  // a 1:1 column scale, which is what makes the answer the project's own: a
+  // column ratio of one leaves the authored height untouched, so whether a band
+  // is drawn does not depend on the width this lint happens to pick.
   for (const { id, plan } of orderedTransitions) {
+    if (resolveBandHeight(plan, REFERENCE.width, REFERENCE.width) <= 0) continue;
     const declared = declaredBandAppearance(plan);
     const drawn = drawnBandAppearance(plan);
     if (declared === null || drawn === null || declared === drawn) continue;
