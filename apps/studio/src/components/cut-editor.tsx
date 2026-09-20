@@ -24,7 +24,7 @@ import {
   kindSupportsTail,
   layoutCut,
 } from "@toony/render";
-import { LETTERING_STYLE_DEFAULTS, type LetteringOverlay } from "@toony/schema";
+import { LETTERING_STYLE_DEFAULTS, type LetteringOverlay, type ReviewStatus } from "@toony/schema";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -36,6 +36,7 @@ import { newOverlay } from "@/lib/new-overlay";
 import { bubbleTextStyle } from "@/lib/overlay-text-style";
 import type { CutArt } from "@/lib/project";
 import { svgLetterSpacing, svgTextAnchor } from "@/lib/text-anchor";
+import { CutReviewControl } from "./cut-review-control";
 
 // The pro-lettering inspector (typography/color/styling/arrangement) and its
 // lightweight color picker are editor-only. Lazy-load them as a separate chunk
@@ -58,6 +59,7 @@ export interface CutEditorProps {
   cutId: string;
   art: CutArt;
   initialBubbles: LetteringOverlay[];
+  initialReviewStatus?: ReviewStatus;
   /**
    * The project's declared dialogue language (`languages.dialogueLanguage`). It
    * picks the default dialogue face (#213), so the editor lays out with the same
@@ -85,6 +87,7 @@ export function CutEditor({
   cutId,
   art,
   initialBubbles,
+  initialReviewStatus,
   dialogueLanguage,
   gutterBandWidth,
 }: CutEditorProps) {
@@ -471,6 +474,12 @@ export function CutEditor({
 
       <div className="editor-layout">
         <div className="editor-stage-wrap">
+          <CutReviewControl
+            workId={workId}
+            episodeId={episodeId}
+            cutId={cutId}
+            initialReviewStatus={initialReviewStatus}
+          />
           <div className="editor-toolbar">
             <button type="button" className="btn" onClick={addBubble} data-testid="editor-add">
               + Add bubble

@@ -81,7 +81,7 @@ import {
   resolveComfyUIConfig,
   type ToonyWorkspaceComfyConfig,
 } from "@toony/providers";
-import type { Character, Cut, EpisodeBundle } from "@toony/schema";
+import { type Character, type Cut, type EpisodeBundle, REVIEW_STATUSES } from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 import { authoredValueLines, partitionIssues } from "../generate-gate.js";
 import { discoverPackContent } from "../packs.js";
@@ -115,6 +115,7 @@ const VALUE_FLAGS = new Set([
   "--height",
   "--seed",
   "--workflow",
+  "--review-status",
 ]);
 /** `--cut` repeats so one run covers a whole episode (#204). */
 const LIST_FLAGS = new Set(["--cut"]);
@@ -147,7 +148,7 @@ function parseFlags(args: string[]): Flags | { error: string } {
 }
 
 const USAGE =
-  "usage: toony generate [path] --episode <id> (--cut <id> [--cut <id> ...] [--slot clean|final] | --transition <id>) --prompt <text> [--negative <text>] [--width <px>] [--height <px>] [--seed <n>] [--workflow <name>] [--provider comfyui] [--allow-remote]";
+  "usage: toony generate [path] --episode <id> ([--cut <id> ...] --review-status draft|human-edited|final | --cut <id> [--cut <id> ...] | --transition <id>) [--slot clean|final] --prompt <text> [--negative <text>] [--width <px>] [--height <px>] [--seed <n>] [--workflow <name>] [--provider comfyui] [--allow-remote]";
 
 function parsePositiveInt(raw: string, name: string): number | { error: string } {
   const n = Number(raw);
@@ -877,7 +878,9 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   const episodeId = parsed.values.get("--episode");
   // Repeats are collapsed in first-seen order: a duplicated id would otherwise
   // spend GPU minutes overwriting the cut it just produced.
-  const cutIds = [...new Set(parsed.lists.get("--cut") ?? [])];
+  let cutIds = [...new Set(parsed.lists.get("--cut") ?? [])];
+  const reviewStatusFlag = parsed.values.get("--review-status");
+  const reviewStatus = REVIEW_STATUSES.find((status) => status === reviewStatusFlag);
   const transitionId = parsed.values.get("--transition");
   const slot = parsed.values.get("--slot") ?? "clean";
   const providerId = parsed.values.get("--provider") ?? "comfyui";
@@ -889,8 +892,12 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     io.err(USAGE);
     return EXIT_USAGE;
   }
-  if ((cutIds.length === 0) === (transitionId === undefined)) {
-    io.err("specify one or more --cut <id>, or exactly one --transition <id>");
+  if (reviewStatusFlag !== undefined && reviewStatus === undefined) {
+    io.err(`--review-status must be one of: ${REVIEW_STATUSES.join(", ")}`);
+    return EXIT_USAGE;
+  }
+  if ((cutIds.length === 0 && reviewStatus === undefined) === (transitionId === undefined)) {
+    io.err("specify --cut <id>, --review-status <status>, or exactly one --transition <id>");
     io.err(USAGE);
     return EXIT_USAGE;
   }
@@ -981,6 +988,31 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
         'nothing was generated: "toony generate" does not generate from a project that does not validate. Fix the issue(s) above and re-run.',
       );
       return EXIT_VALIDATION;
+    }
+  }
+
+  // Filter only after the project's validation gate. A status alone selects the
+  // episode; explicit cut ids narrow that scope. Unknown ids must not disappear
+  // silently into an empty match. No match is a successful, provider-free no-op.
+  if (reviewStatus !== undefined) {
+    const bundle = loaded.project.episodes.find((b) => b.episode.id === episodeId);
+    if (!bundle) {
+      io.err(`episode not found: ${episodeId}`);
+      return EXIT_USAGE;
+    }
+    const byId = new Map(bundle.cuts.map((cut) => [cut.id, cut]));
+    for (const id of cutIds) {
+      if (!byId.has(id)) {
+        io.err(`cut not found: ${id}`);
+        return EXIT_USAGE;
+      }
+    }
+    cutIds = (cutIds.length > 0 ? cutIds : bundle.cuts.map((cut) => cut.id)).filter(
+      (id) => (byId.get(id)?.reviewStatus ?? "draft") === reviewStatus,
+    );
+    if (cutIds.length === 0) {
+      io.out(`No cuts with review status "${reviewStatus}" in episode ${episodeId}.`);
+      return EXIT_OK;
     }
   }
 

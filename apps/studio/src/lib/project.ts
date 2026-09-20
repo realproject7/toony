@@ -37,6 +37,7 @@ export type EpisodeStatus = "invalid" | "draft" | "in-progress" | "lettered";
 export interface EpisodeOverview extends EpisodeSummary {
   status: EpisodeStatus;
   letteringCount: number;
+  finalCutCount: number;
 }
 
 /**
@@ -68,6 +69,7 @@ export function overviewEpisodes(loaded: LoadedProject): EpisodeOverview[] {
       cutCount: summary?.cutCount ?? bundle.cuts.length,
       transitionCount: summary?.transitionCount ?? bundle.transitions.length,
       letteringCount: bundle.lettering.length,
+      finalCutCount: bundle.cuts.filter((cut) => cut.reviewStatus === "final").length,
       status: deriveStatus(bundle, hasIssues),
     };
   });

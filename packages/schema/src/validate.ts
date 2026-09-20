@@ -312,6 +312,13 @@ export function validateCutValue(value: unknown, path: string, c: IssueCollector
   if (!isNonEmptyString(value.id)) {
     c.add(joinPath(path, "id"), "field.required", "cut id must be a non-empty string.");
   }
+  if (value.reviewStatus !== undefined && !isOneOf(value.reviewStatus, REVIEW_STATUSES)) {
+    c.add(
+      joinPath(path, "reviewStatus"),
+      "cut.review-status",
+      `reviewStatus must be one of: ${REVIEW_STATUSES.join(", ")}.`,
+    );
+  }
   // Prompt fields are back-compatible: a project written before they existed
   // omits them entirely. A missing (undefined) prompt is accepted and normalized
   // to "" on read by project-io; a present value must be a string.

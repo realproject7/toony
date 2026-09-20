@@ -11,6 +11,7 @@ import { notFound } from "next/navigation";
 import { CutCanvas } from "@/components/cut-canvas";
 import { LoadError } from "@/components/load-error";
 import { TransitionBlock } from "@/components/transition-block";
+import { cutReviewCounts } from "@/lib/cut-review";
 import {
   FALLBACK_ART,
   findEpisodeBundle,
@@ -57,6 +58,7 @@ export default async function EpisodePreviewPage({
   // every cut, so the preview reserves the strip the export reserves.
   const gutterBandWidth = resolveGutterBandWidth(loaded.project.webtoon.gutterBandWidth);
 
+  const reviewCounts = cutReviewCounts(bundle.cuts);
   const cutCount = episode.sequence.filter((item) => item.type === "cut").length;
   const transitionCount = episode.sequence.filter((item) => item.type === "transition").length;
 
@@ -154,6 +156,23 @@ export default async function EpisodePreviewPage({
           <Link href={`${base}/episodes`} className="inspector-back">
             &larr; All episodes
           </Link>
+          <div data-testid="cut-review-progress">
+            <h2 className="card-title">Cut review</h2>
+            <div className="stat-row">
+              <span>Final cuts</span>
+              <b>
+                {reviewCounts.final} / {bundle.cuts.length}
+              </b>
+            </div>
+            <div className="stat-row">
+              <span>Draft (unreviewed)</span>
+              <b>{reviewCounts.draft}</b>
+            </div>
+            <div className="stat-row">
+              <span>Human-edited</span>
+              <b>{reviewCounts["human-edited"]}</b>
+            </div>
+          </div>
           <div>
             <h2 className="card-title">Sequence</h2>
             <div className="stat-row">

@@ -256,6 +256,9 @@ export async function ingestImageAsset(
     if (!cut) {
       throw new ProjectIoError(`cut not found: ${target.cutId}`, cutsFile(root, target.episodeId));
     }
+    // A replaced plate needs review again. This stays in memory until the asset
+    // has been accepted and written; failed production/import leaves disk alone.
+    cut.reviewStatus = "draft";
     const prev: ImageAssetRef = cut.image ?? { clean: null, final: null };
     cut.image = {
       clean: target.slot === "clean" ? assetPath : prev.clean,

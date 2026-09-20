@@ -43,10 +43,8 @@ export default async function CutEditorPage({
   const art = await resolveCutArt(work.id, work.root, cut);
   const bubbles = bundle.lettering.filter((overlay) => overlay.cutId === cut.id);
 
-  // v4 scope reset (#121): the focused editor is bubbles-only. Cut prompts, craft
-  // fields, characters, and lint are the agent/CLI's domain — not loaded or
-  // surfaced here. They stay on disk untouched (this editor only writes
-  // lettering.json via /api/lettering).
+  // Cut review is a narrow, independent write. Prompts, craft metadata, and
+  // characters remain in the agent/CLI domain.
   return (
     <CutEditor
       workId={work.id}
@@ -56,6 +54,7 @@ export default async function CutEditorPage({
       cutId={cut.id}
       art={art}
       initialBubbles={bubbles}
+      initialReviewStatus={cut.reviewStatus}
       dialogueLanguage={loaded.project.webtoon.languages.dialogueLanguage}
       gutterBandWidth={resolveGutterBandWidth(loaded.project.webtoon.gutterBandWidth)}
     />
