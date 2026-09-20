@@ -51,27 +51,28 @@ prompts, assets, validation, lettering, and export.
 
 ## Generation and validation
 
-Reading a project returns its validation report alongside its records. What each
-command does with that report is **not** uniform today. Measured on one project
-whose only defect is a bad `shotType`:
+Reading a project returns its validation report alongside its records. Every
+command that refuses an invalid project uses exit 1. For example, a project
+whose only defect is a bad `shotType` produces:
 
 | command | exit | on an invalid project |
 |---|---|---|
 | `toony validate` | 1 | prints the report |
 | `toony generate` | 1 | prints the report, sends nothing |
 | `toony lint` | 1 | prints its findings |
-| `toony export` | 2 | one line: "project does not pass validation" |
-| `toony measure` | 2 | the same one line |
+| `toony export` | 1 | one line: "project does not pass validation" |
+| `toony measure` | 1 | the same one line |
 | `toony studio` | 0 | opens it with a note — the studio is where it gets fixed |
-| `toony import-image` | 0 | writes the asset and updates `cuts.yaml` (#270) |
+| `toony import-image` | 1 | prints the report, reads no source image and writes nothing |
 
-So `generate` is not following a house rule; it is the first command to print
-the report an author actually needs. `export` and `measure` refuse on the same
-condition but say almost nothing about it and exit 2 rather than 1, and
-`import-image` does not check at all. Converging those is #270's scope, not a
-claim this section gets to make on their behalf.
+`generate` and `import-image` share an authoring gate in
+`packages/cli/src/generate-gate.ts`. Both print the validation report and the
+authored values before refusing. Export and measurement require a fully valid
+project, including its wiring; they keep their shorter diagnostic. IO, parse,
+and usage failures remain exit 2. A completed measurement outside its requested
+band also returns 1, with an out-of-band verdict rather than a validation error.
 
-### Why `generate` refuses rather than warning
+### Why authoring commands refuse rather than warning
 
 Generation is the command that spends real time and then writes art back into
 the project, and its inputs — the prompt, the character lockstrings, the
@@ -81,6 +82,10 @@ registry character whose `lockstring` key is misspelled crashed prompt
 composition with an uncaught `TypeError`, and a `--transition` run against a
 project that could not be loaded at all submitted its request first and failed
 afterwards.
+
+Manual import also writes an asset and rewrites its cut or transition record.
+It applies the same gate before asking its provider to read the source image,
+so a malformed project receives no new files or changed records.
 
 There is no `--force`. An override flag buys back exactly the behaviour the gate
 exists to remove, and lives in a shell alias forever after.
@@ -99,8 +104,8 @@ The same is true one level up. Create `episodes/ep-002/` correctly — all four
 files, right shapes, `sequence: []` — and the **finished** episode 1 becomes
 unreachable, with no edit that fixes it short of writing the new episode.
 
-So six codes are treated as wiring rather than data. They warn on stderr, naming
-what is unwired, and the run proceeds:
+So both authoring commands treat six codes as wiring rather than data. They
+warn on stderr, naming what is unwired, and the run proceeds:
 
 | code | state |
 |---|---|
@@ -115,8 +120,9 @@ The first five are emitted only by the validator's reference checks, which
 compare id sets — none of them inspects a record's own fields, so a project
 whose only issues are these has every record intact. `sequence.empty` is
 stronger still: it fires on a zero-length array, so it reads nothing at all.
-Generation reads `cuts`, `transitions` and `webtoon.characters`; it reads
-neither `episode.sequence` nor `lettering`, which is where all six live.
+Generation reads `cuts`, `transitions` and `webtoon.characters`; import locates
+its target cut or transition directly. Neither requires `episode.sequence` or
+`lettering` to be wired, which is where all six codes apply.
 
 The list is by exact code, so it **fails closed**: a validation code added later
 is not on it and refuses. One consequence worth knowing, chosen deliberately and
