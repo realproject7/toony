@@ -21,6 +21,11 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REF="${1:-$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)}"
 NODE_VERSIONS=("20" "24")
 PID_FILE=".verify-release-pid"
+# Durable evidence is outside WORK and is retained on both success and failure.
+LOGS="$(mktemp -d "${TMPDIR:-/tmp}/toony-release-logs-XXXXXX")" || exit 2
+echo "verify-release: retained logs: $LOGS"
+. "$REPO_ROOT/scripts/release-stage.sh"
+BASE_PATH="$PATH"
 
 # One scratch directory per RUN, not per ref. A fixed per-ref path meant a
 # second run of the same ref cloned into the directory the first was still
@@ -105,62 +110,56 @@ echo "verify-release: HEAD $(git rev-parse --short HEAD)"
 
 FAILED=0
 for V in "${NODE_VERSIONS[@]}"; do
+  export PATH="$BASE_PATH"
   if ! nvm use "$V" >/dev/null 2>&1; then
     echo "NODE $V: UNAVAILABLE (nvm install $V)"
     FAILED=1
     continue
   fi
+  NODE="$(command -v node)"
   echo
-  echo "=== Node $(node -v) ==="
-  rm -rf node_modules .turbo
-
-  if ! pnpm install --frozen-lockfile >/dev/null 2>&1; then
-    echo "  install: FAIL"
+  echo "=== Node $("$NODE" -v) ==="
+  if [ ! -d "$CLONE" ]; then
+    echo "verify-release: scratch checkout disappeared: $CLONE"
+    FAILED=1
+    break
+  fi
+  # Run the real manager with this Node, including nested pnpm script calls.
+  # Some desktop wrappers silently substitute their own bundled Node.
+  if ! PNPM_ENTRY="$("$NODE" scripts/resolve-pnpm.mjs)"; then
     FAILED=1
     continue
   fi
-
-  if pnpm check >/dev/null 2>&1; then
-    echo "  check:   PASS"
-  else
-    echo "  check:   FAIL"
-    pnpm check 2>&1 | tail -20
+  BIN="$WORK/runtime-$V/bin"
+  mkdir -p "$BIN"
+  printf '#!/usr/bin/env bash\nexec %q %q "$@"\n' "$NODE" "$PNPM_ENTRY" >"$BIN/pnpm"
+  chmod +x "$BIN/pnpm"
+  export PATH="$BIN:$PATH"
+  unset pnpm_config_pm_on_fail PNPM_CONFIG_PM_ON_FAIL
+  if ! run_stage runtime "$NODE" scripts/verify-runtime.mjs "$PNPM_ENTRY" "$V"; then
     FAILED=1
+    continue
   fi
+  # Checkouts, runtime shims and TMPDIR are private. The content-addressed pnpm
+  # store remains shared, avoiding a fresh dependency download on every gate.
+  # This does not claim isolation from external store cleanup or corruption.
+  echo "  pnpm store: shared; checkout and child TMPDIR: isolated"
+  mkdir -p "$WORK/tmp-$V"
+  export TMPDIR="$WORK/tmp-$V"
+  rm -rf node_modules .turbo
 
-  # `check` typechecks with each package's tsconfig.json; `build` uses
-  # tsconfig.build.json and, for packages/cli, also runs bundle-studio — work no
-  # other step performs. A gate that skips build reports green on a repo that
-  # does not ship.
-  if pnpm build >/dev/null 2>&1; then
-    echo "  build:   PASS"
-  else
-    echo "  build:   FAIL"
-    pnpm build 2>&1 | tail -20
+  if ! run_stage install pnpm install --frozen-lockfile; then
     FAILED=1
+    continue
   fi
-
-  if OUT=$(pnpm test --force 2>&1); then
-    # node:test defaults to the TAP reporter on Node 20 ("# pass 53") and the
-    # spec reporter on Node 24 ("i pass 53"), so match either marker or the
-    # gate silently reports zero tests on one of the two majors and calls it a
-    # pass. Counting is part of the gate: a run that reports no tests at all is
-    # a failure, not a success.
-    PASS=$(printf '%s\n' "$OUT" | grep -E '(#|[^[:alnum:]]) pass [0-9]+$' | awk '{s+=$NF} END {print s+0}')
-    FAIL=$(printf '%s\n' "$OUT" | grep -E '(#|[^[:alnum:]]) fail [0-9]+$' | awk '{s+=$NF} END {print s+0}')
-    PKGS=$(printf '%s\n' "$OUT" | grep -cE '(#|[^[:alnum:]]) pass [0-9]+$')
-    if [ "$PASS" -eq 0 ]; then
-      echo "  test:    FAIL (command succeeded but reported no tests — reporter or counting is broken)"
-      FAILED=1
-    elif [ "$FAIL" -ne 0 ]; then
-      echo "  test:    FAIL ($PASS passed, $FAIL failed, $PKGS packages)"
-      FAILED=1
-    else
-      echo "  test:    PASS ($PASS passed, $FAIL failed, $PKGS packages)"
-    fi
+  run_stage test-tasks "$NODE" scripts/check-test-results.mjs --tasks || FAILED=1
+  run_stage check pnpm check || FAILED=1
+  run_stage build pnpm build || FAILED=1
+  # Real-compiler controls are intentionally separate from the fast check loop.
+  run_stage verification-contracts pnpm test:verification || FAILED=1
+  if run_stage test pnpm test --force; then
+    run_stage coverage "$NODE" scripts/check-test-results.mjs "$LOGS/node-$V-test.log" || FAILED=1
   else
-    echo "  test:    FAIL"
-    printf '%s\n' "$OUT" | grep -B2 -A8 -iE 'not ok|# fail [1-9]|SyntaxError|Error:' | head -40
     FAILED=1
   fi
 done

@@ -34,6 +34,8 @@
 // other than `tsc -p` (`next build`, the CLI's esbuild bundle). Those write the
 // directories `build` already declares, and they are single-writer; this checks
 // the shape that was actually multi-writer.
+// Build-info files from incremental/composite compilation are not JS/declaration
+// emit directories and are not protected by this check.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -248,6 +250,12 @@ function tscInvocations(command) {
         i++;
         return next;
       };
+      // The pinned compiler rejects --flag=value rather than interpreting it.
+      // Do not classify a command the compiler itself cannot run as harmless.
+      if (inlineValue !== undefined) {
+        unreadable = `unsupported inline compiler option ${arg}`;
+        continue;
+      }
       if (flag === "-p" || flag === "--project") {
         const value = take();
         if (value === undefined) unreadable = `${flag} with no config path`;
@@ -350,8 +358,9 @@ function turboTasks() {
   return { taskNames, tasks: JSON.parse(raw.slice(start)).tasks ?? [] };
 }
 
-function main() {
-  const { taskNames, tasks } = turboTasks();
+// Narrow test seam: use real task definitions and real tsconfig files, with no
+// compiler simulator. Disk-output controls also run the pinned compiler itself.
+export function inspectTaskOutputs(tasks, root = repoRoot) {
   const findings = [];
   let checked = 0;
 
@@ -364,7 +373,7 @@ function main() {
   }
 
   for (const task of tasks) {
-    const packageDir = resolve(repoRoot, task.directory);
+    const packageDir = resolve(root, task.directory);
     for (const invocation of tscInvocations(task.command ?? "")) {
       if (invocation.unreadable !== undefined) {
         findings.push({
@@ -437,6 +446,12 @@ function main() {
     }
   }
 
+  return { findings, checked };
+}
+
+function main() {
+  const { taskNames, tasks } = turboTasks();
+  const { findings, checked } = inspectTaskOutputs(tasks);
   if (findings.length === 0) {
     console.log(
       `task-outputs check: OK (${checked} compile output(s) across ${tasks.length} task(s): ${taskNames.join(", ")})`,
@@ -457,4 +472,4 @@ function main() {
   process.exit(1);
 }
 
-main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
