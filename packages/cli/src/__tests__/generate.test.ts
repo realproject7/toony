@@ -584,7 +584,16 @@ test("an out-of-range or non-numeric panel shape is refused, and nothing is gene
       const c = capture({ TOONY_COMFYUI_URL: comfy.url });
       const before = comfy.latents().length;
       const code = await runGenerate(
-        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--height", "600", "--allow-remote"],
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--height",
+          "600",
+          "--allow-remote",
+        ],
         c.io,
       );
       assert.equal(code, EXIT_VALIDATION, c.err.join("\n"));
@@ -596,7 +605,16 @@ test("an out-of-range or non-numeric panel shape is refused, and nothing is gene
       const c = capture({ TOONY_COMFYUI_URL: comfy.url });
       const before = comfy.latents().length;
       const code = await runGenerate(
-        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--cut", "cut-002", "--allow-remote"],
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--cut",
+          "cut-002",
+          "--allow-remote",
+        ],
         c.io,
       );
       assert.equal(code, EXIT_VALIDATION, c.err.join("\n"));
