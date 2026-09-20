@@ -623,11 +623,23 @@ const UNKNOWABLE = Symbol("unknowable");
 const UNRECORDED = Symbol("unrecorded");
 
 /**
- * This input is asked for by another field's flag, which is a decision, unlike
- * `null` — the answer of an entry that cannot say how to restore its value, and
- * which is named in the refusal so it cannot vanish from the instruction.
+ * This input is asked for by ANOTHER entry's flag — a decision, unlike `null`,
+ * which is the answer of an entry that cannot say how to restore its value and
+ * is named in the refusal so it cannot vanish from the instruction.
+ *
+ * It names the carrier because it is a claim about a different entry, and the
+ * claim is checked: an entry whose carrier contributed nothing is named like any
+ * other that nothing can ask for. Deferring to an entry that never ran is how a
+ * value sitting in the record goes unprinted — an entry that has not decided
+ * cannot borrow the silence of one that has, one level out.
  */
-const CARRIED = Symbol("carried");
+interface CarriedBy {
+  carrier: keyof RenderInputs;
+}
+
+function carriedBy(carrier: keyof RenderInputs): CarriedBy {
+  return { carrier };
+}
 
 /** How one recorded input is compared against this run, and asked for again. */
 interface RepeatInput {
@@ -650,14 +662,12 @@ interface RepeatInput {
    */
   refuses: (ctx: RepeatContext) => boolean;
   /**
-   * The flag that asks for the recorded value, `CARRIED` when another field's
-   * flag does, or `null` when nothing can ask for it — which is reported, not
-   * skipped. An entry that decides nothing therefore says so out loud.
+   * The flag that asks for the recorded value, `carriedBy(other)` when another
+   * entry's flag does, or `null` when nothing can ask for it — which is
+   * reported, not skipped. An entry that decides nothing therefore says so out
+   * loud, and an entry that defers says WHO to, so the deferral can be checked.
    */
-  instruct: (
-    value: string | number | undefined,
-    record: RenderInputs,
-  ) => string | typeof CARRIED | null;
+  instruct: (value: string | number | undefined) => string | CarriedBy | null;
 }
 
 /**
@@ -715,29 +725,36 @@ const REPEAT_INPUTS: Record<keyof RenderInputs, RepeatInput> = {
   },
   // The SUBMITTED prompt is what the model saw, so it is what tells a repeat
   // from a replacement — but the flag that restores it takes the BASE prompt,
-  // because `planJobs` composes the lockstrings and the palette clause again.
-  // Handing back the composed string would compose it twice.
+  // because `planJobs` composes the lockstrings and the palette clause again,
+  // and handing back the composed string would compose it twice. So the value
+  // the flag TAKES owns the flag, and this entry defers to it.
+  //
+  // The deferral is not a formality. When the base prompt is what changed, that
+  // entry prints it. When the base prompts AGREE and the submitted ones do not,
+  // the cut's own characters or palette changed under the record, no `--prompt`
+  // can restore what was submitted, the carrier contributes nothing, and this
+  // field is named as unrestorable — which is the truth.
   prompt: {
     recorded: (record) => record.prompt ?? UNRECORDED,
     submitted: ({ job }) => job.inputs.prompt,
     refuses: () => false,
-    instruct: (_value, record) =>
-      typeof record.basePrompt === "string" ? `--prompt ${flagValue(record.basePrompt)}` : null,
+    instruct: () => carriedBy("basePrompt"),
+  },
+  // `--prompt` takes THIS value, so this entry prints it — including when the
+  // record's submitted prompt is unreadable and `prompt` above never ran, which
+  // is the case that used to print nothing at all while the value that restores
+  // the render sat in the record.
+  basePrompt: {
+    recorded: (record) => record.basePrompt ?? UNRECORDED,
+    submitted: ({ job }) => job.inputs.basePrompt,
+    refuses: () => false,
+    instruct: (value) => (typeof value === "string" ? `--prompt ${flagValue(value)}` : null),
   },
   negativePrompt: {
     recorded: (record) => record.negativePrompt ?? UNRECORDED,
     submitted: ({ job }) => job.inputs.negativePrompt,
     refuses: () => false,
     instruct: (value) => (typeof value === "string" ? `--negative ${flagValue(value)}` : null),
-  },
-  // Carried by `prompt`, whose instruction is built from this value: composing
-  // this one produced that one, so a difference here that left the submitted
-  // prompt identical changed nothing the model saw.
-  basePrompt: {
-    recorded: (record) => record.basePrompt ?? UNRECORDED,
-    submitted: ({ job }) => job.inputs.basePrompt,
-    refuses: () => false,
-    instruct: () => CARRIED,
   },
 };
 
@@ -789,6 +806,8 @@ async function assertRepeatable(
     const differences: string[] = [];
     const instructions: string[] = [];
     const unaskable: string[] = [];
+    const asked = new Set<keyof RenderInputs>();
+    const deferrals: { key: keyof RenderInputs; carrier: keyof RenderInputs }[] = [];
     for (const key of Object.keys(REPEAT_INPUTS) as (keyof RenderInputs)[]) {
       const input = REPEAT_INPUTS[key];
       const was = input.recorded(recorded);
@@ -796,12 +815,20 @@ async function assertRepeatable(
       const now = input.submitted(ctx);
       if (now === UNKNOWABLE || now === was) continue; // no answer, or already right
       if (input.refuses(ctx)) differences.push(`${key} ${now} instead of ${was}`);
-      const flag = input.instruct(was, recorded);
+      const flag = input.instruct(was);
       // A field nothing can ask for is NAMED, whichever field it is. Reporting
       // only the one field somebody thought of is how an entry that decides
       // nothing contributes nothing and says nothing.
       if (flag === null) unaskable.push(key);
-      else if (flag !== CARRIED) instructions.push(flag);
+      else if (typeof flag === "string") {
+        instructions.push(flag);
+        asked.add(key);
+      } else deferrals.push({ key, carrier: flag.carrier });
+    }
+    // Deferrals are resolved after the loop, not in declaration order: a claim
+    // that another entry covers this one holds only if that entry printed a flag.
+    for (const { key, carrier } of deferrals) {
+      if (!asked.has(carrier)) unaskable.push(key);
     }
     if (differences.length === 0) continue;
 

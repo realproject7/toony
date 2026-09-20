@@ -203,10 +203,15 @@ is covered without the instruction knowing about slots, because each of those
 fields simply differs. And a transition, which has no record of its own at all,
 is covered the same way.
 
-The prompt is the one field whose instruction is not its own recorded value.
-What a repeat needs is the prompt as the run was GIVEN it, because `--prompt` is
-composed again with the lockstrings and the palette clause; handing back the
-submitted string would compose it twice. The record keeps both for that reason.
+The prompt is the one input recorded twice, and the reason is that `--prompt` is
+composed again with the lockstrings and the palette clause: handing back the
+submitted string would compose it twice, so the flag takes the prompt as the run
+was GIVEN it. The entry holding that value is the one that prints the flag, and
+the entry that detects the difference defers to it by name — a deferral the
+refusal checks, so an input whose carrier contributed nothing is named as
+unrestorable rather than dropped. An entry that has not decided cannot borrow
+the silence of one that has, and that is as true of deferring to another entry
+as it is of saying nothing.
 
 A failed write-back is reported as itself, never as a failed generation. The two
 states differ in what is on disk — one has no image, the other has the image and

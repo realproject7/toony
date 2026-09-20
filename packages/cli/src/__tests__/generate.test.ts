@@ -2930,3 +2930,112 @@ test("an input nothing can ask for is named, whichever input it is (#240)", asyn
     comfy.close();
   }
 });
+
+test("a value the record still holds is printed, even if its reader was skipped (#240)", async () => {
+  // The mirror of the case above: the record's SUBMITTED prompt is unreadable,
+  // so the entry that compares it never runs — but the prompt that restores the
+  // render is in the record, and an entry that defers to a skipped one used to
+  // drop it with no flag and no note.
+  const projectDir = await scaffold();
+  const cutsPath = join(projectDir, "episodes", "ep-001", "cuts.yaml");
+  await writeFile(
+    cutsPath,
+    encodeYaml(
+      (await readCuts(projectDir)).map((cut) =>
+        cut.id === "cut-001" ? { ...cut, imagePrompt: "a rooftop at dusk" } : cut,
+      ),
+    ),
+  );
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          "--prompt",
+          "the lettered final pass",
+          "--seed",
+          "7",
+          "--width",
+          "640",
+          "--height",
+          "960",
+          "--allow-remote",
+        ],
+        first.io,
+      ),
+      EXIT_OK,
+      first.err.join("\n"),
+    );
+
+    const logPath = join(projectDir, "episodes", "ep-001", "logs", "ingest.json");
+    const log = await readIngestLog(projectDir);
+    const entry = log.at(-1) as { renderInputs: Record<string, unknown> };
+    delete entry.renderInputs.prompt;
+    await writeFile(logPath, `${JSON.stringify(log, null, 2)}\n`);
+
+    const blind = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          "--allow-remote",
+        ],
+        blind.io,
+      ),
+      EXIT_USAGE,
+      blind.out.join("\n"),
+    );
+    const err = blind.err.join("\n");
+    const flags = repeatFlagsFrom(err);
+    assert.deepEqual(flags, [
+      "--width",
+      "640",
+      "--height",
+      "960",
+      "--seed",
+      "7",
+      "--prompt",
+      "the lettered final pass",
+    ]);
+    assert.doesNotMatch(err, /no flag restores/);
+
+    // And it is the real thing: following it returns the render.
+    const obey = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          ...flags,
+          "--allow-remote",
+        ],
+        obey.io,
+      ),
+      EXIT_OK,
+      obey.err.join("\n"),
+    );
+    const [original, obeyed] = comfy.bodies().map(normalizeClientId);
+    assert.equal(obeyed, original);
+  } finally {
+    comfy.close();
+  }
+});
