@@ -20,7 +20,25 @@
       "dependsOn": ["^build", "build"]
     },
     "test": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build"],
+      // A package's `test` compiles the same sources as its `build`, tests
+      // included. It emits into `dist-test`, never into `dist`, and says so
+      // here. Two reasons, both of them defects that were live before #253:
+      //
+      //  - `test` has no edge to its OWN package's `build` (it does not need
+      //    one: it reads its dependencies' `dist`, not its own). So the two run
+      //    at the same time inside one `turbo run test`. Sharing one output
+      //    directory let them overwrite each other's files mid-emit, and let a
+      //    consumer import a half-written module.
+      //  - An emit turbo does not know about is an emit that makes the task
+      //    summary lie. `build` declares `dist/**`; a `test` that also wrote
+      //    there left `dist` holding test output while `build` reported FULL
+      //    TURBO, so a green summary and the built artifact disagreed.
+      //
+      // The rule this encodes — every emitting task declares its own output
+      // directory and shares it with no other task — is enforced by
+      // `scripts/check-task-outputs.mjs`, which runs in `pnpm check`.
+      "outputs": ["dist-test/**"]
     }
   }
 }

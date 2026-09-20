@@ -9,7 +9,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { loadPacks, PACKS_ENV_VAR } from "../index.js";
 
-// This test file compiles to dist/__tests__/, so the package root is two up.
+// This test file compiles to dist-test/__tests__/, so the package root is two up.
 const EXAMPLES_ROOT = fileURLToPath(new URL("../../examples", import.meta.url));
 
 test("the committed example pack loads and contributes every kind", async () => {

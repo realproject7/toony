@@ -17,7 +17,8 @@
     "scan": "node scripts/scan-public-safety.mjs",
     "no-stub": "node scripts/check-no-stub.mjs",
     "render-inputs": "node scripts/check-render-inputs.mjs",
-    "check": "pnpm run typecheck && pnpm run lint && pnpm run scan && pnpm run no-stub && pnpm run render-inputs",
+    "task-outputs": "node scripts/check-task-outputs.mjs",
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run scan && pnpm run no-stub && pnpm run render-inputs && pnpm run task-outputs",
     "verify-release": "./scripts/verify-release.sh"
   },
   "devDependencies": {

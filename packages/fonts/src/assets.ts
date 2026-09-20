@@ -11,13 +11,15 @@ import { fileURLToPath } from "node:url";
 
 /**
  * Absolute path to the fonts package `assets/` directory (the woff2 files and
- * OFL licenses). Resolved from this module's own URL so it is correct whether the
- * code runs from `src` (ts) or `dist` (built) — both sit one level under the
- * package root, beside `assets/`.
+ * OFL licenses). Resolved from this module's own URL, which is correct for every
+ * directory this module is ever loaded from: each one sits exactly one level
+ * under the package root, beside `assets/`. That holds for the sources and for
+ * every compiled output directory, so the lookup does not have to know which
+ * compile it is running inside.
  */
 export function fontsAssetDir(): string {
   const here = dirname(fileURLToPath(import.meta.url));
-  // `here` is <pkg>/dist (built) or <pkg>/src (dev); assets sits at <pkg>/assets.
+  // `here` is a directory one level under <pkg>; assets sits at <pkg>/assets.
   return join(here, "..", "assets");
 }
 
