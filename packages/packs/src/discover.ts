@@ -40,6 +40,12 @@ export interface PackGenre {
   id: string;
   title: string;
   bundle: EpisodeBundle;
+  /**
+   * The gutter strip width this genre letters in (#215), a fraction of the cut
+   * width, or absent when the genre declares none. `toony init --genre <id>`
+   * writes it into the new project's `webtoon.json`.
+   */
+  gutterBandWidth?: number;
 }
 
 /** The names one pack put into the merged content. */
@@ -312,7 +318,14 @@ export async function loadPacks(
           claimed.push(...bundle);
           continue;
         }
-        contributedGenres.push({ id: genre.id, title: genre.title, bundle });
+        contributedGenres.push({
+          id: genre.id,
+          title: genre.title,
+          bundle,
+          ...(genre.gutterBandWidth === undefined
+            ? {}
+            : { gutterBandWidth: genre.gutterBandWidth }),
+        });
       }
 
       const contributedPresets: PackExportPreset[] = [];

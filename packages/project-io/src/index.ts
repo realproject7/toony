@@ -25,9 +25,10 @@ export {
   GENRES,
   type Genre,
   type GenreScaffold,
+  type GenreSeed,
   isGenre,
   listGenreIds,
-  resolveGenreBundle,
+  resolveGenreSeed,
 } from "./genres.js";
 export {
   type AssetSlot,
@@ -62,7 +63,7 @@ export {
   loadProject,
   summarizeEpisodes,
 } from "./reader.js";
-export { buildInitialProject, slugify } from "./scaffold.js";
+export { buildInitialProject, type InitialCraftOptions, slugify } from "./scaffold.js";
 export { listWorkspace, type WorkspaceEntry } from "./workspace.js";
 export {
   writeCuts,

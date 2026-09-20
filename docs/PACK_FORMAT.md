@@ -10,6 +10,10 @@ It can contribute four things:
 | Export preset | A named engine + render options | `toony export <id> --episode <id>` |
 | Craft band | The measured target its output should hit | `toony measure --against <id>` |
 
+A genre scaffold also carries the craft settings the genre needs, which
+`toony init` writes into the new project. See
+[the gutter strip](#the-gutter-strip-a-genre-letters-in).
+
 A working example lives at
 [`packages/packs/examples/example-pack`](../packages/packs/examples/example-pack).
 Copy it to start your own.
@@ -102,7 +106,7 @@ already claimed is missing from that list rather than quietly counted.
     { "name": "high-detail", "file": "workflows/high-detail.workflow.json" }
   ],
   "genres": [
-    { "id": "noir", "title": "Noir", "file": "genres/noir.json" }
+    { "id": "noir", "title": "Noir", "file": "genres/noir.json", "gutterBandWidth": 0.24 }
   ],
   "exportPresets": [
     {
@@ -157,6 +161,30 @@ your pack draws at are the pack's decision, not Toony's.
 | `id` | The id `--genre` selects. Unique within the pack. |
 | `title` | Human-readable genre name. |
 | `file` | A complete **episode bundle**. |
+| `gutterBandWidth` | Optional. The gutter strip this genre letters in, as a fraction of the cut width, between `0.05` and `0.5`. Absent means the default `0.18`. |
+
+#### The gutter strip a genre letters in
+
+A `placement: gutter` bubble sits in a strip reserved beside the artwork, and
+`gutterBandWidth` is how much of the column that strip takes. It is the one
+craft number a genre can be *defined* by: a thriller runs two or three gutter
+intrusions per screen where a slice-of-life runs half of one, so how much room
+that dialogue gets is part of what the pack is selling — and a genre whose
+dialogue is set in a script that reads narrow needs less of it than one that
+does not.
+
+It is a number, like everything else here. `toony init --genre <id>` writes it
+into the new project's `webtoon.json`, and from then on the **project** owns it:
+the studio preview, `toony export`, and `toony lint` all read it there. Nothing
+looks at a pack again to render, so an episode reads the same whether or not the
+pack that started it is still installed, and an author can change the strip
+afterwards by editing the field.
+
+A wider strip buys room for a longer line, not larger minimum text: the auto-fit
+floor for a gutter bubble is a fraction of the cut's width capped at the default
+strip, so it does not climb as the strip grows, and it does not climb with the
+cut's height either. You should not need to pin a `fontSize` on a gutter bubble
+to make it fit.
 
 A scaffold file is one episode's records:
 

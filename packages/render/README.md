@@ -73,6 +73,39 @@ for (const c of p.outline) {
 ctx.closePath(); ctx.fill(); ctx.stroke();
 ```
 
+## The gutter strip is the project's (#98/#215)
+
+A `placement: gutter` overlay lays out in a strip reserved beside the artwork
+rather than on it. How much of the column that strip takes is a value the
+**project** declares (`webtoon.json` → `gutterBandWidth`), not a constant here:
+gutter dialogue is the feature some genres are identified by, and how much room
+it gets is part of that signature. Absent → `GUTTER_BAND_WIDTH_DEFAULT` (`0.18`),
+so a caller with no project in hand lays out exactly as it always did.
+
+The strip is reserved in two halves, and a consumer must hand the SAME resolved
+value to both or the artwork will cover part of the strip the lettering sits in:
+
+```ts
+const bandWidth = resolveGutterBandWidth(webtoon.gutterBandWidth);
+// what the artwork may fill, and the strip(s) to leave as reading margin
+const { art, bands } = cutPlacementFrame(overlays, w, h, bandWidth);
+// the plans, each carrying its own `band` and `art`
+const plans = layoutCut(overlays, w, h, { gutterBandWidth: bandWidth });
+```
+
+A gutter overlay's `geometry` stays normalized **against the strip**, so the same
+authored box is the same share of whatever strip the project declares. Its
+`tailTarget` stays normalized against the art.
+
+The auto-fit floor for a gutter bubble comes off the cut's WIDTH — the dimension
+the strip is cut from — capped at the default strip, rather than off its height.
+So the floor does not climb as a cut gets taller (the strip beside a taller panel
+is no narrower), and it does not climb as the strip gets wider (a pack that buys
+column is buying room for a longer line, not a bigger minimum).
+`gutterBubbleMinFontSize` is the one function that decides it, and the caller
+takes the smaller of it and the height-derived floor, so the floor only ever
+drops and a layout that already fits keeps the size it had.
+
 ## Narration caption plate (#186)
 
 `narration` is a borderless caption: no tail, no border of its own, fixed dark

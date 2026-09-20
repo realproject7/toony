@@ -64,6 +64,12 @@ export interface CutEditorProps {
    * face the preview and the export raster resolve.
    */
   dialogueLanguage: string;
+  /**
+   * The project's resolved gutter strip width (#215), a fraction of the cut
+   * width. It reserves the strip the artwork is inset from AND goes into
+   * `layoutCut`, so the editor edits bubbles in the band the export letters in.
+   */
+  gutterBandWidth: number;
 }
 
 type DragMode =
@@ -80,6 +86,7 @@ export function CutEditor({
   art,
   initialBubbles,
   dialogueLanguage,
+  gutterBandWidth,
 }: CutEditorProps) {
   const [bubbles, setBubbles] = useState<LetteringOverlay[]>(initialBubbles);
   const [selectedId, setSelectedId] = useState<string | null>(initialBubbles[0]?.id ?? null);
@@ -108,8 +115,9 @@ export function CutEditor({
       layoutCut(bubbles, width, height, {
         ...(measure ? { measure } : {}),
         dialogueLanguage,
+        gutterBandWidth,
       }),
-    [bubbles, width, height, measure, dialogueLanguage],
+    [bubbles, width, height, measure, dialogueLanguage, gutterBandWidth],
   );
   const overflowCount = plans.filter((plan) => plan.overflow).length;
 
@@ -117,7 +125,10 @@ export function CutEditor({
   // artwork occupies only the `art` rect — the SAME cut-frame the preview and
   // export reserve — and gutter-aware overlay geometry sits over the inset art,
   // not full-bleed. With no gutter bubbles the art fills the stage (back-compat).
-  const frame = useMemo(() => cutPlacementFrame(bubbles, width, height), [bubbles, width, height]);
+  const frame = useMemo(
+    () => cutPlacementFrame(bubbles, width, height, gutterBandWidth),
+    [bubbles, width, height, gutterBandWidth],
+  );
   const reserved = frame.bands.length > 0;
   const artStyle = reserved
     ? {

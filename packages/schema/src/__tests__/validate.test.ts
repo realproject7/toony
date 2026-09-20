@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { cloneValidProject, validProject } from "../__fixtures__/valid-project.js";
 import type { ValidationResult } from "../errors.js";
+import { GUTTER_BAND_WIDTH_MAX, GUTTER_BAND_WIDTH_MIN } from "../presets.js";
 import { PANEL_ASPECT_MAX, PANEL_ASPECT_MIN } from "../types.js";
 import { validateProject, validateWebtoon } from "../validate.js";
 
@@ -888,6 +889,30 @@ test("a declared reference column must be a positive whole number of px", () => 
     assert.ok(
       codes(validateWebtoon(project.webtoon)).includes("webtoon.reference-width"),
       `referenceWidth ${String(bad)} should be rejected`,
+    );
+  }
+});
+
+// --- Gutter band width (#215) -----------------------------------------------
+
+test("a project without a declared gutter strip is valid (back-compat)", () => {
+  // validProject has no webtoon.gutterBandWidth; render falls back to the strip
+  // the feature has had since #98, so such a project is unchanged by the field.
+  assert.equal(validateProject(validProject).valid, true);
+  assert.equal(validProject.webtoon.gutterBandWidth, undefined);
+});
+
+test("a declared gutter strip must be a fraction inside the craft bounds", () => {
+  const project = cloneValidProject();
+  for (const good of [GUTTER_BAND_WIDTH_MIN, 0.18, 0.3, GUTTER_BAND_WIDTH_MAX]) {
+    project.webtoon.gutterBandWidth = good;
+    assert.equal(validateWebtoon(project.webtoon).valid, true, `${good} should be declarable`);
+  }
+  for (const bad of [0, -0.2, 0.01, 0.9, 1, Number.NaN, "0.3" as unknown as number]) {
+    project.webtoon.gutterBandWidth = bad;
+    assert.ok(
+      codes(validateWebtoon(project.webtoon)).includes("webtoon.gutter-band-width"),
+      `gutterBandWidth ${String(bad)} should be rejected`,
     );
   }
 });

@@ -4,6 +4,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  GUTTER_BAND_WIDTH_DEFAULT,
+  GUTTER_BAND_WIDTH_MAX,
+  GUTTER_BAND_WIDTH_MIN,
   isMoodColor,
   isPanelHeightPreset,
   isSpacingPreset,
@@ -14,10 +17,12 @@ import {
   PANEL_HEIGHT_PRESET_NAMES,
   PANEL_HEIGHT_PRESETS,
   panelHeightPx,
+  resolveGutterBandWidth,
   SPACING_PRESET_NAMES,
   SPACING_PRESETS,
   STANDARD_CANVAS_WIDTH_PX,
   spacingPx,
+  validateGutterBandWidth,
 } from "../presets.js";
 
 test("spacing presets hold the documented clock-ladder values (§5)", () => {
@@ -82,4 +87,54 @@ test("resolver helpers return the mapped values", () => {
   assert.equal(spacingPx("cut"), 500);
   assert.equal(panelHeightPx("Impact"), 2000);
   assert.equal(moodColorHex("calm-blue"), "#3f6fa3");
+});
+
+// --- Gutter band width (#215) -----------------------------------------------
+
+test("the default gutter strip is the width it has been since #98", () => {
+  // A project that declares nothing must render on exactly this strip, so the
+  // number is pinned rather than left to drift with the resolver.
+  assert.equal(GUTTER_BAND_WIDTH_DEFAULT, 0.18);
+  assert.ok(GUTTER_BAND_WIDTH_MIN < GUTTER_BAND_WIDTH_DEFAULT);
+  assert.ok(GUTTER_BAND_WIDTH_DEFAULT < GUTTER_BAND_WIDTH_MAX);
+  // Two strips at the maximum still leave a column of artwork between them.
+  assert.ok(GUTTER_BAND_WIDTH_MAX * 2 <= 1);
+});
+
+test("an absent or unusable declared strip resolves to the default", () => {
+  for (const absent of [undefined, null, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.equal(resolveGutterBandWidth(absent as number | undefined), GUTTER_BAND_WIDTH_DEFAULT);
+  }
+  assert.equal(
+    resolveGutterBandWidth("0.3" as unknown as number),
+    GUTTER_BAND_WIDTH_DEFAULT,
+    "a string is not a declared width",
+  );
+});
+
+test("a declared strip is used as declared, and one out of range is clamped", () => {
+  for (const declared of [GUTTER_BAND_WIDTH_MIN, 0.12, 0.3, GUTTER_BAND_WIDTH_MAX]) {
+    assert.equal(resolveGutterBandWidth(declared), declared);
+  }
+  // Out of range never reaches a renderer through `validateWebtoonValue`, but a
+  // direct caller can still hand one over; it must not produce a strip that
+  // swallows the artwork or one too narrow to draw.
+  assert.equal(resolveGutterBandWidth(0), GUTTER_BAND_WIDTH_MIN);
+  assert.equal(resolveGutterBandWidth(-2), GUTTER_BAND_WIDTH_MIN);
+  assert.equal(resolveGutterBandWidth(1), GUTTER_BAND_WIDTH_MAX);
+  assert.equal(resolveGutterBandWidth(9), GUTTER_BAND_WIDTH_MAX);
+});
+
+test("validateGutterBandWidth accepts the declarable range and nothing else", () => {
+  assert.equal(validateGutterBandWidth(undefined), null);
+  for (const good of [GUTTER_BAND_WIDTH_MIN, 0.18, GUTTER_BAND_WIDTH_MAX]) {
+    assert.equal(validateGutterBandWidth(good), null, `${good} should be declarable`);
+  }
+  for (const bad of [0, -0.1, 0.04, 0.51, 1, Number.NaN, "0.2" as unknown as number]) {
+    const error = validateGutterBandWidth(bad);
+    assert.ok(error !== null, `${String(bad)} should be rejected`);
+    assert.match(error, /gutterBandWidth/);
+  }
+  // The name is the caller's, so a pack manifest can point at its own field.
+  assert.match(validateGutterBandWidth(9, "genres.0.gutterBandWidth") ?? "", /^genres\.0\./);
 });

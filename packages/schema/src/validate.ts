@@ -18,6 +18,7 @@ import {
   isString,
 } from "./guards.js";
 import { isPathSafeId } from "./path-safe-id.js";
+import { validateGutterBandWidth } from "./presets.js";
 import {
   BUBBLE_KINDS,
   BUBBLE_TONES,
@@ -234,6 +235,14 @@ export function validateWebtoonValue(value: unknown, path: string, c: IssueColle
         `referenceWidth must be an integer in px between ${EXPORT_WIDTH_MIN} and ${EXPORT_WIDTH_MAX}.`,
       );
     }
+  }
+  // Gutter band width (#215) is OPTIONAL + back-compat: absent → the default
+  // strip. A fraction of the cut width, so it is bounded on both sides — a
+  // strip too narrow to letter, or wide enough to leave no artwork, is an
+  // authoring mistake and is rejected here rather than silently clamped.
+  const bandError = validateGutterBandWidth(value.gutterBandWidth as number | undefined);
+  if (bandError !== null) {
+    c.add(joinPath(path, "gutterBandWidth"), "webtoon.gutter-band-width", `${bandError}.`);
   }
 }
 

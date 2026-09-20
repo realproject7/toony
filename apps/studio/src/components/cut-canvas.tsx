@@ -38,6 +38,14 @@ export interface CutCanvasProps {
    */
   dialogueLanguage: string;
   /**
+   * The project's resolved gutter strip width (#215), a fraction of the cut
+   * width. It reserves the strip below AND is handed to the overlay's
+   * `layoutCut`, so the artwork is kept out of exactly the band the bubbles are
+   * laid into — and the export raster, reading the same project field through
+   * the same two calls, reserves the same strip.
+   */
+  gutterBandWidth: number;
+  /**
    * Distraction-free reader mode (#49): drop all edit chrome — the cut-id chip
    * header, the "Edit lettering" link, and the secondary bubble text list — so
    * only the rendered artwork + on-art bubbles remain, exactly as a reader sees
@@ -54,6 +62,7 @@ export function CutCanvas({
   workId,
   episodeId,
   dialogueLanguage,
+  gutterBandWidth,
   readOnly,
 }: CutCanvasProps) {
   const hasArt = Boolean(art.src);
@@ -65,7 +74,7 @@ export function CutCanvas({
   // `art` rect (the band(s) become a white reading margin where gutter bubbles
   // sit), using the SAME cut-frame the export canvas reserves → parity. With no
   // gutter bubbles the art fills the whole stage (back-compat, unchanged).
-  const frame = cutPlacementFrame(bubbles, art.width, art.height);
+  const frame = cutPlacementFrame(bubbles, art.width, art.height, gutterBandWidth);
   const reserved = frame.bands.length > 0;
   const artStyle = reserved
     ? {
@@ -125,7 +134,12 @@ export function CutCanvas({
           )}
           {/* Bubble layout needs a browser text measurer (#149); that runs in the
               hydrated client child, keeping the rest of this preview server-side. */}
-          <CutOverlay bubbles={bubbles} art={art} dialogueLanguage={dialogueLanguage} />
+          <CutOverlay
+            bubbles={bubbles}
+            art={art}
+            dialogueLanguage={dialogueLanguage}
+            gutterBandWidth={gutterBandWidth}
+          />
         </div>
       ) : (
         <div className="cut-canvas">

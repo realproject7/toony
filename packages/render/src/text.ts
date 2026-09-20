@@ -13,6 +13,8 @@
 // provided (see ./measure) so the core needs no DOM/canvas to lay out text
 // server-side, while a real `canvas.measureText` measurer can still be injected.
 
+import { GUTTER_BAND_WIDTH_DEFAULT } from "@toony/schema";
+
 /**
  * Measure rendered width of `text` at `fontSize` px, optionally bold and in a
  * specific resolved font family. `fontFamily` is the render plan's resolved
@@ -284,6 +286,53 @@ export function defaultBubbleFontRange(renderHeight: number): {
     minFontSize: Math.max(1, renderHeight * 0.022),
     maxFontSize: Math.max(1, renderHeight * 0.05),
   };
+}
+
+/**
+ * How much of a gutter strip's width one line of body text may need at the
+ * auto-fit FLOOR, expressed as `fontSize / bandWidth` (#215).
+ *
+ * Derived, not chosen. A gutter bubble is authored a little narrower than its
+ * strip (~0.92) and keeps ~88% of its box as text column after the 6%-per-side
+ * padding, so ~0.81 of the band is column; a body glyph advances ~0.52em in the
+ * shared measurer; and a wrapped line is not meant to run past the ~24
+ * characters the craft line-length check allows at thumb distance. That gives
+ * 0.81 / (0.52 * 24) ≈ 0.065, rounded DOWN so the corner arcs the wrap must also
+ * clear come out of the margin rather than out of the line.
+ *
+ * The craft limit lives in `@toony/lint`, which is built ON this package, so it
+ * cannot be imported here. `@toony/lint`'s own tests check this floor against it
+ * by measuring a line of that length at the floor against the column a strip
+ * gives it, so the two cannot drift apart unnoticed.
+ */
+const GUTTER_MIN_FONT_FRAC = 0.06;
+
+/**
+ * The auto-fit FLOOR for a bubble laid out inside a reserved gutter strip
+ * (#215), in the caller's pixel space. `bandWidth` is the strip's width and
+ * `frameWidth` the whole cut's.
+ *
+ * {@link defaultBubbleFontRange} derives its floor from the render HEIGHT, which
+ * is right for a bubble sitting on the artwork: it has the whole cut to grow
+ * into. A gutter bubble does not — its room is a strip cut from the WIDTH — so
+ * on a tall cut the height-derived floor climbs above anything the strip can
+ * letter, and the descent stops at a size the band was never wide enough to
+ * hold. Keying the floor to the width the strip comes from removes that: the
+ * floor is the same whatever the cut's aspect, which is the shape the band
+ * always had.
+ *
+ * The strip's own width is what sets the floor, but only DOWNWARD: a strip
+ * narrower than the default lowers it in proportion, while a strip wider than
+ * the default leaves it where it is. A pack that buys more column is buying room
+ * for a longer line, and a floor that rose with the band would hand back the
+ * room it just bought as a bigger minimum instead.
+ *
+ * A caller takes the SMALLER of this and the height-derived floor, so the floor
+ * only ever drops and any layout that already fits keeps the size it had.
+ */
+export function gutterBubbleMinFontSize(bandWidth: number, frameWidth: number): number {
+  const effective = Math.min(bandWidth, frameWidth * GUTTER_BAND_WIDTH_DEFAULT);
+  return Math.max(1, effective * GUTTER_MIN_FONT_FRAC);
 }
 
 /**

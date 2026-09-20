@@ -24,6 +24,16 @@ export const DEFAULT_OVERFLOW_FALLBACK = REFERENCE_RENDER;
 export interface OverflowLintOptions {
   /** Render size assumed for cuts without a readable image. */
   fallback?: { width: number; height: number };
+  /**
+   * The project's declared gutter band width (`webtoon.json` →
+   * `gutterBandWidth`), a fraction of the cut width (#215). A gutter bubble is
+   * laid out inside that strip, so whether its text fits depends on it: without
+   * the project's value this lint would measure every gutter bubble against the
+   * DEFAULT strip and report overflow on text that renders and exports fine.
+   * Absent → the default strip, which is what a project that declares nothing
+   * renders on anyway.
+   */
+  gutterBandWidth?: number;
 }
 
 /** Resolve a cut's encoded image bytes, or null when no image is associated. */
@@ -58,7 +68,9 @@ export function lintBubbleOverflow(
       }
     }
 
-    for (const render of layoutCut(overlays, width, height)) {
+    for (const render of layoutCut(overlays, width, height, {
+      gutterBandWidth: options.gutterBandWidth,
+    })) {
       if (render.overflow) {
         findings.push(
           finding(

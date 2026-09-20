@@ -27,6 +27,7 @@ import {
   validateEpisodeValue,
   validateExportQuality,
   validateExportWidth,
+  validateGutterBandWidth,
 } from "@toony/schema";
 import {
   PACK_FORMAT_VERSION,
@@ -51,7 +52,7 @@ const MANIFEST_KEYS = [
   "craftBands",
 ] as const;
 const WORKFLOW_KEYS = ["name", "file"] as const;
-const GENRE_KEYS = ["id", "title", "file"] as const;
+const GENRE_KEYS = ["id", "title", "file", "gutterBandWidth"] as const;
 const CRAFT_BAND_KEYS = ["id", "file"] as const;
 const PRESET_KEYS = ["id", "target", "options"] as const;
 const PRESET_OPTION_KEYS = ["width", "format", "quality"] as const;
@@ -194,6 +195,18 @@ function validateGenres(value: unknown, path: string, c: IssueCollector): void {
         joinPath(entryPath, "title"),
         "pack.genre.title",
         "genre title must be a non-empty string.",
+      );
+    }
+    // The gutter strip this genre letters in (#215). Same bounds and wording
+    // `webtoon.json` enforces, from the one shared validator, so a width a pack
+    // may declare is exactly a width a project may hold — a scaffolded project
+    // can never carry a number `toony validate` would then reject.
+    const bandError = validateGutterBandWidth(entry.gutterBandWidth as number | undefined);
+    if (bandError !== null) {
+      c.add(
+        joinPath(entryPath, "gutterBandWidth"),
+        "pack.genre.gutter-band-width",
+        `${bandError}.`,
       );
     }
     validateFileRef(entry.file, joinPath(entryPath, "file"), "genre", c);

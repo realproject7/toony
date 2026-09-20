@@ -70,6 +70,21 @@ function starterEpisode(): EpisodeBundle {
 }
 
 /**
+ * Project-level craft values a starter genre seeds into `webtoon.json`, beyond
+ * its episode records. Every field is optional: one the genre does not declare
+ * is simply absent from the new project, which then renders on the core default.
+ */
+export interface InitialCraftOptions {
+  /**
+   * The gutter strip width the genre letters in (#215), a fraction of the cut
+   * width. Written into the project, so from `init` onward the strip is a
+   * property of the PROJECT: no consumer has to find the pack again to render,
+   * and removing the pack cannot change how the episode reads.
+   */
+  gutterBandWidth?: number;
+}
+
+/**
  * Build the full in-memory project model for a new project. With no `starter`
  * the neutral starter episode is used (back-compat); a built-in `Genre` seeds a
  * genre-tuned cold-open + beat scaffold (#101), and an already-resolved
@@ -77,8 +92,16 @@ function starterEpisode(): EpisodeBundle {
  * contributed by a pack (#192) reaches `toony init` without this package having
  * to know where the scaffold came from. Either way the result is a valid,
  * lint-clean project.
+ *
+ * `craft` carries the project-level values that same genre declares (#215).
+ * Absent, or with every field absent, the webtoon root is byte-identical to the
+ * one this built before the parameter existed.
  */
-export function buildInitialProject(name: string, starter?: Genre | EpisodeBundle): Project {
+export function buildInitialProject(
+  name: string,
+  starter?: Genre | EpisodeBundle,
+  craft: InitialCraftOptions = {},
+): Project {
   const projectId = slugify(name);
   const webtoon: Webtoon = {
     schemaVersion: SCHEMA_VERSION,
@@ -88,6 +111,9 @@ export function buildInitialProject(name: string, starter?: Genre | EpisodeBundl
     // than leaving it to the default: a project's rhythm is unreadable without
     // it, and a genre scaffold seeds its numbers on the standard canvas (#217).
     referenceWidth: STANDARD_CANVAS_WIDTH_PX,
+    // Only a genre that declares a gutter strip writes one; every other project
+    // omits the field and renders on the default strip (#215).
+    ...(craft.gutterBandWidth === undefined ? {} : { gutterBandWidth: craft.gutterBandWidth }),
     languages: {
       defaultLanguage: "en",
       supportedLanguages: ["en"],

@@ -302,3 +302,33 @@ test("a genre scaffold that is not an object is rejected without throwing", () =
   assert.equal(validateGenreScaffold("nope").valid, false);
   assert.equal(validateGenreScaffold(null).valid, false);
 });
+
+// --- The gutter strip a genre letters in (#215) -----------------------------
+
+test("a genre may declare the gutter strip its dialogue needs", () => {
+  const manifest = {
+    ...VALID,
+    genres: [{ id: "noir", title: "Noir", file: "genres/noir.json", gutterBandWidth: 0.3 }],
+  };
+  const result = validatePackManifest(manifest);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+  // It survives narrowing, so discovery carries the number the pack declared.
+  assert.equal(asPackManifest(manifest).genres[0]?.gutterBandWidth, 0.3);
+  // And it stays optional: a genre that declares none is still valid.
+  assert.equal(asPackManifest(VALID).genres[0]?.gutterBandWidth, undefined);
+});
+
+test("a genre's gutter strip is held to the same bounds webtoon.json is", () => {
+  // Same shared validator both sides, so a width a pack may ship is exactly a
+  // width a scaffolded project may hold — `toony validate` can never reject
+  // what `toony init --genre` just wrote.
+  for (const bad of [0, -0.2, 0.9, 1, "0.3", Number.NaN]) {
+    assert.ok(
+      codes({
+        ...VALID,
+        genres: [{ id: "noir", title: "Noir", file: "genres/noir.json", gutterBandWidth: bad }],
+      }).includes("pack.genre.gutter-band-width"),
+      `gutterBandWidth ${String(bad)} should be rejected`,
+    );
+  }
+});

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { FontFamilyId } from "@toony/fonts";
 import { buildInitialProject, writeProject } from "@toony/project-io";
-import type { BubbleKind } from "@toony/schema";
+import { type BubbleKind, GUTTER_BAND_WIDTH_DEFAULT } from "@toony/schema";
 import {
   buildExportProject,
   buildManyCutsProject,
@@ -164,4 +164,44 @@ test("an export draws the dialogue face the project's declared language picks", 
 
   const pinnedLatin = await exportedHashes("ko", "nunito");
   assert.deepEqual(en, pinnedLatin, "en export is not the Latin sans");
+});
+
+// --- The gutter strip the project declares (#215) ----------------------------
+// The export target is what reads `webtoon.gutterBandWidth` off the loaded
+// project and hands it to the compositor. As above, these assert on the
+// manifest's content hashes, so they only pass if the declared strip reaches
+// the pixels — and on the ONE field, so read and export cannot part ways.
+
+/** Export the fixture with a gutter bubble, and hash what it wrote. */
+async function exportedGutterHashes(gutterBandWidth?: number): Promise<string[]> {
+  const project = buildExportProject();
+  if (gutterBandWidth !== undefined) project.webtoon.gutterBandWidth = gutterBandWidth;
+  const bundle = project.episodes[0];
+  if (!bundle) throw new Error("fixture missing episode");
+  const first = bundle.lettering[0];
+  if (!first) throw new Error("fixture missing lettering");
+  bundle.lettering = [
+    { ...first, placement: "gutter", placementSide: "right", text: "Still no answer." },
+  ];
+  const base = await mkdtemp(join(tmpdir(), "toony-export-gutter-"));
+  const root = join(base, "proj");
+  await writeProject(root, project);
+  await writeCutImages(root);
+  const out = await exportPlatform(root, "ep-001", { width: 400, format: "png" });
+  return out.manifest.files.map((f) => f.sha256);
+}
+
+test("an export reserves the gutter strip the project declares (#215)", async () => {
+  const declared = await exportedGutterHashes(0.34);
+  const wider = await exportedGutterHashes(0.45);
+  assert.notDeepEqual(declared, wider, "the declared strip never reached the exported pixels");
+
+  // A project that declares nothing exports exactly as one that declares the
+  // default: the field is additive, and an episode written before it existed is
+  // untouched by it.
+  assert.deepEqual(
+    await exportedGutterHashes(),
+    await exportedGutterHashes(GUTTER_BAND_WIDTH_DEFAULT),
+    "declaring the default strip changed the exported bytes",
+  );
 });

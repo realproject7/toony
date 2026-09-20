@@ -570,6 +570,18 @@ export interface Webtoon {
    * different column; contributed pack scaffolds are authored on the standard one.
    */
   referenceWidth?: number;
+  /**
+   * Width of the reserved strip a `placement: gutter` bubble sits in, as a
+   * fraction of the cut's width (#215). Gutter dialogue is the feature some
+   * genres are identified by, and how much column it gets is part of that
+   * signature, so the project states it rather than the renderer fixing it.
+   *
+   * OPTIONAL and back-compatible: absent → `GUTTER_BAND_WIDTH_DEFAULT`, the
+   * width the strip has had since #98, so a project written before the field
+   * renders byte-for-byte as it did. `toony init --genre <id>` writes the value
+   * a pack's genre declares, which is how a project inherits one.
+   */
+  gutterBandWidth?: number;
 }
 
 /** The records for a single episode, assembled from its files. */

@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { approximateMeasure, gutterBubbleMinFontSize } from "@toony/render";
 import type { BubbleGeometry, EpisodeBundle, LetteringOverlay } from "@toony/schema";
 import { encodePng, makeSolidRaster } from "../__fixtures__/images.js";
+import { CRAFT_MAX_LINE_CHARS } from "../craft-lint.js";
 import { lintBubbleOverflow } from "../overflow-lint.js";
 
 function overlay(
@@ -88,4 +90,56 @@ test("a readable image's header dimensions drive the layout", () => {
   const findings = lintBubbleOverflow(bundle("cut-001", [o]), () => tiny);
   assert.equal(findings.length, 1);
   assert.equal(findings[0]?.code, "lettering/overflow");
+});
+
+// --- The gutter strip the lint measures against (#215) ----------------------
+
+test("the overflow lint measures a gutter bubble against the PROJECT's strip", () => {
+  // The whole point of a pack being able to widen the strip: text that does not
+  // fit the default one, and did fit nothing else, fits when the project says
+  // the strip is wider. A lint stuck on the constant would keep reporting it.
+  const o = overlay("ov-g", "cut-001", "This line needs more column than the default strip.", {
+    x: 0.04,
+    y: 0.1,
+    width: 0.92,
+    height: 0.03,
+  });
+  const gutter: LetteringOverlay = { ...o, placement: "gutter", placementSide: "right" };
+  const b = bundle("cut-001", [gutter]);
+  assert.equal(
+    lintBubbleOverflow(b, () => null).length,
+    1,
+    "expected the default strip to be tight",
+  );
+  assert.deepEqual(
+    lintBubbleOverflow(b, () => null, { gutterBandWidth: 0.45 }),
+    [],
+  );
+  // An in-panel bubble is untouched by the declared strip.
+  const inPanel = bundle("cut-001", [o]);
+  assert.deepEqual(
+    lintBubbleOverflow(inPanel, () => null, { gutterBandWidth: 0.45 }),
+    lintBubbleOverflow(inPanel, () => null),
+  );
+});
+
+test("a gutter bubble's auto-fit floor can hold a craft-length line in its strip", () => {
+  // `gutterBubbleMinFontSize` is derived from the craft line-length limit, and
+  // that limit lives in THIS package — the render core cannot import it. So the
+  // derivation is checked here, by measuring a line of exactly that length at
+  // the floor against the text column a strip-filling gutter bubble has. If
+  // either number moves, this fails rather than the two quietly drifting apart.
+  const line = "e".repeat(CRAFT_MAX_LINE_CHARS); // a body glyph: the common case
+  for (const frameWidth of [600, 1200, 2400]) {
+    // The floor is capped at the default strip, so that is where it binds; a
+    // narrower strip lowers it in proportion and stays inside its own column.
+    const bandWidth = frameWidth * 0.18;
+    const box = bandWidth * 0.92; // what both authored packs set
+    const column = box - 2 * Math.max(2, box * 0.06); // the layout's own padding
+    const width = approximateMeasure(line, gutterBubbleMinFontSize(bandWidth, frameWidth));
+    assert.ok(
+      width <= column,
+      `a ${CRAFT_MAX_LINE_CHARS}-character line needs ${width.toFixed(1)}px in a ${column.toFixed(1)}px column`,
+    );
+  }
 });

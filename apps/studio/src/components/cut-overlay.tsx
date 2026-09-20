@@ -99,17 +99,21 @@ function Bubble({ plan }: { plan: BubbleRender }) {
  * are no bubbles to draw.
  *
  * `dialogueLanguage` is the project's declared dialogue language, which picks the
- * default dialogue face (#213). The export raster passes the same value into the
- * same `layoutCut`, so what is read here is what is exported.
+ * default dialogue face (#213). `gutterBandWidth` is the project's resolved
+ * gutter strip width (#215), the same value the enclosing stage reserved the
+ * strip with. The export raster passes both into the same `layoutCut`, so what
+ * is read here is what is exported.
  */
 export function CutOverlay({
   bubbles,
   art,
   dialogueLanguage,
+  gutterBandWidth,
 }: {
   bubbles: LetteringOverlay[];
   art: CutArt;
   dialogueLanguage: string;
+  gutterBandWidth: number;
 }) {
   const measure = useBrowserMeasure();
   const plans = useMemo(
@@ -117,8 +121,9 @@ export function CutOverlay({
       layoutCut(bubbles, art.width, art.height, {
         ...(measure ? { measure } : {}),
         dialogueLanguage,
+        gutterBandWidth,
       }),
-    [bubbles, art.width, art.height, measure, dialogueLanguage],
+    [bubbles, art.width, art.height, measure, dialogueLanguage, gutterBandWidth],
   );
   if (plans.length === 0) return null;
   return (

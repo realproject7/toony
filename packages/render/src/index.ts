@@ -37,7 +37,6 @@ export {
   ARTLESS_CUT_FILL,
   cutPlacementFrame,
   FALLBACK_CUT_ASPECT,
-  GUTTER_BAND_FRAC,
   layoutBubble,
   layoutCut,
 } from "./layout.js";
@@ -58,7 +57,13 @@ export type {
   BubbleTextOptions,
   MeasureWidth,
 } from "./text.js";
-export { defaultBubbleFontRange, layoutBubbleText, matchFaceWeight, wrapText } from "./text.js";
+export {
+  defaultBubbleFontRange,
+  gutterBubbleMinFontSize,
+  layoutBubbleText,
+  matchFaceWeight,
+  wrapText,
+} from "./text.js";
 
 export type {
   BandBackground,

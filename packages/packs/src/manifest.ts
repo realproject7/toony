@@ -47,6 +47,21 @@ export interface PackGenreRef {
   title: string;
   /** Pack-relative path to the episode-bundle JSON file. */
   file: string;
+  /**
+   * Width of the reserved gutter strip this genre letters in, as a fraction of
+   * the cut width (#215). Gutter dialogue is the feature some genres are
+   * identified by — a thriller runs several intrusions a screen where a
+   * slice-of-life runs half of one — so the strip's width is part of what a
+   * genre pack ships, not a constant the renderer fixes.
+   *
+   * A NUMBER, like every other value here: `toony init --genre <id>` writes it
+   * into the new project's `webtoon.json`, and from there the studio preview,
+   * the export raster, and the lint all read it. The pack contributes the value
+   * and nothing else — no code runs, and nothing consults the pack at render
+   * time. Absent → the project declares no width and renders on the default
+   * strip.
+   */
+  gutterBandWidth?: number;
 }
 
 /**

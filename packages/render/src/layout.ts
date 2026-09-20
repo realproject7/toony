@@ -20,6 +20,8 @@ import {
   type FontWeight,
   LETTERING_STYLE_DEFAULTS,
   type LetteringOverlay,
+  type PlacementSide,
+  resolveGutterBandWidth,
   type TextAlign,
   type VerticalAlign,
 } from "@toony/schema";
@@ -45,6 +47,7 @@ import {
 import {
   type BubbleTextLayout,
   defaultBubbleFontRange,
+  gutterBubbleMinFontSize,
   layoutBubbleText,
   type MeasureWidth,
   matchFaceWeight,
@@ -185,6 +188,17 @@ export interface LayoutOptions {
    * so a caller with no project in hand lays out exactly as it did before.
    */
   dialogueLanguage?: string;
+  /**
+   * The project's declared gutter band width (`webtoon.json` →
+   * `gutterBandWidth`), a fraction of the cut width (#215): how much column a
+   * `placement: gutter` bubble's reserved strip takes. Absent → the default
+   * strip, so a caller with no project in hand lays out exactly as it did before
+   * the field existed.
+   *
+   * Hand the SAME value to {@link cutPlacementFrame}, which reserves the strip
+   * this lays bubbles into.
+   */
+  gutterBandWidth?: number;
 }
 
 /** Base stroke width derived from render height when not supplied. */
@@ -200,14 +214,6 @@ function baseStroke(height: number): number {
  * raster has shipped, so the exported artwork is unchanged.
  */
 const SFX_TEXT_OUTLINE_FACTOR = 0.12;
-
-/**
- * Width of the reserved gutter strip (#98) as a fraction of the cut canvas width.
- * A `gutter`-placed bubble lays out inside this in-bounds strip; the remaining
- * width is the art. The canvas dimensions never change, so studio and export
- * agree without any per-consumer adjustment.
- */
-export const GUTTER_BAND_FRAC = 0.18;
 
 // --- The art-less cut stage (single source; #211) ---------------------------
 //
@@ -235,32 +241,66 @@ export interface Rect {
 }
 
 /**
+ * The reserved gutter strip (#98/#215) on one side of a cut: an in-bounds band
+ * of `bandWidth` (a fraction of the canvas width) where a `gutter`-placed bubble
+ * lays out; the remaining width is the art. The canvas dimensions never change,
+ * so studio and export agree without any per-consumer adjustment.
+ *
+ * Every band in this module comes from HERE — `cutPlacementFrame` for the cut's
+ * reserved strips, `layoutBubble` for the rect one bubble maps into — so the two
+ * cannot derive different strips from the same resolved width.
+ */
+function gutterBandRect(
+  width: number,
+  height: number,
+  side: PlacementSide,
+  bandWidth: number,
+): Rect {
+  const bandW = width * bandWidth;
+  return side === "left"
+    ? { x: 0, y: 0, width: bandW, height }
+    : { x: width - bandW, y: 0, width: bandW, height };
+}
+
+/**
  * Cut-level placement frame (#98): from a cut's overlays, the reserved gutter
  * band(s) and the remaining ART rect. A consumer draws the artwork into `art`
  * and leaves each band as a reserved reading margin where gutter bubbles sit, so
  * the strip is ACTUALLY reserved (not drawn over). With no gutter overlays the
  * art is the whole frame (back-compat: full-bleed artwork). Single source so the
  * studio preview and the canvas export reserve the SAME strip → parity.
+ *
+ * `gutterBandWidth` is the project's declared strip width (#215), a fraction of
+ * the cut width; absent → the default strip, so a caller with no project in hand
+ * reserves exactly what it did before the field existed. Pass the SAME value to
+ * `layoutCut`: the artwork rect this returns and the band a bubble is laid into
+ * are two halves of one reservation, and a consumer that resolves the width once
+ * and hands it to both cannot draw the art over the strip it letters in.
  */
 export function cutPlacementFrame(
   overlays: readonly LetteringOverlay[],
   width: number,
   height: number,
+  gutterBandWidth?: number,
 ): { art: Rect; bands: Rect[] } {
-  const bandW = width * GUTTER_BAND_FRAC;
-  let left = 0;
-  let right = 0;
+  const bandWidth = resolveGutterBandWidth(gutterBandWidth);
+  // One rect per side that any overlay claims — the same rect `layoutBubble`
+  // lays that overlay into, not a second derivation of it.
+  let left: Rect | null = null;
+  let right: Rect | null = null;
   for (const overlay of overlays) {
-    if (overlay.placement === "gutter") {
-      if ((overlay.placementSide ?? "right") === "left") left = bandW;
-      else right = bandW;
-    }
+    if (overlay.placement !== "gutter") continue;
+    const side: PlacementSide = overlay.placementSide ?? "right";
+    const band = gutterBandRect(width, height, side, bandWidth);
+    if (side === "left") left = band;
+    else right = band;
   }
   const bands: Rect[] = [];
-  if (left > 0) bands.push({ x: 0, y: 0, width: left, height });
-  if (right > 0) bands.push({ x: width - right, y: 0, width: right, height });
+  if (left) bands.push(left);
+  if (right) bands.push(right);
+  const taken = (left?.width ?? 0) + (right?.width ?? 0);
   return {
-    art: { x: left, y: 0, width: Math.max(1, width - left - right), height },
+    art: { x: left?.width ?? 0, y: 0, width: Math.max(1, width - taken), height },
     bands,
   };
 }
@@ -315,26 +355,28 @@ export function layoutBubble(
   const measureWeight: 400 | 700 = matchFaceWeight(fontWeight);
 
   // Placement (#98): `in_panel` uses the whole cut canvas (back-compat); `gutter`
-  // reserves an in-bounds strip of `GUTTER_BAND_FRAC` width on `placementSide`.
-  // The bubble geometry maps WITHIN the placement rect (the strip for gutter); its
-  // tailTarget is normalized in the remaining ART rect and clamped to the art edge.
-  // Canvas dimensions never change → studio SVG and export canvas use the same
-  // rects (the plan exposes frame/art/band) and stay pixel-consistent.
+  // reserves an in-bounds strip on `placementSide` whose width the PROJECT
+  // declares (#215; absent → the default strip). The bubble geometry maps WITHIN
+  // the placement rect (the strip for gutter); its tailTarget is normalized in
+  // the remaining ART rect and clamped to the art edge. Canvas dimensions never
+  // change → studio SVG and export canvas use the same rects (the plan exposes
+  // frame/art/band) and stay pixel-consistent.
   const placement = overlay.placement ?? "in_panel";
-  const placementSide = overlay.placementSide ?? "right";
+  const placementSide: PlacementSide = overlay.placementSide ?? "right";
   const frame: Rect = { x: 0, y: 0, width, height };
   let band: Rect | null = null;
   let art: Rect = frame;
   if (placement === "gutter") {
-    const bandW = width * GUTTER_BAND_FRAC;
-    band =
-      placementSide === "left"
-        ? { x: 0, y: 0, width: bandW, height }
-        : { x: width - bandW, y: 0, width: bandW, height };
+    band = gutterBandRect(
+      width,
+      height,
+      placementSide,
+      resolveGutterBandWidth(opts.gutterBandWidth),
+    );
     art =
       placementSide === "left"
-        ? { x: bandW, y: 0, width: width - bandW, height }
-        : { x: 0, y: 0, width: width - bandW, height };
+        ? { x: band.width, y: 0, width: width - band.width, height }
+        : { x: 0, y: 0, width: width - band.width, height };
   }
   const geomRect = band ?? frame;
 
@@ -394,11 +436,25 @@ export function layoutBubble(
   const pathD = drawsOutline ? balloonPathD(outline) : "";
 
   const { minFontSize, maxFontSize } = defaultBubbleFontRange(height);
+  // A gutter bubble's room is a strip cut from the cut's WIDTH, but the auto-fit
+  // floor above is a fraction of its HEIGHT — so the taller the cut, the larger
+  // the smallest font its gutter dialogue may use, even though the strip beside
+  // a taller panel is no narrower. Past a point the floor is a size the band was
+  // never wide enough to letter, and the bubble reports overflow at every box
+  // size; the only way out was to pin a `fontSize`. Take the smaller of the two
+  // floors so the descent can always reach inside the band (#215). The floor only
+  // ever DROPS, and the descent returns the largest size that fits, so a layout
+  // that already fit keeps the size it had. An impact_band SFX is excluded: its
+  // box is the art, not the strip.
+  const gutterFloor =
+    band !== null && !isImpact
+      ? Math.min(minFontSize, gutterBubbleMinFontSize(band.width, width))
+      : minFontSize;
   // #93: a beat bubble with no authored text renders an ellipsis pause; per-kind
   // `fontScale` shrinks the auto-fit range (ambient reads smaller/denser).
   const renderText = kind === "beat" && overlay.text.trim().length === 0 ? "..." : overlay.text;
   const text = layoutBubbleText(measure, renderText, ow, oh, {
-    minFontSize: minFontSize * style.fontScale,
+    minFontSize: gutterFloor * style.fontScale,
     maxFontSize: maxFontSize * style.fontScale,
     // A stored numeric fontSize fixes the size; null/absent keeps auto-fit.
     fontSize: overlay.fontSize ?? undefined,
@@ -535,7 +591,8 @@ export function layoutCut(
   // Reserve the cut-level art rect from ALL overlays once (#98/#99) and pass it
   // down, so a full-width impact_band SFX spans the shared art and never enters a
   // sibling gutter bubble's reserved strip. An explicit opts.cutArt wins.
-  const cutArt = opts.cutArt ?? cutPlacementFrame(overlays, width, height).art;
+  const cutArt =
+    opts.cutArt ?? cutPlacementFrame(overlays, width, height, opts.gutterBandWidth).art;
   return overlays
     .map((overlay, index) => ({ overlay, index }))
     .sort(
