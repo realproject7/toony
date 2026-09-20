@@ -314,7 +314,9 @@ export async function runMeasure(args: string[], io: MeasureIo): Promise<number>
   } catch (cause) {
     if (cause instanceof ExportError || cause instanceof ProjectIoError) {
       io.err(`measure failed: ${cause.message}`);
-      return EXIT_USAGE;
+      return cause instanceof ExportError && cause.code === "invalid-project"
+        ? EXIT_VALIDATION
+        : EXIT_USAGE;
     }
     throw cause;
   }
