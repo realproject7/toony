@@ -152,7 +152,10 @@ for V in "${NODE_VERSIONS[@]}"; do
     FAILED=1
     continue
   fi
-  run_stage test-tasks "$NODE" scripts/check-test-results.mjs --tasks || FAILED=1
+  if ! run_stage test-tasks "$NODE" scripts/check-test-results.mjs --tasks; then
+    FAILED=1
+    continue
+  fi
   run_stage check pnpm check || FAILED=1
   run_stage build pnpm build || FAILED=1
   # Real-compiler controls are intentionally separate from the fast check loop.

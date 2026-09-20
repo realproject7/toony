@@ -63,3 +63,8 @@ These compiler controls run once per Node major in the release gate. They are
 deliberately outside `pnpm check`, keeping the frequent editing loop fast. The
 gate reports stage duration, and each PR's verification receipt records measured
 cost. No second baseline test run is required by the coverage guard.
+
+The 24 scoped controls measured 8.6 seconds on Node 20 and 4.4 seconds on Node 24
+on the development Mac on 2026-09-21. The runtime probes took 2.7 and 3.4 seconds.
+That adds about 19 seconds across both majors; host load changes wall time. The
+coverage check only reads manifests and the existing test log.
