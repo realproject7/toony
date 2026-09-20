@@ -20,6 +20,17 @@
 // cut's latent size. A cut that declares no shape has NO size injected, so the
 // workflow's latent stands exactly as it did before the field existed.
 //
+// A project that does not validate is REFUSED before anything is sent (#261).
+// Every input above — the prompt, the lockstrings, the palette, the shape — is
+// read out of records this command does not otherwise check, so generating from
+// an unvalidated project spends GPU minutes on data nobody has looked at and
+// then writes art into the project. The one exception is a project that is
+// merely half-wired — a record written but not yet sequenced, or a sequence
+// entry whose record is not written yet — which warns loudly and proceeds,
+// because refusing it makes the whole project unreachable while any one part of
+// it is mid-edit. `../generate-gate.ts` owns that line and the reasoning for it;
+// `docs/ARCHITECTURE.md` ("Generation and validation") has the operator view.
+//
 // `--cut` REPEATS, so this command owns the multi-cut loop instead of leaving
 // every caller to write a shell loop and invent its own error handling (#204).
 // Generation is slow and flaky against a local GPU, so a failed cut must not
@@ -31,6 +42,7 @@ import {
   type AssetTarget,
   type ComfyUiConfig,
   ingestImageAsset,
+  type LoadedProject,
   loadProject,
   ProjectIoError,
   readConfig,
@@ -43,11 +55,13 @@ import {
   resolveComfyUIConfig,
   type ToonyWorkspaceComfyConfig,
 } from "@toony/providers";
-import { type Character, PANEL_ASPECT_MAX, PANEL_ASPECT_MIN } from "@toony/schema";
+import type { Character } from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
+import { authoredValueLines, partitionIssues } from "../generate-gate.js";
 import { discoverPackContent } from "../packs.js";
 import { appendPaletteClause } from "../palette.js";
 import { latentHeightFor } from "../panel-shape.js";
+import { textReport } from "../report.js";
 
 export interface GenerateIo {
   cwd: string;
@@ -271,19 +285,18 @@ function optionsFor(
  *
  * An explicit `--prompt` wins; otherwise a cut falls back to its stored
  * `imagePrompt`/`negativePrompt` (#38). Transitions carry no stored prompt, so
- * `--prompt` stays required for them. The project is loaded ONCE, even when
- * `--prompt` is given, to read each cut's `characters` refs, its `palette`, and
- * the project registry, so lockstrings (#92) and the palette clause (#207)
- * inject for both prompt sources. Generation writes only image refs, which
- * nothing here reads, so one load serves the whole run.
+ * `--prompt` stays required for them. The already-loaded project supplies each
+ * cut's `characters` refs, its `palette`, and the project registry, so
+ * lockstrings (#92) and the palette clause (#207) inject for both prompt
+ * sources. Generation writes only image refs, which nothing here reads, so the
+ * caller's one load serves the whole run.
  *
- * `usage` separates a caller mistake, which reprints the usage line, from a
- * project that could not be loaded.
+ * `usage` marks a caller mistake, which reprints the usage line.
  */
-async function planJobs(
-  root: string,
+function planJobs(
+  loaded: LoadedProject,
   input: PlanInput,
-): Promise<{ jobs: Job[] } | { error: string; usage: boolean }> {
+): { jobs: Job[] } | { error: string; usage: boolean } {
   const { episodeId, cutIds, transitionId, slot, prompt, negative, shared } = input;
   const NO_PROMPT = "generation requires --prompt <text> (or a non-empty cut imagePrompt)";
   if (transitionId !== undefined) {
@@ -301,12 +314,6 @@ async function planJobs(
     };
   }
 
-  let loaded: Awaited<ReturnType<typeof loadProject>>;
-  try {
-    loaded = await loadProject(root);
-  } catch (error) {
-    return { error: error instanceof ProjectIoError ? error.message : String(error), usage: false };
-  }
   const registry: readonly Character[] = loaded.project.webtoon.characters ?? [];
   const bundle = loaded.project.episodes.find((b) => b.episode.id === episodeId);
 
@@ -359,8 +366,18 @@ async function planJobs(
  * A job with no declared shape is left exactly as planned: no size is injected
  * for it, so the workflow's own latent stands, unchanged to the byte.
  *
- * Returns an error instead of generating when a declared shape is out of bounds
- * or cannot be resolved, and nothing is sent in either case. Falling back to the
+ * The shape's own bounds are NOT re-checked here. #237 added that check because
+ * this command ignored `loadProject`'s validation report, so a `panelAspect` the
+ * schema rejects still reached this function; the run's validation gate (#261)
+ * is what covers it now, and every cut in `bundle.cuts` goes through
+ * `validateCutValue`, which applies `PANEL_ASPECT_MIN`/`MAX` and rejects a
+ * non-finite or non-numeric value. `cut.panel-aspect` is not on the gate's
+ * wiring allowlist, so it refuses rather than warns. Keeping a second copy of
+ * the bounds would leave the CLI free to drift from the schema and refuse a
+ * project `toony validate` calls valid.
+ *
+ * Returns an error instead of generating when a declared shape cannot be
+ * RESOLVED — there is no column to size it against. Falling back to the
  * workflow's latent would render a page with the pack's pacing quietly removed,
  * and cost GPU minutes to discover.
  */
@@ -374,34 +391,6 @@ function applyPanelShapes(
     job.panelAspect === undefined ? [] : [{ job, panelAspect: job.panelAspect }],
   );
   if (declared.length === 0) return null;
-
-  // The bounds are re-applied here, at the one place the number is USED, because
-  // this command never consults `loadProject`'s validation report: a project that
-  // `toony validate` rejects still reaches this function. Without this check a
-  // NaN, a quoted number or an out-of-range value would be injected or dropped
-  // and the run would exit 0 reporting a size nobody asked for — #207 again, and
-  // the clamp `latentHeightFor`'s one-block floor would otherwise perform.
-  // `Number.isFinite` also rejects a YAML string, which the compile-time type
-  // cannot.
-  const invalid = declared.find(
-    ({ panelAspect }) =>
-      !Number.isFinite(panelAspect) ||
-      panelAspect < PANEL_ASPECT_MIN ||
-      panelAspect > PANEL_ASPECT_MAX,
-  );
-  if (invalid) {
-    // `JSON.stringify` renders NaN and Infinity as `null`, which names neither
-    // the value nor the mistake. Numbers print as themselves; anything else
-    // keeps its quotes, so a YAML-quoted "1.4" reads as the string it is.
-    const shown =
-      typeof invalid.panelAspect === "number"
-        ? String(invalid.panelAspect)
-        : JSON.stringify(invalid.panelAspect);
-    return {
-      error: `cut ${invalid.job.id} declares panelAspect ${shown}, which is not a number between ${PANEL_ASPECT_MIN} and ${PANEL_ASPECT_MAX}; run "toony validate" for the full report. Nothing was generated. This command checks this one field, not the whole project (#261).`,
-      exit: EXIT_VALIDATION,
-    };
-  }
 
   if (typeof shared.height === "number") {
     io.err(
@@ -489,11 +478,70 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     shared[key] = n;
   }
 
+  // Load the project ONCE and CONSULT the validation report it returns (#261).
+  //
+  // Every other command that loads a project consults it; this was the only one
+  // that did not, and it is the one that spends generation time. The prompt, the
+  // lockstrings, the palette and the panel shape are all read out of records
+  // this command does not otherwise check, so a project `toony validate` rejects
+  // used to generate anyway: art written into the project from data nobody had
+  // looked at, and a run that exited 0.
+  //
+  // A transition run is covered too. It needs no cut data, but it still writes
+  // into the project through the same ingest path, and on the tree before this
+  // gate a `--transition` run against a project that could not even be LOADED
+  // submitted its request first and failed afterwards.
+  //
+  // Placement is deliberate and pinned by test. It is BELOW the flag checks
+  // above, so `--slot bogus` is still the usage error it has always been rather
+  // than a validation report about an unrelated field. It is ABOVE `planJobs`
+  // and `applyPanelShapes`, so an invalid project is named as invalid instead of
+  // surfacing as whatever secondary complaint the run would have hit first.
+  //
+  // `@toony/generate-gate` owns what refuses and what only warns, and why.
+  let loaded: LoadedProject;
+  try {
+    loaded = await loadProject(root);
+  } catch (cause) {
+    // Matches `validate.ts`: an IO/parse failure is a usage error; anything else
+    // is a bug in the reader and must not be disguised as one.
+    if (cause instanceof ProjectIoError) {
+      io.err(cause.message);
+      return EXIT_USAGE;
+    }
+    throw cause;
+  }
+  if (!loaded.validation.valid) {
+    const { blocking, wiring } = partitionIssues(loaded.validation);
+    if (blocking.length === 0) {
+      // Half-wired, not malformed: every record generation reads is intact and
+      // only the references between them are unfinished. Say so loudly — this
+      // is the "loud warning" half of the ticket — and generate.
+      io.err(`warning: ${wiring.length} unwired reference(s) in ${root}:`);
+      for (const issue of wiring) io.err(`  - [${issue.code}] ${issue.path}`);
+      io.err('generating anyway; run "toony validate" for the full report.');
+    } else {
+      // The SAME report `toony validate` prints, from the same function, so an
+      // author reads one command's output instead of running two. Any blocking
+      // issue refuses the whole run, even alongside wiring ones.
+      io.err(textReport(root, loaded.validation));
+      // ...then what the validator cannot say: the value that is actually there.
+      // Without it, `panelAspect: "1.4"` answers "must be a number between 0.1
+      // and 10" with a number between 0.1 and 10, and the quotes — the entire
+      // defect — go unmentioned.
+      for (const line of authoredValueLines(loaded.project, blocking)) io.err(line);
+      io.err(
+        'nothing was generated: "toony generate" does not generate from a project that does not validate. Fix the issue(s) above and re-run.',
+      );
+      return EXIT_VALIDATION;
+    }
+  }
+
   // Plan every job BEFORE the first request. Usage problems (an unusable prompt)
   // abort the whole run here, so a multi-cut run never spends GPU minutes on
   // cut-001 only to discover cut-007 was never going to work. Only GENERATION
   // failures are per-cut, and those are what the summary below reports.
-  const jobs = await planJobs(root, {
+  const jobs = planJobs(loaded, {
     episodeId,
     cutIds,
     ...(transitionId === undefined ? {} : { transitionId }),

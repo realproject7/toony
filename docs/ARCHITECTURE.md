@@ -49,6 +49,96 @@ image files.
 Toony is not an image-generation model. It coordinates project structure,
 prompts, assets, validation, lettering, and export.
 
+## Generation and validation
+
+Reading a project returns its validation report alongside its records. What each
+command does with that report is **not** uniform today. Measured on one project
+whose only defect is a bad `shotType`:
+
+| command | exit | on an invalid project |
+|---|---|---|
+| `toony validate` | 1 | prints the report |
+| `toony generate` | 1 | prints the report, sends nothing |
+| `toony lint` | 1 | prints its findings |
+| `toony export` | 2 | one line: "project does not pass validation" |
+| `toony measure` | 2 | the same one line |
+| `toony studio` | 0 | opens it with a note — the studio is where it gets fixed |
+| `toony import-image` | 0 | writes the asset and updates `cuts.yaml` (#270) |
+
+So `generate` is not following a house rule; it is the first command to print
+the report an author actually needs. `export` and `measure` refuse on the same
+condition but say almost nothing about it and exit 2 rather than 1, and
+`import-image` does not check at all. Converging those is #270's scope, not a
+claim this section gets to make on their behalf.
+
+### Why `generate` refuses rather than warning
+
+Generation is the command that spends real time and then writes art back into
+the project, and its inputs — the prompt, the character lockstrings, the
+palette, the panel shape — are all read out of records it does not otherwise
+check. Two failures it now prevents, both reproduced on the tree before it: a
+registry character whose `lockstring` key is misspelled crashed prompt
+composition with an uncaught `TypeError`, and a `--transition` run against a
+project that could not be loaded at all submitted its request first and failed
+afterwards.
+
+There is no `--force`. An override flag buys back exactly the behaviour the gate
+exists to remove, and lives in a shell alias forever after.
+
+### Why it warns instead for unwired references
+
+"Incomplete" and "invalid" are not the same thing here, and the difference is
+not only field-level. A cut with no image and no prompt validates — that is why
+`toony validate --require-images` is opt-in. But a **fully written cut that is
+not yet in the episode's `sequence` does not validate**, and refusing on that
+makes the whole project unreachable while any one part of it is mid-edit: a new
+`cut-003` appended to `cuts.yaml` blocks generating cut-003, cut-001, and every
+transition, until it is sequenced.
+
+The same is true one level up. Create `episodes/ep-002/` correctly — all four
+files, right shapes, `sequence: []` — and the **finished** episode 1 becomes
+unreachable, with no edit that fixes it short of writing the new episode.
+
+So six codes are treated as wiring rather than data. They warn on stderr, naming
+what is unwired, and the run proceeds:
+
+| code | state |
+|---|---|
+| `cut.orphan` | a cut record the sequence does not name yet |
+| `transition.orphan` | a transition record the sequence does not name yet |
+| `sequence.missing-cut` | the sequence names a cut not yet written |
+| `sequence.missing-transition` | the sequence names a transition not yet written |
+| `overlay.missing-cut` | a lettering overlay points at a cut that does not exist |
+| `sequence.empty` | an episode nobody has sequenced anything into yet |
+
+The first five are emitted only by the validator's reference checks, which
+compare id sets — none of them inspects a record's own fields, so a project
+whose only issues are these has every record intact. `sequence.empty` is
+stronger still: it fires on a zero-length array, so it reads nothing at all.
+Generation reads `cuts`, `transitions` and `webtoon.characters`; it reads
+neither `episode.sequence` nor `lettering`, which is where all six live.
+
+The list is by exact code, so it **fails closed**: a validation code added later
+is not on it and refuses. One consequence worth knowing, chosen deliberately and
+pinned by test — the other four reading-order *shape* rules are off the list, so
+sequencing a transition at the very end of an episode, or two in a row, still
+refuses until the next cut is sequenced. Unlike an unwritten episode, each of
+those has an edit that fixes it on the spot.
+
+Any single blocking issue refuses the whole run, even when wiring issues are
+present too. The refusal prints the report `toony validate` prints, and then one
+line per issue naming **the value as authored** — because `panelAspect: "1.4"`
+answers "must be a number between 0.1 and 10" with a number between 0.1 and 10,
+and the quotes are the entire defect. A field whose key is misspelled reads as
+`absent`, which its "must be a non-empty string" message cannot say.
+
+That line is printed only when the issue's path resolves to a single value. It
+is left out rather than guessed at, because a wrong line is worse than no line:
+the validator addresses an episode's sequence through the bundle
+(`episodes[0].sequence`) while the loaded project keeps it at
+`episodes[0].episode.sequence`, and read naively that reported a present
+sequence as missing.
+
 ## Export Targets
 
 Platform export:
