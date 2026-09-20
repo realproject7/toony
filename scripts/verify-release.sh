@@ -20,6 +20,7 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REF="${1:-$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)}"
 NODE_VERSIONS=("20" "24")
+PID_FILE=".verify-release-pid"
 
 # One scratch directory per RUN, not per ref. A fixed per-ref path meant a
 # second run of the same ref cloned into the directory the first was still
@@ -32,10 +33,15 @@ NODE_VERSIONS=("20" "24")
 # whoever reads it after a corrupt repository rather than a collision. `mktemp`
 # removes the class: concurrent runs of one ref get different directories and
 # both work. The ref stays in the path so a stray directory is still traceable.
+#
+# The checkout goes in a subdirectory because `git clone` refuses a target that
+# is not empty, and the run's pid marker has to live beside the checkout rather
+# than inside it.
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/toony-verify-$(echo "$REF" | tr '/' '-')-XXXXXX")" || {
   echo "verify-release: could not create a scratch directory under ${TMPDIR:-/tmp}." >&2
   exit 2
 }
+CLONE="$WORK/repo"
 # Interrupting a run used to leave a full clone plus two node_modules trees
 # behind until the next run of that same ref cleaned them up; with a unique
 # directory per run nothing would ever collect them, so the run collects itself.
@@ -43,6 +49,29 @@ cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
+echo $$ >"$WORK/$PID_FILE"
+
+# No trap runs on SIGKILL, and a directory unique to one run has no later run of
+# that ref to sweep it -- which the old fixed path did have. So each run collects
+# the directories whose runs are gone. Each one is a full clone plus the two
+# node_modules trees the run installed, sitting there until the OS reaps its
+# temp directory.
+#
+# A live run is identified by the pid it recorded, so this cannot take a
+# directory out from under a gate still using it, including the other gates that
+# share this machine. The age test is for the window between `mktemp` and that
+# pid being written: a directory younger than a minute is left for the next run.
+for dir in "${TMPDIR:-/tmp}"/toony-verify-*; do
+  [ -d "$dir" ] || continue
+  [ "$dir" = "$WORK" ] && continue
+  [ -n "$(find "$dir" -maxdepth 0 -mmin +1 2>/dev/null)" ] || continue
+  owner="$(cat "$dir/$PID_FILE" 2>/dev/null)"
+  if [ -n "$owner" ] && ps -p "$owner" -o pid= >/dev/null 2>&1; then
+    continue
+  fi
+  echo "verify-release: collecting an abandoned scratch directory ($dir)"
+  rm -rf "$dir"
+done
 
 if [ -s "$HOME/.nvm/nvm.sh" ]; then
   # shellcheck disable=SC1091
@@ -53,12 +82,12 @@ else
   exit 2
 fi
 
-echo "verify-release: cloning $REF into $WORK"
-git clone --quiet --branch "$REF" "$REPO_ROOT" "$WORK" || {
+echo "verify-release: cloning $REF into $CLONE"
+git clone --quiet --branch "$REF" "$REPO_ROOT" "$CLONE" || {
   echo "verify-release: could not clone ref '$REF'." >&2
   exit 2
 }
-cd "$WORK" || exit 2
+cd "$CLONE" || exit 2
 echo "verify-release: HEAD $(git rev-parse --short HEAD)"
 
 FAILED=0
