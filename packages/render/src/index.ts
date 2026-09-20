@@ -8,6 +8,10 @@
 //
 // See README.md for the full API contract and usage from SVG and canvas.
 
+// The one Rec. 709 luminance in the repo: the render core's own band-appearance
+// buckets and the craft measurement both read a colour with it, and two copies of
+// it would be two definitions of what a measured page value means.
+export { rec709Luminance } from "./contrast.js";
 export type {
   BalloonCommand,
   ImpactDecoration,
@@ -26,7 +30,6 @@ export {
   impactDecoration,
   speechTailGeometry,
 } from "./geometry.js";
-
 export type {
   BubbleRender,
   LayoutOptions,
@@ -40,12 +43,9 @@ export {
   layoutBubble,
   layoutCut,
 } from "./layout.js";
-
 export { approximateMeasure } from "./measure.js";
-
 export type { CutAspectSource, CutImageSize, ResolvedCutAspect } from "./panel-shape.js";
 export { cutHeightAt, resolveCutAspect } from "./panel-shape.js";
-
 export type { BubbleKindStyle, CaptionPlate } from "./style.js";
 export {
   bubbleKindStyle,
@@ -54,7 +54,6 @@ export {
   kindSupportsTail,
   resolveCaptionPlate,
 } from "./style.js";
-
 export type {
   BubbleTextLayout,
   BubbleTextOptions,
@@ -69,7 +68,9 @@ export {
 } from "./text.js";
 
 export type {
+  BandAppearance,
   BandBackground,
+  BandBackgroundSource,
   BandDivider,
   CardTextLayout,
   CardTextLine,
@@ -83,7 +84,13 @@ export type {
 export {
   BAND_FONT_ID,
   BAND_FONT_STACK,
+  BAND_PAGE_BACKGROUND_MIN_VALUE,
   BAND_TEXT_MAX_WIDTH_FRAC,
+  BAND_VOID_MAX_VALUE,
+  bandAppearanceLabel,
+  declaredBandAppearance,
+  defaultBandBackground,
+  drawnBandAppearance,
   GUTTER_MARGIN_FILL,
   layoutCardText,
   layoutPanelText,

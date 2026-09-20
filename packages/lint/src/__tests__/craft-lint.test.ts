@@ -11,8 +11,10 @@ import type {
   SequenceItem,
   ShotType,
   Transition,
+  TransitionGradient,
   TransitionType,
 } from "@toony/schema";
+import { TRANSITION_TYPES } from "@toony/schema";
 import {
   lintCraft,
   RHYTHM_RUN_MAX,
@@ -302,6 +304,8 @@ interface TrSpec {
   type: TransitionType;
   gutterHeight: number;
   color?: string;
+  text?: string;
+  gradient?: TransitionGradient;
 }
 
 /** Build a bundle whose transitions have the given type/height, interleaved with cuts. */
@@ -311,6 +315,8 @@ function panelBundle(specs: TrSpec[]): EpisodeBundle {
     ...transition(`t${i}`, s.type),
     gutterHeight: s.gutterHeight,
     ...(s.color ? { color: s.color } : {}),
+    ...(s.text ? { text: s.text } : {}),
+    ...(s.gradient ? { gradient: s.gradient } : {}),
   }));
   const sequence: SequenceItem[] = [];
   cuts.forEach((c, i) => {
@@ -329,6 +335,8 @@ const monotony = (b: EpisodeBundle) =>
   lintCraft(b, []).filter((f) => f.code === "craft/transition-monotony");
 const panelSlice = (b: EpisodeBundle) =>
   lintCraft(b, []).filter((f) => f.code === "craft/panel-slice");
+const appearance = (b: EpisodeBundle) =>
+  lintCraft(b, []).filter((f) => f.code === "craft/transition-appearance");
 
 test("craft/transition-monotony warns on >= RUN_MAX near-identical transition heights", () => {
   const b = panelBundle(
@@ -398,6 +406,74 @@ test("craft/panel-slice flags a no-art panel taller than the fold (info)", () =>
   // A short panel and a tall PLAIN gutter (not a no-art panel) are clean.
   assert.deepEqual(panelSlice(panelBundle([{ type: "void", gutterHeight: 1000 }])), []);
   assert.deepEqual(panelSlice(panelBundle([{ type: "gutter", gutterHeight: 1400 }])), []);
+});
+
+test("craft/transition-appearance flags an authored fill in another bucket (info, #267)", () => {
+  // A void filled with the page's own reading white.
+  const found = appearance(panelBundle([{ type: "void", gutterHeight: 300, color: "#ffffff" }]));
+  assert.equal(found.length, 1);
+  assert.equal(found[0]?.severity, "info");
+  assert.equal(found[0]?.targetId, "t0");
+  assert.match(found[0]?.message ?? "", /declares "void"/);
+  assert.match(found[0]?.message ?? "", /draws void at its default fill/);
+  assert.match(found[0]?.message ?? "", /authored fill draws page background/);
+  // A color field at void luminance — the fill the rebuilt pack's scaffold
+  // shipped — and a gradient, which wins over the fill the same way.
+  assert.equal(
+    appearance(panelBundle([{ type: "color_field", gutterHeight: 300, color: "#161a24" }])).length,
+    1,
+  );
+  assert.equal(
+    appearance(
+      panelBundle([
+        {
+          type: "gutter",
+          gutterHeight: 300,
+          gradient: { from: "#000000", to: "#0a0a0a", direction: "top_bottom" },
+        },
+      ]),
+    ).length,
+    1,
+  );
+});
+
+test("craft/transition-appearance is silent on every kind with no override (#267)", () => {
+  // The back-compat claim, over the WHOLE vocabulary rather than the kinds the
+  // example episodes happen to use: neither example authors a `color` on a kind
+  // that has a craft default, so neither can exercise the override path at all.
+  const everyKind = panelBundle(TRANSITION_TYPES.map((type) => ({ type, gutterHeight: 300 })));
+  assert.deepEqual(appearance(everyKind), []);
+  // And once each of them carries a line, which is the other axis of the bucket.
+  const everyKindWithText = panelBundle(
+    TRANSITION_TYPES.map((type) => ({ type, gutterHeight: 300, text: "a line" })),
+  );
+  assert.deepEqual(appearance(everyKindWithText), []);
+});
+
+test("craft/transition-appearance reads the fill, not the kind's name (#267)", () => {
+  // A card kind carrying a line is a card whatever it is filled with, so an
+  // authored card colour is never a contradiction.
+  assert.deepEqual(
+    appearance(
+      panelBundle([
+        { type: "narration_card", gutterHeight: 300, text: "a line", color: "#ffffff" },
+        { type: "time_card", gutterHeight: 300, text: "2:14 AM", color: "#101618" },
+      ]),
+    ),
+    [],
+  );
+  // A fill in the kind's OWN bucket is clean: a color field authored another
+  // mid-value colour is still a color field.
+  assert.deepEqual(
+    appearance(panelBundle([{ type: "color_field", gutterHeight: 300, color: "#7a5a6b" }])),
+    [],
+  );
+  // A fill the core cannot measure is not a contradiction. Reporting one would
+  // be a claim about a colour nothing here can read.
+  assert.deepEqual(
+    appearance(panelBundle([{ type: "void", gutterHeight: 300, color: "rebeccapurple" }])),
+    [],
+  );
 });
 
 test("craft/transition-monotony is deterministic", () => {

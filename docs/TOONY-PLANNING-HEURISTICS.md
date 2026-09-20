@@ -28,6 +28,11 @@ so a scaffold that follows them stays lint-clean.
 - **Shift palette on a scene change.** Use a craft transition (`palette_shift`,
   `black_band`, `title_card`, `desaturate_repeat`, `fade`) and a fresh per-cut
   `palette` when the scene or tone turns, rather than a plain gutter.
+- **Pick the transition kind that matches the fill.** A `color` on a transition
+  wins over its kind's default, so a `void` can be authored white and a
+  `color_field` dark enough to read as a void. Both render exactly as asked and
+  both are legal; what they cost is a craft band's count of the transition mix,
+  which reads the declared kind (`craft/transition-appearance`, advisory).
 
 ## Tension arc
 

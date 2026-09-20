@@ -3,7 +3,13 @@
 // named constants below so they are documented and tunable in one place. Line/
 // length counts reuse @toony/render's text layout — the single source of wrapping.
 
-import { layoutBubble, layoutTransition } from "@toony/render";
+import {
+  bandAppearanceLabel,
+  declaredBandAppearance,
+  drawnBandAppearance,
+  layoutBubble,
+  layoutTransition,
+} from "@toony/render";
 import {
   type Character,
   type EpisodeBundle,
@@ -304,6 +310,34 @@ export function lintCraft(
     }
   }
   flushHeightRun();
+
+  // craft/transition-appearance (info hint, #267): an authored `color` or
+  // `gradient` wins over the kind's default fill, so a transition can declare one
+  // kind and draw another kind's band — a `void` filled white, a `color_field`
+  // filled at void luminance. A craft band's `transitionVocabulary` (#236) grades
+  // the episode by the DECLARED kind, so such a transition is counted in a bucket
+  // the page does not show, and the vocabulary check cannot see it.
+  //
+  // INFO, not warning, and the severity is the decision: `toony lint` blocks on
+  // `error` AND `warning` (see `hasBlockingFindings`), so anything above `info`
+  // fails the build of a project whose render is exactly what its author asked
+  // for. Overriding a fill is legal authoring and stays legal; what it costs is a
+  // band's grouping, which is a note to whoever grades the pack, not a defect in
+  // the episode. Nothing here reads the `fade` overlay, so a fill and a fade that
+  // disagree pass — see `drawnBandAppearance`.
+  for (const { id, plan } of orderedTransitions) {
+    const declared = declaredBandAppearance(plan);
+    const drawn = drawnBandAppearance(plan);
+    if (declared === null || drawn === null || declared === drawn) continue;
+    findings.push(
+      finding(
+        "info",
+        "craft/transition-appearance",
+        id,
+        `transition "${id}" declares "${plan.type}", which draws ${bandAppearanceLabel(declared)} at its default fill, but its authored fill draws ${bandAppearanceLabel(drawn)}; a craft band counts it as ${bandAppearanceLabel(declared)} — pick the kind that matches the fill, or drop the override.`,
+      ),
+    );
+  }
 
   // craft/panel-slice (info hint): a real no-art panel (bandFill set by the v3/v4
   // interstitial kinds) taller than the mobile fold (PANEL_FOLD_SLICE_PX) is

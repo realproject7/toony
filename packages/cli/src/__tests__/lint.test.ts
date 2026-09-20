@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { deflateSync } from "node:zlib";
-import { loadProject, writeCuts } from "@toony/project-io";
+import { loadProject, writeCuts, writeTransitions } from "@toony/project-io";
 import type { Cut } from "@toony/schema";
 import { runExport } from "../commands/export.js";
 import { runInit } from "../commands/init.js";
@@ -54,6 +54,32 @@ test("lint --json reports a clean project", async () => {
   assert.equal(report.clean, true);
   assert.equal(report.findingCount, 0);
   assert.equal(report.episodeId, null);
+});
+
+test("a transition whose fill contradicts its kind reports but does not block (#267)", async () => {
+  const dir = await scaffold();
+  const loaded = await loadProject(dir);
+  const bundle = loaded.project.episodes[0];
+  assert.ok(bundle);
+  // A `void` filled with the page's own reading white: legal authoring, and an
+  // exact render of what it asks for, so it is a note to whoever grades the pack
+  // rather than a build failure. `toony lint` blocks on error AND warning, so
+  // anything above `info` would fail this project's build.
+  const contradicting = bundle.transitions.map((t, i) =>
+    i === 0 ? { ...t, type: "void" as const, color: "#ffffff" } : t,
+  );
+  assert.ok(contradicting.length > 0, "the scaffold must author a transition to alter");
+  await writeTransitions(dir, bundle.episode.id, bundle.episode, contradicting, bundle.cuts);
+
+  const c = capture();
+  assert.equal(await runLint([dir, "--json"], c.io), EXIT_OK, c.err.join("\n"));
+  const report = JSON.parse(c.out.join("\n"));
+  assert.equal(report.clean, true, "an info finding leaves the project clean");
+  const found = report.findings.filter(
+    (f: { code: string }) => f.code === "craft/transition-appearance",
+  );
+  assert.equal(found.length, 1);
+  assert.equal(found[0].severity, "info");
 });
 
 test("lint flags an export manifest whose declared file is missing", async () => {

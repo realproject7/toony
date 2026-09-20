@@ -19,6 +19,7 @@ import {
   type TransitionType,
   type VerticalAlign,
 } from "@toony/schema";
+import { compositeOver, parseCssColor, type Rgb, rec709Luminance } from "./contrast.js";
 import { clamp } from "./geometry.js";
 import { approximateMeasure } from "./measure.js";
 import { layoutBubbleText, type MeasureWidth } from "./text.js";
@@ -147,6 +148,17 @@ const CRAFT_BAND_DEFAULTS: Partial<Record<TransitionType, string>> = {
   time_card: "#15110d",
 };
 
+/**
+ * The solid band fill a kind draws with NO authored `Transition.color`: its craft
+ * default, or null for the legacy kinds that have none (those fall through to
+ * their treatment's rendering). Read by `layoutTransition` below AND by
+ * `defaultBandBackground`, so the fill a band's vocabulary is written against is
+ * the fill the renderer actually draws.
+ */
+function defaultBandFill(type: TransitionType): string | null {
+  return CRAFT_BAND_DEFAULTS[type] ?? null;
+}
+
 /** Resolve a transition into a render plan. */
 export function layoutTransition(transition: Transition): TransitionRender {
   // `transition.type` is an exhaustive enum key, so the lookup is always present.
@@ -159,7 +171,7 @@ export function layoutTransition(transition: Transition): TransitionRender {
   // Craft (#99) + v4 interstitial (#115) kinds resolve a solid band fill: the
   // explicit color, else the per-kind default. Legacy kinds have no default →
   // bandFill stays null.
-  const craftDefault = CRAFT_BAND_DEFAULTS[transition.type] ?? null;
+  const craftDefault = defaultBandFill(transition.type);
   const bandFill = craftDefault !== null ? (color ?? craftDefault) : null;
   const gutterHeight = clamp(
     Math.round(transition.gutterHeight),
@@ -247,19 +259,191 @@ export type BandBackground =
   | { kind: "solid"; color: string };
 
 /**
+ * The fields the background precedence chain reads. Narrowed from
+ * `TransitionRender` so `defaultBandBackground` can run the SAME chain over a
+ * kind's defaults without inventing the rest of a render plan; every existing
+ * caller still passes a whole `TransitionRender`.
+ */
+export type BandBackgroundSource = Pick<
+  TransitionRender,
+  "gradient" | "bandFill" | "color" | "treatment"
+>;
+
+/**
  * Resolve a transition band's background in ONE place, precedence-ordered:
  * full-panel gradient (#115) → resolved solid band fill (#99/#115) → explicit
  * #98 `color` → legacy card dark default → fade-treatment gradient → plain
  * reading white. Consumers apply the result (canvas fill / CSS background) and
  * carry none of the precedence chain or fallback colors themselves.
  */
-export function resolveBandBackground(render: TransitionRender): BandBackground {
+export function resolveBandBackground(render: BandBackgroundSource): BandBackground {
   if (render.gradient) return { kind: "gradient", gradient: render.gradient };
   if (render.bandFill) return { kind: "solid", color: render.bandFill };
   if (render.color) return { kind: "solid", color: render.color };
   if (render.treatment === "card") return { kind: "solid", color: CARD_DEFAULT_FILL };
   if (render.treatment === "fade") return { kind: "gradient", gradient: FADE_DEFAULT_GRADIENT };
   return { kind: "solid", color: GUTTER_MARGIN_FILL };
+}
+
+/**
+ * The background a kind resolves to with NOTHING authored on it — the same
+ * precedence chain above, fed the plan an un-overridden transition of that kind
+ * produces (no gradient, no `color`, the kind's own default fill). One chain and
+ * one defaults table, so what a kind is SAID to draw can never drift from what
+ * the renderer fills the band with.
+ */
+export function defaultBandBackground(type: TransitionType): BandBackground {
+  return resolveBandBackground({
+    gradient: null,
+    bandFill: defaultBandFill(type),
+    color: null,
+    treatment: TREATMENT[type],
+  });
+}
+
+// --- Which gap a band reads as (#267) ---------------------------------------
+//
+// A craft band's `transitionVocabulary` (#236) grades an episode's transition
+// mix by reading each transition's declared KIND, against ranges measured by
+// sorting reference pixels into four buckets: the page's own ground, a void, a
+// colour field, a card. Which bucket a toony kind belongs to was asserted once
+// per entry in each band and checked nowhere — and the assertion is only true
+// for the kind's DEFAULT rendering, because `Transition.color` and
+// `Transition.gradient` win over that default and nothing compares them to it.
+//
+// So the mapping lives HERE, beside the precedence chain and the default fills,
+// because a band's bucket is a property of what the band DRAWS. Anywhere else it
+// would be a second copy of the renderer's colours, free to drift from them —
+// which is the defect one level up, not a fix for it.
+
+/**
+ * One of the four buckets a page's gaps are sorted into (#236): the page's own
+ * ground, a near-black void, a solid colour field, or a panel carrying words.
+ */
+export type BandAppearance = "page-background" | "void" | "color-field" | "card";
+
+/**
+ * A band at or below this value reads as a void; at or above the page floor
+ * below, as the page's own ground; between them, as a colour field. Both are
+ * Rec. 709 luminance on 0..255 — `rec709Luminance`, the coefficients the craft
+ * measurement and the reference captures were both read with, because a boundary
+ * computed any other way cannot be compared with the reference's buckets.
+ *
+ * Neither number is picked freely. Every default fill the renderer draws has to
+ * land in its own kind's bucket, and those defaults bound both windows:
+ *
+ *   - void ceiling: above the card default `#15110d` (17.6, the ground a
+ *     text-less card kind draws) and below the darkest colour-field default
+ *     `#5a6b7a` (104.5) — the window (17.6, 104.5).
+ *   - page floor: above the lightest colour-field default `#9a958c` (149.4) and
+ *     at or below the palest page ground the renderer draws, the fade
+ *     treatment's default gradient (233.7 across its ends) — the window
+ *     (149.4, 233.7].
+ *
+ * Each constant is the round value nearest the middle of its own window, so it
+ * sits as far from every default as the defaults allow rather than as close to
+ * one of them as some example demanded. The mapping test in
+ * `__tests__/band-appearance.test.ts` pins every kind's default against them, so
+ * a default fill that moves into another bucket fails there rather than silently
+ * regrouping the kind.
+ */
+export const BAND_VOID_MAX_VALUE = 60;
+export const BAND_PAGE_BACKGROUND_MIN_VALUE = 190;
+
+/**
+ * `GUTTER_MARGIN_FILL` as channels: the page ground a translucent band fill
+ * shows through. It is the one surface under a band that is never artwork, so it
+ * is the only background the core can composite against and still be right.
+ */
+const PAGE_GROUND: Rgb = { r: 255, g: 255, b: 255 };
+
+/** The value one fill reads at, or null for a colour the core cannot measure. */
+function fillValue(color: string): number | null {
+  const parsed = parseCssColor(color);
+  if (parsed === null) return null;
+  const opaque = parsed.a >= 1 ? parsed : compositeOver(parsed, PAGE_GROUND);
+  return rec709Luminance(opaque.r, opaque.g, opaque.b);
+}
+
+/**
+ * The value a whole band reads at. A gradient is its two ends averaged: the band
+ * is one region of page and the reader sees all of it, so neither end alone is
+ * what it reads as.
+ *
+ * The `fade` OVERLAY (`Transition.fade`) is deliberately NOT folded in. It is a
+ * blend over part of the band rather than the band's fill, and covering a share
+ * of the band with another colour is a question about geometry this has no
+ * height to answer. A band whose fill and fade disagree is invisible here.
+ */
+function bandValue(background: BandBackground): number | null {
+  if (background.kind === "solid") return fillValue(background.color);
+  const from = fillValue(background.gradient.from);
+  const to = fillValue(background.gradient.to);
+  if (from === null || to === null) return null;
+  return (from + to) / 2;
+}
+
+/**
+ * True when the band DRAWS the transition's `detail` text. Only the card and
+ * break treatments do: a `color_field` or a `void` carrying a note renders the
+ * same bare field it would without one.
+ *
+ * The type LABEL a card treatment always draws does not count. It is chrome
+ * naming the kind, not the line the panel exists to carry, and a page classifier
+ * reading a dark rectangle with a small label on it is reading a void.
+ */
+function carriesWords(render: Pick<TransitionRender, "treatment" | "detail">): boolean {
+  return (render.treatment === "card" || render.treatment === "break") && render.detail !== null;
+}
+
+function appearanceOf(background: BandBackground, words: boolean): BandAppearance | null {
+  if (words) return "card";
+  const value = bandValue(background);
+  if (value === null) return null;
+  if (value <= BAND_VOID_MAX_VALUE) return "void";
+  if (value >= BAND_PAGE_BACKGROUND_MIN_VALUE) return "page-background";
+  return "color-field";
+}
+
+/**
+ * The bucket a transition's KIND puts it in — the mapping a band's
+ * `transitionVocabulary` entry asserts when it groups that kind.
+ *
+ * It rests on one assumption, and this is the whole of it: **the transition is
+ * rendered at its kind's default.** An authored `color` or `gradient` is not
+ * read here, so on a transition that carries one this is the bucket the band
+ * COUNTS it in rather than the bucket it draws — compare `drawnBandAppearance`
+ * to find out whether those are the same thing.
+ *
+ * It is not a static table, because two things decide a bucket. The card and
+ * break treatments — `beat`, `time-skip`, `scene-break`, `title_card`,
+ * `narration_card`, `dialogue_card`, `time_card` — read as a card when they
+ * carry text and as their own bare ground when they do not: a void for the six
+ * that default to the dark card fill, the page's ground for `scene-break`, which
+ * falls through to the reading white. Every other kind's bucket is the same
+ * whatever it carries, because its treatment draws no text at all.
+ *
+ * Null for a default the core cannot measure, which no shipped kind has.
+ */
+export function declaredBandAppearance(render: TransitionRender): BandAppearance | null {
+  return appearanceOf(defaultBandBackground(render.type), carriesWords(render));
+}
+
+/**
+ * The bucket the transition's AUTHORED appearance actually draws: the resolved
+ * background, not the kind's default. Null when the resolved fill is a colour
+ * the core cannot parse — a colour it cannot measure is one it must not make
+ * claims about.
+ */
+export function drawnBandAppearance(render: TransitionRender): BandAppearance | null {
+  return appearanceOf(resolveBandBackground(render), carriesWords(render));
+}
+
+/** How a bucket is written in a report, so every consumer words it once. */
+export function bandAppearanceLabel(appearance: BandAppearance): string {
+  if (appearance === "page-background") return "page background";
+  if (appearance === "color-field") return "color field";
+  return appearance;
 }
 
 // --- Reference-column scaling (#217) ----------------------------------------

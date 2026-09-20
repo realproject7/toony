@@ -101,6 +101,23 @@ export function relativeLuminance(color: Rgb): number {
   return 0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b);
 }
 
+/**
+ * Rec. 709 luminance on 0..255 — the coefficients the craft measurement reads a
+ * page with, and the ones the reference analyzer read the captures with. A craft
+ * number computed any other way cannot be compared with a reference band, which
+ * is why this is a second luminance rather than a reuse of `relativeLuminance`
+ * above: that one is the WCAG sRGB curve a contrast ratio needs, and it is not
+ * the curve the pages were measured on.
+ *
+ * Channels in, not an `Rgb`, and deliberately: the craft measurement calls this
+ * once per pixel of a stitched page, where an object per call is a cost paid
+ * millions of times for nothing. `@toony/lint`'s image analysis keeps its own
+ * Rec. 601 luma for its own thresholds — the two are still not shared.
+ */
+export function rec709Luminance(r: number, g: number, b: number): number {
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
 /** WCAG 2.x contrast ratio between two opaque colors (1..21, order-independent). */
 export function contrastRatio(a: Rgb, b: Rgb): number {
   const la = relativeLuminance(a);

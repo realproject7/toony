@@ -502,6 +502,56 @@ band at all — a plain gutter at zero height — is not a gap: it is counted an
 reported separately, so an episode whose transitions mostly vanish does not look
 like an episode that has few of them.
 
+#### Which bucket a kind belongs in, and what that rests on (#267)
+
+The ranges above were measured by sorting reference pixels into four buckets —
+**page background, void, color field, card** — so an entry that groups kinds is
+asserting which bucket those kinds fall in. That assertion used to live in each
+band and be checked nowhere. It now has one home,
+`declaredBandAppearance` in `@toony/render`, which resolves it from the same
+precedence chain and the same default fills the renderer fills a band with, so
+the grouping a band is written against cannot drift from what gets drawn.
+
+**The mapping is only true of a kind's DEFAULT rendering.** That is the whole of
+the assumption, and it is not a small one: `Transition.color` and
+`Transition.gradient` win over a kind's default, so an authored fill can move a
+band into a different bucket than the one the band counts it in — a `void`
+filled `#ffffff`, or a `color_field` filled at a value any luminance rule reads
+as a void. `toony lint` reports that as **`craft/transition-appearance`**, an
+`info` finding naming both buckets; the grading here neither sees it nor is
+changed by it.
+
+| Bucket | Kinds, at their default fill |
+|---|---|
+| page background | `gutter`, `hard-cut`, `fade`, and `scene-break` while it carries no text |
+| void | `void`, `black_band`, and `beat`, `time-skip`, `title_card`, `narration_card`, `dialogue_card`, `time_card` while they carry no text |
+| color field | `color_field`, `palette_shift`, `desaturate_repeat` |
+| card | `beat`, `time-skip`, `scene-break`, `title_card`, `narration_card`, `dialogue_card`, `time_card` — once they carry text |
+
+**Seven kinds appear twice, and a table from kind to bucket cannot be written
+because of them.** The card and break treatments are the ones that DRAW the
+transition's text, so what they read as depends on whether there is any: a
+text-bearing one is a card, and a text-less one is the bare ground it sits on —
+the dark card fill for six of them, the reading white for `scene-break`, which
+falls through to it. Both of this repo's own `examples/last-train` scene-breaks
+carry a label, so both are cards; a scene-break without one is not. The type
+LABEL a card treatment always draws does not count: it names the kind rather
+than carrying a line, and a dark rectangle with a small label on it is a void to
+anything reading the page.
+
+Both boundaries between the three colour buckets are Rec. 709 luminance on
+0..255, the same coefficients as everything else here, and both are bounded by
+the core's own default fills rather than chosen: each default has to land in its
+own kind's bucket, which leaves `BAND_VOID_MAX_VALUE` a window of (17.6, 104.5)
+and `BAND_PAGE_BACKGROUND_MIN_VALUE` one of (149.4, 233.7]. Each constant sits
+at the round value nearest the middle of its window.
+
+Two things it does not see. A band's **`fade` overlay** is not read — it covers
+part of the band rather than filling it, and a fill and a fade that disagree
+pass. And a fill in a form the core cannot parse — a named CSS colour, a paint
+server — yields no bucket and no finding, because a colour nothing can measure
+is one nothing should make claims about.
+
 #### `gutterMedian` and a gutter entry's height are different numbers
 
 Both are printed under the word "gutter" and they measure different populations.
