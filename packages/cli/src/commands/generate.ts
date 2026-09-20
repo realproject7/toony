@@ -595,6 +595,13 @@ function flagValue(value: unknown): string {
 interface RepeatContext {
   job: Job;
   latent: { width?: number; height?: number };
+  /**
+   * What this run would SUBMIT for a given base prompt: the same composition
+   * `planJobs` applies, over the cut as it stands now. A base prompt is an
+   * ingredient, not an input the model ever saw, so the only way to know whether
+   * asking for one restores a recorded render is to compose it and look.
+   */
+  recompose: (basePrompt: string) => string;
 }
 
 /**
@@ -633,14 +640,6 @@ const UNRECORDED = Symbol("unrecorded");
  * value sitting in the record goes unprinted — an entry that has not decided
  * cannot borrow the silence of one that has, one level out.
  */
-interface CarriedBy {
-  carrier: keyof RenderInputs;
-}
-
-function carriedBy(carrier: keyof RenderInputs): CarriedBy {
-  return { carrier };
-}
-
 /** How one recorded input is compared against this run, and asked for again. */
 interface RepeatInput {
   /**
@@ -662,12 +661,15 @@ interface RepeatInput {
    */
   refuses: (ctx: RepeatContext) => boolean;
   /**
-   * The flag that asks for the recorded value, `carriedBy(other)` when another
-   * entry's flag does, or `null` when nothing can ask for it — which is
-   * reported, not skipped. An entry that decides nothing therefore says so out
-   * loud, and an entry that defers says WHO to, so the deferral can be checked.
+   * The flag that asks for the recorded value, or `null` when nothing can ask
+   * for it — which is reported, not skipped, so an entry that decides nothing
+   * says so out loud instead of vanishing from the instruction.
    */
-  instruct: (value: string | number | undefined) => string | CarriedBy | null;
+  instruct: (
+    value: string | number | undefined,
+    record: RenderInputs,
+    ctx: RepeatContext,
+  ) => string | null;
 }
 
 /**
@@ -723,29 +725,43 @@ const REPEAT_INPUTS: Record<keyof RenderInputs, RepeatInput> = {
       return typeof value === "string" ? `--workflow ${flagValue(value)}` : null;
     },
   },
-  // The SUBMITTED prompt is what the model saw, so it is what tells a repeat
-  // from a replacement — but the flag that restores it takes the BASE prompt,
-  // because `planJobs` composes the lockstrings and the palette clause again,
-  // and handing back the composed string would compose it twice. So the value
-  // the flag TAKES owns the flag, and this entry defers to it.
+  // Two entries, two questions, and neither can answer both.
   //
-  // The deferral is not a formality. When the base prompt is what changed, that
-  // entry prints it. When the base prompts AGREE and the submitted ones do not,
-  // the cut's own characters or palette changed under the record, no `--prompt`
-  // can restore what was submitted, the carrier contributes nothing, and this
-  // field is named as unrestorable — which is the truth.
+  // WHETHER a `--prompt` is needed is this entry's question, because the
+  // submitted prompt is the only string the model ever saw. WHAT it should say
+  // is the base prompt, because `planJobs` composes the lockstrings (#92) and
+  // the palette clause (#207) again on the way in.
+  //
+  // Asking the base prompt's own question instead prints a flag whenever an
+  // ingredient MOVED — the #92 migration takes a lockstring out of an authored
+  // prompt and into the registry, leaving the submitted prompt identical — and
+  // that flag composes the lockstring in a second time.
+  //
+  // The value is only an instruction if composing it NOW still produces what
+  // was submitted. When the cut's own characters or palette changed under the
+  // record, nothing a flag can say restores that prompt, and this returns null
+  // so the field is named rather than guessed at.
   prompt: {
     recorded: (record) => record.prompt ?? UNRECORDED,
     submitted: ({ job }) => job.inputs.prompt,
     refuses: () => false,
-    instruct: () => carriedBy("basePrompt"),
+    instruct: (_value, record, ctx) => {
+      if (typeof record.basePrompt !== "string") return null;
+      return ctx.recompose(record.basePrompt) === record.prompt
+        ? `--prompt ${flagValue(record.basePrompt)}`
+        : null;
+    },
   },
-  // `--prompt` takes THIS value, so this entry prints it — including when the
-  // record's submitted prompt is unreadable and `prompt` above never ran, which
-  // is the case that used to print nothing at all while the value that restores
-  // the render sat in the record.
+  // This entry does NOT decide whether a prompt is needed — the entry above
+  // does, from the string the model saw. It speaks only when that one cannot: a
+  // record whose submitted prompt is unreadable still holds the value that
+  // would restore the render, and dropping it prints nothing while the answer
+  // sits in the log. Nothing here can be verified against a submitted prompt
+  // that is not there, so this is the best available answer rather than a
+  // checked one.
   basePrompt: {
-    recorded: (record) => record.basePrompt ?? UNRECORDED,
+    recorded: (record) =>
+      typeof record.prompt === "string" ? UNRECORDED : (record.basePrompt ?? UNRECORDED),
     submitted: ({ job }) => job.inputs.basePrompt,
     refuses: () => false,
     instruct: (value) => (typeof value === "string" ? `--prompt ${flagValue(value)}` : null),
@@ -792,6 +808,7 @@ async function assertRepeatable(
   root: string,
   ready: readonly ReadyJob[],
   bundle: EpisodeBundle | undefined,
+  registry: readonly Character[],
 ): Promise<{ error: string; exit: number } | null> {
   for (const { job, latent } of ready) {
     const target = job.target;
@@ -802,12 +819,20 @@ async function assertRepeatable(
     const recorded = await recordedRenderInputs(root, target.episodeId, assetPath);
     if (recorded === undefined) continue;
 
-    const ctx: RepeatContext = { job, latent };
+    // The cut as it stands NOW, which is what a re-run would compose against.
+    const cut = target.kind === "cut" ? bundle?.cuts.find((c) => c.id === target.cutId) : undefined;
+    const ctx: RepeatContext = {
+      job,
+      latent,
+      recompose: (basePrompt) =>
+        appendPaletteClause(
+          injectCharacterLockstrings(basePrompt, cut?.characters, registry),
+          cut?.palette,
+        ),
+    };
     const differences: string[] = [];
     const instructions: string[] = [];
     const unaskable: string[] = [];
-    const asked = new Set<keyof RenderInputs>();
-    const deferrals: { key: keyof RenderInputs; carrier: keyof RenderInputs }[] = [];
     for (const key of Object.keys(REPEAT_INPUTS) as (keyof RenderInputs)[]) {
       const input = REPEAT_INPUTS[key];
       const was = input.recorded(recorded);
@@ -815,20 +840,12 @@ async function assertRepeatable(
       const now = input.submitted(ctx);
       if (now === UNKNOWABLE || now === was) continue; // no answer, or already right
       if (input.refuses(ctx)) differences.push(`${key} ${now} instead of ${was}`);
-      const flag = input.instruct(was);
+      const flag = input.instruct(was, recorded, ctx);
       // A field nothing can ask for is NAMED, whichever field it is. Reporting
       // only the one field somebody thought of is how an entry that decides
       // nothing contributes nothing and says nothing.
       if (flag === null) unaskable.push(key);
-      else if (typeof flag === "string") {
-        instructions.push(flag);
-        asked.add(key);
-      } else deferrals.push({ key, carrier: flag.carrier });
-    }
-    // Deferrals are resolved after the loop, not in declaration order: a claim
-    // that another entry covers this one holds only if that entry printed a flag.
-    for (const { key, carrier } of deferrals) {
-      if (!asked.has(carrier)) unaskable.push(key);
+      else instructions.push(flag);
     }
     if (differences.length === 0) continue;
 
@@ -1046,7 +1063,12 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   // an accepted image from a replacement of it — and it is still before the
   // first request, so refusing costs nothing.
   const bundle = loaded.project.episodes.find((b) => b.episode.id === episodeId);
-  const repeatable = await assertRepeatable(root, ready, bundle);
+  const repeatable = await assertRepeatable(
+    root,
+    ready,
+    bundle,
+    loaded.project.webtoon.characters ?? [],
+  );
   if (repeatable !== null) {
     io.err(repeatable.error);
     return repeatable.exit;

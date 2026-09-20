@@ -203,15 +203,19 @@ is covered without the instruction knowing about slots, because each of those
 fields simply differs. And a transition, which has no record of its own at all,
 is covered the same way.
 
-The prompt is the one input recorded twice, and the reason is that `--prompt` is
-composed again with the lockstrings and the palette clause: handing back the
-submitted string would compose it twice, so the flag takes the prompt as the run
-was GIVEN it. The entry holding that value is the one that prints the flag, and
-the entry that detects the difference defers to it by name — a deferral the
-refusal checks, so an input whose carrier contributed nothing is named as
-unrestorable rather than dropped. An entry that has not decided cannot borrow
-the silence of one that has, and that is as true of deferring to another entry
-as it is of saying nothing.
+The prompt is the one input recorded twice, and it takes two questions rather
+than one. WHETHER to name a prompt is decided by the SUBMITTED one, the only
+string the model ever saw. WHAT to say comes from the base prompt, because
+`--prompt` is composed again with the lockstrings and the palette clause on the
+way in. Neither answers the other's question: asking the base prompt's own
+question prints a flag whenever an ingredient merely MOVED between the authored
+prompt and a craft field — the #92 migration is exactly that — and the flag then
+composes the ingredient in twice.
+
+The value is only an instruction if composing it NOW still produces what was
+submitted, so the refusal composes it and checks. When the cut's own characters
+or palette changed under the record, nothing a flag can say restores that
+prompt, and the field is named as unrestorable rather than guessed at.
 
 A failed write-back is reported as itself, never as a failed generation. The two
 states differ in what is on disk — one has no image, the other has the image and

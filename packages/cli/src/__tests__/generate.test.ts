@@ -3039,3 +3039,193 @@ test("a value the record still holds is printed, even if its reader was skipped 
     comfy.close();
   }
 });
+
+/** Put a character registry on the project, as the #92 migration does. */
+async function setCharacters(
+  projectDir: string,
+  characters: { id: string; name: string; lockstring: string }[],
+): Promise<void> {
+  const path = join(projectDir, "webtoon.json");
+  const webtoon = JSON.parse(await readFile(path, "utf8"));
+  await writeFile(path, JSON.stringify({ ...webtoon, characters }));
+}
+
+test("moving an ingredient between the prompt and a craft field asks for no prompt (#240)", async () => {
+  // The #92 migration: a lockstring moves out of the authored prompt and into
+  // the registry, and the cut references the character. The SUBMITTED prompt is
+  // unchanged, so a blind re-run already renders the right one — but the base
+  // prompt differs, and an instruction built from the base prompt's own
+  // difference prints a `--prompt` that composes the lockstring in twice.
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          "--prompt",
+          "short black bob, amber eyes, a stored scene",
+          "--seed",
+          "7",
+          "--width",
+          "640",
+          "--height",
+          "960",
+          "--allow-remote",
+        ],
+        first.io,
+      ),
+      EXIT_OK,
+      first.err.join("\n"),
+    );
+
+    await setCharacters(projectDir, [
+      { id: "mina", name: "Mina", lockstring: "short black bob, amber eyes" },
+    ]);
+    await writeFile(
+      join(projectDir, "episodes", "ep-001", "cuts.yaml"),
+      encodeYaml(
+        (await readCuts(projectDir)).map((cut) =>
+          cut.id === "cut-001"
+            ? { ...cut, imagePrompt: "a stored scene", characters: ["mina"] }
+            : cut,
+        ),
+      ),
+    );
+
+    const blind = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          "--allow-remote",
+        ],
+        blind.io,
+      ),
+      EXIT_USAGE,
+      blind.out.join("\n"),
+    );
+    const err = blind.err.join("\n");
+    // Nothing about the prompt: this run was already going to submit it.
+    assert.deepEqual(repeatFlagsFrom(err), ["--width", "640", "--height", "960", "--seed", "7"]);
+    assert.doesNotMatch(err, /no flag restores/);
+
+    const obey = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          ...repeatFlagsFrom(err),
+          "--allow-remote",
+        ],
+        obey.io,
+      ),
+      EXIT_OK,
+      obey.err.join("\n"),
+    );
+    // The lockstring composed ONCE, and the same graph left the process.
+    assert.deepEqual(comfy.prompts(), [
+      "short black bob, amber eyes, a stored scene",
+      "short black bob, amber eyes, a stored scene",
+    ]);
+    const [original, obeyed] = comfy.bodies().map(normalizeClientId);
+    assert.equal(obeyed, original);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a prompt no flag can restore is named, not guessed at (#240)", async () => {
+  // The other half of the same split: the base prompts AGREE and the submitted
+  // ones do not, because the cut's palette changed under the record. Composing
+  // the recorded base now yields a different prompt, so `--prompt <base>` is
+  // not an instruction — it is a third render.
+  const projectDir = await scaffold();
+  await writeFile(
+    join(projectDir, "episodes", "ep-001", "cuts.yaml"),
+    encodeYaml(
+      (await readCuts(projectDir)).map((cut) =>
+        cut.id === "cut-001" ? { ...cut, imagePrompt: "a stored scene", palette: "#191d28" } : cut,
+      ),
+    ),
+  );
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          "--seed",
+          "7",
+          "--width",
+          "640",
+          "--height",
+          "960",
+          "--allow-remote",
+        ],
+        first.io,
+      ),
+      EXIT_OK,
+      first.err.join("\n"),
+    );
+
+    await writeFile(
+      join(projectDir, "episodes", "ep-001", "cuts.yaml"),
+      encodeYaml(
+        (await readCuts(projectDir)).map((cut) =>
+          cut.id === "cut-001" ? { ...cut, palette: "#c81414" } : cut,
+        ),
+      ),
+    );
+
+    const blind = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          "--allow-remote",
+        ],
+        blind.io,
+      ),
+      EXIT_USAGE,
+      blind.out.join("\n"),
+    );
+    const err = blind.err.join("\n");
+    assert.deepEqual(repeatFlagsFrom(err), ["--width", "640", "--height", "960", "--seed", "7"]);
+    assert.match(err, /no flag restores prompt/);
+  } finally {
+    comfy.close();
+  }
+});
