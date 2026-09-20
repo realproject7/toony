@@ -456,6 +456,35 @@ export interface Cut {
    * size is injected for it at all.
    */
   panelAspect?: number;
+  /**
+   * The seed that produced this cut's CURRENT image (#240), written back by
+   * `toony generate` after a successful run. A non-negative integer.
+   *
+   * Generation is the one step in the pipeline that costs minutes and is not
+   * deterministic, so the seed is what makes an accepted panel reproducible.
+   * `toony generate` reuses it when the run passes no `--seed`, which is why
+   * re-running a cut from the project alone returns the image the operator
+   * accepted rather than a fresh roll.
+   *
+   * OPTIONAL and back-compatible: absent means nothing has been generated for
+   * this cut yet, and the provider rolls a seed exactly as it did before the
+   * field existed.
+   */
+  imageSeed?: number;
+  /**
+   * The NAME of the workflow that produced this cut's current image (#240),
+   * when the run selected one by name (#192). Reused the same way `imageSeed`
+   * is: when the run passes no `--workflow`.
+   *
+   * A name, never a path. A workflow reached through local runtime config is
+   * addressed by a path on the operator's machine, and a project file is the
+   * wrong place for one — `webtoon.json` provider entries stay neutral for the
+   * same reason. A run that used such a workflow records no name here, and
+   * re-running resolves it from that same local config.
+   *
+   * OPTIONAL and back-compatible.
+   */
+  imageWorkflow?: string;
 }
 
 /** A transition record placed between cuts in the canonical sequence. */

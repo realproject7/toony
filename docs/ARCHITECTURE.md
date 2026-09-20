@@ -139,6 +139,37 @@ the validator addresses an episode's sequence through the bundle
 `episodes[0].episode.sequence`, and read naively that reported a present
 sequence as missing.
 
+### What a render records
+
+Generation is the one step in the pipeline that costs minutes and is not
+deterministic, and it used to be the only one that wrote down nothing about its
+own inputs. The provenance entry said what the file was — path, provider, size,
+digest — and nothing about how it was made. So no render could be repeated, and
+the prompt an agent converged on over a hundred panels lived in shell history.
+
+A finished cut render now writes four fields back onto the cut — `imagePrompt`,
+`negativePrompt`, `imageSeed`, `imageWorkflow` — and appends the same inputs, as
+submitted, to the episode's ingest log. Each flag falls back to the recorded
+value, so `toony generate --episode ep-001 --cut cut-004` with nothing else
+repeats the image the operator accepted. `PROJECT_FORMAT.md` has the fields.
+
+Three choices in that are worth knowing:
+
+- **The seed is chosen by the command, not by the provider.** A seed rolled
+  inside `produce` is gone by the time the result comes back, and a seed nobody
+  recorded is a render nobody can repeat.
+- **The prompt on the cut is the cut's OWN.** The character lockstrings (#92) and
+  the palette clause (#207) compose on top of it on every run, so recording the
+  composed string there would compound it. The composed string is what the ingest
+  log keeps, because that is the string the model was given.
+- **The workflow is a NAME, never a path.** Because the name lives per cut, one
+  batch can span several workflows, and a run resolves one provider per distinct
+  name rather than making the first cut's choice the whole run's.
+
+Size is deliberately not recorded on the cut. A cut's shape already has a home in
+`panelAspect`, and re-rendering a batch at export resolution is a thing to do,
+not a thing to prevent; the size a run submitted is in the ingest log.
+
 ## Export Targets
 
 Platform export:

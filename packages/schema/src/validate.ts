@@ -369,6 +369,24 @@ export function validateCutValue(value: unknown, path: string, c: IssueCollector
       );
     }
   }
+  // Render inputs (#240) — OPTIONAL, and written by `toony generate` rather than
+  // authored: they record what produced the cut's current image so the run can
+  // be repeated. Absent on every cut that has never been generated, which is why
+  // neither is required and neither is defaulted on read.
+  if (value.imageSeed !== undefined && (!isInteger(value.imageSeed) || value.imageSeed < 0)) {
+    c.add(
+      joinPath(path, "imageSeed"),
+      "cut.image-seed",
+      "imageSeed must be a non-negative integer — the seed that produced the cut's image.",
+    );
+  }
+  if (value.imageWorkflow !== undefined && !isNonEmptyString(value.imageWorkflow)) {
+    c.add(
+      joinPath(path, "imageWorkflow"),
+      "cut.image-workflow",
+      "imageWorkflow must be a non-empty string — the name of the workflow that produced the cut's image.",
+    );
+  }
   const image = value.image;
   if (image === null) return;
   if (!isPlainObject(image)) {

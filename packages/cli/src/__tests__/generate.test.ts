@@ -11,7 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 
-import { writeConfig } from "@toony/project-io";
+import { decodeYaml, encodeYaml, writeConfig } from "@toony/project-io";
+import { runExport } from "../commands/export.js";
 import { runGenerate } from "../commands/generate.js";
 import { runInit } from "../commands/init.js";
 import { runValidate } from "../commands/validate.js";
@@ -1578,4 +1579,372 @@ test("generate rejects a flag used as another flag's value (#156)", async () => 
   const code = await runGenerate(["--episode", "--cut", "cut-001", "--prompt", "x"], c.io);
   assert.equal(code, EXIT_USAGE);
   assert.match([...c.out, ...c.err].join("\n"), /--episode requires a value/);
+});
+
+// --- Recorded render inputs (#240) ------------------------------------------
+//
+// The claim is reproducibility, so the assertions are about what LEFT the
+// process: `bodies()` is the graph as submitted, seed included. Two runs that
+// submit identical bytes to the same deterministic sampler get the same image
+// back — that is as close to the criterion as a test without a GPU reaches, and
+// it is stronger than reading back the values this code just wrote to disk.
+
+/** The cut records exactly as they are on disk, unnormalized. */
+async function readCuts(projectDir: string): Promise<Record<string, unknown>[]> {
+  const text = await readFile(join(projectDir, "episodes", "ep-001", "cuts.yaml"), "utf8");
+  return decodeYaml(text) as Record<string, unknown>[];
+}
+
+async function readCut(projectDir: string, id: string): Promise<Record<string, unknown>> {
+  const cut = (await readCuts(projectDir)).find((c) => c.id === id);
+  assert.ok(cut, `no cut ${id} on disk`);
+  return cut;
+}
+
+/** The episode's ingest provenance log. */
+async function readIngestLog(projectDir: string): Promise<Record<string, unknown>[]> {
+  const text = await readFile(
+    join(projectDir, "episodes", "ep-001", "logs", "ingest.json"),
+    "utf8",
+  );
+  return JSON.parse(text);
+}
+
+/** The sampler seed inside a recorded /prompt body. */
+function seedOf(body: string): unknown {
+  const parsed = JSON.parse(body) as {
+    prompt?: Record<string, { inputs?: Record<string, unknown> }>;
+  };
+  return parsed.prompt?.["3"]?.inputs?.seed;
+}
+
+test("a finished cut render records the inputs that produced it (#240)", async () => {
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [
+        projectDir,
+        "--episode",
+        "ep-001",
+        "--cut",
+        "cut-001",
+        "--prompt",
+        "a hero on a rooftop, webtoon style",
+        "--negative",
+        "lowres",
+        "--seed",
+        "91723",
+        "--allow-remote",
+      ],
+      c.io,
+    );
+    assert.equal(code, EXIT_OK, c.err.join("\n"));
+
+    // On the cut, so the next run can read them back.
+    const cut = await readCut(projectDir, "cut-001");
+    assert.equal(cut.imagePrompt, "a hero on a rooftop, webtoon style");
+    assert.equal(cut.negativePrompt, "lowres");
+    assert.equal(cut.imageSeed, 91723);
+
+    // And in the episode's ingest log, beside the asset they produced.
+    const log = await readIngestLog(projectDir);
+    assert.deepEqual(log.at(-1)?.renderInputs, {
+      prompt: "a hero on a rooftop, webtoon style",
+      negativePrompt: "lowres",
+      seed: 91723,
+    });
+    assert.equal(log.at(-1)?.assetPath, "episodes/ep-001/assets/clean/cut-001.png");
+
+    // The written fields are part of the format, not a private side file.
+    const validate = capture();
+    assert.equal(await runValidate([projectDir], validate.io), EXIT_OK, validate.out.join("\n"));
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a re-run with no flags repeats the render it recorded (#240)", async () => {
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    // The first run pins NO seed, so the run resolves one for itself — the case
+    // that used to make a render unrepeatable.
+    const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--prompt",
+          "a hero on a rooftop",
+          "--negative",
+          "lowres",
+          "--allow-remote",
+        ],
+        first.io,
+      ),
+      EXIT_OK,
+      first.err.join("\n"),
+    );
+
+    // The project alone: no prompt, no negative, no seed, no shell history.
+    const again = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+        again.io,
+      ),
+      EXIT_OK,
+      again.err.join("\n"),
+    );
+
+    const [original, repeat, ...rest] = comfy.bodies().map(normalizeClientId);
+    assert.equal(rest.length, 0, "the run submitted more requests than it reported");
+    assert.equal(repeat, original, "the re-run did not submit the request it repeats");
+
+    // The seed it repeated is the one the cut records, not a constant.
+    const cut = await readCut(projectDir, "cut-001");
+    assert.equal(seedOf(original ?? ""), cut.imageSeed);
+    assert.equal(typeof cut.imageSeed, "number");
+
+    // The control: this comparison can fail. Pinning a different seed submits
+    // different bytes, so the equality above is not two identical defaults.
+    const pinned = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--seed", "5", "--allow-remote"],
+        pinned.io,
+      ),
+      EXIT_OK,
+      pinned.err.join("\n"),
+    );
+    const third = comfy.bodies().map(normalizeClientId)[2];
+    assert.notEqual(third, original, "a pinned seed submitted the same bytes as another seed");
+    assert.equal(seedOf(third ?? ""), 5);
+    // An explicit flag wins for its run, and that run is what the cut now holds.
+    assert.equal((await readCut(projectDir, "cut-001")).imageSeed, 5);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("the prompt a cut records is its own, so a re-run composes once (#240)", async () => {
+  const projectDir = await scaffold();
+  // A cut with everything that composes into the submitted prompt: a character
+  // lockstring (#92) prepends, the palette clause (#207) appends.
+  await writeFile(
+    join(projectDir, "webtoon.json"),
+    JSON.stringify({
+      ...JSON.parse(await readFile(join(projectDir, "webtoon.json"), "utf8")),
+      characters: [{ id: "mina", name: "Mina", lockstring: "short black bob, amber eyes" }],
+    }),
+  );
+  await writeFile(
+    join(projectDir, "episodes", "ep-001", "cuts.yaml"),
+    [
+      "- id: cut-001",
+      "  image: null",
+      '  imagePrompt: ""',
+      '  negativePrompt: ""',
+      "  characters:",
+      "    - mina",
+      '  palette: "#191d28"',
+      "- id: cut-002",
+      "  image: null",
+      '  imagePrompt: ""',
+      '  negativePrompt: ""',
+      "",
+    ].join("\n"),
+  );
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--prompt",
+          "a rooftop at dusk",
+          "--allow-remote",
+        ],
+        first.io,
+      ),
+      EXIT_OK,
+      first.err.join("\n"),
+    );
+
+    // What was SUBMITTED carries the lockstring and the palette clause.
+    assert.match(comfy.prompts()[0] ?? "", /^short black bob, amber eyes, a rooftop at dusk, /);
+    // What was RECORDED on the cut is the cut's own prompt, so the next run
+    // composes from it exactly once instead of on top of itself.
+    assert.equal((await readCut(projectDir, "cut-001")).imagePrompt, "a rooftop at dusk");
+    // The ingest log keeps the composed one: that is the string the model saw.
+    const recorded = (await readIngestLog(projectDir)).at(-1)?.renderInputs as {
+      prompt?: string;
+    };
+    assert.equal(recorded?.prompt, comfy.prompts()[0]);
+
+    // Re-run from the project alone: the lockstring and the clause appear once,
+    // not twice, and the whole request repeats.
+    const again = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+        again.io,
+      ),
+      EXIT_OK,
+      again.err.join("\n"),
+    );
+    assert.equal(comfy.prompts()[1], comfy.prompts()[0]);
+    const [original, repeat] = comfy.bodies().map(normalizeClientId);
+    assert.equal(repeat, original);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a cut that recorded nothing generates exactly as it did before (#240)", async () => {
+  const projectDir = await scaffold();
+  // A freshly scaffolded project carries neither field, and nothing requires
+  // them: this is the state every project written before #240 is in.
+  for (const cut of await readCuts(projectDir)) {
+    assert.equal(Object.hasOwn(cut, "imageSeed"), false);
+    assert.equal(Object.hasOwn(cut, "imageWorkflow"), false);
+  }
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [
+        projectDir,
+        "--episode",
+        "ep-001",
+        "--cut",
+        "cut-001",
+        "--prompt",
+        "a rooftop at dusk",
+        "--allow-remote",
+      ],
+      c.io,
+    );
+    // A cut with nothing recorded resolves a seed for the run rather than
+    // refusing, so `--prompt` is still the only input generation needs.
+    assert.equal(code, EXIT_OK, c.err.join("\n"));
+    assert.equal(typeof seedOf(comfy.bodies()[0] ?? ""), "number");
+    // The fields are written per cut: the one nobody generated is untouched.
+    const untouched = await readCut(projectDir, "cut-002");
+    assert.equal(Object.hasOwn(untouched, "imageSeed"), false);
+    assert.equal(Object.hasOwn(untouched, "imageWorkflow"), false);
+    assert.equal(untouched.imagePrompt, "");
+  } finally {
+    comfy.close();
+  }
+});
+
+/**
+ * A real 4x4 RGB PNG: correct CRCs, a complete IDAT, decodable. `pngWithText()`
+ * is not — it carries the metadata chunk the strip assertions need and stops at
+ * the bytes those assertions read. The export below renders the asset through
+ * the canvas decoder, so it needs an image that decoder accepts.
+ */
+const SMALL_PNG = Uint8Array.from(
+  Buffer.from(
+    "89504e470d0a1a0a0000000d4948445200000004000000040802000000269309290000002c49444154" +
+      "789c05c1210e000008c4b0b9132438f0fc744fa7050c360e4299b2cb2961cddaebac70e6ec73ce07e7" +
+      "ec09b1e605c00d0000000049454e44ae426082",
+    "hex",
+  ),
+);
+
+test("the recorded fields are inert: the same art exports identically without them (#240)", async () => {
+  // The back-compat control, built to see the feature rather than to avoid it:
+  // one project, exported twice, differing only by the fields this ticket adds.
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(SMALL_PNG);
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--prompt",
+          "a rooftop at dusk",
+          "--seed",
+          "91723",
+          "--allow-remote",
+        ],
+        c.io,
+      ),
+      EXIT_OK,
+      c.err.join("\n"),
+    );
+  } finally {
+    comfy.close();
+  }
+
+  const exportArgs = ["platform", projectDir, "--episode", "ep-001", "--width", "400"];
+  const manifestPath = join(
+    projectDir,
+    "episodes",
+    "ep-001",
+    "exports",
+    "platform",
+    "manifest.json",
+  );
+  const withFields = capture();
+  assert.equal(await runExport(exportArgs, withFields.io), EXIT_OK, withFields.err.join("\n"));
+  const after = await readFile(manifestPath, "utf8");
+
+  // The same project as it would have been written before this change: the
+  // identical art and records, minus the two fields the render recorded.
+  const cuts = await readCuts(projectDir);
+  assert.ok(
+    cuts.some((cut) => cut.imageSeed !== undefined),
+    "the control removed nothing, so it proves nothing",
+  );
+  await writeFile(
+    join(projectDir, "episodes", "ep-001", "cuts.yaml"),
+    encodeYaml(cuts.map(({ imageSeed: _seed, imageWorkflow: _workflow, ...rest }) => rest)),
+  );
+  const validate = capture();
+  assert.equal(await runValidate([projectDir], validate.io), EXIT_OK, validate.out.join("\n"));
+
+  const withoutFields = capture();
+  assert.equal(
+    await runExport(exportArgs, withoutFields.io),
+    EXIT_OK,
+    withoutFields.err.join("\n"),
+  );
+  // Every output file's bytes are hashed in the manifest, so an identical
+  // manifest is an identical export.
+  assert.equal(await readFile(manifestPath, "utf8"), after);
+  assert.deepEqual(withoutFields.out, withFields.out);
+
+  // The control's control: this manifest DOES move when the cuts file says
+  // something the renderer reads, so the equality above is not two exports that
+  // ignored the file.
+  await writeFile(
+    join(projectDir, "episodes", "ep-001", "cuts.yaml"),
+    encodeYaml(
+      (await readCuts(projectDir)).map((cut) =>
+        cut.id === "cut-001" ? { ...cut, image: null } : cut,
+      ),
+    ),
+  );
+  const withoutArt = capture();
+  assert.equal(await runExport(exportArgs, withoutArt.io), EXIT_OK, withoutArt.err.join("\n"));
+  assert.notEqual(await readFile(manifestPath, "utf8"), after);
 });

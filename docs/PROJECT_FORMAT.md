@@ -70,6 +70,41 @@ unaffected, since it is still mapped over the whole canvas.
 describes what a gutter bubble renders as differently than it did before this
 field existed.
 
+## Recorded render inputs
+
+A cut records what produced its current image, so the render can be repeated:
+
+```yaml
+- id: cut-004
+  image:
+    clean: episodes/ep-001/assets/clean/cut-004.png
+    final: null
+  imagePrompt: a hero on a rooftop, webtoon style
+  negativePrompt: lowres
+  imageSeed: 91723
+  imageWorkflow: high-detail
+```
+
+`toony generate` writes all four after a successful render and reads each one
+back when the run does not pass the matching flag, so re-running a cut with no
+flags at all returns the image the operator accepted instead of rolling a new
+seed. An explicit flag still wins for the run it is given on, and what that run
+produced is what the cut then holds.
+
+`imageWorkflow` is a workflow NAME (see [PACK_FORMAT.md](PACK_FORMAT.md)). A
+workflow reached through local runtime config has no name to record — that run
+reproduces through the same local config, and a path on the operator's machine
+does not belong in a project file.
+
+`imageSeed` and `imageWorkflow` are optional and absent until something is
+generated: a cut that has never been generated carries neither, and a project
+written before they existed loads, renders and exports exactly as it did.
+
+The same inputs are appended to the episode's `logs/ingest.json` entry for the
+asset, and there the prompt is the one that was SUBMITTED — character lockstrings
+and the palette clause already composed in — so any panel can answer what
+produced it. A manually imported asset records no render inputs, having none.
+
 ## Canonical Episode Sequence
 
 Cuts and transitions must appear in reader order.

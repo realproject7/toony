@@ -56,6 +56,31 @@ export interface IngestResult {
   provenance: AssetProvenance;
 }
 
+/**
+ * What produced a GENERATED image (#240): the inputs a re-run needs to get the
+ * same image back. Everything else in the log entry describes what the file is;
+ * this is the only record of how it was made, and without it no render is
+ * reproducible and no panel can answer "what produced this?".
+ *
+ * `prompt` is the prompt AS SUBMITTED — character lockstrings and the palette
+ * clause already composed in — because that is the string the model was given,
+ * not the shorter one the cut stores.
+ *
+ * Neutral by the same rule as `AssetProvenance`: these are the operator's own
+ * generation inputs, never an endpoint, an account, a key, or a local path. A
+ * manual import has no generation inputs and records none.
+ */
+export interface RenderInputs {
+  prompt: string;
+  negativePrompt: string;
+  seed: number;
+  /** The workflow's NAME, when the run selected one by name; never a path. */
+  workflow?: string;
+  /** The latent size submitted, when the run resolved one. */
+  width?: number;
+  height?: number;
+}
+
 interface ProvenanceEntry {
   assetPath: string;
   recordKind: "cut" | "transition";
@@ -65,6 +90,7 @@ interface ProvenanceEntry {
   contentType: string;
   byteLength: number;
   sha256: string;
+  renderInputs?: RenderInputs;
 }
 
 function targetRecordId(target: AssetTarget): string {
@@ -130,11 +156,16 @@ async function mkdirSafe(dir: string, what: string): Promise<void> {
  * file (`cuts.yaml` or `transitions.yaml`). The record is located before any
  * file is written, so an unknown episode/record fails without leaving an
  * orphaned asset. Throws `ProjectIoError` when the target does not exist.
+ *
+ * `renderInputs` is what produced the image, for a producer that generated it
+ * (#240); it is appended to the log entry. Omitted for a manual import, whose
+ * entry is exactly what it has always been.
  */
 export async function ingestImageAsset(
   root: string,
   target: AssetTarget,
   result: ProviderResult,
+  renderInputs?: RenderInputs,
 ): Promise<IngestResult> {
   const loaded = await loadProject(root);
   const bundle = loaded.project.episodes.find((b) => b.episode.id === target.episodeId);
@@ -208,6 +239,7 @@ export async function ingestImageAsset(
     contentType: result.provenance.contentType,
     byteLength: stripped.length,
     sha256,
+    ...(renderInputs === undefined ? {} : { renderInputs }),
   });
 
   return { assetPath, bytesWritten: stripped.length, sha256, provenance: result.provenance };
