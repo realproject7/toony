@@ -174,11 +174,10 @@ pair, both runs anchored on the left-most pixel. So a reserved band on the right
 is not trimmed out of the palette: drawn art that measures a mean luminance of
 `76.4` with its band on the left measures `110.0` with the identical band on the
 right. It is kept because it is one of the definitions this side is built to
-share with the reference analyzer, which anchors both runs the same way. The two
-sides already differ in **two** places (see
-[The loop this closes](#the-loop-this-closes)); changing the trim would make
-three, and would put every shipped colour range on a convention its numbers were
-never read at. #257 carries that re-basing.
+share with the reference analyzer, which anchors both runs the same way. Moving
+the trim on one side alone would end that, and would put every shipped colour
+range on a convention its numbers were never read at. #257 carries that
+re-basing, on both sides together.
 
 #### Which side to reserve, until #257 lands
 
@@ -224,7 +223,8 @@ lane-by-lane before-and-after numbers are on #255.
 flat-row threshold, both run-length floors and what counts as a panel all
 measure exactly as they did. The margin rule reads a row the run rule has
 already called a panel; it never decides which rows those are. See
-[The loop this closes](#the-loop-this-closes) for both recorded differences.
+[The loop this closes](#the-loop-this-closes) for the differences that were
+recorded between the two sides, and how each was closed.
 
 ## What is deliberately NOT measured
 
@@ -863,19 +863,28 @@ geometry the plan already misses is a render nobody needed to pay for. It checks
 five of the eleven metrics and never stands in for step 6.
 
 The two sides share the row rule, both run-length floors, the Rec. 709 luminance
-coefficients, the interior colour sampling, and the rounding. One difference is
-left, recorded so it is never mistaken for an accident.
+coefficients, the interior colour sampling, and the rounding. `craft.ts` states
+the convention in its own header: where this side deliberately differs, the
+comment beside the code says so and says why. That comment is the record. No
+count is kept here, because a count is exactly the thing that goes stale while
+the code under it moves.
 
-**The row rule.** The reference side also requires a flat row to be **light**,
-because a Korean webtoon page sets its panels on white. Toony transitions are
-authored colour fields that are usually dark, so keeping that clause makes the
-gutter metric blind to the knob it exists to grade — on `examples/dead-air` it
-reports a gutter ratio of `0.0` and one panel spanning the whole episode.
-Dropping it moves the reference captures' own numbers by at most 0.006 of the
-gutter ratio and changes none of their conclusions, so "flat" alone is the
-definition both sides use.
+Two differences were recorded, and both are now closed. They are kept below so
+neither is read as an accident, and so neither is re-introduced as a fix.
 
-**`panelInset`'s margin rule** was the second difference, and it is closed. #255
+**The row rule.** Flatness alone decides an empty row, on both sides. The
+reference side once also required a flat row to be **light**. That clause is
+gone, and it must not come back. A lightness test measures page colour, and page
+colour is not what makes a row empty: Toony transitions are authored colour
+fields and a dark one is not light, so the clause reads every dark gap as art,
+and an episode whose gaps are all dark collapses to no gutters and one panel
+spanning the page. The same clause made `void` undetectable by construction in
+the transition classifier. Both failures follow from the rule itself, so neither
+depends on which captures happened to be measured. #245 closed the last
+statement of this difference, which had also carried a measured impact figure
+the collection had long since outgrown.
+
+**`panelInset`'s margin rule** was the other difference, and it is closed. #255
 made this side measure each edge against its own outermost pixel; the reference
 side had anchored both runs on the row's left-most pixel, and it now measures
 per edge as well. Both keep the left-anchored margins for the interior colour
@@ -883,8 +892,8 @@ sample only. The cost of the gap was the two shipped ranges, re-derived above.
 Rows were classified identically throughout: the margin rule reads a row the run
 rule has already called a panel, and changes nothing about which rows those are.
 
-Holding the count down is why the colour trim was left on the left-anchored rule
-on both sides (#257): a difference here would be a difference in every colour
+Opening no new one is why the colour trim was left on the left-anchored rule on
+both sides (#257): a difference here would be a difference in every colour
 metric, and that is not a comparison a band can carry.
 
 ## Where this lives in the code
