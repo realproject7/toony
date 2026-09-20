@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { deflateSync } from "node:zlib";
-import { loadProject, writeCuts, writeTransitions } from "@toony/project-io";
+import { GENRES, loadProject, writeCuts, writeTransitions } from "@toony/project-io";
 import type { Cut } from "@toony/schema";
 import { runExport } from "../commands/export.js";
 import { runInit } from "../commands/init.js";
@@ -80,6 +80,40 @@ test("a transition whose fill contradicts its kind reports but does not block (#
   );
   assert.equal(found.length, 1);
   assert.equal(found[0].severity, "info");
+});
+
+// Every SHIPPED genre scaffold draws the bucket it declares (#273). The check is
+// advisory, so a scaffold that contradicts itself blocks nothing and ships: the
+// romance `palette_shift` was authored at `#f3d9e0`, saturation 0.107, under the
+// colour-field line, and drew page background for as long as it took a lint to
+// notice. A project handed that scaffold starts out failing the thing the
+// scaffold exists to teach.
+//
+// The test above is this one's negative control and the reason a pass here means
+// anything: it injects a `void` filled `#ffffff` into a scaffold and gets exactly
+// one finding, so the code path is reachable and an empty result below is the
+// scaffolds being clean rather than the check being dead.
+test("every genre scaffold draws the transition bucket it declares (#273)", async () => {
+  for (const genre of GENRES) {
+    const init = capture();
+    assert.equal(
+      await runInit([`demo-${genre}`, "--genre", genre], init.io),
+      EXIT_OK,
+      init.err.join("\n"),
+    );
+
+    const c = capture();
+    assert.equal(
+      await runLint([join(workdir, `demo-${genre}`), "--json"], c.io),
+      EXIT_OK,
+      c.err.join("\n"),
+    );
+    const report = JSON.parse(c.out.join("\n"));
+    const found = (report.findings as { code: string; message: string }[]).filter(
+      (f) => f.code === "craft/transition-appearance",
+    );
+    assert.deepEqual(found, [], `${genre} scaffold contradicts itself`);
+  }
 });
 
 test("lint flags an export manifest whose declared file is missing", async () => {

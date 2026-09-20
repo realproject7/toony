@@ -177,7 +177,34 @@ const SPECS: Record<Genre, GenreSpec> = {
     transitions: [
       { type: "gutter" },
       { type: "fade" },
-      { type: "palette_shift", color: "#f3d9e0" },
+      // The band's fill is authored so it DRAWS the bucket `palette_shift`
+      // declares (#273). A colour field is `declaredBandAppearance`'s bucket for
+      // this kind, and `appearanceOf` reaches it on saturation, not on value:
+      // over `BAND_COLOR_FIELD_SATURATION` (0.18) and at or over
+      // `BAND_VOID_VALUE` (60), with no ceiling above — the page-background
+      // floor is only tested on a fill too grey to be a colour field at all.
+      //
+      // This scaffold used to carry `#f3d9e0`, cut 1's own palette. At
+      // saturation 0.107 that is under the colour-field line whatever its value
+      // is, so it fell through to page background at value 223 and `toony lint`
+      // reported `craft/transition-appearance` on the shipped romance project.
+      // Darkening the same rose does NOT fix it, and this is the trap the value
+      // in the finding's text sets: hold saturation and walk the value down and
+      // the band goes page background, then unclassified under 190, then void
+      // under 60 — it never becomes a colour field at any value, and void is
+      // #236's defect at the other end of the scale. Saturation is the axis.
+      //
+      // `#efaec4` is that rose with the chroma it was missing: saturation 0.272,
+      // value 189.4, hue 339.7°. Both numbers are anchored to colours this repo
+      // already authors rather than tuned until the check went quiet — the hue
+      // sits inside the genre's own cut palettes (336.0-343.8°) and the
+      // saturation sits at the chroma of `CRAFT_BAND_DEFAULTS.palette_shift`
+      // (`#5a6b7a`, 0.262), so the band carries as much colour as the renderer's
+      // own default colour field, in this genre's hue instead of its slate. It
+      // stays a soft blush: a clear step under the cuts (value 217-240) so the
+      // band reads as a wash rather than the page showing through, and nowhere
+      // near dark enough to read as a bruise.
+      { type: "palette_shift", color: "#efaec4" },
     ],
     overlays: [
       { cut: 1, kind: "speech", speaker: "Mina", text: "You came back." },
