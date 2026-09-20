@@ -177,7 +177,10 @@ async function appendProvenance(
  *
  * The log is this package's own output, but it is still a file on disk that
  * anything may have edited, so the entry is returned only when it is shaped
- * like one; the caller type-checks the fields it uses.
+ * like one. The FIELDS are unchecked: the caller type-checks each one where it
+ * uses it, because what a wrong type means is the caller's question — printing
+ * `--negative null` into a command the operator runs is a different failure
+ * from comparing it.
  */
 export async function recordedRenderInputs(
   root: string,

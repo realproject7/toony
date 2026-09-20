@@ -603,6 +603,109 @@ test("the escape a refusal names carries the workflow the plate was rendered wit
   }
 });
 
+test("a plate rendered with no named workflow is repeated with no named workflow (#240)", async () => {
+  // The first render of anything names no workflow, so the record holds none —
+  // and that absence is an ANSWER: the local config resolved the graph. Read as
+  // silence, a later run with `--workflow` was told only the size, rendered the
+  // plate through the other graph at the right size, and wrote that graph onto
+  // the cut as what produced it.
+  await installPack();
+  const init = capture();
+  assert.equal(await runInit(["my-story"], init.io), EXIT_OK);
+  const dir = join(workdir, "my-story");
+
+  const comfy = await startFakeComfy();
+  try {
+    const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          dir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--prompt",
+          "a rainy alley",
+          "--seed",
+          "7",
+          "--width",
+          "640",
+          "--height",
+          "960",
+          "--allow-remote",
+        ],
+        first.io,
+      ),
+      EXIT_OK,
+      first.err.join("\n"),
+    );
+    // The bundled default graph, and no workflow name recorded on the cut.
+    assert.equal(comfy.graphs()[0]?.["3"]?.inputs.steps, 25);
+    assert.equal(
+      (await cutsOnDisk(dir)).find((cut) => cut.id === "cut-001")?.imageWorkflow,
+      undefined,
+    );
+
+    const named = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          dir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--workflow",
+          "high-detail",
+          "--allow-remote",
+        ],
+        named.io,
+      ),
+      EXIT_USAGE,
+      named.out.join("\n"),
+    );
+    const err = named.err.join("\n");
+    const line = err.split("\n").find((l) => l.trim().startsWith("--"));
+    assert.ok(line, `no repeat instruction in:\n${err}`);
+    const flags = (line.trim().match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []).map((token) =>
+      token.startsWith('"') ? (JSON.parse(token) as string) : token,
+    );
+    // The instruction says to name no workflow, which is a thing a run can say.
+    assert.deepEqual(flags, ["--width", "640", "--height", "960", "--workflow", ""]);
+
+    const obey = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          dir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--workflow",
+          "high-detail",
+          ...flags,
+          "--allow-remote",
+        ],
+        obey.io,
+      ),
+      EXIT_OK,
+      obey.err.join("\n"),
+    );
+    // Back through the bundled default, byte for byte what the first run sent.
+    const [original, repeated] = comfy.graphs();
+    assert.deepEqual(repeated, original, "obeying the instruction did not repeat the render");
+    // And the cut still records no workflow, rather than the one that lost.
+    assert.equal(
+      (await cutsOnDisk(dir)).find((cut) => cut.id === "cut-001")?.imageWorkflow,
+      undefined,
+    );
+  } finally {
+    comfy.close();
+  }
+});
+
 test("a recorded workflow that is no longer installed names the cut that holds it (#240)", async () => {
   const packDir = await installPack();
   const init = capture();

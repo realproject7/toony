@@ -2850,3 +2850,83 @@ test("a transition is guarded the same way a cut is (#240)", async () => {
     comfy.close();
   }
 });
+
+test("an input nothing can ask for is named, whichever input it is (#240)", async () => {
+  // An entry that cannot say how to restore its value must say so. Reporting
+  // only the one field somebody thought of is how a new entry that decides
+  // nothing would contribute nothing to the instruction and say nothing either.
+  const projectDir = await scaffold();
+  const cutsPath = join(projectDir, "episodes", "ep-001", "cuts.yaml");
+  await writeFile(
+    cutsPath,
+    encodeYaml(
+      (await readCuts(projectDir)).map((cut) =>
+        cut.id === "cut-001" ? { ...cut, imagePrompt: "a rooftop at dusk" } : cut,
+      ),
+    ),
+  );
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          "--prompt",
+          "the lettered final pass",
+          "--seed",
+          "7",
+          "--width",
+          "640",
+          "--height",
+          "960",
+          "--allow-remote",
+        ],
+        first.io,
+      ),
+      EXIT_OK,
+      first.err.join("\n"),
+    );
+
+    // Two inputs nothing can ask for: a workflow the log holds as a number, and
+    // a record from before the base prompt was stored.
+    const logPath = join(projectDir, "episodes", "ep-001", "logs", "ingest.json");
+    const log = await readIngestLog(projectDir);
+    const entry = log.at(-1) as { renderInputs: Record<string, unknown> };
+    entry.renderInputs.workflow = 42;
+    delete entry.renderInputs.basePrompt;
+    await writeFile(logPath, `${JSON.stringify(log, null, 2)}\n`);
+
+    const blind = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          "--allow-remote",
+        ],
+        blind.io,
+      ),
+      EXIT_USAGE,
+      blind.out.join("\n"),
+    );
+    const err = blind.err.join("\n");
+    // Neither is guessed at in the instruction...
+    assert.deepEqual(repeatFlagsFrom(err), ["--width", "640", "--height", "960", "--seed", "7"]);
+    // ...and both are named, not just the one this used to be keyed on.
+    assert.match(err, /no flag restores workflow, prompt/);
+  } finally {
+    comfy.close();
+  }
+});

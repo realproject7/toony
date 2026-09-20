@@ -610,8 +610,33 @@ interface RepeatContext {
  */
 const UNKNOWABLE = Symbol("unknowable");
 
+/**
+ * The record says nothing about this input, and its silence is silence — the
+ * size was never recorded, so there is nothing to differ from.
+ *
+ * Which fields get this is a per-field decision, not the loop's: an absent
+ * `workflow` is NOT silence. It says the run that produced the image named no
+ * workflow, so the local config resolved one, and that is as comparable as a
+ * name. Reading it as silence let a run with `--workflow` replace a plate
+ * rendered without one, and record the wrong graph as what produced it.
+ */
+const UNRECORDED = Symbol("unrecorded");
+
+/**
+ * This input is asked for by another field's flag, which is a decision, unlike
+ * `null` — the answer of an entry that cannot say how to restore its value, and
+ * which is named in the refusal so it cannot vanish from the instruction.
+ */
+const CARRIED = Symbol("carried");
+
 /** How one recorded input is compared against this run, and asked for again. */
 interface RepeatInput {
+  /**
+   * What the RECORD holds for that input, or `UNRECORDED` when its absence says
+   * nothing. Raw: `instruct` is where a value is type-checked, because that is
+   * where one is printed.
+   */
+  recorded: (record: RenderInputs) => string | number | undefined | typeof UNRECORDED;
   /**
    * What THIS run would use for that input, or `UNKNOWABLE` when there is no
    * answer to compare. `undefined` is an answer: see the symbol's own note.
@@ -624,8 +649,15 @@ interface RepeatInput {
    * into a usage error whose only answer is retyping the value just written.
    */
   refuses: (ctx: RepeatContext) => boolean;
-  /** The flag that asks for the recorded value, or null when another field's does. */
-  instruct: (recorded: RenderInputs) => string | null;
+  /**
+   * The flag that asks for the recorded value, `CARRIED` when another field's
+   * flag does, or `null` when nothing can ask for it — which is reported, not
+   * skipped. An entry that decides nothing therefore says so out loud.
+   */
+  instruct: (
+    value: string | number | undefined,
+    record: RenderInputs,
+  ) => string | typeof CARRIED | null;
 }
 
 /**
@@ -652,48 +684,60 @@ const REPEAT_INPUTS: Record<keyof RenderInputs, RepeatInput> = {
   // still NAMED when it differs, because the operator's own `--width` stays in
   // the command and an instruction that leaves it out is false.
   width: {
+    recorded: (record) => record.width ?? UNRECORDED,
     submitted: ({ job, latent }) => job.inputs.width ?? latent.width ?? UNKNOWABLE,
     refuses: ({ job }) => job.inputs.width === undefined,
-    instruct: (recorded) => `--width ${recorded.width}`,
+    instruct: (value) => (typeof value === "number" ? `--width ${value}` : null),
   },
   height: {
+    recorded: (record) => record.height ?? UNRECORDED,
     submitted: ({ job, latent }) => job.inputs.height ?? latent.height ?? UNKNOWABLE,
     refuses: ({ job }) => job.inputs.height === undefined,
-    instruct: (recorded) => `--height ${recorded.height}`,
+    instruct: (value) => (typeof value === "number" ? `--height ${value}` : null),
   },
   seed: {
+    recorded: (record) => record.seed ?? UNRECORDED,
     submitted: ({ job }) => job.inputs.seed,
     refuses: () => false,
-    instruct: (recorded) => `--seed ${recorded.seed}`,
+    instruct: (value) => (typeof value === "number" ? `--seed ${value}` : null),
   },
+  // The ONLY field whose absence in the record is an answer rather than silence:
+  // it says the producing run named no workflow, and `--workflow ""` is how a
+  // run says that too.
   workflow: {
+    recorded: (record) => record.workflow,
     submitted: ({ job }) => job.inputs.workflow,
     refuses: () => false,
-    instruct: (recorded) =>
-      typeof recorded.workflow === "string" ? `--workflow ${flagValue(recorded.workflow)}` : null,
+    instruct: (value) => {
+      if (value === undefined) return `--workflow ""`;
+      return typeof value === "string" ? `--workflow ${flagValue(value)}` : null;
+    },
   },
   // The SUBMITTED prompt is what the model saw, so it is what tells a repeat
   // from a replacement — but the flag that restores it takes the BASE prompt,
   // because `planJobs` composes the lockstrings and the palette clause again.
   // Handing back the composed string would compose it twice.
   prompt: {
+    recorded: (record) => record.prompt ?? UNRECORDED,
     submitted: ({ job }) => job.inputs.prompt,
     refuses: () => false,
-    instruct: (recorded) =>
-      typeof recorded.basePrompt === "string" ? `--prompt ${flagValue(recorded.basePrompt)}` : null,
+    instruct: (_value, record) =>
+      typeof record.basePrompt === "string" ? `--prompt ${flagValue(record.basePrompt)}` : null,
   },
   negativePrompt: {
+    recorded: (record) => record.negativePrompt ?? UNRECORDED,
     submitted: ({ job }) => job.inputs.negativePrompt,
     refuses: () => false,
-    instruct: (recorded) => `--negative ${flagValue(recorded.negativePrompt)}`,
+    instruct: (value) => (typeof value === "string" ? `--negative ${flagValue(value)}` : null),
   },
   // Carried by `prompt`, whose instruction is built from this value: composing
   // this one produced that one, so a difference here that left the submitted
   // prompt identical changed nothing the model saw.
   basePrompt: {
+    recorded: (record) => record.basePrompt ?? UNRECORDED,
     submitted: ({ job }) => job.inputs.basePrompt,
     refuses: () => false,
-    instruct: () => null,
+    instruct: () => CARRIED,
   },
 };
 
@@ -744,17 +788,20 @@ async function assertRepeatable(
     const ctx: RepeatContext = { job, latent };
     const differences: string[] = [];
     const instructions: string[] = [];
-    let unaskable = false;
+    const unaskable: string[] = [];
     for (const key of Object.keys(REPEAT_INPUTS) as (keyof RenderInputs)[]) {
-      const was = recorded[key];
-      if (was === undefined) continue; // nothing recorded for it to differ from
       const input = REPEAT_INPUTS[key];
+      const was = input.recorded(recorded);
+      if (was === UNRECORDED) continue; // the record's silence is silence here
       const now = input.submitted(ctx);
       if (now === UNKNOWABLE || now === was) continue; // no answer, or already right
       if (input.refuses(ctx)) differences.push(`${key} ${now} instead of ${was}`);
-      const flag = input.instruct(recorded);
-      if (flag === null) unaskable ||= key === "prompt";
-      else instructions.push(flag);
+      const flag = input.instruct(was, recorded);
+      // A field nothing can ask for is NAMED, whichever field it is. Reporting
+      // only the one field somebody thought of is how an entry that decides
+      // nothing contributes nothing and says nothing.
+      if (flag === null) unaskable.push(key);
+      else if (flag !== CARRIED) instructions.push(flag);
     }
     if (differences.length === 0) continue;
 
@@ -764,10 +811,9 @@ async function assertRepeatable(
       "to repeat that image, add these to the command (replacing any it already passes):",
       `  ${instructions.join(" ")}`,
     ];
-    if (unaskable) {
-      // Only an entry written before the base prompt was recorded can land here.
+    if (unaskable.length > 0) {
       lines.push(
-        `  (the prompt that produced it is in the ingest log for ${assetPath}; this record predates the prompt being stored as it was typed, so no flag can restore it)`,
+        `  (no flag restores ${unaskable.join(", ")}: what was recorded is in the ingest log for ${assetPath})`,
       );
     }
     return { error: lines.join("\n"), exit: EXIT_USAGE };
