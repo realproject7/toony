@@ -11,14 +11,7 @@
 
 import { readFile } from "node:fs/promises";
 import { isAbsolute, normalize, resolve, sep } from "node:path";
-import {
-  type Finding,
-  lintBubbleOverflow,
-  lintCharacterRefs,
-  lintCraft,
-  readImageDimensions,
-  sortFindings,
-} from "@toony/lint";
+import { readImageDimensions } from "@toony/lint";
 import {
   type EpisodeSummary,
   type LoadedProject,
@@ -27,9 +20,9 @@ import {
   summarizeEpisodes,
 } from "@toony/project-io";
 import { FALLBACK_CUT_ASPECT } from "@toony/render";
-import type { Character, Cut, EpisodeBundle, LetteringOverlay, Transition } from "@toony/schema";
+import type { Cut, EpisodeBundle, LetteringOverlay, Transition } from "@toony/schema";
 
-export type { EpisodeSummary, Finding, LoadedProject };
+export type { EpisodeSummary, LoadedProject };
 export { ProjectIoError, summarizeEpisodes };
 
 /** Load and validate one work's project from its absolute root directory. */
@@ -201,51 +194,4 @@ export async function resolveEpisodeRenderInputs(
   );
   const artByCut = new Map<string, CutArt>(artEntries);
   return { cutById, transitionById, bubblesByCut, artByCut };
-}
-
-/**
- * Run every editor-relevant `@toony/lint` over one episode bundle (#102): the
- * pure craft and character-ref lints plus the image-aware overflow lint. Cut art
- * is read only through `resolveWorkAsset` (path-safe), so the resolver can never
- * read outside the work tree; an unreadable/unsafe/missing image simply falls
- * back to the lint's default dimensions. Findings are returned in deterministic
- * order.
- *
- * NOTE: currently UNREFERENCED. It was written as the single place an editor
- * route and an editor page would share, so an inline panel and an on-demand
- * refresh could not produce different findings; neither caller exists in the
- * tree today.
- *
- * `gutterBandWidth` is the project's declared gutter strip (`webtoon.json`;
- * #215). Both lints lay bubbles out through the same renderer the preview uses,
- * so a panel that did not pass it would report overflow and wrap counts against
- * the DEFAULT strip beside a preview drawn on the project's.
- */
-export async function lintEpisodeBundle(
-  workRoot: string,
-  bundle: EpisodeBundle,
-  characters: readonly Character[],
-  gutterBandWidth?: number,
-): Promise<Finding[]> {
-  const imageBytes = new Map<string, Uint8Array>();
-  await Promise.all(
-    bundle.cuts.map(async (cut) => {
-      const rel = cut.image?.final ?? cut.image?.clean ?? null;
-      if (!rel) return;
-      const absolute = resolveWorkAsset(workRoot, rel);
-      if (absolute === null) return;
-      try {
-        imageBytes.set(cut.id, new Uint8Array(await readFile(absolute)));
-      } catch {
-        // Unreadable art → fall back to default dimensions in the lint.
-      }
-    }),
-  );
-
-  const findings: Finding[] = [
-    ...lintCraft(bundle, characters, { gutterBandWidth }),
-    ...lintCharacterRefs(bundle, characters),
-    ...lintBubbleOverflow(bundle, (cutId) => imageBytes.get(cutId) ?? null, { gutterBandWidth }),
-  ];
-  return sortFindings(findings);
 }
