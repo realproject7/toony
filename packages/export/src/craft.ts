@@ -57,8 +57,8 @@ import { stitchEpisode } from "./targets.js";
  * spanning the page, which is the gutter metric going blind to the exact knob
  * it exists to grade. That is a property of the definition, not a number that
  * can drift. It holds at every flatness threshold and on any set of captures.
- * The clause has already caused one silent failure here on flat-but-dark rows,
- * and the note on the transition mix further down this file has it.
+ * The clause has already caused one silent failure on flat-but-dark rows, and
+ * the note on the transition mix further down this file has it.
  * `examples/dead-air` is the dark episode in this repository; what it measures
  * is pinned in `__tests__/craft-inset.test.ts` rather than quoted here.
  */
@@ -418,11 +418,9 @@ interface ColorSums {
  * reasons, in this order.
  *
  * FIRST, it is one of the definitions this side is BUILT to share with the
- * reference analyzer, which anchors both runs on the left-most pixel. This
- * measurement already differs from the reference in two places — the light-row
- * clause, and `panelInset`'s margin rule since #255 — and changing the trim
- * would make three. A band is a comparison between the two sides, and every
- * difference is a place that comparison leaks.
+ * reference analyzer, which anchors both runs on the left-most pixel. Moving
+ * the trim on one side alone would end that. A band is a comparison between the
+ * two sides, and every difference is a place that comparison leaks.
  *
  * SECOND, the re-basing cost, measured rather than guessed: anchoring the
  * right-hand run on the right-hand pixel moves `examples/dead-air` from 85.2 to

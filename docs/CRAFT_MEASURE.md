@@ -866,11 +866,12 @@ The two sides share the row rule, both run-length floors, the Rec. 709 luminance
 coefficients, the interior colour sampling, and the rounding. `craft.ts` states
 the convention in its own header: where this side deliberately differs, the
 comment beside the code says so and says why. That comment is the record. No
-count is kept here, because a count is exactly the thing that goes stale while
-the code under it moves.
+running count is kept here, because a count is exactly the thing that goes stale
+while the code under it moves.
 
-Two differences were recorded, and both are now closed. They are kept below so
-neither is read as an accident, and so neither is re-introduced as a fix.
+The differences recorded so far are below, and every one of them is closed. They
+are kept so neither is read as an accident, and so neither is re-introduced as a
+fix.
 
 **The row rule.** Flatness alone decides an empty row, on both sides. The
 reference side once also required a flat row to be **light**. That clause is
