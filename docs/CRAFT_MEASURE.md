@@ -52,7 +52,7 @@ count ranges a meaning, not to make the rest comparable.
 | `panelHeightSpread` | how much cut heights vary | whether the rhythm is even or ragged |
 | `panelsPerScreen` | cuts per screen of scrolling | cut density — how fast the eye moves |
 | `gutterIntrusionsPerScreen` | elements floating in empty space | `placement: gutter` lettering and SFX |
-| `panelInset` | flat margin at a panel's edges | full-bleed art versus art floating in a column |
+| `panelInset` | flat margin at a panel's two edges, summed | full-bleed art versus art floating in a column |
 | `valueMean` | luminance of the panel interiors (0–255) | cut `palette` |
 | `valueSpread` | how far that luminance ranges | the light/dark arc |
 | `saturationMean` | colour intensity (0–1) | palette intensity |
@@ -80,6 +80,105 @@ Colour is sampled from the panel **interior**: each sampled row's flat margins
 are trimmed before its pixels count. That is not a detail. Sampling whole rows
 makes every genre come back the same near-white, because an inset panel leaves
 flat page background at both edges and the margin dominates the average.
+
+The colour trim uses an **older margin rule than `panelInset` does**, and the
+difference is set out under [What counts as a margin](#what-counts-as-a-margin)
+below. If your pack reserves a band on the right of its cuts, read that section
+before you read its colour numbers.
+
+### What counts as a margin
+
+`panelInset` is the flat page margin an inset panel leaves beside the art. It is
+measured on the middle row of every panel run, and reported as the **sum of both
+edges** as a share of the width — a page with a tenth of the column left blank on
+each side reports about `0.2`, not `0.1`.
+
+A margin is, per edge: **how far one colour reaches inward from that edge before
+it changes**, where "one colour" allows 10 per RGB channel of drift, and the
+colour it has to keep is **that edge's own outermost pixel**.
+
+What follows from that, and what a band author needs to know:
+
+- **The two edges are independent.** Neither is required to match the other, so a
+  page margined in white on the left and in a dark reserved band on the right
+  reports both. This is the fix in #255: until then both runs were compared
+  against the **left-most** pixel, so a reserved band on the left registered at
+  its full width and the identical band on the right registered as nothing. The
+  same seven-cut page measured `0.1801` one way and `0.0013` the other.
+- **A page and its mirror image measure the same number.** That is the property
+  the per-edge rule exists to give, and it is tested on a pair of pages asserted
+  to be exact horizontal mirrors pixel for pixel.
+- **Anything drawn in the margin ends it.** The run stops at the first pixel that
+  differs, so a bubble floating in a reserved band is where the margin stops, not
+  where the art starts. Measured on drawn art: a band a fifth of the column wide
+  reports `0.2100` empty, and `0.0733` with a bubble sitting a sixteenth of the
+  way into it.
+- **Whatever is AT the edge is what the margin is made of.** The anchor is the
+  outermost pixel, so a bubble that reaches the edge is not an interruption —
+  it becomes the colour the run follows, and the empty band behind it then ends
+  the run. The same band with that bubble pushed flush to the edge reports
+  `0.1567`. Keep lettering off the outermost column if you want the margin read
+  as page.
+- **Art that happens to be flat at its own edge counts.** Nothing here
+  distinguishes page background from a wide flat passage of the drawing, so a
+  full-bleed page reports a small non-zero inset — the art's own edge run, at
+  both edges now rather than one. On this repository's `examples/dead-air` that
+  is `0.0113` of the width; on drawn test art, `0.0116`. Treat anything of that
+  order as the noise floor of the metric, not as an inset.
+- **Gutters do not count.** Only the middle row of a **panel** run is measured, so
+  inter-panel space never contributes, whatever colour it is.
+
+**The colour metrics do not use this rule.** `valueMean`, `valueSpread`,
+`saturationMean` and `hueBias` trim each sampled row through the **pre-#255**
+pair, both runs anchored on the left-most pixel. So a reserved band on the right
+is not trimmed out of the palette: drawn art that measures a mean luminance of
+`76.4` with its band on the left measures `110.0` with the identical band on the
+right. That is deliberate and it is not right. Every colour range in every
+shipped band was measured through that trim, so moving it re-bases four ranges in
+every band at once — a change that needs its own evidence, not one an inset fix
+gets to make on the side. Until it is made: **if your pack reserves a band on one
+side of its cuts, put it on the left.** The pilot pack already does, for the
+inset reason #255 removes; the colour reason outlives it.
+
+#### What this change does to a band measured before it
+
+Both shipped `panelInset` ranges were read by the reference analyzer off whole
+captures of real pages, where the panel is inset in **one** page background on
+both sides. That is the case where the old rule and the new one agree exactly,
+because the right-hand margin matched the left-most pixel already. So:
+
+| Band | Pack | Status |
+|---|---|---|
+| `panelInset` `0.092`–`0.131` | Muted Court Romance, graded | Unchanged. Still means what it meant. |
+| `panelInset` `0.166`–`0.200` | Cold Revenge Mystery, recorded | Unchanged. Still means what it meant. |
+
+Neither needs re-deriving. What moves is the **render** being graded against
+them:
+
+- A render whose two edges are the same colour measures **exactly** what it
+  measured before, to the last digit. Four pages checked on both rules: two drawn
+  pages inset in white, one with equal margins and one with unequal ones,
+  `0.1967` and `0.2467`; the `restless` rhythm fixture, `0.3967`; and
+  `examples/last-train`, `0.4008`.
+- A render that reserves a band on the **right** goes from about zero to its
+  true inset — `0.0117` to `0.2100` on the mirror fixture. This is the whole
+  point: such a render was previously unable to pass either range however deeply
+  its art was inset.
+- A render whose right edge is a **different colour from its left** gains the run
+  that edge always had and the old rule could not see. Where the right edge is
+  art rather than page, that is small: `0.0550` → `0.0663` on
+  `examples/dead-air`, `0.0117` → `0.0233` on drawn full-bleed art. Small is not
+  nothing — it is about a third of the width of either band above — so a render
+  sitting within about `0.012` of a ceiling should be re-measured rather than
+  assumed.
+
+**Both sides still classify the same rows.** The row rule is untouched — the
+flat-row threshold, both run-length floors and what counts as a panel all
+measure exactly as they did, verified on four pages across every other metric.
+The margin rule reads a row the run rule has already called a panel; it never
+decides which rows those are. What differs is one read inside such a row, and
+only where a page's two edges are different colours. See
+[The loop this closes](#the-loop-this-closes) for both recorded differences.
 
 ## What is deliberately NOT measured
 
@@ -269,14 +368,27 @@ definitions means nothing.
 
 The two sides share the row rule, both run-length floors, the Rec. 709 luminance
 coefficients, the interior colour sampling, and the rounding. They differ in
-exactly one place, recorded here so it is never mistaken for an accident: the
-reference side also requires a flat row to be **light**, because a Korean webtoon
-page sets its panels on white. Toony transitions are authored colour fields that
-are usually dark, so keeping that clause makes the gutter metric blind to the
-knob it exists to grade — on `examples/dead-air` it reports a gutter ratio of
-`0.0` and one panel spanning the whole episode. Dropping it moves the reference
-captures' own numbers by at most 0.006 of the gutter ratio and changes none of
-their conclusions, so "flat" alone is the definition both sides use.
+exactly two places, both recorded so neither is ever mistaken for an accident.
+
+**The row rule.** The reference side also requires a flat row to be **light**,
+because a Korean webtoon page sets its panels on white. Toony transitions are
+authored colour fields that are usually dark, so keeping that clause makes the
+gutter metric blind to the knob it exists to grade — on `examples/dead-air` it
+reports a gutter ratio of `0.0` and one panel spanning the whole episode.
+Dropping it moves the reference captures' own numbers by at most 0.006 of the
+gutter ratio and changes none of their conclusions, so "flat" alone is the
+definition both sides use.
+
+**`panelInset`'s margin rule**, since #255. This side measures each edge against
+its own outermost pixel; the rule it replaced compared both against the
+left-most one, and that older rule is what this side shared with the reference
+by construction. The analyzer lives outside this repository and #255 did not
+touch it, so nothing here can state what it does today — only that the two rules
+agree **exactly** on a panel inset in one background, which is what the
+reference is pointed at, and part only on a page whose two edges are different
+colours, which Toony can author and a reference capture does not contain. Rows
+are classified identically either way: the margin rule reads a row that the run
+rule has already called a panel, and changes nothing about which rows those are.
 
 ## Where this lives in the code
 
