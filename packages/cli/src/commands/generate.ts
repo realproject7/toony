@@ -20,6 +20,13 @@
 // cut's latent size. A cut that declares no shape has NO size injected, so the
 // workflow's latent stands exactly as it did before the field existed.
 //
+// A project that does not validate is REFUSED before anything is sent (#261).
+// Every input above — the prompt, the lockstrings, the palette, the shape — is
+// read out of records this command does not otherwise check, so generating from
+// an unvalidated project spends GPU minutes on data nobody has looked at and
+// then writes art into the project. See `docs/ARCHITECTURE.md` ("Validation is a
+// precondition for output") for why the refusal has no override flag.
+//
 // `--cut` REPEATS, so this command owns the multi-cut loop instead of leaving
 // every caller to write a shell loop and invent its own error handling (#204).
 // Generation is slow and flaky against a local GPU, so a failed cut must not
@@ -31,6 +38,7 @@ import {
   type AssetTarget,
   type ComfyUiConfig,
   ingestImageAsset,
+  type LoadedProject,
   loadProject,
   ProjectIoError,
   readConfig,
@@ -43,11 +51,12 @@ import {
   resolveComfyUIConfig,
   type ToonyWorkspaceComfyConfig,
 } from "@toony/providers";
-import { type Character, PANEL_ASPECT_MAX, PANEL_ASPECT_MIN } from "@toony/schema";
+import type { Character } from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 import { discoverPackContent } from "../packs.js";
 import { appendPaletteClause } from "../palette.js";
 import { latentHeightFor } from "../panel-shape.js";
+import { textReport } from "../report.js";
 
 export interface GenerateIo {
   cwd: string;
@@ -271,19 +280,18 @@ function optionsFor(
  *
  * An explicit `--prompt` wins; otherwise a cut falls back to its stored
  * `imagePrompt`/`negativePrompt` (#38). Transitions carry no stored prompt, so
- * `--prompt` stays required for them. The project is loaded ONCE, even when
- * `--prompt` is given, to read each cut's `characters` refs, its `palette`, and
- * the project registry, so lockstrings (#92) and the palette clause (#207)
- * inject for both prompt sources. Generation writes only image refs, which
- * nothing here reads, so one load serves the whole run.
+ * `--prompt` stays required for them. The already-loaded project supplies each
+ * cut's `characters` refs, its `palette`, and the project registry, so
+ * lockstrings (#92) and the palette clause (#207) inject for both prompt
+ * sources. Generation writes only image refs, which nothing here reads, so the
+ * caller's one load serves the whole run.
  *
- * `usage` separates a caller mistake, which reprints the usage line, from a
- * project that could not be loaded.
+ * `usage` marks a caller mistake, which reprints the usage line.
  */
-async function planJobs(
-  root: string,
+function planJobs(
+  loaded: LoadedProject,
   input: PlanInput,
-): Promise<{ jobs: Job[] } | { error: string; usage: boolean }> {
+): { jobs: Job[] } | { error: string; usage: boolean } {
   const { episodeId, cutIds, transitionId, slot, prompt, negative, shared } = input;
   const NO_PROMPT = "generation requires --prompt <text> (or a non-empty cut imagePrompt)";
   if (transitionId !== undefined) {
@@ -301,12 +309,6 @@ async function planJobs(
     };
   }
 
-  let loaded: Awaited<ReturnType<typeof loadProject>>;
-  try {
-    loaded = await loadProject(root);
-  } catch (error) {
-    return { error: error instanceof ProjectIoError ? error.message : String(error), usage: false };
-  }
   const registry: readonly Character[] = loaded.project.webtoon.characters ?? [];
   const bundle = loaded.project.episodes.find((b) => b.episode.id === episodeId);
 
@@ -359,8 +361,17 @@ async function planJobs(
  * A job with no declared shape is left exactly as planned: no size is injected
  * for it, so the workflow's own latent stands, unchanged to the byte.
  *
- * Returns an error instead of generating when a declared shape is out of bounds
- * or cannot be resolved, and nothing is sent in either case. Falling back to the
+ * The shape's own bounds are NOT re-checked here. #237 added that check because
+ * this command ignored `loadProject`'s validation report, so a `panelAspect` the
+ * schema rejects still reached this function; the run's validation gate (#261)
+ * is what covers it now, and every cut in `bundle.cuts` goes through
+ * `validateCutValue`, which applies `PANEL_ASPECT_MIN`/`MAX` and rejects a
+ * non-finite or non-numeric value. Keeping a second copy of the bounds would
+ * leave the CLI free to drift from the schema and refuse a project
+ * `toony validate` calls valid.
+ *
+ * Returns an error instead of generating when a declared shape cannot be
+ * RESOLVED — there is no column to size it against. Falling back to the
  * workflow's latent would render a page with the pack's pacing quietly removed,
  * and cost GPU minutes to discover.
  */
@@ -374,34 +385,6 @@ function applyPanelShapes(
     job.panelAspect === undefined ? [] : [{ job, panelAspect: job.panelAspect }],
   );
   if (declared.length === 0) return null;
-
-  // The bounds are re-applied here, at the one place the number is USED, because
-  // this command never consults `loadProject`'s validation report: a project that
-  // `toony validate` rejects still reaches this function. Without this check a
-  // NaN, a quoted number or an out-of-range value would be injected or dropped
-  // and the run would exit 0 reporting a size nobody asked for — #207 again, and
-  // the clamp `latentHeightFor`'s one-block floor would otherwise perform.
-  // `Number.isFinite` also rejects a YAML string, which the compile-time type
-  // cannot.
-  const invalid = declared.find(
-    ({ panelAspect }) =>
-      !Number.isFinite(panelAspect) ||
-      panelAspect < PANEL_ASPECT_MIN ||
-      panelAspect > PANEL_ASPECT_MAX,
-  );
-  if (invalid) {
-    // `JSON.stringify` renders NaN and Infinity as `null`, which names neither
-    // the value nor the mistake. Numbers print as themselves; anything else
-    // keeps its quotes, so a YAML-quoted "1.4" reads as the string it is.
-    const shown =
-      typeof invalid.panelAspect === "number"
-        ? String(invalid.panelAspect)
-        : JSON.stringify(invalid.panelAspect);
-    return {
-      error: `cut ${invalid.job.id} declares panelAspect ${shown}, which is not a number between ${PANEL_ASPECT_MIN} and ${PANEL_ASPECT_MAX}; run "toony validate" for the full report. Nothing was generated. This command checks this one field, not the whole project (#261).`,
-      exit: EXIT_VALIDATION,
-    };
-  }
 
   if (typeof shared.height === "number") {
     io.err(
@@ -489,11 +472,48 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     shared[key] = n;
   }
 
+  // Load the project ONCE and CONSULT the validation report it returns (#261).
+  //
+  // Every other command that loads a project consults it; this was the only one
+  // that did not, and it is the one that spends generation time. The prompt, the
+  // lockstrings, the palette and the panel shape are all read out of records
+  // this command does not otherwise check, so a project `toony validate` rejects
+  // used to generate anyway: art written into the project from data nobody had
+  // looked at, and a run that exited 0.
+  //
+  // The refusal is total and has no override flag, for two reasons. First, the
+  // other command that turns a project into artefacts already refuses this way
+  // and offers no override (`@toony/export`'s `loadEpisode`), so the pipeline
+  // has one rule instead of one rule with an exception. Second, this does not
+  // block work in progress: INCOMPLETE is not INVALID here. A cut with no image
+  // and no prompt still validates — that is exactly why `--require-images` is
+  // opt-in (`validate.ts`) — so a project only fails this gate when its records
+  // are genuinely malformed, and the report below says which and where.
+  //
+  // A transition run is covered too. It needs no cut data, but it still writes
+  // into the project through the same ingest path.
+  let loaded: LoadedProject;
+  try {
+    loaded = await loadProject(root);
+  } catch (cause) {
+    io.err(cause instanceof ProjectIoError ? cause.message : String(cause));
+    return EXIT_USAGE;
+  }
+  if (!loaded.validation.valid) {
+    // The SAME report `toony validate` prints, from the same function, so an
+    // author reads one command's output instead of running two.
+    io.err(textReport(root, loaded.validation));
+    io.err(
+      'nothing was generated: "toony generate" does not generate from a project that does not validate. Fix the issue(s) above and re-run.',
+    );
+    return EXIT_VALIDATION;
+  }
+
   // Plan every job BEFORE the first request. Usage problems (an unusable prompt)
   // abort the whole run here, so a multi-cut run never spends GPU minutes on
   // cut-001 only to discover cut-007 was never going to work. Only GENERATION
   // failures are per-cut, and those are what the summary below reports.
-  const jobs = await planJobs(root, {
+  const jobs = planJobs(loaded, {
     episodeId,
     cutIds,
     ...(transitionId === undefined ? {} : { transitionId }),

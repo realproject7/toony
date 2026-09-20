@@ -321,10 +321,13 @@ Rules worth knowing before you author a whole episode of them:
   rendered aspect can differ from the declared one by up to 7px of height.
 - **A shape that cannot be resolved fails the run before anything is generated,**
   rather than falling back to the latent and quietly removing the pack's pacing.
-  That covers a value outside the bounds above (the run exits 1 and names the
-  cut), a workflow whose latent declares no width (exit 2), and a workflow whose
-  node mapping points at a height input the graph does not have — that last one
-  surfaces per cut, when the size is injected, rather than before the run.
+  A value outside the bounds above makes the project invalid, so `toony generate`
+  refuses the whole run (exit 1) and prints the report `toony validate` prints,
+  which names the field by its path — `episodes[0].cuts[2].panelAspect`, the
+  cut's position in `cuts.yaml`, not its id. A workflow whose latent declares no
+  width exits 2 and names the cut by id. A workflow whose node mapping points at
+  a height input the graph does not have surfaces per cut, when the size is
+  injected, rather than before the run.
 
 ### `exportPresets[]`
 

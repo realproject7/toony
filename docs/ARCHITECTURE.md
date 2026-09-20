@@ -49,6 +49,35 @@ image files.
 Toony is not an image-generation model. It coordinates project structure,
 prompts, assets, validation, lettering, and export.
 
+## Validation is a precondition for output
+
+Reading a project returns its validation report alongside its records. Every
+command that turns a project into something — art, an export, a measurement —
+**refuses to run when that report is not clean**, prints the same report
+`toony validate` prints, and exits 1 having produced nothing. `toony validate`
+and `toony lint` report; `toony studio` opens a broken project with a note,
+because the studio is where a project gets fixed.
+
+There is no flag to override the refusal. Two reasons:
+
+- **Incomplete is not invalid.** A cut with no image, no prompt, and no
+  lettering validates. That is why `toony validate --require-images` is opt-in:
+  `image: null` is a normal state mid-production. So the gate does not fire on
+  work in progress — it fires when a record is malformed, and the report names
+  the field and the path.
+- **One rule beats one rule with an exception.** `toony generate` is the command
+  where an override is most tempting, because generation is the slow middle of
+  the authoring loop and an author fixing one broken overlay would rather not be
+  blocked. But its inputs — the prompt, the character lockstrings, the palette,
+  the panel shape — are all read out of records the command does not otherwise
+  check, and the run then writes art back into the project. An override flag
+  would buy back the exact behaviour this rule exists to remove, and would live
+  in a shell alias forever after.
+
+Before this rule, `toony generate` was the one loader that discarded the report:
+a project `toony validate` rejected still generated, and the run exited 0. The
+author found out at export or lint, after the cost.
+
 ## Export Targets
 
 Platform export:

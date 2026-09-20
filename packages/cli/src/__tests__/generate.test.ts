@@ -67,6 +67,11 @@ const PROMPT_ID = "abcd-1234";
 // reason: a declared panel shape (#237) is only wired up if the size it implies
 // is what actually left the process, and the command's own report of it would
 // not show a shape that was dropped between the plan and the request.
+//
+// `bodies()` reports every POST /prompt body VERBATIM, as the bytes arrived, for
+// the back-compat criterion of #261: the only way to show a valid project still
+// generates exactly as it did is to compare the request that left the process,
+// not to read the diff.
 async function startFakeComfy(
   image: Uint8Array,
   rejectCall?: number,
@@ -75,10 +80,12 @@ async function startFakeComfy(
   close: () => void;
   prompts: () => string[];
   latents: () => { width: unknown; height: unknown }[];
+  bodies: () => string[];
   calls: () => number;
 }> {
   const prompts: string[] = [];
   const latents: { width: unknown; height: unknown }[] = [];
+  const bodies: string[] = [];
   let calls = 0;
   const server: Server = createServer((req, res) => {
     const url = req.url ?? "";
@@ -87,7 +94,9 @@ async function startFakeComfy(
       const chunks: Buffer[] = [];
       req.on("data", (chunk: Buffer) => chunks.push(chunk));
       req.on("end", () => {
-        const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+        const raw = Buffer.concat(chunks).toString("utf8");
+        bodies.push(raw);
+        const body = JSON.parse(raw) as {
           prompt?: Record<string, { inputs?: Record<string, unknown> }>;
         };
         const text = body.prompt?.["6"]?.inputs?.text;
@@ -130,6 +139,7 @@ async function startFakeComfy(
     close: () => server.close(),
     prompts: () => [...prompts],
     latents: () => [...latents],
+    bodies: () => [...bodies],
     calls: () => calls,
   };
 }
@@ -403,6 +413,223 @@ test("a cut's palette reaches the provider as WORDS, appended last (#207)", asyn
   }
 });
 
+// --- The validation gate (#261) ---------------------------------------------
+//
+// `toony generate` used to throw `loadProject`'s validation report away, so a
+// project `toony validate` rejects generated anyway: art written from records
+// nobody had checked, and a run that exited 0.
+
+/** Author two problems `toony validate` reports, in two different cuts. */
+async function authorInvalidProject(projectDir: string): Promise<void> {
+  await writeFile(
+    join(projectDir, "episodes", "ep-001", "cuts.yaml"),
+    [
+      "- id: cut-001",
+      "  image: null",
+      "  imagePrompt: a stored scene",
+      '  negativePrompt: ""',
+      "  shotType: not_a_shot_type",
+      "- id: cut-002",
+      "  image: null",
+      '  imagePrompt: ""',
+      '  negativePrompt: ""',
+      "  characters: 7",
+      "",
+    ].join("\n"),
+  );
+}
+
+test("an invalid project is refused and NOTHING is sent to the provider (#261)", async () => {
+  const projectDir = await scaffold();
+  await authorInvalidProject(projectDir);
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    // A live, reachable endpoint, so the refusal is the gate and not a
+    // misconfiguration the run would have failed on anyway.
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+      c.io,
+    );
+    assert.equal(code, EXIT_VALIDATION, c.err.join("\n"));
+    // Refused BEFORE the GPU. `calls()` counts submissions, so this is the
+    // claim that matters: the run cost nothing.
+    assert.equal(comfy.calls(), 0, "an invalid project reached the generator");
+    assert.match(c.err.join("\n"), /nothing was generated/);
+    // ...and nothing was written into the project either.
+    const cuts = await readFile(join(projectDir, "episodes", "ep-001", "cuts.yaml"), "utf8");
+    assert.doesNotMatch(cuts, /assets\/clean/);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("the refusal prints the report `toony validate` prints, verbatim (#261)", async () => {
+  // Not "a message that mentions the issues": the SAME string, from the same
+  // function, so an author does not run two commands to learn what is wrong.
+  const projectDir = await scaffold();
+  await authorInvalidProject(projectDir);
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const validate = capture();
+    assert.equal(await runValidate([projectDir], validate.io), EXIT_VALIDATION);
+    const report = validate.out.join("\n");
+    // Guard the guard: a report that named no issues would make the assertion
+    // below pass for the wrong reason.
+    assert.match(report, /\[cut\.shot-type\] episodes\[0\]\.cuts\[0\]\.shotType/);
+    assert.match(report, /\[cut\.characters\] episodes\[0\]\.cuts\[1\]\.characters/);
+
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    await runGenerate(
+      [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+      c.io,
+    );
+    assert.ok(
+      c.err.includes(report),
+      `generate did not print validate's report.\n--- validate ---\n${report}\n--- generate ---\n${c.err.join("\n")}`,
+    );
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a transition run is refused by the same gate (#261)", async () => {
+  // A transition needs no cut data, so this path never loaded the project at
+  // all. It still writes into the project through the same ingest path.
+  const projectDir = await scaffold();
+  await authorInvalidProject(projectDir);
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [
+        projectDir,
+        "--episode",
+        "ep-001",
+        "--transition",
+        "tr-001",
+        "--prompt",
+        "x",
+        "--allow-remote",
+      ],
+      c.io,
+    );
+    assert.equal(code, EXIT_VALIDATION, c.err.join("\n"));
+    assert.equal(comfy.calls(), 0, "an invalid project reached the generator");
+    assert.match(c.err.join("\n"), /\[cut\.shot-type\]/);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("an unreadable project is still a usage error, not a validation one (#261)", async () => {
+  // The gate must not swallow the load failure `loadProject` throws: a folder
+  // that is not a project is a caller mistake (exit 2), not an invalid project.
+  const c = capture({ TOONY_COMFYUI_URL: "http://127.0.0.1:8188" });
+  const code = await runGenerate(
+    [join(workdir, "not-a-project"), "--episode", "ep-001", "--cut", "cut-001", "--prompt", "x"],
+    c.io,
+  );
+  assert.equal(code, EXIT_USAGE, c.err.join("\n"));
+});
+
+// The request bodies `origin/main` sent for the VALID project built below, at
+// commit 3de40da — the tree BEFORE this ticket's gate existed. Recorded through
+// this same fake server and compared byte for byte, because the back-compat
+// criterion is about what leaves the process, not about what the diff looks
+// like.
+//
+// Two fields are normalised, and both are random by construction rather than
+// derived from the project: `client_id` is a per-request correlation UUID
+// (`randomUUID()` in the provider), and the sampler seed is randomised when
+// `--seed` is absent, so both runs below pin one.
+const MAIN_CLIENT_ID = "<uuid>";
+const MAIN_REQUEST_BODIES = [
+  '{"prompt":{"3":{"class_type":"KSampler","inputs":{"seed":7,"steps":25,"cfg":7,"sampler_name":"euler","scheduler":"normal","denoise":1,"model":["4",0],"positive":["6",0],"negative":["7",0],"latent_image":["5",0]}},"4":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":"model.safetensors"}},"5":{"class_type":"EmptyLatentImage","inputs":{"width":832,"height":1248,"batch_size":1}},"6":{"class_type":"CLIPTextEncode","inputs":{"text":"short black bob, amber eyes, a stored scene on a rooftop, very dark desaturated azure blue color palette","clip":["4",1]}},"7":{"class_type":"CLIPTextEncode","inputs":{"text":"lowres","clip":["4",1]}},"8":{"class_type":"VAEDecode","inputs":{"samples":["3",0],"vae":["4",2]}},"9":{"class_type":"SaveImage","inputs":{"filename_prefix":"toony","images":["8",0]}}},"client_id":"<uuid>"}',
+  '{"prompt":{"3":{"class_type":"KSampler","inputs":{"seed":11,"steps":25,"cfg":7,"sampler_name":"euler","scheduler":"normal","denoise":1,"model":["4",0],"positive":["6",0],"negative":["7",0],"latent_image":["5",0]}},"4":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":"model.safetensors"}},"5":{"class_type":"EmptyLatentImage","inputs":{"width":800,"height":1216,"batch_size":1}},"6":{"class_type":"CLIPTextEncode","inputs":{"text":"an explicit scene","clip":["4",1]}},"7":{"class_type":"CLIPTextEncode","inputs":{"text":"","clip":["4",1]}},"8":{"class_type":"VAEDecode","inputs":{"samples":["3",0],"vae":["4",2]}},"9":{"class_type":"SaveImage","inputs":{"filename_prefix":"toony","images":["8",0]}}},"client_id":"<uuid>"}',
+];
+
+/** Replace the one genuinely random field so the rest can be compared as bytes. */
+function normalizeClientId(body: string): string {
+  const parsed = JSON.parse(body) as { client_id?: unknown };
+  assert.equal(typeof parsed.client_id, "string", "the request carried no client_id");
+  parsed.client_id = MAIN_CLIENT_ID;
+  return JSON.stringify(parsed);
+}
+
+test("a valid project sends the SAME request bytes as before the gate (#261)", async () => {
+  // Every generation input at once, so the comparison covers all of them: a
+  // stored prompt (#38), a character lockstring (#92), a palette clause (#207),
+  // a declared panel shape (#237), and the explicit-prompt path with --width.
+  const projectDir = await scaffold();
+  await writeFile(
+    join(projectDir, "webtoon.json"),
+    JSON.stringify({
+      ...JSON.parse(await readFile(join(projectDir, "webtoon.json"), "utf8")),
+      characters: [{ id: "mina", name: "Mina", lockstring: "short black bob, amber eyes" }],
+    }),
+  );
+  await writeFile(
+    join(projectDir, "episodes", "ep-001", "cuts.yaml"),
+    [
+      "- id: cut-001",
+      "  image: null",
+      "  imagePrompt: a stored scene on a rooftop",
+      "  negativePrompt: lowres",
+      "  characters:",
+      "    - mina",
+      '  palette: "#191d28"',
+      "  panelAspect: 1.5",
+      "- id: cut-002",
+      "  image: null",
+      '  imagePrompt: ""',
+      '  negativePrompt: ""',
+      "",
+    ].join("\n"),
+  );
+  // The comparison is only worth anything if this project passes the gate.
+  const validate = capture();
+  assert.equal(await runValidate([projectDir], validate.io), EXIT_OK, validate.out.join("\n"));
+
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const stored = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--seed", "7", "--allow-remote"],
+        stored.io,
+      ),
+      EXIT_OK,
+      stored.err.join("\n"),
+    );
+    const explicit = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-002",
+          "--prompt",
+          "an explicit scene",
+          "--seed",
+          "11",
+          "--width",
+          "800",
+          "--allow-remote",
+        ],
+        explicit.io,
+      ),
+      EXIT_OK,
+      explicit.err.join("\n"),
+    );
+    assert.deepEqual(comfy.bodies().map(normalizeClientId), MAIN_REQUEST_BODIES);
+  } finally {
+    comfy.close();
+  }
+});
+
 // --- Panel shape per cut (#237) ---------------------------------------------
 //
 // The bundled default workflow's EmptyLatentImage is 832x1216, and these tests
@@ -523,10 +750,12 @@ test("--height overrides a declared shape, and the run says so (#237)", async ()
 });
 
 test("an out-of-range or non-numeric panel shape is refused, and nothing is generated (#237)", async () => {
-  // `toony generate` never reads `loadProject`'s validation report, so a project
-  // `toony validate` rejects still reaches the shape resolver. Left unguarded,
-  // each of these either clamped to a one-block sliver or was dropped while the
-  // run exited 0 reporting a size nobody asked for: #207 in a new place.
+  // #237 re-applied the field's bounds inside `applyPanelShapes`, because this
+  // command threw `loadProject`'s validation report away and a `panelAspect` the
+  // schema rejects still reached the shape resolver. The run's validation gate
+  // (#261) is what refuses these now, so that second copy of the bounds is gone
+  // — but the OUTCOME this test names must not move: refused before the GPU,
+  // exit 1, and a message that says which cut and which field.
   const projectDir = await scaffold();
   const comfy = await startFakeComfy(pngWithText());
   try {
@@ -540,29 +769,16 @@ test("an out-of-range or non-numeric panel shape is refused, and nothing is gene
       assert.equal(code, EXIT_VALIDATION, `${authored} was not refused: ${c.err.join("\n")}`);
       // Refused BEFORE the GPU, not after: an invalid shape costs nothing.
       assert.deepEqual(comfy.latents(), [], `${authored} reached the generator`);
-      assert.match(c.err.join("\n"), /cut cut-001 declares panelAspect .* run "toony validate"/);
-    }
-    // NaN and Infinity are the two an author is least likely to understand, and
-    // JSON.stringify renders both as `null`. They must name themselves.
-    for (const [authored, shown] of [
-      [".nan", "NaN"],
-      [".inf", "Infinity"],
-      ['"tall"', '"tall"'],
-    ] as const) {
-      await authorPanelShapes(projectDir, [authored as unknown as number, undefined]);
-      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
-      await runGenerate(
-        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
-        c.io,
-      );
-      assert.ok(
-        c.err.join("\n").includes(`declares panelAspect ${shown},`),
-        `${authored} printed as: ${c.err.join("\n")}`,
+      assert.match(
+        c.err.join("\n"),
+        /\[cut\.panel-aspect\] episodes\[0\]\.cuts\[0\]\.panelAspect/,
+        `${authored} was refused without naming the field: ${c.err.join("\n")}`,
       );
     }
-    // The bounds themselves are INCLUSIVE, and they live in two places now: the
-    // schema and this command. Without these two rows the CLI copy could drift
-    // to exclusive and refuse a project `toony validate` calls valid.
+    // The bounds themselves are INCLUSIVE. They now live in ONE place — the
+    // schema — and these two rows are what proves the CLI reads them from there
+    // rather than carrying a copy that could drift to exclusive and refuse a
+    // project `toony validate` calls valid.
     for (const [authored, height] of [
       ["0.1", 80],
       ["10", 8320],
@@ -577,7 +793,7 @@ test("an out-of-range or non-numeric panel shape is refused, and nothing is gene
       assert.equal(code, EXIT_OK, `${authored} was refused: ${c.err.join("\n")}`);
       assert.deepEqual(comfy.latents().slice(before), [{ width: 832, height }]);
     }
-    // The guard runs BEFORE the --height branch, so a bad declaration fails a
+    // The refusal runs BEFORE the --height branch, so a bad declaration fails a
     // run that would not have used it. Nothing else pins that placement.
     await authorPanelShapes(projectDir, [".nan" as unknown as number, undefined]);
     {
@@ -599,27 +815,19 @@ test("an out-of-range or non-numeric panel shape is refused, and nothing is gene
       assert.equal(code, EXIT_VALIDATION, c.err.join("\n"));
       assert.deepEqual(comfy.latents().slice(before), []);
     }
-    // The check covers every declared cut in the run, not the first one.
+    // A bad shape on a cut the run does not even name still refuses it: the gate
+    // is project-wide, where #237's guard only saw the jobs in the run.
     await authorPanelShapes(projectDir, [1.5, "0" as unknown as number]);
     {
       const c = capture({ TOONY_COMFYUI_URL: comfy.url });
       const before = comfy.latents().length;
       const code = await runGenerate(
-        [
-          projectDir,
-          "--episode",
-          "ep-001",
-          "--cut",
-          "cut-001",
-          "--cut",
-          "cut-002",
-          "--allow-remote",
-        ],
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
         c.io,
       );
       assert.equal(code, EXIT_VALIDATION, c.err.join("\n"));
       assert.deepEqual(comfy.latents().slice(before), []);
-      assert.match(c.err.join("\n"), /cut cut-002 declares panelAspect 0,/);
+      assert.match(c.err.join("\n"), /\[cut\.panel-aspect\] episodes\[0\]\.cuts\[1\]\.panelAspect/);
     }
   } finally {
     comfy.close();
