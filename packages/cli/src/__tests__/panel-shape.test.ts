@@ -16,7 +16,7 @@ test("a shape resolves against the column it is given", () => {
 test("a resolved height always lands on the 8px latent grid", () => {
   // 832 * 0.62 = 515.84 — a size ComfyUI's sampler cannot run, so it snaps.
   assert.equal(latentHeightFor(832, 0.62), 512);
-  for (const aspect of [0.1, 0.37, 0.999, 1.4327, 2.718, 10]) {
+  for (const aspect of [0.1, 0.37, 0.999, 1.4327, 2.73, 10]) {
     const height = latentHeightFor(832, aspect);
     assert.equal(height % LATENT_BLOCK_PX, 0, `aspect ${aspect} gave ${height}`);
     assert.ok(height > 0);
