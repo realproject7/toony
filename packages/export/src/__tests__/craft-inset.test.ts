@@ -27,7 +27,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createCanvas } from "@napi-rs/canvas";
 import { buildInitialProject, writeProject } from "@toony/project-io";
-import type { Cut, SequenceItem, Transition } from "@toony/schema";
+import type { Cut, LetteringOverlay, PlacementSide, SequenceItem, Transition } from "@toony/schema";
 import { type CraftMeasurement, type CraftMetricName, measureEpisodeCraft } from "../craft.js";
 import { stitchEpisode } from "../targets.js";
 
@@ -55,6 +55,24 @@ interface Layout {
   mirror: boolean;
   /** An opaque element drawn over `[from, to)` source px — a bubble in the band. */
   bubble?: { from: number; to: number };
+  /**
+   * A step of `levels` grey below white, filling `[left, left + width)` source px
+   * of the left margin. The pixel is still inside the margin's tolerance when
+   * `levels` is under 10 and outside it at 10, which is the whole of what
+   * `EDGE_MATCH_TOLERANCE` decides.
+   */
+  step?: { levels: number; width: number };
+  /**
+   * Reserve real gutter strips through `placement: "gutter"` lettering, one
+   * overlay per side. This is the mechanism the defect was reported on.
+   */
+  gutterSides?: readonly PlacementSide[];
+  /**
+   * What fills the art body. `stripes` is the default and has no flat run at
+   * either edge worth speaking of; the other two are the shapes that show a
+   * reading is not a margin.
+   */
+  art?: "stripes" | "gradient" | "twoTone";
 }
 
 /**
@@ -71,14 +89,38 @@ function drawArt(height: number, layout: Layout): Uint8Array {
   ctx.fillRect(0, 0, ART_WIDTH, height);
   const stripe = 6;
   const bodyEnd = ART_WIDTH - layout.right;
-  for (let x = layout.left; x < bodyEnd; x += stripe) {
-    ctx.fillStyle = Math.floor(x / stripe) % 2 === 0 ? "#04060f" : "#5f8fff";
-    ctx.fillRect(x, 0, Math.min(stripe, bodyEnd - x), height);
+  const grey = (v: number) => {
+    const level = Math.max(0, Math.min(255, Math.round(v)));
+    return `rgb(${level},${level},${level})`;
+  };
+  if (layout.art === "gradient") {
+    // One ramp across the whole body, so the two edge runs are the same length
+    // whatever the tolerance is.
+    for (let x = layout.left; x < bodyEnd; x++) {
+      ctx.fillStyle = grey(((x - layout.left) / (bodyEnd - layout.left - 1)) * 255);
+      ctx.fillRect(x, 0, 1, height);
+    }
+  } else if (layout.art === "twoTone") {
+    const middle = (layout.left + bodyEnd) / 2;
+    ctx.fillStyle = grey(20);
+    ctx.fillRect(layout.left, 0, middle - layout.left, height);
+    ctx.fillStyle = grey(230);
+    ctx.fillRect(middle, 0, bodyEnd - middle, height);
+  } else {
+    for (let x = layout.left; x < bodyEnd; x += stripe) {
+      ctx.fillStyle = Math.floor(x / stripe) % 2 === 0 ? "#04060f" : "#5f8fff";
+      ctx.fillRect(x, 0, Math.min(stripe, bodyEnd - x), height);
+    }
   }
   if (layout.bubble) {
     ctx.fillStyle = "#101010";
     const { from, to } = layout.bubble;
     ctx.fillRect(from, height * 0.25, to - from, height * 0.5);
+  }
+  if (layout.step) {
+    const level = 255 - layout.step.levels;
+    ctx.fillStyle = `rgb(${level},${level},${level})`;
+    ctx.fillRect(layout.left, 0, layout.step.width, height);
   }
   if (!layout.mirror) return new Uint8Array(canvas.toBuffer("image/png"));
   const flipped = createCanvas(ART_WIDTH, height);
@@ -104,10 +146,37 @@ function gutter(id: string): Transition {
 }
 
 /**
+ * A speech bubble that reserves a real gutter strip on `side`.
+ *
+ * `placementSide` is the lever a pack actually has, and its SCHEMA DEFAULT is
+ * `"right"` — the side the pre-#255 rule could not see. It is written out here
+ * rather than left to the default, so the fixture states which side it means.
+ */
+function gutterBubble(cutId: string, side: PlacementSide): LetteringOverlay {
+  return {
+    id: `gb-${cutId}-${side}`,
+    cutId,
+    speaker: "A",
+    kind: "speech",
+    text: "Hi",
+    fill: "#ffffff",
+    opacity: 1,
+    border: null,
+    tail: null,
+    placement: "gutter",
+    placementSide: side,
+    geometry: { x: 0.1, y: 0.6, width: 0.8, height: 0.2 },
+    overflow: false,
+    reviewStatus: "draft",
+  };
+}
+
+/**
  * Write one episode whose every cut carries the same margin layout.
  *
- * No lettering: the page must be a horizontal mirror of its pair, and an
- * overlay placed by the composer would have to be mirrored too.
+ * Lettering only where `gutterSides` asks for it: a page compared with its
+ * mirror carries none, because an overlay the composer places would have to be
+ * mirrored too.
  */
 async function writeInsetProject(root: string, layout: Layout): Promise<void> {
   const project = buildInitialProject("Inset");
@@ -116,6 +185,7 @@ async function writeInsetProject(root: string, layout: Layout): Promise<void> {
   const cuts: Cut[] = [];
   const transitions: Transition[] = [];
   const sequence: SequenceItem[] = [];
+  const lettering: LetteringOverlay[] = [];
   CUT_HEIGHTS.forEach((_, index) => {
     const id = `cut-${String(index + 1).padStart(3, "0")}`;
     cuts.push({
@@ -124,6 +194,7 @@ async function writeInsetProject(root: string, layout: Layout): Promise<void> {
       imagePrompt: "",
       negativePrompt: "",
     });
+    for (const side of layout.gutterSides ?? []) lettering.push(gutterBubble(id, side));
     if (index > 0) {
       const transitionId = `tr-${String(index).padStart(3, "0")}`;
       transitions.push(gutter(transitionId));
@@ -134,7 +205,7 @@ async function writeInsetProject(root: string, layout: Layout): Promise<void> {
   bundle.episode.sequence = sequence;
   bundle.cuts = cuts;
   bundle.transitions = transitions;
-  bundle.lettering = [];
+  bundle.lettering = lettering;
   await writeProject(root, project);
 
   const dir = join(root, "episodes/ep-001/assets/clean");
@@ -164,6 +235,19 @@ const LAYOUTS = {
   bubbleInBand: { left: BAND, right: 0, mirror: false, bubble: { from: 30, to: 70 } },
   /** The same bubble pushed flush against the edge. */
   bubbleAtEdge: { left: BAND, right: 0, mirror: false, bubble: { from: 0, to: 70 } },
+  /**
+   * The real mechanism: full-bleed art, and the margin comes from a reserved
+   * `placement: "gutter"` strip. One per side, and both.
+   */
+  gutterLeft: { left: 0, right: 0, mirror: false, gutterSides: ["left"] },
+  gutterRight: { left: 0, right: 0, mirror: false, gutterSides: ["right"] },
+  gutterBothSides: { left: 0, right: 0, mirror: false, gutterSides: ["left", "right"] },
+  /** A step just inside the tolerance at the margin's inner end, and just outside it. */
+  stepInsideTolerance: { left: BAND, right: 0, mirror: false, step: { levels: 9, width: 48 } },
+  stepOutsideTolerance: { left: BAND, right: 0, mirror: false, step: { levels: 10, width: 48 } },
+  /** No margin at all, and art that still reports one. */
+  gradient: { left: 0, right: 0, mirror: false, art: "gradient" },
+  twoTone: { left: 0, right: 0, mirror: false, art: "twoTone" },
 } satisfies Record<string, Layout>;
 
 type LayoutName = keyof typeof LAYOUTS;
@@ -344,6 +428,72 @@ test("a margin ends where the page stops being one colour, not where the art sta
   assert.ok(
     anchored > interrupted && anchored < empty,
     `edge-anchored ${anchored}, interrupted ${interrupted}, empty ${empty}`,
+  );
+});
+
+test("a reading is not a margin: art alone can report any inset, up to the whole width", () => {
+  // The number this metric prints is a reading, and nothing in it says whether
+  // a margin was reserved. Neither of these pages reserves one.
+  //
+  // A gradient makes the two runs the same length, so what the left-anchored
+  // rule read once is now read twice — there is no ceiling on it, and no figure
+  // here is safe to treat as a noise floor.
+  const gradient = metricsOf("gradient").panelInset;
+  assert.ok(
+    gradient > AUTHORED_INSET / 3,
+    `a full-bleed gradient reports ${gradient}, which is not a noise floor`,
+  );
+
+  // And the two runs are never clipped against each other, so the sum is not
+  // bounded by 1: two flat tones meeting in the middle report the whole width.
+  const twoTone = metricsOf("twoTone").panelInset;
+  assert.ok(twoTone > 0.99, `a two-tone row should report the whole width, got ${twoTone}`);
+});
+
+test("a reserved gutter strip measures the same on either side, through the real path", () => {
+  // The fixtures above reserve their band by DRAWING one. This one reserves it
+  // the way a pack does: `placement: "gutter"` lettering, whose side is
+  // `placementSide`, composed by the renderer into a white strip the art does
+  // not fill. That is the mechanism #255 was reported on, and nothing else in
+  // the suite goes through it.
+  const left = metricsOf("gutterLeft").panelInset;
+  const right = metricsOf("gutterRight").panelInset;
+  assert.equal(left, right, `gutterLeft ${left} vs gutterRight ${right}`);
+
+  // Worth holding equal: the strip is 18% of the width, so both sides have to
+  // be reading a real band rather than agreeing on nothing. Left-anchored, the
+  // same two pages read 0.1800 and 0.0100.
+  assert.ok(left > 0.15, `a reserved strip should register: ${left}`);
+
+  // A cut lettered on BOTH sides reserves both strips, so the page is white at
+  // both edges and nothing about it is side-dependent — twice one band.
+  const both = metricsOf("gutterBothSides").panelInset;
+  assert.ok(both > left * 1.8, `both sides ${both} vs one side ${left}`);
+});
+
+test("the margin tolerance decides geometry, not only colour", () => {
+  // EDGE_MATCH_TOLERANCE is 10 per channel, and until now only a colour
+  // assertion depended on it — so a change to it could move every inset in the
+  // product with the suite still green. Two pages identical but for one step at
+  // the inner end of the margin: 9 levels below white is inside the tolerance
+  // and extends the margin over it, 10 levels is outside and ends the margin.
+  const inside = metricsOf("stepInsideTolerance").panelInset;
+  const outside = metricsOf("stepOutsideTolerance").panelInset;
+  assert.ok(inside > outside, `9 levels ${inside} should exceed 10 levels ${outside}`);
+
+  // And by the width of the step, not by a rounding: 48 of 480 source px is a
+  // tenth of the column.
+  const step = 48 / ART_WIDTH;
+  assert.ok(
+    Math.abs(inside - outside - step) <= 8 / WIDTH,
+    `the step is ${step}; measured ${inside} - ${outside}`,
+  );
+
+  // The page without the step is the third point: the step only ever adds.
+  const plain = metricsOf("bandLeft").panelInset;
+  assert.ok(
+    Math.abs(outside - plain) <= 8 / WIDTH,
+    `outside the tolerance should read the plain band ${plain}, got ${outside}`,
   );
 });
 

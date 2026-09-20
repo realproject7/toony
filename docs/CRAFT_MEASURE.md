@@ -99,15 +99,19 @@ colour it has to keep is **that edge's own outermost pixel**.
 
 What follows from that, and what a band author needs to know:
 
-- **The two edges are independent.** Neither is required to match the other, so a
-  page margined in white on the left and in a dark reserved band on the right
-  reports both. This is the fix in #255: until then both runs were compared
-  against the **left-most** pixel, so a reserved band on the left registered at
-  its full width and the identical band on the right registered as nothing. The
-  same seven-cut page measured `0.1801` one way and `0.0013` the other.
+- **The two edges are independent, and are not clipped against each other.**
+  Neither run is required to match the other and neither is shortened by it, so
+  the sum is **not bounded by 1**: a row of two flat tones reports essentially
+  the whole width, `0.9967` measured on drawn art. Where the two edges come from
+  differs too — `examples/dead-air` is a page whose two edges are different
+  colours because the ART is, not because anything was reserved.
 - **A page and its mirror image measure the same number.** That is the property
-  the per-edge rule exists to give, and it is tested on a pair of pages asserted
-  to be exact horizontal mirrors pixel for pixel.
+  the per-edge rule exists to give. Until #255 both runs were compared against
+  the **left-most** pixel, so a reserved band on the left registered at its full
+  width and the identical band on the right registered as nothing: the same
+  seven-cut page measured `0.1801` one way and `0.0013` the other. Through the
+  real `placement: "gutter"` path, a band reserved on the left measured `0.1800`
+  and the same band on the right `0.0100`; both now measure `0.1900`.
 - **Anything drawn in the margin ends it.** The run stops at the first pixel that
   differs, so a bubble floating in a reserved band is where the margin stops, not
   where the art starts. Measured on drawn art: a band a fifth of the column wide
@@ -119,65 +123,77 @@ What follows from that, and what a band author needs to know:
   the run. The same band with that bubble pushed flush to the edge reports
   `0.1567`. Keep lettering off the outermost column if you want the margin read
   as page.
-- **Art that happens to be flat at its own edge counts.** Nothing here
-  distinguishes page background from a wide flat passage of the drawing, so a
-  full-bleed page reports a small non-zero inset — the art's own edge run, at
-  both edges now rather than one. On this repository's `examples/dead-air` that
-  is `0.0113` of the width; on drawn test art, `0.0116`. Treat anything of that
-  order as the noise floor of the metric, not as an inset.
+- **Art that happens to be flat at its own edge counts, and there is no ceiling
+  on how much.** Nothing here distinguishes page background from a wide flat
+  passage of the drawing, so a page with no reserved band at all still reports an
+  inset: `0.0663` on `examples/dead-air`, `0.0233` on drawn full-bleed art,
+  `0.0750` on a drawn full-bleed gradient. Those are **readings, not margins**.
+  How large they get is a property of the art: on a gradient the two runs are the
+  same length, so the reading is twice what the left-anchored rule gave —
+  `0.0367` → `0.0750` here, and a reviewer flipped verdicts in both directions
+  with gradient pages at `0.0488` → `0.0977`, `0.0957` → `0.1914` and `0.1367` →
+  `0.2734`. Do not treat any figure as a safe noise floor. Re-measure.
 - **Gutters do not count.** Only the middle row of a **panel** run is measured, so
   inter-panel space never contributes, whatever colour it is.
+- **The one case where this rule and the left-anchored one agree is a page
+  UNIFORM at both edges** — one value, the same at both ends, all the way to the
+  art. "The same colour" by eye is not that test. A page whose two edge pixels
+  differ by 7 levels is inside the ±10 tolerance and still reads differently
+  under the two rules: drawn that way, with the right margin easing off rather
+  than stopping, the same page measures `0.1983` left-anchored and `0.5767`
+  per-edge. A reviewer's gentler version of the same page moved by `0.09`.
 
 **The colour metrics do not use this rule.** `valueMean`, `valueSpread`,
 `saturationMean` and `hueBias` trim each sampled row through the **pre-#255**
 pair, both runs anchored on the left-most pixel. So a reserved band on the right
 is not trimmed out of the palette: drawn art that measures a mean luminance of
 `76.4` with its band on the left measures `110.0` with the identical band on the
-right. That is deliberate and it is not right. Every colour range in every
-shipped band was measured through that trim, so moving it re-bases four ranges in
-every band at once — a change that needs its own evidence, not one an inset fix
-gets to make on the side. Until it is made: **if your pack reserves a band on one
-side of its cuts, put it on the left.** The pilot pack already does, for the
-inset reason #255 removes; the colour reason outlives it.
+right. It is kept because it is one of the definitions this side is built to
+share with the reference analyzer, which anchors both runs the same way. The two
+sides already differ in **two** places (see
+[The loop this closes](#the-loop-this-closes)); changing the trim would make
+three, and would put every shipped colour range on a convention its numbers were
+never read at. #257 carries that re-basing.
+
+#### Which side to reserve, until #257 lands
+
+The lever is **`placementSide`** on each `placement: "gutter"` lettering overlay:
+`"left"` or `"right"`, and **its schema default is `"right"`** — so a gutter
+bubble written without the field reserves the side the colour trim cannot see.
+
+- **One side:** set `placementSide: "left"` on every gutter overlay of the cut.
+  This is the workaround #257 removes, and it exists only for colour now:
+  `panelInset` reads either side the same since #255.
+- **Both sides:** a cut with gutter overlays on both sides reserves **two** white
+  bands, one per side. That is the arrangement with nothing side-dependent left
+  in it — measured `0.3600` inset (two bands of `0.18`) under both the old rule
+  and the new one, and identical on every metric including `valueMean` when the
+  art is mirrored. Prefer it when a cut needs lettering on both sides anyway.
+
+Do not change the schema default to get this; `placementSide` is a lettering
+field with readers outside the measurement.
 
 #### What this change does to a band measured before it
 
-Both shipped `panelInset` ranges were read by the reference analyzer off whole
-captures of real pages, where the panel is inset in **one** page background on
-both sides. That is the case where the old rule and the new one agree exactly,
-because the right-hand margin matched the left-most pixel already. So:
+Both shipped `panelInset` ranges were read on the reference analyzer, which
+anchors **both** runs on the row's left-most pixel — the convention this side
+replaced. Its captures include full-bleed pages, so the two sides now disagree on
+this metric, and the disagreement is **upward** here: a full-bleed page reports
+more under the per-edge rule than under the left-anchored one.
 
 | Band | Pack | Status |
 |---|---|---|
-| `panelInset` `0.092`–`0.131` | Muted Court Romance, graded | Unchanged. Still means what it meant. |
-| `panelInset` `0.166`–`0.200` | Cold Revenge Mystery, recorded | Unchanged. Still means what it meant. |
+| `panelInset` `0.092`–`0.131` | Muted Court Romance, graded | Measured left-anchored. Being re-derived on the reference side. |
+| `panelInset` `0.166`–`0.200` | Cold Revenge Mystery, recorded | Measured left-anchored. Being re-derived on the reference side. |
 
-Neither needs re-deriving. What moves is the **render** being graded against
-them:
-
-- A render whose two edges are the same colour measures **exactly** what it
-  measured before, to the last digit. Four pages checked on both rules: two drawn
-  pages inset in white, one with equal margins and one with unequal ones,
-  `0.1967` and `0.2467`; the `restless` rhythm fixture, `0.3967`; and
-  `examples/last-train`, `0.4008`.
-- A render that reserves a band on the **right** goes from about zero to its
-  true inset — `0.0117` to `0.2100` on the mirror fixture. This is the whole
-  point: such a render was previously unable to pass either range however deeply
-  its art was inset.
-- A render whose right edge is a **different colour from its left** gains the run
-  that edge always had and the old rule could not see. Where the right edge is
-  art rather than page, that is small: `0.0550` → `0.0663` on
-  `examples/dead-air`, `0.0117` → `0.0233` on drawn full-bleed art. Small is not
-  nothing — it is about a third of the width of either band above — so a render
-  sitting within about `0.012` of a ceiling should be re-measured rather than
-  assumed.
+Neither pack should grade `panelInset` against its current range until that
+re-derivation lands. The lane-by-lane before-and-after numbers behind this are on
+#255.
 
 **Both sides still classify the same rows.** The row rule is untouched — the
 flat-row threshold, both run-length floors and what counts as a panel all
-measure exactly as they did, verified on four pages across every other metric.
-The margin rule reads a row the run rule has already called a panel; it never
-decides which rows those are. What differs is one read inside such a row, and
-only where a page's two edges are different colours. See
+measure exactly as they did. The margin rule reads a row the run rule has
+already called a panel; it never decides which rows those are. See
 [The loop this closes](#the-loop-this-closes) for both recorded differences.
 
 ## What is deliberately NOT measured
@@ -248,6 +264,12 @@ So a band file is readable by every toony from the one that introduced its
 newest field onwards, and by none before it. A pack that uses a field added
 after its readers' toony should say which minimum toony version it needs; a band
 that must be read by older toony should leave the newer fields out.
+
+That trade cuts the other way for a **measurement** definition, and #255 is the
+case: a `panelInset` range grades one way on a toony from before it and another
+way on a toony after, **silently**, because `bandFormat` is still `1` and the
+band file is byte-identical — so a pack that ships a `panelInset` range should
+say which minimum toony version its numbers were measured at.
 
 ### Metrics a band records without grading
 
@@ -380,15 +402,18 @@ gutter ratio and changes none of their conclusions, so "flat" alone is the
 definition both sides use.
 
 **`panelInset`'s margin rule**, since #255. This side measures each edge against
-its own outermost pixel; the rule it replaced compared both against the
-left-most one, and that older rule is what this side shared with the reference
-by construction. The analyzer lives outside this repository and #255 did not
-touch it, so nothing here can state what it does today — only that the two rules
-agree **exactly** on a panel inset in one background, which is what the
-reference is pointed at, and part only on a page whose two edges are different
-colours, which Toony can author and a reference capture does not contain. Rows
-are classified identically either way: the margin rule reads a row that the run
-rule has already called a panel, and changes nothing about which rows those are.
+its own outermost pixel. The reference side anchors **both** runs on the row's
+left-most pixel — the convention this side replaced — and its captures include
+full-bleed pages, so the two parted on this metric when #255 landed. This is the
+difference that cost something: both shipped `panelInset` ranges were read under
+the reference convention, the disagreement is upward on this side, and the
+ranges are being re-derived there before either pack grades the metric again.
+Rows are classified identically either way: the margin rule reads a row that the
+run rule has already called a panel, and changes nothing about which rows those
+are.
+
+Keeping the count at two is why the colour trim was left on the left-anchored
+rule (#257). A third difference is not a comparison a band can carry.
 
 ## Where this lives in the code
 
