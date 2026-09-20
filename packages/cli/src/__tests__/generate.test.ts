@@ -74,9 +74,14 @@ const PROMPT_ID = "abcd-1234";
 // the back-compat criterion of #261: the only way to show a valid project still
 // generates exactly as it did is to compare the request that left the process,
 // not to read the diff.
+// `onView` runs when the generated image is served, which is INSIDE `produce`
+// and therefore before ingest and before the write-back. It is how a test
+// reaches the window between them — the one where a render has succeeded and
+// the project changes under it.
 async function startFakeComfy(
   image: Uint8Array,
   rejectCall?: number,
+  onView?: () => void | Promise<void>,
 ): Promise<{
   url: string;
   close: () => void;
@@ -127,8 +132,10 @@ async function startFakeComfy(
       return;
     }
     if (req.method === "GET" && url.startsWith("/view")) {
-      res.setHeader("content-type", "image/png");
-      res.end(Buffer.from(image));
+      void Promise.resolve(onView?.()).then(() => {
+        res.setHeader("content-type", "image/png");
+        res.end(Buffer.from(image));
+      });
       return;
     }
     res.statusCode = 404;
@@ -1947,4 +1954,359 @@ test("the recorded fields are inert: the same art exports identically without th
   const withoutArt = capture();
   assert.equal(await runExport(exportArgs, withoutArt.io), EXIT_OK, withoutArt.err.join("\n"));
   assert.notEqual(await readFile(manifestPath, "utf8"), after);
+});
+
+test("a final-slot render leaves the clean plate's record alone (#240)", async () => {
+  // A cut has one prompt/seed record and TWO images. Writing the record from a
+  // `--slot final` run replaced the clean plate's inputs, and the next clean
+  // run — the default, with no flags — then redrew the accepted plate from the
+  // final pass's prompt and seed.
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const clean = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--prompt",
+          "the accepted clean plate",
+          "--seed",
+          "111",
+          "--allow-remote",
+        ],
+        clean.io,
+      ),
+      EXIT_OK,
+      clean.err.join("\n"),
+    );
+
+    const final = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          "--prompt",
+          "the lettered final pass",
+          "--seed",
+          "222",
+          "--allow-remote",
+        ],
+        final.io,
+      ),
+      EXIT_OK,
+      final.err.join("\n"),
+    );
+
+    // The record still describes the clean plate.
+    const cut = await readCut(projectDir, "cut-001");
+    assert.equal(cut.imagePrompt, "the accepted clean plate");
+    assert.equal(cut.imageSeed, 111);
+    // Both images are associated, so nothing was lost by not recording one.
+    assert.deepEqual(cut.image, {
+      clean: "episodes/ep-001/assets/clean/cut-001.png",
+      final: "episodes/ep-001/assets/final/cut-001.png",
+    });
+    // And the final pass's inputs are still recoverable — per asset path.
+    const log = await readIngestLog(projectDir);
+    assert.deepEqual(log.at(-1)?.renderInputs, {
+      prompt: "the lettered final pass",
+      negativePrompt: "",
+      seed: 222,
+    });
+    assert.equal(log.at(-1)?.assetPath, "episodes/ep-001/assets/final/cut-001.png");
+
+    // The default slot, no flags: the accepted clean plate, not the final pass.
+    const repeat = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+        repeat.io,
+      ),
+      EXIT_OK,
+      repeat.err.join("\n"),
+    );
+    const [cleanRun, finalRun, repeatRun] = comfy.bodies().map(normalizeClientId);
+    assert.equal(repeatRun, cleanRun, "the clean re-run did not repeat the clean plate");
+    assert.notEqual(repeatRun, finalRun);
+
+    // The other direction too: a final re-run must not inherit the clean seed.
+    const finalAgain = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          "--allow-remote",
+        ],
+        finalAgain.io,
+      ),
+      EXIT_OK,
+      finalAgain.err.join("\n"),
+    );
+    assert.notEqual(
+      seedOf(comfy.bodies().map(normalizeClientId)[3] ?? ""),
+      111,
+      "a final run took the clean plate's seed",
+    );
+  } finally {
+    comfy.close();
+  }
+});
+
+test("an empty --workflow is the same as not passing one (#240)", async () => {
+  // `--workflow "$WF"` with the variable unset. The provider drops an empty
+  // value and resolves the configured workflow; reading it as a NAME here spent
+  // the render and then refused to record it, exiting 2 with the image already
+  // written.
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [
+        projectDir,
+        "--episode",
+        "ep-001",
+        "--cut",
+        "cut-001",
+        "--prompt",
+        "a rooftop at dusk",
+        "--workflow",
+        "",
+        "--allow-remote",
+      ],
+      c.io,
+    );
+    assert.equal(code, EXIT_OK, [...c.err, ...c.out].join("\n"));
+    const cut = await readCut(projectDir, "cut-001");
+    assert.equal(Object.hasOwn(cut, "imageWorkflow"), false);
+    assert.equal(typeof cut.imageSeed, "number");
+    // The log records no workflow either: the type says a name, never an empty.
+    const recorded = (await readIngestLog(projectDir)).at(-1)?.renderInputs as Record<
+      string,
+      unknown
+    >;
+    assert.equal(Object.hasOwn(recorded, "workflow"), false);
+    const validate = capture();
+    assert.equal(await runValidate([projectDir], validate.io), EXIT_OK, validate.out.join("\n"));
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a failed write-back is reported as what it is, not as a failed render (#240)", async () => {
+  // The window between ingest and the write-back: the image and its reference
+  // are on disk, and something else has made the cuts file unwritable. Reported
+  // as "generation failed", it sends the operator to redo a render that worked
+  // — and the re-run draws a different image, because the seed went unrecorded.
+  const projectDir = await scaffold();
+  const cutsPath = join(projectDir, "episodes", "ep-001", "cuts.yaml");
+  let corrupted = false;
+  const corruptSiblingCut = async (): Promise<void> => {
+    if (corrupted) return;
+    corrupted = true;
+    // A sibling cut goes out of range mid-render. Ingest does not validate, so
+    // it writes; `writeCuts` does, so the write-back cannot.
+    const cuts = decodeYaml(await readFile(cutsPath, "utf8")) as Record<string, unknown>[];
+    await writeFile(
+      cutsPath,
+      encodeYaml(cuts.map((cut) => (cut.id === "cut-002" ? { ...cut, panelAspect: 99 } : cut))),
+    );
+  };
+  const comfy = await startFakeComfy(pngWithText(), undefined, corruptSiblingCut);
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [
+        projectDir,
+        "--episode",
+        "ep-001",
+        "--cut",
+        "cut-001",
+        "--prompt",
+        "a rooftop at dusk",
+        "--seed",
+        "91723",
+        "--allow-remote",
+      ],
+      c.io,
+    );
+    assert.notEqual(code, EXIT_OK, "an unrecorded render must not exit 0");
+
+    const err = c.err.join("\n");
+    assert.doesNotMatch(err, /generation failed for cut-001/);
+    assert.match(err, /recording what produced it failed/);
+    assert.match(err, /do NOT re-render it/);
+    // The message carries the seed, so the state is recoverable by hand.
+    assert.match(err, /--seed 91723/);
+
+    // The claim the message makes is true: the image and its reference are there.
+    const written = await readFile(
+      join(projectDir, "episodes", "ep-001", "assets", "clean", "cut-001.png"),
+    );
+    assert.ok(written.length > 0);
+    const cut = await readCut(projectDir, "cut-001");
+    assert.deepEqual(cut.image, {
+      clean: "episodes/ep-001/assets/clean/cut-001.png",
+      final: null,
+    });
+    // And the record really is the thing that is missing.
+    assert.equal(Object.hasOwn(cut, "imageSeed"), false);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a run that cannot repeat the image on disk refuses instead of replacing it (#240)", async () => {
+  // The size is the one input a cut does not record, so a no-flag re-run after a
+  // pinned-size render reads as a repeat — same prompt, same seed — and silently
+  // replaces the approved plate at the workflow's own latent.
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--prompt",
+          "a rooftop at dusk",
+          "--seed",
+          "7",
+          "--width",
+          "640",
+          "--height",
+          "960",
+          "--allow-remote",
+        ],
+        first.io,
+      ),
+      EXIT_OK,
+      first.err.join("\n"),
+    );
+    assert.deepEqual(comfy.latents(), [{ width: 640, height: 960 }]);
+
+    const blind = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+      blind.io,
+    );
+    assert.equal(code, EXIT_USAGE, blind.out.join("\n"));
+    assert.equal(comfy.calls(), 1, "a run that cannot repeat must not reach the provider");
+    const err = blind.err.join("\n");
+    assert.match(err, /width 832 instead of 640/);
+    assert.match(err, /height 1216 instead of 960/);
+    assert.match(err, /--width 640 --height 960/);
+
+    // The escape the message names works, and it really does repeat the render.
+    const repeat = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--width",
+          "640",
+          "--height",
+          "960",
+          "--allow-remote",
+        ],
+        repeat.io,
+      ),
+      EXIT_OK,
+      repeat.err.join("\n"),
+    );
+    const [original, repeated] = comfy.bodies().map(normalizeClientId);
+    assert.equal(repeated, original);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a deliberate size, and an image with no recorded size, are left alone (#240)", async () => {
+  // The check's own control: it must not fire on a run that SAYS what size it
+  // wants, nor on an image whose render recorded no size to differ from.
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    // cut-001: rendered at a pinned size, then re-rendered at a different
+    // pinned size. Deliberate, so it proceeds.
+    for (const width of ["640", "800"]) {
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      assert.equal(
+        await runGenerate(
+          [
+            projectDir,
+            "--episode",
+            "ep-001",
+            "--cut",
+            "cut-001",
+            "--prompt",
+            "a rooftop at dusk",
+            "--width",
+            width,
+            "--height",
+            "960",
+            "--allow-remote",
+          ],
+          c.io,
+        ),
+        EXIT_OK,
+        c.err.join("\n"),
+      );
+    }
+    assert.deepEqual(comfy.latents(), [
+      { width: 640, height: 960 },
+      { width: 800, height: 960 },
+    ]);
+
+    // cut-002: rendered at the workflow's own latent, so nothing is recorded to
+    // differ from and a no-flag re-run repeats it.
+    for (const pass of [0, 1]) {
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      assert.equal(
+        await runGenerate(
+          [
+            projectDir,
+            "--episode",
+            "ep-001",
+            "--cut",
+            "cut-002",
+            ...(pass === 0 ? ["--prompt", "an alley at dawn"] : []),
+            "--allow-remote",
+          ],
+          c.io,
+        ),
+        EXIT_OK,
+        c.err.join("\n"),
+      );
+    }
+    const [, , firstPass, secondPass] = comfy.bodies().map(normalizeClientId);
+    assert.equal(secondPass, firstPass, "a cut with no recorded size did not repeat");
+  } finally {
+    comfy.close();
+  }
 });

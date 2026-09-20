@@ -37,6 +37,7 @@ export {
   type IngestResult,
   ingestImageAsset,
   type RenderInputs,
+  recordedRenderInputs,
   type TransitionAssetTarget,
 } from "./ingest.js";
 export {

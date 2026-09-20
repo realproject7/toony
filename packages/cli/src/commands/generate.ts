@@ -14,7 +14,7 @@
 // provider has. When the endpoint is unset or unreachable the command fails with
 // a clear, actionable message — it never fabricates a result.
 //
-// A finished CUT render writes what produced it back onto the cut (#240): the
+// A finished CLEAN render writes what produced it back onto the cut (#240): the
 // prompt, the negative prompt, the seed, and the workflow's name when the run
 // named one. The seed and the workflow fall back to those recorded values the
 // same way the prompt already fell back to `cut.imagePrompt`, so re-running a
@@ -22,10 +22,18 @@
 // rolling a fresh seed, and an agent's converged prompt survives the shell it
 // was typed into. An explicit flag still wins for the run it is given on.
 //
-// The same inputs reach the episode's ingest log, composed exactly as submitted,
-// so any panel can answer what produced it. Generation is the one step here that
-// costs minutes and is not deterministic; before this it was also the only one
-// that wrote down nothing about its own inputs.
+// A cut has ONE such record and TWO images, so the record describes the clean
+// plate and a `--slot final` run neither writes nor reads it. The ingest log
+// covers both: the same inputs reach it for every render, composed exactly as
+// submitted and keyed by asset path, so any panel can answer what produced it.
+// Generation is the one step here that costs minutes and is not deterministic;
+// before this it was also the only one that wrote down nothing about its inputs.
+//
+// The log is read back, too. Size is the one input a cut does not record, so a
+// run that pins none takes the workflow's latent — and if that is not the size
+// the image on disk was rendered at, the run would REPLACE an accepted plate
+// while reading as a repeat of it. `assertRepeatable` refuses that before the
+// first request.
 //
 // A cut's declared panel shape (`panelAspect`, #237) reaches the provider the
 // same way: it is a height in column widths, so it is resolved against the
@@ -61,6 +69,7 @@ import {
   ProjectIoError,
   type RenderInputs,
   readConfig,
+  recordedRenderInputs,
   writeCuts,
 } from "@toony/project-io";
 import {
@@ -207,26 +216,35 @@ async function readWorkspaceComfyConfig(root: string): Promise<ToonyWorkspaceCom
 }
 
 /**
- * The column the resolved workflow generates at: the width its own latent
+ * The size the resolved workflow generates at: the dimensions its own latent
  * declares, read through the same injection map the provider writes sizes
- * through, so it is the number a cut's declared shape (#237) is a multiple of.
- * `undefined` when the mapped node carries no usable width — a mapping that
- * points at nothing is the operator's to fix, not something to guess a column
- * for.
+ * through. The width is the number a cut's declared shape (#237) is a multiple
+ * of; both are what a run that resolves no size of its own will actually render
+ * at, which is how a repeat of a render is told from a replacement of it (#240).
+ *
+ * Either is `undefined` when the mapped node carries no usable value — a mapping
+ * that points at nothing is the operator's to fix, not something to guess for.
  */
-function workflowLatentWidth(config: {
+function workflowLatentSize(config: {
   workflow: Record<string, { inputs: Record<string, unknown> }>;
-  injectionMap: { widthNode: string; widthInput: string };
-}): number | undefined {
-  const raw =
-    config.workflow[config.injectionMap.widthNode]?.inputs?.[config.injectionMap.widthInput];
-  return typeof raw === "number" && Number.isInteger(raw) && raw > 0 ? raw : undefined;
+  injectionMap: { widthNode: string; widthInput: string; heightNode: string; heightInput: string };
+}): { width?: number; height?: number } {
+  const read = (node: string, input: string): number | undefined => {
+    const raw = config.workflow[node]?.inputs?.[input];
+    return typeof raw === "number" && Number.isInteger(raw) && raw > 0 ? raw : undefined;
+  };
+  const width = read(config.injectionMap.widthNode, config.injectionMap.widthInput);
+  const height = read(config.injectionMap.heightNode, config.injectionMap.heightInput);
+  return {
+    ...(width === undefined ? {} : { width }),
+    ...(height === undefined ? {} : { height }),
+  };
 }
 
-/** A built provider, with the column its workflow draws at when one is known. */
+/** A built provider, with the size its workflow draws at where that is known. */
 interface BuiltProvider {
   provider: ImageProvider;
-  latentWidth?: number;
+  latent: { width?: number; height?: number };
 }
 
 async function buildProvider(
@@ -248,11 +266,7 @@ async function buildProvider(
         workflows,
         ...(workflowName === undefined ? {} : { workflowName }),
       });
-      const latentWidth = workflowLatentWidth(config);
-      return {
-        provider: new ComfyUIProvider(config),
-        ...(latentWidth === undefined ? {} : { latentWidth }),
-      };
+      return { provider: new ComfyUIProvider(config), latent: workflowLatentSize(config) };
     } catch (cause) {
       if (cause instanceof ProviderError) return { error: cause.message };
       throw cause;
@@ -291,11 +305,11 @@ interface Job {
   panelAspect?: number;
 }
 
-/** A planned job with the provider that will run it, and that provider's column. */
+/** A planned job with the provider that will run it, and that provider's latent. */
 interface ReadyJob {
   job: Job;
   provider: ImageProvider;
-  latentWidth?: number;
+  latent: { width?: number; height?: number };
 }
 
 interface PlanInput {
@@ -318,19 +332,24 @@ interface PlanInput {
  * The seed falls back rather than re-rolling because re-rolling is what made an
  * accepted panel unreproducible: the same cut, re-run with no flags, drew a
  * different image every time. A run that wants a new roll passes `--seed`.
+ *
+ * `record` is the cut whose recorded inputs this job may replay, and it is
+ * supplied ONLY for the slot those inputs describe — see `recordRenderInputs`.
+ * A cut has one record and two images, so replaying it into the other slot would
+ * hand one plate's seed to the other.
  */
 function resolveInputs(
   prompt: string,
   negativePrompt: string,
   shared: Readonly<Record<string, string | number>>,
   workflow: string | undefined,
-  cut: Cut | undefined,
+  record: Cut | undefined,
 ): RenderInputs {
-  const resolvedWorkflow = workflow ?? cut?.imageWorkflow;
+  const resolvedWorkflow = workflow ?? record?.imageWorkflow;
   return {
     prompt,
     negativePrompt,
-    seed: typeof shared.seed === "number" ? shared.seed : (cut?.imageSeed ?? randomSeed()),
+    seed: typeof shared.seed === "number" ? shared.seed : (record?.imageSeed ?? randomSeed()),
     ...(resolvedWorkflow === undefined ? {} : { workflow: resolvedWorkflow }),
     ...(typeof shared.width === "number" ? { width: shared.width } : {}),
     ...(typeof shared.height === "number" ? { height: shared.height } : {}),
@@ -423,7 +442,17 @@ function planJobs(
       injectCharacterLockstrings(cutPrompt, cut?.characters, registry),
       cut?.palette,
     );
-    const inputs = resolveInputs(composed, cutNegative ?? "", shared, workflow, cut);
+    // The cut's recorded inputs describe its clean plate, so only a clean run
+    // replays them. The PROMPT still falls back for either slot, as it has since
+    // #38: `imagePrompt` is authored text a cut has always shared between its
+    // two images, and it is read above, before this.
+    const inputs = resolveInputs(
+      composed,
+      cutNegative ?? "",
+      shared,
+      workflow,
+      slot === "clean" ? cut : undefined,
+    );
     jobs.push({
       id: cutId,
       label: `cut ${cutId} (${slot})`,
@@ -484,7 +513,7 @@ function applyPanelShapes(
   }
 
   for (const { entry, panelAspect } of declared) {
-    const column = typeof shared.width === "number" ? shared.width : entry.latentWidth;
+    const column = typeof shared.width === "number" ? shared.width : entry.latent.width;
     if (column === undefined) {
       return {
         error: `cut ${entry.job.id} declares a panel shape, but the column to size it against is unknown: the workflow's latent declares no width at the mapped node. Pass --width <px>, or point the workflow's node mapping at its latent.`,
@@ -503,7 +532,14 @@ function applyPanelShapes(
 
 /**
  * Write what produced this image back onto the cut (#240), so the next run
- * reproduces it from the project alone.
+ * repeats it from the project alone. Returns the reason it could not, or `null`.
+ *
+ * ONLY FOR THE CLEAN SLOT. A cut carries one `imagePrompt`/`imageSeed` pair and
+ * two images, so a record written by a `--slot final` run replaces the one the
+ * clean plate needs — and the next clean run, reading it back, redraws the plate
+ * the operator accepted from the final pass's inputs. One record cannot describe
+ * two renders, so it describes the clean one. A final render's inputs are in the
+ * episode's ingest log, whose entries are per asset path.
  *
  * The project is re-read rather than reusing the copy this command loaded: the
  * ingest that just ran rewrote `cuts.yaml` with the new image reference, and
@@ -513,26 +549,95 @@ function applyPanelShapes(
  * Ordering is deliberate. The image and its reference are already on disk when
  * this runs, so an interrupted run leaves an image whose inputs went unrecorded
  * — the same direction an interrupted ingest already fails in, and the one a
- * re-run fixes.
+ * re-run fixes. What the CALLER must not do is report that state as a failed
+ * generation, which would send an operator to redo a render that succeeded.
  */
-async function recordRenderInputs(root: string, target: CutAssetTarget, job: Job): Promise<void> {
-  const loaded = await loadProject(root);
-  // The ingest a moment ago located this episode and refused without it, so a
-  // miss here means it was removed mid-run: write nothing rather than guess.
-  const bundle = loaded.project.episodes.find((b) => b.episode.id === target.episodeId);
-  if (bundle === undefined) return;
-  const cuts = bundle.cuts.map((cut) =>
-    cut.id === target.cutId
-      ? {
-          ...cut,
-          imagePrompt: job.basePrompt ?? cut.imagePrompt,
-          negativePrompt: job.inputs.negativePrompt,
-          imageSeed: job.inputs.seed,
-          ...(job.inputs.workflow === undefined ? {} : { imageWorkflow: job.inputs.workflow }),
-        }
-      : cut,
-  );
-  await writeCuts(root, target.episodeId, cuts);
+async function recordRenderInputs(
+  root: string,
+  target: CutAssetTarget,
+  job: Job,
+): Promise<string | null> {
+  try {
+    const loaded = await loadProject(root);
+    // The ingest a moment ago located this episode and refused without it, so a
+    // miss here means it was removed mid-run: write nothing rather than guess.
+    const bundle = loaded.project.episodes.find((b) => b.episode.id === target.episodeId);
+    if (bundle === undefined) return null;
+    const cuts = bundle.cuts.map((cut) =>
+      cut.id === target.cutId
+        ? {
+            ...cut,
+            imagePrompt: job.basePrompt ?? cut.imagePrompt,
+            negativePrompt: job.inputs.negativePrompt,
+            imageSeed: job.inputs.seed,
+            ...(job.inputs.workflow === undefined ? {} : { imageWorkflow: job.inputs.workflow }),
+          }
+        : cut,
+    );
+    await writeCuts(root, target.episodeId, cuts);
+    return null;
+  } catch (cause) {
+    // A project-level IO or validation problem is the recordable failure this
+    // reports. Anything else is a bug here and must not be disguised as one.
+    if (cause instanceof ProjectIoError) return cause.message;
+    throw cause;
+  }
+}
+
+/**
+ * Refuse a run that would REPLACE an accepted image with a different render
+ * while reading as a repeat of it (#240).
+ *
+ * Size is the one generation input a cut does not record. A cut that declares a
+ * shape (#237) says its size, and a run that pins `--width`/`--height` says its
+ * size — but a run that does neither takes the workflow's latent, which is not
+ * what produced the image on disk if that image was rendered at a pinned size.
+ * Everything else replays, so the run looks like a faithful repeat, overwrites
+ * the plate the operator approved, and says nothing.
+ *
+ * So the check is narrow by construction: only a job that resolves NO size of
+ * its own, against an image the cut still references, whose recorded render used
+ * a size this run demonstrably would not. A run or a cut that SAYS what size it
+ * wants is deliberate and is left alone; an asset with nothing recorded makes no
+ * claim to repeat and is left alone too.
+ *
+ * It refuses rather than warning, and refuses the whole run before the first
+ * request: the damage is destructive and the alternative — a warning above a
+ * replaced plate — is the silence this exists to remove.
+ */
+async function assertRepeatable(
+  root: string,
+  ready: readonly ReadyJob[],
+  cutsById: ReadonlyMap<string, Cut>,
+): Promise<{ error: string; exit: number } | null> {
+  for (const { job, latent } of ready) {
+    const target = job.target;
+    if (target.kind !== "cut") continue;
+    if (job.inputs.width !== undefined || job.inputs.height !== undefined) continue;
+    if (cutsById.get(target.cutId)?.image?.[target.slot] == null) continue;
+    const recorded = await recordedRenderInputs(root, target);
+    if (recorded === undefined) continue;
+
+    const differences: string[] = [];
+    const repeatFlags: string[] = [];
+    for (const [name, flag, was, now] of [
+      ["width", "--width", recorded.width, latent.width],
+      ["height", "--height", recorded.height, latent.height],
+    ] as const) {
+      if (typeof was !== "number" || now === undefined || was === now) continue;
+      differences.push(`${name} ${now} instead of ${was}`);
+      repeatFlags.push(`${flag} ${was}`);
+    }
+    if (differences.length === 0) continue;
+    return {
+      error:
+        `cut ${job.id} (${target.slot}): this run would render at ${differences.join(", ")}, so it would replace the image on disk rather than repeat it — ` +
+        `the workflow's own latent stands when a run pins no size, and that image was not rendered at it. ` +
+        `Pass ${repeatFlags.join(" ")} to repeat that image, or pass --width/--height to render a different size on purpose. Nothing was generated.`,
+      exit: EXIT_USAGE,
+    };
+  }
+  return null;
 }
 
 /** Run `toony generate`. Returns the process exit code. */
@@ -658,7 +763,15 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   // abort the whole run here, so a multi-cut run never spends GPU minutes on
   // cut-001 only to discover cut-007 was never going to work. Only GENERATION
   // failures are per-cut, and those are what the summary below reports.
-  const workflowFlag = parsed.values.get("--workflow");
+  // An empty `--workflow` is what `--workflow "$WF"` sends when the variable is
+  // unset, and it already means "no workflow" to the provider, which drops it
+  // and resolves the configured one. Reading it as a NAME here spent the render
+  // and then refused to record `imageWorkflow: ""`, which the schema rejects —
+  // a run that exits 2 with the image already on disk. Empty is absent, exactly
+  // as the provider and the provider cache below both read it. Not trimmed: a
+  // name of spaces is a name the provider will fail to find, and inventing a
+  // second rule here is how the two drift.
+  const workflowFlag = parsed.values.get("--workflow") || undefined;
   const jobs = planJobs(loaded, {
     episodeId,
     cutIds,
@@ -709,11 +822,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
       }
       providers.set(workflow ?? "", built);
     }
-    ready.push({
-      job,
-      provider: built.provider,
-      ...(built.latentWidth === undefined ? {} : { latentWidth: built.latentWidth }),
-    });
+    ready.push({ job, provider: built.provider, latent: built.latent });
   }
 
   // The declared shapes need the resolved workflow's column, so this is the
@@ -725,8 +834,25 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     return shapes.exit;
   }
 
+  // Sizes are final here, so this is the first point a run can tell a repeat of
+  // an accepted image from a replacement of it — and it is still before the
+  // first request, so refusing costs nothing.
+  const cutsById = new Map(
+    (loaded.project.episodes.find((b) => b.episode.id === episodeId)?.cuts ?? []).map((cut) => [
+      cut.id,
+      cut,
+    ]),
+  );
+  const repeatable = await assertRepeatable(root, ready, cutsById);
+  if (repeatable !== null) {
+    io.err(repeatable.error);
+    return repeatable.exit;
+  }
+
   const generated: string[] = [];
   const failed: string[] = [];
+  /** Cuts whose image is on disk but whose inputs could not be recorded (#240). */
+  const unrecorded: string[] = [];
   // The run reports the code the FIRST failed job would have returned alone, so
   // a single-job run keeps exactly the exit code it has always had.
   let failureCode: number | null = null;
@@ -737,8 +863,24 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
       const result = await provider.produce(job.request);
       const ingested = await ingestImageAsset(root, target, result, job.inputs);
       // Write-back precedes the success line: a run that says "generated" has
-      // left the project able to generate it again.
-      if (target.kind === "cut") await recordRenderInputs(root, target, job);
+      // left the project able to generate it again. When it is the write-back
+      // that fails, the image and its reference ARE on disk — a different state
+      // from a failed generation, and reporting it as one sends the operator to
+      // redo a render that succeeded.
+      if (target.kind === "cut" && target.slot === "clean") {
+        const failure = await recordRenderInputs(root, target, job);
+        if (failure !== null) {
+          io.err(
+            `generated ${ingested.assetPath} for ${job.label}, but recording what produced it failed: ${failure}`,
+          );
+          io.err(
+            `${job.id}: the image and its reference are on disk — do NOT re-render it, a re-run would draw a different one. Fix the problem above and re-record with --seed ${job.inputs.seed}.`,
+          );
+          failureCode ??= EXIT_USAGE;
+          unrecorded.push(job.id);
+          continue;
+        }
+      }
       io.out(
         `generated ${ingested.assetPath} for ${job.label} in ${episodeId} — ${ingested.bytesWritten} bytes, sha256 ${ingested.sha256.slice(0, 12)}`,
       );
@@ -757,8 +899,15 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   // place, and the summary says which ones are still missing.
   if (jobs.jobs.length > 1) {
     const counts = `${generated.length} generated, ${failed.length} failed`;
-    io.out(failed.length === 0 ? counts : `${counts}: ${failed.join(", ")}`);
+    const named = failed.length === 0 ? counts : `${counts}: ${failed.join(", ")}`;
+    // The third state is named only when it happens, so a run that never hits it
+    // reports exactly the two counts it always has.
+    io.out(
+      unrecorded.length === 0
+        ? named
+        : `${named} (${unrecorded.length} generated but unrecorded: ${unrecorded.join(", ")})`,
+    );
   }
-  if (generated.length > 0) io.out("next: toony validate");
+  if (generated.length > 0 || unrecorded.length > 0) io.out("next: toony validate");
   return failureCode ?? EXIT_OK;
 }

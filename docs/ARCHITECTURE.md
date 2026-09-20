@@ -165,10 +165,31 @@ Three choices in that are worth knowing:
 - **The workflow is a NAME, never a path.** Because the name lives per cut, one
   batch can span several workflows, and a run resolves one provider per distinct
   name rather than making the first cut's choice the whole run's.
+- **The record describes the `clean` plate.** A cut has one prompt and one seed
+  and two images. A `--slot final` render that wrote the record replaced the
+  clean plate's inputs, and the next default run — no flags, `--slot clean` —
+  redrew the accepted plate from the final pass's prompt and seed. So `final`
+  neither writes the record nor reads it; its inputs are in the ingest log,
+  whose entries are per asset path.
 
 Size is deliberately not recorded on the cut. A cut's shape already has a home in
 `panelAspect`, and re-rendering a batch at export resolution is a thing to do,
 not a thing to prevent; the size a run submitted is in the ingest log.
+
+That leaves one gap, and the log closes it. A run that pins no size takes the
+workflow's own latent — which is not what produced the image on disk if that
+image was rendered at a pinned size. Everything else replays, so the run reads as
+a faithful repeat while replacing the plate the operator approved. `generate`
+therefore compares the size it is about to render at against the size the log
+recorded for that asset, and refuses before the first request when they differ,
+naming the flags that would repeat it. Only a run that pins no size is checked: a
+run that passes `--width`/`--height`, or a cut that declares a shape, is saying
+what size it wants.
+
+A failed write-back is reported as itself, never as a failed generation. The two
+states differ in what is on disk — one has no image, the other has the image and
+its reference — and reporting the second as the first sends an operator to redo
+a render that succeeded, which a re-run would draw differently.
 
 ## Export Targets
 

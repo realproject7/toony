@@ -97,6 +97,17 @@ function targetRecordId(target: AssetTarget): string {
   return target.kind === "cut" ? target.cutId : target.transitionId;
 }
 
+/**
+ * `assets/<slot>/<id>.` — the episode-relative name an ingested asset starts
+ * with, everything but the extension the produced format decides. Shared by the
+ * write and by the lookup below, so a reader can find an asset's entries without
+ * knowing which format it was written in.
+ */
+function episodeRelativePrefix(target: AssetTarget): string {
+  const slotDir = target.kind === "cut" ? target.slot : "clean";
+  return `assets/${slotDir}/${targetRecordId(target)}.`;
+}
+
 // Schema only requires record ids to be non-empty strings, so a valid project
 // could use ids with path separators or `..`. Asset filenames are derived from
 // the id, so reject anything that is not a safe single path segment before any
@@ -123,22 +134,62 @@ async function writeFileSafe(file: string, data: string | Uint8Array, what: stri
   }
 }
 
+function logPathFor(root: string, episodeId: string): string {
+  return join(episodeDir(root, episodeId), "logs", "ingest.json");
+}
+
+/** The episode's provenance entries, or an empty list when there is no log yet. */
+async function readProvenanceLog(root: string, episodeId: string): Promise<unknown[]> {
+  try {
+    const parsed = JSON.parse(await readFile(logPathFor(root, episodeId), "utf8"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    // No log yet, or unreadable: there is nothing recorded to report.
+    return [];
+  }
+}
+
 async function appendProvenance(
   root: string,
   episodeId: string,
   entry: ProvenanceEntry,
 ): Promise<void> {
-  const logPath = join(episodeDir(root, episodeId), "logs", "ingest.json");
-  let entries: unknown[] = [];
-  try {
-    const parsed = JSON.parse(await readFile(logPath, "utf8"));
-    if (Array.isArray(parsed)) entries = parsed;
-  } catch {
-    // No log yet, or unreadable: start a fresh list.
-  }
+  const logPath = logPathFor(root, episodeId);
+  const entries = await readProvenanceLog(root, episodeId);
   entries.push(entry);
   await mkdirSafe(dirname(logPath), "the ingest log directory");
   await writeFileSafe(logPath, encodeJson(entries), "the ingest provenance log");
+}
+
+/**
+ * The inputs that produced the image currently at `target`'s asset path, as the
+ * ingest log recorded them (#240) — the most recent entry for that path, since
+ * each ingest replaces the file the previous one wrote.
+ *
+ * `undefined` when nothing is recorded for it: no log, an asset imported rather
+ * than generated, or one produced before inputs were recorded at all. A caller
+ * uses this to tell a repeat of a render from a replacement of it, so "nothing
+ * recorded" must read as "no claim", never as "no difference".
+ *
+ * The log is this package's own output, but it is still a file on disk that
+ * anything may have edited, so the entry is returned only when it is shaped
+ * like one; the caller type-checks the fields it uses.
+ */
+export async function recordedRenderInputs(
+  root: string,
+  target: AssetTarget,
+): Promise<RenderInputs | undefined> {
+  const prefix = `episodes/${target.episodeId}/${episodeRelativePrefix(target)}`;
+  const entries = await readProvenanceLog(root, target.episodeId);
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (typeof entry !== "object" || entry === null) continue;
+    const { assetPath, renderInputs } = entry as { assetPath?: unknown; renderInputs?: unknown };
+    if (typeof assetPath !== "string" || !assetPath.startsWith(prefix)) continue;
+    if (typeof renderInputs !== "object" || renderInputs === null) return undefined;
+    return renderInputs as RenderInputs;
+  }
+  return undefined;
 }
 
 async function mkdirSafe(dir: string, what: string): Promise<void> {
@@ -183,8 +234,7 @@ export async function ingestImageAsset(
       ? cutsFile(root, target.episodeId)
       : transitionsFile(root, target.episodeId),
   );
-  const slotDir = target.kind === "cut" ? target.slot : "clean";
-  const episodeRelative = `assets/${slotDir}/${recordId}.${extensionFor(result.format)}`;
+  const episodeRelative = `${episodeRelativePrefix(target)}${extensionFor(result.format)}`;
   // Records store a project-relative path (per the schema's ImageAssetRef
   // contract) so consumers resolve assets from the project root; the file
   // itself still lives under the episode directory.

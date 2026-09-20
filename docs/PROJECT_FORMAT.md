@@ -100,10 +100,23 @@ does not belong in a project file.
 generated: a cut that has never been generated carries neither, and a project
 written before they existed loads, renders and exports exactly as it did.
 
+**The record describes the cut's `clean` plate.** A cut carries one prompt and
+one seed but two images, so one record cannot describe both: a `--slot final`
+render neither writes it nor reads it back, and a final pass is regenerated the
+way it always was — from `imagePrompt` and a fresh seed unless the run pins one.
+
 The same inputs are appended to the episode's `logs/ingest.json` entry for the
-asset, and there the prompt is the one that was SUBMITTED — character lockstrings
-and the palette clause already composed in — so any panel can answer what
-produced it. A manually imported asset records no render inputs, having none.
+asset, for BOTH slots, and there the prompt is the one that was SUBMITTED —
+character lockstrings and the palette clause already composed in. The entries are
+per asset path, so that is where a final pass's inputs live, and any panel can
+answer what produced it. A manually imported asset records no render inputs,
+having none.
+
+The size is not recorded on the cut: a cut's shape belongs to `panelAspect`, and
+re-rendering at export resolution is a thing to do. The size a run submitted is
+in the log, and `toony generate` uses it to refuse a run that would replace an
+image rather than repeat it — see
+[ARCHITECTURE.md](ARCHITECTURE.md#what-a-render-records).
 
 ## Canonical Episode Sequence
 
