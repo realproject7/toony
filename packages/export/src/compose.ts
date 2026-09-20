@@ -16,8 +16,8 @@ import {
   BAND_FONT_ID,
   type BalloonCommand,
   type BubbleRender,
+  cutHeightAt,
   cutPlacementFrame,
-  FALLBACK_CUT_ASPECT,
   GUTTER_MARGIN_FILL,
   IMPACT_BURST_FILL,
   IMPACT_BURST_STROKE,
@@ -32,6 +32,7 @@ import {
   resolveBandDivider,
   resolveBandFade,
   resolveBandHeight,
+  resolveCutAspect,
   type TransitionRender,
 } from "@toony/render";
 import type { LetteringOverlay, Transition } from "@toony/schema";
@@ -158,13 +159,22 @@ export interface ComposeCutOptions {
    * same layout, reserves the same strip.
    */
   gutterBandWidth?: number;
+  /**
+   * The cut's declared panel shape (`Cut.panelAspect`, #237): its height as a
+   * multiple of its own width. It reaches only the ART-LESS stage below — a cut
+   * that already carries art composes at that art's shape, because nothing
+   * re-cuts an image to match a declaration made after it. Absent → the
+   * fallback aspect, exactly as before the field existed (#260).
+   */
+  panelAspect?: number;
 }
 
 /**
  * Composite a cut at `targetWidth`: its image (scaled to width) with all its
  * lettering overlays drawn on top via the shared renderer. When the cut has no
- * image asset, a neutral background of the fallback aspect is used so reading
- * order and lettering still export.
+ * usable image asset, a neutral background of the cut's own declared shape —
+ * else the fallback aspect — is used so reading order and lettering still
+ * export.
  */
 export async function composeCut(
   overlays: LetteringOverlay[],
@@ -173,15 +183,19 @@ export async function composeCut(
   options: ComposeCutOptions = {},
 ): Promise<ComposedCut> {
   const width = Math.max(1, Math.round(targetWidth));
+  // The stage for a cut with no usable art: the shape it declares, else the
+  // fallback (#260). No image is offered to the resolver because in the branches
+  // that use this there is none — a cut that HAS art is staged at that art.
+  const artlessHeight = cutHeightAt(width, resolveCutAspect(options.panelAspect, null).aspect);
   let height: number;
   let image: Image | null = null;
   if (imageBytes) {
     image = await decode(imageBytes);
     const natW = image.width > 0 ? image.width : width;
-    const natH = image.height > 0 ? image.height : Math.round(width * FALLBACK_CUT_ASPECT);
+    const natH = image.height > 0 ? image.height : artlessHeight;
     height = Math.max(1, Math.round((natH * width) / natW));
   } else {
-    height = Math.max(1, Math.round(width * FALLBACK_CUT_ASPECT));
+    height = artlessHeight;
   }
 
   // Register the bundled curated faces before any text is measured or drawn so the

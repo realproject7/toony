@@ -10,7 +10,7 @@ import {
 } from "@toony/schema";
 import { encodePng, makeSolidRaster } from "../__fixtures__/images.js";
 import { CRAFT_MAX_LINE_CHARS } from "../craft-lint.js";
-import { lintBubbleOverflow } from "../overflow-lint.js";
+import { DEFAULT_OVERFLOW_FALLBACK, lintBubbleOverflow } from "../overflow-lint.js";
 
 function overlay(
   id: string,
@@ -35,7 +35,7 @@ function overlay(
   };
 }
 
-function bundle(cutId: string, overlays: LetteringOverlay[]): EpisodeBundle {
+function bundle(cutId: string, overlays: LetteringOverlay[], panelAspect?: number): EpisodeBundle {
   return {
     episode: {
       schemaVersion: 1,
@@ -43,7 +43,15 @@ function bundle(cutId: string, overlays: LetteringOverlay[]): EpisodeBundle {
       title: "Ep",
       sequence: [{ type: "cut", id: cutId }],
     },
-    cuts: [{ id: cutId, image: null, imagePrompt: "", negativePrompt: "" }],
+    cuts: [
+      {
+        id: cutId,
+        image: null,
+        imagePrompt: "",
+        negativePrompt: "",
+        ...(panelAspect === undefined ? {} : { panelAspect }),
+      },
+    ],
     transitions: [],
     lettering: overlays,
   };
@@ -226,4 +234,130 @@ test("a rounded gutter balloon holds fewer, and the docs say so", () => {
       );
     }
   }
+});
+
+// --- The shape the cut declares (#260) --------------------------------------
+//
+// Every cut in a pack's genre scaffold is art-less, so before #260 a declared
+// shape reached nothing here and every one of them was measured on the 1200x1600
+// fallback. The two fixtures below are the same narration line in a strip box,
+// differing only in how much of the cut the box takes, and they fail in opposite
+// directions — which is why both are here. The whole error is in the stage: what
+// fits a box depends on the font floor, and that floor is derived from the
+// render HEIGHT.
+
+/** A narration line long enough that the font floor decides whether it fits. */
+const NARRATION = "The market wakes before the city does, and the fish are already gone by seven.";
+
+/** Box heights, as a fraction of the cut, that discriminate between stages. */
+const MISSED_BOX: BubbleGeometry = { x: 0.05, y: 0.05, width: 0.9, height: 0.08 };
+const FALSE_POSITIVE_BOX: BubbleGeometry = { x: 0.05, y: 0.05, width: 0.9, height: 0.05 };
+
+test("a TALL declared cut is measured at its own shape, not the fallback", () => {
+  // The missed detection the ticket was opened about: the box holds the line on
+  // the portrait fallback, and does not hold it on the 2.6-of-a-width panel the
+  // pack actually asks for. Lint passed it, and only a render found it.
+  const o = overlay("ov-1", "cut-001", NARRATION, MISSED_BOX);
+  assert.deepEqual(
+    lintBubbleOverflow(bundle("cut-001", [o]), () => null),
+    [],
+    "the fixture must fit the fallback stage, or it proves nothing",
+  );
+
+  const findings = lintBubbleOverflow(bundle("cut-001", [o], 2.6), () => null);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0]?.code, "lettering/overflow");
+  assert.equal(findings[0]?.targetId, "ov-1");
+});
+
+test("a SHORT declared cut is too, and that CLEARS a finding", () => {
+  // The same defect in the other direction, and the reason this is a stage fix
+  // rather than a stricter check: on the fallback the line does not fit, on the
+  // 0.3-of-a-width strip the pack declares it does. Reporting it was wrong.
+  const o = overlay("ov-1", "cut-001", NARRATION, FALSE_POSITIVE_BOX);
+  assert.equal(
+    lintBubbleOverflow(bundle("cut-001", [o]), () => null).length,
+    1,
+    "the fixture must overflow the fallback stage, or it proves nothing",
+  );
+  assert.deepEqual(
+    lintBubbleOverflow(bundle("cut-001", [o], 0.3), () => null),
+    [],
+  );
+});
+
+test("a cut that HAS art is measured at the art, whatever it declares", () => {
+  // The page takes a panel's height from the image it was generated at; nothing
+  // re-cuts an image to match a declaration made after it. So a declaration must
+  // not re-stage a cut that already carries art — if it did, this lint would be
+  // measuring bubbles against a page that does not exist.
+  //
+  // The art is sized so the two answers DIFFER: the line fits this 300x400
+  // panel and does not fit the 300x780 one a declared 2.6 would stage. A
+  // fixture where both overflow would pass whichever shape won.
+  const o = overlay("ov-1", "cut-001", NARRATION, MISSED_BOX);
+  const art = encodePng(makeSolidRaster(300, 400, 3, 128));
+  assert.equal(layoutBubble(o, 300, Math.round(300 * 2.6)).overflow, true);
+  assert.deepEqual(
+    lintBubbleOverflow(bundle("cut-001", [o]), () => art),
+    [],
+  );
+  assert.deepEqual(
+    lintBubbleOverflow(bundle("cut-001", [o], 2.6), () => art),
+    [],
+  );
+});
+
+/**
+ * The first canvas height at which this overlay's overflow flips, read off the
+ * render core itself rather than pinned here — so the boundary is re-derived if
+ * the measurer or the font floor ever moves.
+ */
+function flipHeight(o: LetteringOverlay, width: number): number {
+  for (let h = 201; h <= 4000; h++) {
+    if (layoutBubble(o, width, h).overflow !== layoutBubble(o, width, h - 1).overflow) return h;
+  }
+  throw new Error("no flip height in range: this fixture no longer discriminates by one pixel");
+}
+
+test("a cut that declares nothing is staged at the fallback SIZE, to the pixel", () => {
+  // The back-compat claim, made sharp. An art-less cut declaring nothing now
+  // reaches its height through a ratio — `fallback.height / fallback.width`
+  // multiplied back out — and "close enough" is not the claim: it must be the
+  // same canvas it was before, exactly. Asserted at a height where one pixel
+  // changes the answer, so an off-by-one cannot hide.
+  const o = overlay("ov-1", "cut-001", NARRATION, FALSE_POSITIVE_BOX);
+  const width = DEFAULT_OVERFLOW_FALLBACK.width;
+  const flip = flipHeight(o, width);
+  const b = bundle("cut-001", [o]);
+
+  const at = lintBubbleOverflow(b, () => null, { fallback: { width, height: flip } });
+  const below = lintBubbleOverflow(b, () => null, { fallback: { width, height: flip - 1 } });
+  assert.notEqual(at.length, below.length, "the fixture stopped discriminating one pixel");
+  assert.equal(at.length > 0, layoutBubble(o, width, flip).overflow);
+  assert.equal(below.length > 0, layoutBubble(o, width, flip - 1).overflow);
+
+  // And on the SHIPPED fallback, the size this lint has always used.
+  assert.equal(
+    lintBubbleOverflow(b, () => null).length > 0,
+    layoutBubble(o, DEFAULT_OVERFLOW_FALLBACK.width, DEFAULT_OVERFLOW_FALLBACK.height).overflow,
+  );
+});
+
+test("a header claiming a zero axis falls back rather than laying out on nothing", () => {
+  // Shared with the panel-shape check through `readCutDimensions`: a 0x0 header
+  // is not a cut size. The fixture is one that FITS the fallback stage, so a
+  // lint that took the header at face value collapses every box to nothing and
+  // reports — a check that compared two overflowing results would pass either
+  // way.
+  const o = overlay("ov-1", "cut-001", NARRATION, MISSED_BOX);
+  const zero = encodePng(makeSolidRaster(0, 0, 3, 128));
+  assert.deepEqual(
+    lintBubbleOverflow(bundle("cut-001", [o]), () => null),
+    [],
+  );
+  assert.deepEqual(
+    lintBubbleOverflow(bundle("cut-001", [o]), () => zero),
+    [],
+  );
 });
