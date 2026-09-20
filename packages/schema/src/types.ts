@@ -56,6 +56,30 @@ export const SHOT_TYPES = [
 export type ShotType = (typeof SHOT_TYPES)[number];
 
 /**
+ * Bounds for a cut's declared panel shape, `Cut.panelAspect` (#237): the cut's
+ * height as a multiple of its OWN width, the same sense `screenAspect` and
+ * `FALLBACK_CUT_ASPECT` already use.
+ *
+ * Width-multiples rather than px, for two reasons. It is the unit a craft band
+ * already grades panel height in (`panelHeightMedian` and `panelHeightSpread`
+ * in `@toony/export`), so a declared shape and a measured one are one number
+ * without a conversion that could disagree. And a cut's WIDTH belongs to the
+ * column it is read at, never to the cut, so a px height would be right at one
+ * export width and wrong at every other — the #217 lesson.
+ *
+ * A single number rather than a preset name, because the existing panel-height
+ * ladder (`PANEL_HEIGHT_PRESETS`, 0.5/1.0/2.0/2.5 columns) cannot express the
+ * heights measured reference episodes actually sit at: the pilot style pack's
+ * whole `panelHeightMedian` range is 1.396 to 1.471, and no rung lands in it.
+ *
+ * The bounds are what an author may WRITE, not a house style. Below the minimum
+ * a panel is a rule rather than a picture; above the maximum one cut is ten
+ * columns of page, which no measured reference episode approaches.
+ */
+export const PANEL_ASPECT_MIN = 0.1;
+export const PANEL_ASPECT_MAX = 10;
+
+/**
  * Where a lettering bubble sits (#98). `in_panel` (default) places it over the
  * art as before; `gutter` places it in a reserved in-bounds strip on one side
  * (`placementSide`), with its tail crossing into the art via `tailTarget`. The
@@ -414,6 +438,24 @@ export interface Cut {
   layer?: string;
   /** Free-form visual style tag for the cut (#98). */
   styleTag?: string;
+  /**
+   * The cut's panel shape (#237): its height as a multiple of its own width,
+   * within `PANEL_ASPECT_MIN`..`PANEL_ASPECT_MAX`. Panel height is how a
+   * vertical-scroll comic controls time — a tall panel is a held moment and a
+   * run of short ones is a fast exchange — so this is the field a pack's genre
+   * scaffold paces with, per cut.
+   *
+   * UNLIKE the craft metadata above it, this is not metadata: `toony generate`
+   * turns it into the generation latent's height, and a composed page takes each
+   * panel's height from the image it generated, so the declared height and the
+   * rendered one are the same number. Authoring a field nothing reads is the
+   * #207 failure and this field exists because of it.
+   *
+   * OPTIONAL and back-compatible. Absent means the cut takes whatever shape the
+   * workflow's own latent declares, exactly as before this field existed: no
+   * size is injected for it at all.
+   */
+  panelAspect?: number;
 }
 
 /** A transition record placed between cuts in the canonical sequence. */

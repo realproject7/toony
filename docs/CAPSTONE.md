@@ -374,3 +374,56 @@ Three of the four were fixed in the cuts' own data, not by post-processing:
   and this one was reverted rather than shipped.
 
 Seeds for the re-rendered cuts: 004 → 2104, 006 → 2106, 007 → 2107.
+
+---
+
+# Panel Shape Per Cut — Controlled Render Pass
+
+Recorded 2026-09-20.
+
+`Cut.panelAspect` (#237) lets a cut declare its own height in column widths, so a
+pack's genre scaffold can pace instead of producing every cut at one height. The
+bar is not "the field exists" — `palette` existed for four releases and was read
+by nothing (#207). It is that a declared shape reaches generation and shows up in
+the measured page.
+
+Unlike every section above it, this one cannot be re-run from this repository: it
+needs a private style pack, a local GPU and a checkpoint. What it records is the
+part that is repeatable in principle and was verified twice here.
+
+## What was produced
+
+Two renders of the **same** episode, from the same private style pack, the same
+genre scaffold, the same prompts, the same lettering, the same named workflow and
+the same seed (2371) against a local ComfyUI on `animagine-xl-3.1`. The ONLY
+difference is that one project's cuts declare a shape and the other's do not.
+
+- **Control** — nine cuts, no `panelAspect` on any of them. Every cut generated at
+  the workflow's own 832×1192 latent, which is what a pack could express before
+  this ticket.
+- **Shaped** — the same nine cuts declaring, sorted, 0.30 0.44 0.58 0.74 1.43
+  2.10 2.60 3.15 3.45 widths. Each generated at that height against the
+  workflow's own 832px column: 832×248 through 832×2872.
+
+Both projects pass `toony validate` and `toony lint` clean.
+
+## What it shows
+
+- **A page of identical cuts is flat, and the flatness is structural.** The
+  control's `panelHeightSpread` is 0.0052 — zero to measurement noise — however
+  tall those identical cuts are. Declaring the nine shapes moves it to 1.1527,
+  inside the 1.0525–1.2345 the band recorded off four whole episodes of its
+  source work. No amount of tuning one latent moves the control.
+- **Declared and rendered heights are one number.** Every generated image came
+  back at its declared aspect within half a latent block (832×2872 for a declared
+  3.45; the largest error across the nine is 0.004 of a width), and the composed
+  page takes each panel's height from that image.
+- **The one cut whose declared shape equals the workflow latent generated
+  byte-identical art in both runs** (cut-002, declared 1.43, `sha256 7c6333ec1212`
+  on both sides). The shape path and the no-shape path meet where they should.
+
+The full nine-metric table for both renders, including the two metrics that did
+not come in and why, is recorded on #237. One of them, `valueMean`, moved from
+152.6 to 149.8 against a floor of 152.2 and is attributable to this change on a
+single seed, so the pack's "in band on all eight" result belongs to the control
+render, not to this one.

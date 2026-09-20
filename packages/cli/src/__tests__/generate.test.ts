@@ -62,6 +62,11 @@ const PROMPT_ID = "abcd-1234";
 // (#204), so the list is per cut. `rejectCall` is the 1-based index of the
 // /prompt submission it refuses, which is how a mid-run failure is reproduced:
 // the real one fails per request, not per process.
+//
+// `latents()` reports the EmptyLatentImage size of every submission for the same
+// reason: a declared panel shape (#237) is only wired up if the size it implies
+// is what actually left the process, and the command's own report of it would
+// not show a shape that was dropped between the plan and the request.
 async function startFakeComfy(
   image: Uint8Array,
   rejectCall?: number,
@@ -69,9 +74,11 @@ async function startFakeComfy(
   url: string;
   close: () => void;
   prompts: () => string[];
+  latents: () => { width: unknown; height: unknown }[];
   calls: () => number;
 }> {
   const prompts: string[] = [];
+  const latents: { width: unknown; height: unknown }[] = [];
   let calls = 0;
   const server: Server = createServer((req, res) => {
     const url = req.url ?? "";
@@ -85,6 +92,8 @@ async function startFakeComfy(
         };
         const text = body.prompt?.["6"]?.inputs?.text;
         if (typeof text === "string") prompts.push(text);
+        const latent = body.prompt?.["5"]?.inputs ?? {};
+        latents.push({ width: latent.width, height: latent.height });
         res.setHeader("content-type", "application/json");
         res.end(
           calls === rejectCall
@@ -120,6 +129,7 @@ async function startFakeComfy(
     url: `http://127.0.0.1:${port}`,
     close: () => server.close(),
     prompts: () => [...prompts],
+    latents: () => [...latents],
     calls: () => calls,
   };
 }
@@ -388,6 +398,259 @@ test("a cut's palette reaches the provider as WORDS, appended last (#207)", asyn
     assert.deepEqual(comfy.prompts(), [
       "short black bob, amber eyes, an explicit scene, very dark desaturated azure blue color palette",
     ]);
+  } finally {
+    comfy.close();
+  }
+});
+
+// --- Panel shape per cut (#237) ---------------------------------------------
+//
+// The bundled default workflow's EmptyLatentImage is 832x1216, and these tests
+// assert against that pair on purpose: it is the "workflow latent" the ticket's
+// back-compat criterion names, and the only way to tell a shape that reached
+// generation from one that was dropped is what the latent node received.
+const DEFAULT_LATENT = { width: 832, height: 1216 };
+
+/** Rewrite the scaffold's two cuts, giving each the panel shape in `aspects`. */
+async function authorPanelShapes(
+  projectDir: string,
+  aspects: (number | undefined)[],
+): Promise<void> {
+  const lines = aspects.flatMap((aspect, i) => [
+    `- id: cut-00${i + 1}`,
+    "  image: null",
+    "  imagePrompt: a stored scene",
+    '  negativePrompt: ""',
+    ...(aspect === undefined ? [] : [`  panelAspect: ${aspect}`]),
+  ]);
+  await writeFile(join(projectDir, "episodes", "ep-001", "cuts.yaml"), `${lines.join("\n")}\n`);
+}
+
+test("a cut that declares no panel shape has NO size injected (#237)", async () => {
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--prompt", "x", "--allow-remote"],
+      c.io,
+    );
+    assert.equal(code, EXIT_OK, c.err.join("\n"));
+    // Not "some plausible size": the workflow's own latent, untouched. This is
+    // the control the back-compat criterion is about.
+    assert.deepEqual(comfy.latents(), [DEFAULT_LATENT]);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a declared panel shape becomes the cut's latent height (#237)", async () => {
+  const projectDir = await scaffold();
+  await authorPanelShapes(projectDir, [0.62, undefined]);
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+      c.io,
+    );
+    assert.equal(code, EXIT_OK, c.err.join("\n"));
+    // 832 * 0.62 = 515.84, snapped to the 8px latent grid. The column is the
+    // workflow's own width, so only the height moved.
+    assert.deepEqual(comfy.latents(), [{ width: 832, height: 512 }]);
+    // The resolved size is reported, so an operator can see the shape took.
+    assert.match(c.out.join("\n"), /cut cut-001 \(clean\) at 832x512/);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("each cut in one run is generated at its OWN declared shape (#237)", async () => {
+  const projectDir = await scaffold();
+  await authorPanelShapes(projectDir, [1.5, 0.5]);
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--cut", "cut-002", "--allow-remote"],
+      c.io,
+    );
+    assert.equal(code, EXIT_OK, c.err.join("\n"));
+    assert.deepEqual(comfy.latents(), [
+      { width: 832, height: 1248 },
+      { width: 832, height: 416 },
+    ]);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("--width pins the column a declared shape is a multiple of (#237)", async () => {
+  const projectDir = await scaffold();
+  await authorPanelShapes(projectDir, [1.5, undefined]);
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--width", "800", "--allow-remote"],
+      c.io,
+    );
+    assert.equal(code, EXIT_OK, c.err.join("\n"));
+    assert.deepEqual(comfy.latents(), [{ width: 800, height: 1200 }]);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("--height overrides a declared shape, and the run says so (#237)", async () => {
+  const projectDir = await scaffold();
+  await authorPanelShapes(projectDir, [1.5, undefined]);
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--height", "600", "--allow-remote"],
+      c.io,
+    );
+    assert.equal(code, EXIT_OK, c.err.join("\n"));
+    assert.deepEqual(comfy.latents(), [{ width: 832, height: 600 }]);
+    // A dropped shape that nothing mentions is how `palette` stayed inert for
+    // four releases (#207); the override is stated.
+    assert.match(c.err.join("\n"), /--height 600 overrides the declared panel shape on 1 cut/);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("an out-of-range or non-numeric panel shape is refused, and nothing is generated (#237)", async () => {
+  // `toony generate` never reads `loadProject`'s validation report, so a project
+  // `toony validate` rejects still reaches the shape resolver. Left unguarded,
+  // each of these either clamped to a one-block sliver or was dropped while the
+  // run exited 0 reporting a size nobody asked for: #207 in a new place.
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    for (const authored of ["0", "-1", "0.099", "10.001", ".nan", ".inf", '"tall"', '"1.4"']) {
+      await authorPanelShapes(projectDir, [authored as unknown as number, undefined]);
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      const code = await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+        c.io,
+      );
+      assert.equal(code, EXIT_VALIDATION, `${authored} was not refused: ${c.err.join("\n")}`);
+      // Refused BEFORE the GPU, not after: an invalid shape costs nothing.
+      assert.deepEqual(comfy.latents(), [], `${authored} reached the generator`);
+      assert.match(c.err.join("\n"), /cut cut-001 declares panelAspect .* run "toony validate"/);
+    }
+    // NaN and Infinity are the two an author is least likely to understand, and
+    // JSON.stringify renders both as `null`. They must name themselves.
+    for (const [authored, shown] of [
+      [".nan", "NaN"],
+      [".inf", "Infinity"],
+      ['"tall"', '"tall"'],
+    ] as const) {
+      await authorPanelShapes(projectDir, [authored as unknown as number, undefined]);
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+        c.io,
+      );
+      assert.ok(
+        c.err.join("\n").includes(`declares panelAspect ${shown},`),
+        `${authored} printed as: ${c.err.join("\n")}`,
+      );
+    }
+    // The bounds themselves are INCLUSIVE, and they live in two places now: the
+    // schema and this command. Without these two rows the CLI copy could drift
+    // to exclusive and refuse a project `toony validate` calls valid.
+    for (const [authored, height] of [
+      ["0.1", 80],
+      ["10", 8320],
+    ] as const) {
+      await authorPanelShapes(projectDir, [authored as unknown as number, undefined]);
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      const before = comfy.latents().length;
+      const code = await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+        c.io,
+      );
+      assert.equal(code, EXIT_OK, `${authored} was refused: ${c.err.join("\n")}`);
+      assert.deepEqual(comfy.latents().slice(before), [{ width: 832, height }]);
+    }
+    // The guard runs BEFORE the --height branch, so a bad declaration fails a
+    // run that would not have used it. Nothing else pins that placement.
+    await authorPanelShapes(projectDir, [".nan" as unknown as number, undefined]);
+    {
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      const before = comfy.latents().length;
+      const code = await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--height",
+          "600",
+          "--allow-remote",
+        ],
+        c.io,
+      );
+      assert.equal(code, EXIT_VALIDATION, c.err.join("\n"));
+      assert.deepEqual(comfy.latents().slice(before), []);
+    }
+    // The check covers every declared cut in the run, not the first one.
+    await authorPanelShapes(projectDir, [1.5, "0" as unknown as number]);
+    {
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      const before = comfy.latents().length;
+      const code = await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--cut",
+          "cut-002",
+          "--allow-remote",
+        ],
+        c.io,
+      );
+      assert.equal(code, EXIT_VALIDATION, c.err.join("\n"));
+      assert.deepEqual(comfy.latents().slice(before), []);
+      assert.match(c.err.join("\n"), /cut cut-002 declares panelAspect 0,/);
+    }
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a declared shape with no column to resolve against refuses the run (#237)", async () => {
+  // The column comes from the workflow's own latent, read through the injection
+  // map. Point the map at a node the graph does not have and there is no column:
+  // the alternative, falling back to the workflow's latent, would render the
+  // page with the pack's pacing quietly removed and cost GPU minutes to find.
+  const projectDir = await scaffold();
+  await authorPanelShapes(projectDir, [1.5, undefined]);
+  const workflowPath = join(projectDir, "no-latent.workflow.json");
+  await writeFile(
+    workflowPath,
+    JSON.stringify({
+      "1": { class_type: "CLIPTextEncode", inputs: { text: "" } },
+      "9": { class_type: "SaveImage", inputs: { filename_prefix: "toony", images: ["1", 0] } },
+    }),
+  );
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url, TOONY_COMFYUI_WORKFLOW: workflowPath });
+    const code = await runGenerate(
+      [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+      c.io,
+    );
+    assert.equal(code, EXIT_USAGE, c.err.join("\n"));
+    assert.deepEqual(comfy.latents(), []);
+    assert.match(c.err.join("\n"), /the column to size it against is unknown/);
   } finally {
     comfy.close();
   }
