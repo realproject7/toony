@@ -45,14 +45,24 @@ import type { Project, ValidationIssue, ValidationResult } from "@toony/schema";
  * name. None of them inspects a record's own fields, so a project whose only
  * issues are these has every field of every record intact.
  *
- * Deliberately NOT here, though generation reads the sequence no more than it
- * reads these: the reading-order SHAPE rules (`sequence.empty`,
- * `sequence.leading-transition`, `sequence.trailing-transition`,
- * `sequence.adjacent-transitions`, `sequence.duplicate-reference`). Those state
- * a rule about the finished episode rather than a reference that is not yet
- * written, and no measured authoring step needed them. The cost is real and
- * worth knowing: sequencing a transition at the very end of an episode, or two
- * in a row, still refuses the run until the next cut is sequenced.
+ * `sequence.empty` is here for a different reason than the other five, and it is
+ * the one the reading-order SHAPE rules do not share. It is emitted by
+ * `validateSequenceShape` from `types.length === 0` — a zero-length array, so by
+ * construction it reads nothing at all, not one field of one record. And it is
+ * not a rule about a finished episode: it is an episode nobody has written into
+ * yet. A correctly created `episodes/ep-002/` with all four files present and
+ * `sequence: []` made the FINISHED episode 1 unreachable, and unlike a trailing
+ * transition there is no "fix it in the same edit" — not having written the
+ * episode is the whole point of that state.
+ *
+ * Deliberately NOT here: the other four reading-order shape rules
+ * (`sequence.leading-transition`, `sequence.trailing-transition`,
+ * `sequence.adjacent-transitions`, `sequence.duplicate-reference`). Those DO
+ * state a rule about the finished episode, they each have an edit that fixes
+ * them on the spot, and no measured authoring step needed them. The cost is
+ * real, accepted, and pinned by test: sequencing a transition at the very end of
+ * an episode, or two in a row, still refuses the run until the next cut is
+ * sequenced.
  */
 export const WIRING_CODES: ReadonlySet<string> = new Set([
   // A record exists and is well formed, but the sequence does not name it yet.
@@ -64,6 +74,8 @@ export const WIRING_CODES: ReadonlySet<string> = new Set([
   // A lettering overlay points at a cut record that does not exist. Generation
   // never reads `lettering`.
   "overlay.missing-cut",
+  // An episode exists but nothing has been sequenced into it yet.
+  "sequence.empty",
 ]);
 
 /** Split a report into the issues that block a run and the ones that only warn. */
@@ -101,6 +113,27 @@ export function renderAuthoredValue(value: unknown): string {
 
 /** One step of a dotted/indexed issue path: a key or an array index. */
 type PathStep = { key: string } | { index: number };
+
+/**
+ * The one key whose issue paths do not address the loaded project faithfully.
+ *
+ * `validateSequenceIntegrity` is handed the BUNDLE path and builds
+ * `episodes[i].sequence` from it (`validate.ts:915`, `:972`), but in the loaded
+ * project the sequence lives at `episodes[i].episode.sequence` — so
+ * `"sequence" in bundle` is FALSE. Without this hop the walker's
+ * "a missing key on the last step means the field is absent" branch fires and
+ * the run tells an author their sequence is missing when it is present, which
+ * points at a different edit than the one they need. It was wrong for three
+ * codes — `sequence.empty`, `sequence.leading-transition` and
+ * `sequence.trailing-transition`; `adjacent-transitions` and
+ * `duplicate-reference` escaped it only because their paths carry a trailing
+ * index, so the missing key was never the last step.
+ *
+ * Scoped to this ONE key on purpose. If the validator ever flattens another,
+ * the walker declines and prints nothing, which is the safe failure: a wrong
+ * line is worse than no line.
+ */
+const BUNDLE_FLATTENED_KEY = "sequence";
 
 /**
  * Split a `ValidationIssue.path` into steps.
@@ -158,17 +191,30 @@ export function locateIssue(project: Project, issue: ValidationIssue): LocatedIs
       current = current[step.index];
     } else {
       if (Array.isArray(current)) return null;
-      // A key that is not there at all resolves ONLY as the last step, where it
-      // means the field is missing — a misspelled `lockstring` reads as
-      // "absent", which is the one thing its "must be a non-empty string"
-      // message does not say. A missing key anywhere earlier means the path
-      // does not describe this project, so say nothing rather than guess.
       if (!(step.key in current)) {
-        return i === steps.length - 1
-          ? { value: renderAuthoredValue(undefined), ...(recordId ? { recordId } : {}) }
-          : null;
+        // One known divergence first: the validator addresses the episode's
+        // `sequence` through the bundle. Following it is the difference between
+        // "your sequence is absent" and the truth.
+        const hop =
+          step.key === BUNDLE_FLATTENED_KEY
+            ? (current as { episode?: unknown }).episode
+            : undefined;
+        if (hop !== null && typeof hop === "object" && step.key in hop) {
+          current = (hop as Record<string, unknown>)[step.key];
+        } else {
+          // Otherwise a key that is not there resolves ONLY as the last step,
+          // where it means the field really is missing — a misspelled
+          // `lockstring` reads as "absent", which is the one thing its "must be
+          // a non-empty string" message does not say. A missing key anywhere
+          // earlier means the path does not describe this project, so say
+          // nothing rather than guess.
+          return i === steps.length - 1
+            ? { value: renderAuthoredValue(undefined), ...(recordId ? { recordId } : {}) }
+            : null;
+        }
+      } else {
+        current = (current as Record<string, unknown>)[step.key];
       }
-      current = (current as Record<string, unknown>)[step.key];
     }
     // Remember the innermost record id seen on the way down, so the line can say
     // `cut-002` instead of only `episodes[0].cuts[1]`.

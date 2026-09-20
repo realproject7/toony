@@ -4,7 +4,7 @@
 // documented API does, so the command exercises the real provider + ingest path.
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -16,6 +16,7 @@ import { runGenerate } from "../commands/generate.js";
 import { runInit } from "../commands/init.js";
 import { runValidate } from "../commands/validate.js";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
+import { locateIssue } from "../generate-gate.js";
 
 let workdir: string;
 
@@ -583,6 +584,189 @@ test("every wiring code warns, and an off-list code still refuses (#261)", async
       // The wiring issue is still reported — refusing does not hide it.
       assert.match(blocked.err.join("\n"), new RegExp(`\\[${code.replace(".", "\\.")}\\]`), name);
     }
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a brand-new episode does not make the finished one unreachable (#261)", async () => {
+  // `sequence.empty` is not a rule about a finished episode: it is an episode
+  // nobody has written into yet, the purest "incomplete, not invalid" state the
+  // schema has. Creating ep-002 correctly — all four files, right shapes, an
+  // empty sequence — used to refuse generation in ep-001 as well, and there is
+  // no edit that fixes it without writing the episode.
+  const projectDir = await scaffold();
+  const newEpisode = join(projectDir, "episodes", "ep-002");
+  await mkdir(newEpisode, { recursive: true });
+  await writeFile(
+    join(newEpisode, "episode.yaml"),
+    "id: ep-002\nschemaVersion: 1\nsequence: []\ntitle: Episode 2\n",
+  );
+  await writeFile(join(newEpisode, "cuts.yaml"), "[]\n");
+  await writeFile(join(newEpisode, "transitions.yaml"), "[]\n");
+  await writeFile(join(newEpisode, "lettering.json"), "[]\n");
+
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const validate = capture();
+    assert.equal(await runValidate([projectDir], validate.io), EXIT_VALIDATION);
+    assert.match(validate.out.join("\n"), /\[sequence\.empty\] episodes\[1\]\.sequence/);
+
+    // The FINISHED episode still generates. This is the blast radius that
+    // defined the original finding.
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--prompt", "x", "--allow-remote"],
+      c.io,
+    );
+    assert.equal(code, EXIT_OK, c.err.join("\n"));
+    assert.equal(comfy.calls(), 1, "the finished episode did not reach the generator");
+    assert.match(c.err.join("\n"), /\[sequence\.empty\]/);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("the excluded reading-order rules still REFUSE (#261)", async () => {
+  // The allowlist can only shrink safely. Removing a code breaks a row above;
+  // ADDING one broke nothing, so the list could quietly grow to swallow the
+  // exclusions the module documents as deliberate. These rows are the cost that
+  // was chosen, and they are what notices if someone widens the list.
+  const projectDir = await scaffold();
+  const episodePath = join(projectDir, "episodes", "ep-001", "episode.yaml");
+  const pristine = await readFile(episodePath, "utf8");
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    for (const [code, rows] of [
+      // ...cut-002, tr-002 — an episode that ends on a transition.
+      ["sequence.trailing-transition", ["  - id: tr-002", "    type: transition"]],
+      // tr-002 first — an episode that begins with one.
+      ["sequence.leading-transition", ["  - id: tr-002", "    type: transition"]],
+    ] as const) {
+      const lines = pristine.split("\n");
+      const at =
+        code === "sequence.trailing-transition"
+          ? lines.findIndex((l) => l.startsWith("title:"))
+          : lines.findIndex((l) => l.trim() === "sequence:") + 1;
+      lines.splice(at, 0, ...rows);
+      await writeFile(episodePath, lines.join("\n"));
+      // tr-002 needs a record, or `sequence.missing-transition` (which IS
+      // allowlisted) would be doing the refusing instead of the rule under test.
+      const transitionsPath = join(projectDir, "episodes", "ep-001", "transitions.yaml");
+      const transitions = await readFile(transitionsPath, "utf8");
+      await writeFile(
+        transitionsPath,
+        `${transitions.trimEnd()}\n- agentNote: null\n  gutterHeight: 48\n  humanNote: null\n  id: tr-002\n  image: null\n  reviewStatus: draft\n  sfx: null\n  text: null\n  type: gutter\n`,
+      );
+
+      const validate = capture();
+      assert.equal(await runValidate([projectDir], validate.io), EXIT_VALIDATION, code);
+      const report = validate.out.join("\n");
+      assert.match(report, new RegExp(`\\[${code.replace(/\./g, "\\.")}\\]`), code);
+
+      const before = comfy.calls();
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      const exit = await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--prompt", "x", "--allow-remote"],
+        c.io,
+      );
+      assert.equal(exit, EXIT_VALIDATION, `${code} was not refused: ${c.err.join("\n")}`);
+      assert.equal(comfy.calls() - before, 0, `${code} reached the generator`);
+
+      await writeFile(episodePath, pristine);
+      await writeFile(transitionsPath, transitions);
+    }
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a bundle-shaped path never claims an existing sequence is absent (#261)", async () => {
+  // `validateSequenceIntegrity` builds `episodes[i].sequence` from the BUNDLE
+  // path, but the loaded project keeps it at `episodes[i].episode.sequence`.
+  // Read naively, `"sequence" in bundle` is false and the run printed
+  // "episodes[1].sequence is absent" — which is false; it is []. A wrong line is
+  // worse than no line, and for `sequence.empty` "absent" and "empty" are
+  // different fixes.
+  const project = {
+    webtoon: { characters: [{ id: "mina", name: "Mina" }] },
+    episodes: [
+      { episode: { id: "ep-001", sequence: [{ id: "tr-001", type: "transition" }] }, cuts: [] },
+      { episode: { id: "ep-002", sequence: [] }, cuts: [] },
+    ],
+  } as unknown as Parameters<typeof locateIssue>[0];
+
+  for (const path of [
+    "episodes[1].sequence", // sequence.empty
+    "episodes[0].sequence", // sequence.leading-transition / trailing-transition
+  ]) {
+    const located = locateIssue(project, { path, code: "sequence.empty", message: "" });
+    // The hop resolves these to the ARRAY they really are, and an array
+    // declines — so the outcome is "no line". `notEqual` alone would pass for a
+    // walker that had simply stopped working, so pin the exact outcome.
+    assert.equal(located, null, `${path} resolved to ${JSON.stringify(located)}`);
+  }
+  // The hop is scoped to `sequence`, so a genuinely missing field still reads as
+  // absent — the misspelled-key affordance must survive the fix. This is also
+  // what proves the walker still resolves at all.
+  const missing = locateIssue(project, {
+    path: "webtoon.characters[0].lockstring",
+    code: "field.required",
+    message: "",
+  });
+  assert.equal(missing?.value, "absent");
+  assert.equal(missing?.recordId, "mina");
+});
+
+test("a refusal alongside a sequence rule prints no false absence (#261)", async () => {
+  // The end-to-end half: `sequence.trailing-transition` refuses, so its path
+  // reaches `authoredValueLines` for real. Before the bundle hop this printed
+  // "episodes[0].sequence is absent" — false, and pointing at a different edit
+  // than the one an author needs.
+  const projectDir = await scaffold();
+  const episodePath = join(projectDir, "episodes", "ep-001", "episode.yaml");
+  const lines = (await readFile(episodePath, "utf8")).split("\n");
+  lines.splice(
+    lines.findIndex((l) => l.startsWith("title:")),
+    0,
+    "  - id: tr-002",
+    "    type: transition",
+  );
+  await writeFile(episodePath, lines.join("\n"));
+  const transitionsPath = join(projectDir, "episodes", "ep-001", "transitions.yaml");
+  await writeFile(
+    transitionsPath,
+    `${(await readFile(transitionsPath, "utf8")).trimEnd()}\n- agentNote: null\n  gutterHeight: 48\n  humanNote: null\n  id: tr-002\n  image: null\n  reviewStatus: draft\n  sfx: null\n  text: null\n  type: gutter\n`,
+  );
+  // A second, ordinary defect, so the "as authored" block is definitely being
+  // produced — without this the absence check below could pass vacuously.
+  const cutsPath = join(projectDir, "episodes", "ep-001", "cuts.yaml");
+  await writeFile(
+    cutsPath,
+    (await readFile(cutsPath, "utf8")).replace(
+      "- id: cut-001",
+      "- id: cut-001\n  shotType: not_a_shot_type",
+    ),
+  );
+
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--prompt", "x", "--allow-remote"],
+      c.io,
+    );
+    assert.equal(code, EXIT_VALIDATION, c.err.join("\n"));
+    const err = c.err.join("\n");
+    // The rule fired and is reported...
+    assert.match(err, /\[sequence\.trailing-transition\] episodes\[0\]\.sequence/);
+    // ...the "as authored" block is present and correct for the other issue...
+    assert.ok(
+      err.includes('episodes[0].cuts[0].shotType (cut-001) is "not_a_shot_type"'),
+      `no as-authored block to check against:\n${err}`,
+    );
+    // ...and nothing claims the sequence is missing, because it is not.
+    assert.doesNotMatch(err, /episodes\[0\]\.sequence.* is absent/, err);
   } finally {
     comfy.close();
   }

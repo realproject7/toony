@@ -46,9 +46,10 @@ options:
                            \`toony validate\` prints, plus the offending value as
                            authored, and exits 1 having generated nothing. There
                            is no override flag. A project that is only half
-                           WIRED — a record not yet in the episode sequence, or
-                           a sequence entry whose record is not written yet —
-                           warns on stderr and generates anyway
+                           WIRED — a record not yet in the episode sequence, a
+                           sequence entry whose record is not written yet, or an
+                           episode nothing has been sequenced into — warns on
+                           stderr and generates anyway
   export <platform|stitched|plotlink|preset> [path] --episode <id>
          [--width <px>] [--format png|jpg] [--quality <0-100>]
                            writes into the project's exports/ folder + manifest;

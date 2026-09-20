@@ -95,8 +95,12 @@ makes the whole project unreachable while any one part of it is mid-edit: a new
 `cut-003` appended to `cuts.yaml` blocks generating cut-003, cut-001, and every
 transition, until it is sequenced.
 
-So five codes are treated as wiring rather than data. They warn on stderr,
-naming what is unwired, and the run proceeds:
+The same is true one level up. Create `episodes/ep-002/` correctly — all four
+files, right shapes, `sequence: []` — and the **finished** episode 1 becomes
+unreachable, with no edit that fixes it short of writing the new episode.
+
+So six codes are treated as wiring rather than data. They warn on stderr, naming
+what is unwired, and the run proceeds:
 
 | code | state |
 |---|---|
@@ -105,24 +109,35 @@ naming what is unwired, and the run proceeds:
 | `sequence.missing-cut` | the sequence names a cut not yet written |
 | `sequence.missing-transition` | the sequence names a transition not yet written |
 | `overlay.missing-cut` | a lettering overlay points at a cut that does not exist |
+| `sequence.empty` | an episode nobody has sequenced anything into yet |
 
-Each one is emitted only by the validator's reference checks, which compare id
-sets — none of them inspects a record's own fields, so a project whose only
-issues are these has every record intact. Generation reads `cuts`, `transitions`
-and `webtoon.characters`; it reads neither `episode.sequence` nor `lettering`,
-which is where all five live.
+The first five are emitted only by the validator's reference checks, which
+compare id sets — none of them inspects a record's own fields, so a project
+whose only issues are these has every record intact. `sequence.empty` is
+stronger still: it fires on a zero-length array, so it reads nothing at all.
+Generation reads `cuts`, `transitions` and `webtoon.characters`; it reads
+neither `episode.sequence` nor `lettering`, which is where all six live.
 
 The list is by exact code, so it **fails closed**: a validation code added later
-is not on it and refuses. One consequence worth knowing — the reading-order
-*shape* rules are deliberately off the list, so sequencing a transition at the
-very end of an episode, or two in a row, still refuses until the next cut is
-sequenced.
+is not on it and refuses. One consequence worth knowing, chosen deliberately and
+pinned by test — the other four reading-order *shape* rules are off the list, so
+sequencing a transition at the very end of an episode, or two in a row, still
+refuses until the next cut is sequenced. Unlike an unwritten episode, each of
+those has an edit that fixes it on the spot.
 
 Any single blocking issue refuses the whole run, even when wiring issues are
 present too. The refusal prints the report `toony validate` prints, and then one
 line per issue naming **the value as authored** — because `panelAspect: "1.4"`
 answers "must be a number between 0.1 and 10" with a number between 0.1 and 10,
-and the quotes are the entire defect.
+and the quotes are the entire defect. A field whose key is misspelled reads as
+`absent`, which its "must be a non-empty string" message cannot say.
+
+That line is printed only when the issue's path resolves to a single value. It
+is left out rather than guessed at, because a wrong line is worse than no line:
+the validator addresses an episode's sequence through the bundle
+(`episodes[0].sequence`) while the loaded project keeps it at
+`episodes[0].episode.sequence`, and read naively that reported a present
+sequence as missing.
 
 ## Export Targets
 
