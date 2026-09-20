@@ -173,22 +173,24 @@ bubble written without the field reserves the side the colour trim cannot see.
 Do not change the schema default to get this; `placementSide` is a lettering
 field with readers outside the measurement.
 
-#### What this change does to a band measured before it
+#### What this change did to the bands measured before it
 
-Both shipped `panelInset` ranges were read on the reference analyzer, which
-anchors **both** runs on the row's left-most pixel — the convention this side
-replaced. Its captures include full-bleed pages, so the two sides now disagree on
-this metric, and the disagreement is **upward** here: a full-bleed page reports
-more under the per-edge rule than under the left-anchored one.
+Both shipped `panelInset` ranges were read while the reference analyzer anchored
+**both** runs on the row's left-most pixel — the convention this side replaced.
+Its captures include full-bleed pages, so that convention read one side of a
+banded page as zero and the per-edge rule reads **higher**.
 
-| Band | Pack | Status |
-|---|---|---|
-| `panelInset` `0.092`–`0.131` | Muted Court Romance, graded | Measured left-anchored. Being re-derived on the reference side. |
-| `panelInset` `0.166`–`0.200` | Cold Revenge Mystery, recorded | Measured left-anchored. Being re-derived on the reference side. |
+The reference analyzer now measures per edge too, and both ranges were re-derived
+from the same episodes:
 
-Neither pack should grade `panelInset` against its current range until that
-re-derivation lands. The lane-by-lane before-and-after numbers behind this are on
-#255.
+| Band | Pack | Left-anchored | Per-edge, since #255 |
+|---|---|---|---|
+| `panelInset` | Muted Court Romance | `0.092`–`0.131`, graded | `0.125`–`0.171`, graded |
+| `panelInset` | Cold Revenge Mystery | `0.166`–`0.200`, recorded | `0.184`–`0.218`, graded again |
+
+No other metric moved on either side. The pilot's kept page reads `0.1253` under
+the new rule and still grades in band on all eight of its graded metrics. The
+lane-by-lane before-and-after numbers are on #255.
 
 **Both sides still classify the same rows.** The row rule is untouched — the
 flat-row threshold, both run-length floors and what counts as a panel all
@@ -389,8 +391,8 @@ set as step 2, deliberately, because a comparison between two different
 definitions means nothing.
 
 The two sides share the row rule, both run-length floors, the Rec. 709 luminance
-coefficients, the interior colour sampling, and the rounding. They differ in
-exactly two places, both recorded so neither is ever mistaken for an accident.
+coefficients, the interior colour sampling, and the rounding. One difference is
+left, recorded so it is never mistaken for an accident.
 
 **The row rule.** The reference side also requires a flat row to be **light**,
 because a Korean webtoon page sets its panels on white. Toony transitions are
@@ -401,19 +403,17 @@ Dropping it moves the reference captures' own numbers by at most 0.006 of the
 gutter ratio and changes none of their conclusions, so "flat" alone is the
 definition both sides use.
 
-**`panelInset`'s margin rule**, since #255. This side measures each edge against
-its own outermost pixel. The reference side anchors **both** runs on the row's
-left-most pixel — the convention this side replaced — and its captures include
-full-bleed pages, so the two parted on this metric when #255 landed. This is the
-difference that cost something: both shipped `panelInset` ranges were read under
-the reference convention, the disagreement is upward on this side, and the
-ranges are being re-derived there before either pack grades the metric again.
-Rows are classified identically either way: the margin rule reads a row that the
-run rule has already called a panel, and changes nothing about which rows those
-are.
+**`panelInset`'s margin rule** was the second difference, and it is closed. #255
+made this side measure each edge against its own outermost pixel; the reference
+side had anchored both runs on the row's left-most pixel, and it now measures
+per edge as well. Both keep the left-anchored margins for the interior colour
+sample only. The cost of the gap was the two shipped ranges, re-derived above.
+Rows were classified identically throughout: the margin rule reads a row the run
+rule has already called a panel, and changes nothing about which rows those are.
 
-Keeping the count at two is why the colour trim was left on the left-anchored
-rule (#257). A third difference is not a comparison a band can carry.
+Holding the count down is why the colour trim was left on the left-anchored rule
+on both sides (#257): a difference here would be a difference in every colour
+metric, and that is not a comparison a band can carry.
 
 ## Where this lives in the code
 
