@@ -97,7 +97,18 @@ A margin is, per edge: **how far one colour reaches inward from that edge before
 it changes**, where "one colour" allows 10 per RGB channel of drift, and the
 colour it has to keep is **that edge's own outermost pixel**.
 
-What follows from that, and what a band author needs to know:
+**On a render this measures something else than on a reference capture, and a
+band author has to know which.** A captured page's margin is reserved: the artist
+left it. A rendered page's art fills its panel edge to edge, so the run is
+whatever the model drew flat near the border. Three composed pages of one pack,
+identical in every geometric respect and differing only in their art, measured
+`0.1932`, `0.1470` and `0.1232` — a spread of 0.070, wider than either shipped
+band's whole range, against a pack-side lever (one more gutter-placed line) worth
+about 0.016. Both shipped packs therefore record this metric and neither grades
+it (#263). Grade it on a render only once that ticket separates a reserved band
+from a flat art edge.
+
+What follows from the margin rule, and what a band author needs to know:
 
 - **The two edges are independent, and are not clipped against each other.**
   Neither run is required to match the other and neither is shortened by it, so
@@ -185,8 +196,11 @@ from the same episodes:
 
 | Band | Pack | Left-anchored | Per-edge, since #255 |
 |---|---|---|---|
-| `panelInset` | Muted Court Romance | `0.092`–`0.131`, graded | `0.125`–`0.171`, graded |
-| `panelInset` | Cold Revenge Mystery | `0.166`–`0.200`, recorded | `0.184`–`0.218`, graded again |
+| `panelInset` | Muted Court Romance | `0.092`–`0.131` | `0.125`–`0.171` |
+| `panelInset` | Cold Revenge Mystery | `0.166`–`0.200` | `0.184`–`0.218` |
+
+Both packs **record** these ranges rather than grading them, for a reason that has
+nothing to do with the rule above — see the next section.
 
 No other metric moved on either side. The pilot's kept page reads `0.1253` under
 the new rule and still grades in band on all eight of its graded metrics. The
