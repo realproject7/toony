@@ -11,6 +11,7 @@ import {
   promptRejectedMissingInputResponse,
   promptRejectedMultipleNodesResponse,
   promptRejectedResponse,
+  promptRejectedV3ComboResponse,
   promptRejectedWithoutNodeErrorsResponse,
 } from "../__fixtures__/comfyui-responses.js";
 import {
@@ -81,6 +82,67 @@ test("parsePromptId reports every node and field ComfyUI rejected", () => {
     '  node 4 (CheckpointLoaderSimple) ckpt_name: Value not in list (got "model.safetensors", ' +
       "valid: base-model-v1.safetensors)",
   );
+});
+
+test("parsePromptId lists every valid value from a recorded V3 combo rejection", () => {
+  const error = rejectionOf(promptRejectedV3ComboResponse());
+  assert.equal(error.code, "comfyui.prompt-rejected");
+  assert.equal(
+    error.message.split("\n")[1],
+    '  node 12 (AlignYourStepsScheduler) model_type: Value not in list (got "SDXL_TURBO", ' +
+      "valid: SD1, SDXL, SVD)",
+  );
+});
+
+test("parsePromptId omits valid values for numeric and unrecognized input configurations", () => {
+  const configurations: unknown[] = [
+    undefined,
+    null,
+    "COMBO",
+    {},
+    [],
+    [[]],
+    ["COMBO"],
+    ["COMBO", null],
+    ["COMBO", "options"],
+    ["COMBO", 7],
+    ["COMBO", []],
+    ["COMBO", {}],
+    ["COMBO", { options: null }],
+    ["COMBO", { options: "SD1" }],
+    ["COMBO", { options: {} }],
+    ["COMBO", { options: [] }],
+    ["INT", { min: 1, max: 10000 }],
+    ["INT", { min: 1, max: 10000, options: ["SD1"] }],
+    ["UNKNOWN", { options: ["SD1"] }],
+  ];
+  for (const inputConfig of configurations) {
+    const error = rejectionOf({
+      error: { message: "Prompt outputs failed validation" },
+      node_errors: {
+        "12": {
+          class_type: "AlignYourStepsScheduler",
+          errors: [
+            {
+              message: "Value not in list",
+              extra_info: {
+                input_name: "model_type",
+                input_config: inputConfig,
+                received_value: "SDXL_TURBO",
+              },
+            },
+          ],
+        },
+      },
+    });
+    assert.equal(error.code, "comfyui.prompt-rejected");
+    assert.equal(
+      error.message,
+      "ComfyUI rejected the workflow: Prompt outputs failed validation\n" +
+        '  node 12 (AlignYourStepsScheduler) model_type: Value not in list (got "SDXL_TURBO")',
+      `input_config: ${JSON.stringify(inputConfig)}`,
+    );
+  }
 });
 
 test("parsePromptId names a missing required input without inventing a value", () => {
