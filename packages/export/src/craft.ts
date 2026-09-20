@@ -49,15 +49,18 @@ import { stitchEpisode } from "./targets.js";
  * even a dark night sky — vary far more than this. The reference analyzer's own
  * threshold.
  *
- * The reference additionally requires a flat row to be LIGHT (close to the
- * lightest row on the page), because a Korean webtoon page sets its panels on
- * white. THIS IS THE ONE PLACE THE TWO SIDES DIFFER. Toony transitions are
- * authored colour fields that are usually dark, so keeping that clause makes the
- * gutter metric blind to the very knob it exists to grade: on
- * `examples/dead-air` it reports a 0.0 gutter ratio and one panel spanning the
- * whole episode, at every flatness threshold. Dropping it moves the reference
- * captures' own numbers by at most 0.006 of the gutter ratio and changes none of
- * their genre conclusions, so "flat" alone is the definition both sides share.
+ * Flatness is the whole rule. There is no test on how LIGHT the row is. Do not
+ * add one, on either side. A lightness test measures page colour, and page
+ * colour is not what makes a row empty. Toony transitions are authored colour
+ * fields and a dark one is not light, so the clause reads every dark gap as
+ * art: an episode whose gaps are all dark reports no gutters and one panel
+ * spanning the page, which is the gutter metric going blind to the exact knob
+ * it exists to grade. That is a property of the definition, not a number that
+ * can drift. It holds at every flatness threshold and on any set of captures.
+ * The clause has already caused one silent failure on flat-but-dark rows, and
+ * the note on the transition mix further down this file has it.
+ * `examples/dead-air` is the dark episode in this repository; what it measures
+ * is pinned in `__tests__/craft-inset.test.ts` rather than quoted here.
  */
 export const FLAT_ROW_STDDEV_MAX = 12;
 
@@ -415,11 +418,9 @@ interface ColorSums {
  * reasons, in this order.
  *
  * FIRST, it is one of the definitions this side is BUILT to share with the
- * reference analyzer, which anchors both runs on the left-most pixel. This
- * measurement already differs from the reference in two places — the light-row
- * clause, and `panelInset`'s margin rule since #255 — and changing the trim
- * would make three. A band is a comparison between the two sides, and every
- * difference is a place that comparison leaks.
+ * reference analyzer, which anchors both runs on the left-most pixel. Moving
+ * the trim on one side alone would end that. A band is a comparison between the
+ * two sides, and every difference is a place that comparison leaks.
  *
  * SECOND, the re-basing cost, measured rather than guessed: anchoring the
  * right-hand run on the right-hand pixel moves `examples/dead-air` from 85.2 to
