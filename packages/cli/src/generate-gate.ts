@@ -1,4 +1,4 @@
-// The validation gate `toony generate` runs before it sends anything (#261),
+// The validation gate `generate` and `import-image` run before producing art (#270),
 // and the two pieces of reporting that make its refusal actionable.
 //
 // `toony generate` used to throw `loadProject`'s validation report away, so a
@@ -35,6 +35,7 @@
 //     widening the list is a deliberate edit with its own evidence.
 
 import type { Project, ValidationIssue, ValidationResult } from "@toony/schema";
+import { textReport } from "./report.js";
 
 /**
  * Validation codes that mean "not wired up yet", not "malformed".
@@ -89,6 +90,32 @@ export function partitionIssues(result: ValidationResult): {
     (WIRING_CODES.has(issue.code) ? wiring : blocking).push(issue);
   }
   return { blocking, wiring };
+}
+
+/** The shared authoring rule and report, before either command produces bytes. */
+export function passesAuthoringGate(
+  root: string,
+  loaded: { project: Project; validation: ValidationResult },
+  command: "generate" | "import-image",
+  err: (line: string) => void,
+): boolean {
+  if (loaded.validation.valid) return true;
+  const { blocking, wiring } = partitionIssues(loaded.validation);
+  const action = command === "generate" ? "generating" : "importing";
+  if (blocking.length === 0) {
+    err(`warning: ${wiring.length} unwired reference(s) in ${root}:`);
+    for (const issue of wiring) err(`  - [${issue.code}] ${issue.path}`);
+    err(`${action} anyway; run "toony validate" for the full report.`);
+    return true;
+  }
+  err(textReport(root, loaded.validation));
+  for (const line of authoredValueLines(loaded.project, blocking)) err(line);
+  const past = command === "generate" ? "generated" : "imported";
+  const verb = command === "generate" ? "generate from" : "import into";
+  err(
+    `nothing was ${past}: "toony ${command}" does not ${verb} a project that does not validate. Fix the issue(s) above and re-run.`,
+  );
+  return false;
 }
 
 /** How many characters of an authored value the refusal will print. */

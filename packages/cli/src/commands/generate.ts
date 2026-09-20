@@ -83,11 +83,10 @@ import {
 } from "@toony/providers";
 import { type Character, type Cut, type EpisodeBundle, REVIEW_STATUSES } from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
-import { authoredValueLines, partitionIssues } from "../generate-gate.js";
+import { passesAuthoringGate } from "../generate-gate.js";
 import { discoverPackContent } from "../packs.js";
 import { appendPaletteClause } from "../palette.js";
 import { latentHeightFor } from "../panel-shape.js";
-import { textReport } from "../report.js";
 
 export interface GenerateIo {
   cwd: string;
@@ -952,7 +951,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   // and `applyPanelShapes`, so an invalid project is named as invalid instead of
   // surfacing as whatever secondary complaint the run would have hit first.
   //
-  // `@toony/generate-gate` owns what refuses and what only warns, and why.
+  // `../generate-gate.ts` shares this rule and report with manual import.
   let loaded: LoadedProject;
   try {
     loaded = await loadProject(root);
@@ -965,30 +964,8 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     }
     throw cause;
   }
-  if (!loaded.validation.valid) {
-    const { blocking, wiring } = partitionIssues(loaded.validation);
-    if (blocking.length === 0) {
-      // Half-wired, not malformed: every record generation reads is intact and
-      // only the references between them are unfinished. Say so loudly — this
-      // is the "loud warning" half of the ticket — and generate.
-      io.err(`warning: ${wiring.length} unwired reference(s) in ${root}:`);
-      for (const issue of wiring) io.err(`  - [${issue.code}] ${issue.path}`);
-      io.err('generating anyway; run "toony validate" for the full report.');
-    } else {
-      // The SAME report `toony validate` prints, from the same function, so an
-      // author reads one command's output instead of running two. Any blocking
-      // issue refuses the whole run, even alongside wiring ones.
-      io.err(textReport(root, loaded.validation));
-      // ...then what the validator cannot say: the value that is actually there.
-      // Without it, `panelAspect: "1.4"` answers "must be a number between 0.1
-      // and 10" with a number between 0.1 and 10, and the quotes — the entire
-      // defect — go unmentioned.
-      for (const line of authoredValueLines(loaded.project, blocking)) io.err(line);
-      io.err(
-        'nothing was generated: "toony generate" does not generate from a project that does not validate. Fix the issue(s) above and re-run.',
-      );
-      return EXIT_VALIDATION;
-    }
+  if (!passesAuthoringGate(root, loaded, "generate", io.err)) {
+    return EXIT_VALIDATION;
   }
 
   // Filter only after the project's validation gate. A status alone selects the

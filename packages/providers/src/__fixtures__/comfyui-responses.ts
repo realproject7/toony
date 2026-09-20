@@ -9,14 +9,17 @@
 // removed required input, an uninstalled node type. ComfyUI never queues or
 // executes a graph it rejects, so recording these ran no work on the server.
 //
-// Six bodies were recorded and four are kept here. The two left out (an empty
+// Seven bodies were recorded and five are kept here. The two left out (an empty
 // graph, and a POST with no `prompt` key) both came back with `node_errors: {}`,
-// the shape promptRejectedWithoutNodeErrorsResponse already covers.
+// the shape promptRejectedWithoutNodeErrorsResponse already covers. The V3
+// combo recording uses an invalid AlignYourStepsScheduler model_type, linked
+// through SamplerCustom and VAEDecode to SaveImage. Missing required sampler
+// and VAE inputs also guarantee rejection. The queue remained empty.
 //
-// One thing these recordings CANNOT show: every option list the server sent had
-// a single entry, because the recording machine has one checkpoint installed. A
-// one-entry list cannot distinguish "list them all" from "list the first", so
-// the multi-value case is asserted from a synthetic body in the protocol test.
+// The recorded legacy option lists have a single entry, because the recording
+// machine has one checkpoint installed. A one-entry list cannot distinguish
+// "list them all" from "list the first", so the legacy multi-value case uses a
+// synthetic body in the protocol test. The V3 recording has three real options.
 //
 // ONE redaction was applied: the recording machine's real installed checkpoint
 // filename was replaced with "base-model-v1.safetensors" wherever it appeared,
@@ -69,6 +72,106 @@ export function promptRejectedResponse(): unknown {
         ],
         dependent_outputs: ["9"],
         class_type: "CheckpointLoaderSimple",
+      },
+    },
+  };
+}
+
+/**
+ * POST /prompt rejection recorded from a V3 combo input. The scheduler offers
+ * three built-in model types. Other missing inputs keep the graph invalid even
+ * if its model_type is corrected; no inference or image write was possible.
+ */
+export function promptRejectedV3ComboResponse(): unknown {
+  return {
+    error: {
+      type: "prompt_outputs_failed_validation",
+      message: "Prompt outputs failed validation",
+      details: "",
+      extra_info: {},
+    },
+    node_errors: {
+      "12": {
+        errors: [
+          {
+            type: "value_not_in_list",
+            message: "Value not in list",
+            details: "model_type: 'SDXL_TURBO' not in ['SD1', 'SDXL', 'SVD']",
+            extra_info: {
+              input_name: "model_type",
+              input_config: [
+                "COMBO",
+                {
+                  multiselect: false,
+                  options: ["SD1", "SDXL", "SVD"],
+                },
+              ],
+              received_value: "SDXL_TURBO",
+            },
+          },
+        ],
+        dependent_outputs: ["15"],
+        class_type: "AlignYourStepsScheduler",
+      },
+      "13": {
+        errors: [
+          {
+            type: "required_input_missing",
+            message: "Required input is missing",
+            details: "sampler",
+            extra_info: {
+              input_name: "sampler",
+            },
+          },
+          {
+            type: "required_input_missing",
+            message: "Required input is missing",
+            details: "negative",
+            extra_info: {
+              input_name: "negative",
+            },
+          },
+          {
+            type: "required_input_missing",
+            message: "Required input is missing",
+            details: "latent_image",
+            extra_info: {
+              input_name: "latent_image",
+            },
+          },
+          {
+            type: "required_input_missing",
+            message: "Required input is missing",
+            details: "positive",
+            extra_info: {
+              input_name: "positive",
+            },
+          },
+          {
+            type: "required_input_missing",
+            message: "Required input is missing",
+            details: "model",
+            extra_info: {
+              input_name: "model",
+            },
+          },
+        ],
+        dependent_outputs: ["15"],
+        class_type: "SamplerCustom",
+      },
+      "14": {
+        errors: [
+          {
+            type: "required_input_missing",
+            message: "Required input is missing",
+            details: "vae",
+            extra_info: {
+              input_name: "vae",
+            },
+          },
+        ],
+        dependent_outputs: ["15"],
+        class_type: "VAEDecode",
       },
     },
   };

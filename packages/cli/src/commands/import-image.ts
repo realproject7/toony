@@ -6,9 +6,10 @@
 // with the target record. Studio UI is out of scope (issue #6 owns it).
 
 import { resolve } from "node:path";
-import { type AssetTarget, ingestImageAsset, ProjectIoError } from "@toony/project-io";
+import { type AssetTarget, ingestImageAsset, loadProject, ProjectIoError } from "@toony/project-io";
 import { type ImageProvider, ManualImportProvider, ProviderError } from "@toony/providers";
-import { EXIT_OK, EXIT_USAGE } from "../exit.js";
+import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
+import { passesAuthoringGate } from "../generate-gate.js";
 
 export interface ImportImageIo {
   cwd: string;
@@ -134,6 +135,10 @@ export async function runImportImage(args: string[], io: ImportImageIo): Promise
       : { kind: "transition", episodeId, transitionId: transitionId as string };
 
   try {
+    const loaded = await loadProject(root);
+    if (!passesAuthoringGate(root, loaded, "import-image", io.err)) {
+      return EXIT_VALIDATION;
+    }
     const result = await provider.produce({ sourcePath: from });
     const ingested = await ingestImageAsset(root, target, result);
     const where =
