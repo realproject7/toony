@@ -130,15 +130,20 @@ function describeNodeError(nodeError: unknown): string {
 /**
  * The valid values for a rejected input, comma-joined, or null when the server
  * did not list them. `extra_info.input_config` is [<options>, <ui hints>] for a
- * combo input but ["INT", { min, max }] for a numeric one, so only an array
- * first element is an option list. ComfyUI replaces input_config with null when
- * the option list is longer than 20 entries, which bounds this text.
+ * legacy combo or ["COMBO", { options }] for a V3 combo. Other input types,
+ * including ["INT", { min, max }], do not carry a valid-values list. ComfyUI
+ * replaces input_config with null for lists longer than 20 entries.
  */
 function readValidValues(extra: unknown): string | null {
   if (typeof extra !== "object" || extra === null) return null;
   const config = (extra as { input_config?: unknown }).input_config;
   if (!Array.isArray(config)) return null;
-  const options = config[0];
+  let options = config[0];
+  if (options === "COMBO") {
+    const metadata = config[1];
+    if (typeof metadata !== "object" || metadata === null) return null;
+    options = (metadata as { options?: unknown }).options;
+  }
   if (!Array.isArray(options) || options.length === 0) return null;
   return options.map((option) => String(option)).join(", ");
 }

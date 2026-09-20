@@ -22,7 +22,7 @@ import {
   EXPORT_WIDTH_MIN,
   validateExportInt,
 } from "@toony/schema";
-import { EXIT_OK, EXIT_USAGE } from "../exit.js";
+import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 import { discoverPackContent } from "../packs.js";
 
 export interface ExportIo {
@@ -164,7 +164,9 @@ export async function runExport(args: string[], io: ExportIo): Promise<number> {
   } catch (cause) {
     if (cause instanceof ExportError || cause instanceof ProjectIoError) {
       io.err(`export failed: ${cause.message}`);
-      return EXIT_USAGE;
+      return cause instanceof ExportError && cause.code === "invalid-project"
+        ? EXIT_VALIDATION
+        : EXIT_USAGE;
     }
     throw cause;
   }
