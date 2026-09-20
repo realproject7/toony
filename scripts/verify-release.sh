@@ -19,8 +19,30 @@ set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REF="${1:-$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)}"
-WORK="${TMPDIR:-/tmp}/toony-verify-$(echo "$REF" | tr '/' '-')"
 NODE_VERSIONS=("20" "24")
+
+# One scratch directory per RUN, not per ref. A fixed per-ref path meant a
+# second run of the same ref cloned into the directory the first was still
+# writing, and git reported the unreadable tree it happened to catch mid-write:
+#
+#   fatal: unable to read tree (66bc438...)
+#   warning: Clone succeeded, but checkout failed.
+#
+# The named object is present in the source repository, so that message sends
+# whoever reads it after a corrupt repository rather than a collision. `mktemp`
+# removes the class: concurrent runs of one ref get different directories and
+# both work. The ref stays in the path so a stray directory is still traceable.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/toony-verify-$(echo "$REF" | tr '/' '-')-XXXXXX")" || {
+  echo "verify-release: could not create a scratch directory under ${TMPDIR:-/tmp}." >&2
+  exit 2
+}
+# Interrupting a run used to leave a full clone plus two node_modules trees
+# behind until the next run of that same ref cleaned them up; with a unique
+# directory per run nothing would ever collect them, so the run collects itself.
+cleanup() { rm -rf "$WORK"; }
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
 
 if [ -s "$HOME/.nvm/nvm.sh" ]; then
   # shellcheck disable=SC1091
@@ -32,7 +54,6 @@ else
 fi
 
 echo "verify-release: cloning $REF into $WORK"
-rm -rf "$WORK"
 git clone --quiet --branch "$REF" "$REPO_ROOT" "$WORK" || {
   echo "verify-release: could not clone ref '$REF'." >&2
   exit 2
@@ -108,5 +129,4 @@ if [ "$FAILED" -eq 0 ]; then
 else
   echo "verify-release: FAIL — do not merge $REF."
 fi
-rm -rf "$WORK"
 exit "$FAILED"
