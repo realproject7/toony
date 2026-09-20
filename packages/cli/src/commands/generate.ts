@@ -359,9 +359,10 @@ async function planJobs(
  * A job with no declared shape is left exactly as planned: no size is injected
  * for it, so the workflow's own latent stands, unchanged to the byte.
  *
- * Returns an error instead of generating when a declared shape cannot be
- * resolved. Falling back to the workflow's latent there would render a page with
- * the pack's pacing quietly removed, and cost GPU minutes to discover.
+ * Returns an error instead of generating when a declared shape is out of bounds
+ * or cannot be resolved, and nothing is sent in either case. Falling back to the
+ * workflow's latent would render a page with the pack's pacing quietly removed,
+ * and cost GPU minutes to discover.
  */
 function applyPanelShapes(
   jobs: Job[],
@@ -389,8 +390,15 @@ function applyPanelShapes(
       panelAspect > PANEL_ASPECT_MAX,
   );
   if (invalid) {
+    // `JSON.stringify` renders NaN and Infinity as `null`, which names neither
+    // the value nor the mistake. Numbers print as themselves; anything else
+    // keeps its quotes, so a YAML-quoted "1.4" reads as the string it is.
+    const shown =
+      typeof invalid.panelAspect === "number"
+        ? String(invalid.panelAspect)
+        : JSON.stringify(invalid.panelAspect);
     return {
-      error: `cut ${invalid.job.id} declares panelAspect ${JSON.stringify(invalid.panelAspect)}, which is not a number between ${PANEL_ASPECT_MIN} and ${PANEL_ASPECT_MAX}; run "toony validate" for the full report. Nothing was generated.`,
+      error: `cut ${invalid.job.id} declares panelAspect ${shown}, which is not a number between ${PANEL_ASPECT_MIN} and ${PANEL_ASPECT_MAX}; run "toony validate" for the full report. Nothing was generated. This command checks this one field, not the whole project (#261).`,
       exit: EXIT_VALIDATION,
     };
   }

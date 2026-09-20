@@ -542,6 +542,67 @@ test("an out-of-range or non-numeric panel shape is refused, and nothing is gene
       assert.deepEqual(comfy.latents(), [], `${authored} reached the generator`);
       assert.match(c.err.join("\n"), /cut cut-001 declares panelAspect .* run "toony validate"/);
     }
+    // NaN and Infinity are the two an author is least likely to understand, and
+    // JSON.stringify renders both as `null`. They must name themselves.
+    for (const [authored, shown] of [
+      [".nan", "NaN"],
+      [".inf", "Infinity"],
+      ['"tall"', '"tall"'],
+    ] as const) {
+      await authorPanelShapes(projectDir, [authored as unknown as number, undefined]);
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+        c.io,
+      );
+      assert.ok(
+        c.err.join("\n").includes(`declares panelAspect ${shown},`),
+        `${authored} printed as: ${c.err.join("\n")}`,
+      );
+    }
+    // The bounds themselves are INCLUSIVE, and they live in two places now: the
+    // schema and this command. Without these two rows the CLI copy could drift
+    // to exclusive and refuse a project `toony validate` calls valid.
+    for (const [authored, height] of [
+      ["0.1", 80],
+      ["10", 8320],
+    ] as const) {
+      await authorPanelShapes(projectDir, [authored as unknown as number, undefined]);
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      const before = comfy.latents().length;
+      const code = await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+        c.io,
+      );
+      assert.equal(code, EXIT_OK, `${authored} was refused: ${c.err.join("\n")}`);
+      assert.deepEqual(comfy.latents().slice(before), [{ width: 832, height }]);
+    }
+    // The guard runs BEFORE the --height branch, so a bad declaration fails a
+    // run that would not have used it. Nothing else pins that placement.
+    await authorPanelShapes(projectDir, [".nan" as unknown as number, undefined]);
+    {
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      const before = comfy.latents().length;
+      const code = await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--height", "600", "--allow-remote"],
+        c.io,
+      );
+      assert.equal(code, EXIT_VALIDATION, c.err.join("\n"));
+      assert.deepEqual(comfy.latents().slice(before), []);
+    }
+    // The check covers every declared cut in the run, not the first one.
+    await authorPanelShapes(projectDir, [1.5, "0" as unknown as number]);
+    {
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      const before = comfy.latents().length;
+      const code = await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--cut", "cut-002", "--allow-remote"],
+        c.io,
+      );
+      assert.equal(code, EXIT_VALIDATION, c.err.join("\n"));
+      assert.deepEqual(comfy.latents().slice(before), []);
+      assert.match(c.err.join("\n"), /cut cut-002 declares panelAspect 0,/);
+    }
   } finally {
     comfy.close();
   }
