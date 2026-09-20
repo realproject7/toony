@@ -36,6 +36,7 @@ import {
   joinPath,
   resolveReferenceWidth,
   TRANSITION_TYPES,
+  type Transition,
   type TransitionType,
   type ValidationResult,
 } from "@toony/schema";
@@ -48,15 +49,18 @@ import { stitchEpisode } from "./targets.js";
  * even a dark night sky — vary far more than this. The reference analyzer's own
  * threshold.
  *
- * The reference additionally requires a flat row to be LIGHT (close to the
- * lightest row on the page), because a Korean webtoon page sets its panels on
- * white. THIS IS THE ONE PLACE THE TWO SIDES DIFFER. Toony transitions are
- * authored colour fields that are usually dark, so keeping that clause makes the
- * gutter metric blind to the very knob it exists to grade: on
- * `examples/dead-air` it reports a 0.0 gutter ratio and one panel spanning the
- * whole episode, at every flatness threshold. Dropping it moves the reference
- * captures' own numbers by at most 0.006 of the gutter ratio and changes none of
- * their genre conclusions, so "flat" alone is the definition both sides share.
+ * Flatness is the whole rule. There is no test on how LIGHT the row is. Do not
+ * add one, on either side. A lightness test measures page colour, and page
+ * colour is not what makes a row empty. Toony transitions are authored colour
+ * fields and a dark one is not light, so the clause reads every dark gap as
+ * art: an episode whose gaps are all dark reports no gutters and one panel
+ * spanning the page, which is the gutter metric going blind to the exact knob
+ * it exists to grade. That is a property of the definition, not a number that
+ * can drift. It holds at every flatness threshold and on any set of captures.
+ * The clause has already caused one silent failure on flat-but-dark rows, and
+ * the note on the transition mix further down this file has it.
+ * `examples/dead-air` is the dark episode in this repository; what it measures
+ * is pinned in `__tests__/craft-inset.test.ts` rather than quoted here.
  */
 export const FLAT_ROW_STDDEV_MAX = 12;
 
@@ -274,7 +278,8 @@ function stddev(values: readonly number[]): number {
   return Math.sqrt(sum / values.length);
 }
 
-function round(value: number, digits: number): number {
+/** Rounded to `digits`, the one rounding every reported figure goes through. */
+export function round(value: number, digits: number): number {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
 }
@@ -413,11 +418,9 @@ interface ColorSums {
  * reasons, in this order.
  *
  * FIRST, it is one of the definitions this side is BUILT to share with the
- * reference analyzer, which anchors both runs on the left-most pixel. This
- * measurement already differs from the reference in two places — the light-row
- * clause, and `panelInset`'s margin rule since #255 — and changing the trim
- * would make three. A band is a comparison between the two sides, and every
- * difference is a place that comparison leaks.
+ * reference analyzer, which anchors both runs on the left-most pixel. Moving
+ * the trim on one side alone would end that. A band is a comparison between the
+ * two sides, and every difference is a place that comparison leaks.
  *
  * SECOND, the re-basing cost, measured rather than guessed: anchoring the
  * right-hand run on the right-hand pixel moves `examples/dead-air` from 85.2 to
@@ -560,18 +563,21 @@ export interface TransitionMix {
  * same share of the width to within rounding, since both the scaled height and
  * the floor are proportional to it — so this number does not move with
  * `--width`, which is what makes it comparable to a range measured elsewhere.
+ *
+ * It takes the gaps IN READING ORDER rather than a bundle, because an episode is
+ * not the only thing that has a reading order: a plan declares one before any
+ * record exists (`./plan.ts`), and the two must be graded by one definition or a
+ * plan's vocabulary verdict is a second implementation of this one. Pass
+ * `sequencedTransitions(bundle)` for an episode.
  */
-export function measureTransitionMix(bundle: EpisodeBundle, referenceWidth: number): TransitionMix {
-  const byId = new Map(bundle.transitions.map((transition) => [transition.id, transition]));
+export function measureTransitionMix(
+  transitions: readonly Transition[],
+  referenceWidth: number,
+): TransitionMix {
   const heights = new Map<TransitionType, number[]>();
   let gaps = 0;
   let undrawn = 0;
-  // The reading sequence, not the record list: a transition the sequence never
-  // reaches is not on the page, exactly as an unreferenced cut is not counted.
-  for (const item of bundle.episode.sequence) {
-    if (item.type !== "transition") continue;
-    const transition = byId.get(item.id);
-    if (transition === undefined) continue;
+  for (const transition of transitions) {
     const drawn = resolveBandHeight(layoutTransition(transition), referenceWidth, referenceWidth);
     if (drawn <= 0) {
       undrawn++;
@@ -602,6 +608,131 @@ export function measureTransitionMix(bundle: EpisodeBundle, referenceWidth: numb
 }
 
 /**
+ * The transitions an episode's reading SEQUENCE reaches, in order.
+ *
+ * The sequence, not the record list: a transition the sequence never reaches is
+ * not on the page, exactly as an unreferenced cut is not counted.
+ */
+export function sequencedTransitions(bundle: EpisodeBundle): Transition[] {
+  const byId = new Map(bundle.transitions.map((transition) => [transition.id, transition]));
+  const ordered: Transition[] = [];
+  for (const item of bundle.episode.sequence) {
+    if (item.type !== "transition") continue;
+    const transition = byId.get(item.id);
+    if (transition !== undefined) ordered.push(transition);
+  }
+  return ordered;
+}
+
+// --- The page's run structure -----------------------------------------------
+//
+// Everything from here to `measureEpisodeCraft` is the half of the measurement
+// that reads a page's SHAPE: which rows are inter-panel space, which are panels,
+// and what the run lengths come to. It is separated from the pixel reads around
+// it for one reason — a plan has the same shape and no pixels (`./plan.ts`), and
+// the ticket that asked for a plan-level grade asked for it to share this rule
+// rather than restate it. Colour and `panelInset` stay in `measureEpisodeCraft`,
+// because they are pixel reads and a plan has nothing to give them.
+
+/** The five metrics a page's run structure alone decides. */
+export const PAGE_GEOMETRY_METRIC_NAMES = [
+  "gutterRatio",
+  "gutterMedian",
+  "panelHeightMedian",
+  "panelHeightSpread",
+  "panelsPerScreen",
+] as const;
+
+export type PageGeometryMetricName = (typeof PAGE_GEOMETRY_METRIC_NAMES)[number];
+
+/** Those five metrics' values, with the same units `CraftMetrics` gives them. */
+export type PageGeometryMetrics = Pick<CraftMetrics, PageGeometryMetricName>;
+
+/** A page's runs after both floors have been applied. */
+export interface PageRunStructure {
+  /** Rows the page reads as inter-panel space. */
+  gutterRows: number;
+  /** Every gutter run, as a share of the width, in reading order. */
+  gutterRuns: number[];
+  /** Every panel run, as a share of the width, in reading order. */
+  panelRuns: number[];
+  /** The middle row of each panel run, in the same order — the row an inset is read on. */
+  panelMiddleRows: number[];
+  /** Non-flat runs too short to be panels, folded back into the gutter. */
+  intrusions: number;
+}
+
+/**
+ * Turn a page's per-row flat/not-flat flags into its run structure.
+ *
+ * `flags` is MUTATED in place: both floors work by reclassifying rows, and the
+ * caller that has pixels reads its art rows off the same array afterwards, so
+ * copying it would leave two answers to "which rows are art".
+ *
+ * Both floors are shares of the width. Nothing that decides which runs exist may
+ * read the screen height, or the screen definition leaks into every metric
+ * computed from the run set.
+ */
+export function classifyPageRows(flags: boolean[], width: number): PageRunStructure {
+  const gutterMinRun = Math.max(2, Math.floor(width * GUTTER_MIN_RUN_FRACTION));
+  const panelMinRun = Math.max(3, Math.floor(width * PANEL_MIN_RUN_FRACTION));
+
+  // A flat run too short to be a reading pause is a seam inside the art.
+  for (const run of runsOf(flags)) {
+    if (!run.flat || run.length >= gutterMinRun) continue;
+    for (let i = run.start; i < run.start + run.length; i++) flags[i] = false;
+  }
+  // A non-flat run too short to be a cut is something floating in the gutter:
+  // fold it back into the gutter for rhythm and count it as its own signal.
+  let intrusions = 0;
+  for (const run of runsOf(flags)) {
+    if (run.flat || run.length >= panelMinRun) continue;
+    intrusions++;
+    for (let i = run.start; i < run.start + run.length; i++) flags[i] = true;
+  }
+
+  const gutterRuns: number[] = [];
+  const panelRuns: number[] = [];
+  const panelMiddleRows: number[] = [];
+  for (const run of runsOf(flags)) {
+    // Normalize by WIDTH, matching the reference analyzer. Dividing by
+    // screenHeight made these metrics scale inversely with --screen-aspect, so
+    // the same page reported 0.28 at aspect 2 and 0.14 at aspect 4 — and neither
+    // number was comparable to a reference band, which is expressed as a
+    // multiple of column width. Only the per-screen counts may depend on the
+    // screen definition.
+    if (run.flat) {
+      gutterRuns.push(run.length / width);
+      continue;
+    }
+    panelRuns.push(run.length / width);
+    panelMiddleRows.push(run.start + Math.floor(run.length / 2));
+  }
+  return {
+    gutterRows: flags.reduce((count, flat) => (flat ? count + 1 : count), 0),
+    gutterRuns,
+    panelRuns,
+    panelMiddleRows,
+    intrusions,
+  };
+}
+
+/** The five run-structure metrics, rounded exactly as the report carries them. */
+export function pageGeometryMetrics(
+  runs: PageRunStructure,
+  height: number,
+  screenHeight: number,
+): PageGeometryMetrics {
+  return {
+    gutterRatio: round(runs.gutterRows / height, 4),
+    gutterMedian: round(median(runs.gutterRuns), 4),
+    panelHeightMedian: round(median(runs.panelRuns), 4),
+    panelHeightSpread: round(stddev(runs.panelRuns), 4),
+    panelsPerScreen: round(runs.panelRuns.length / (height / screenHeight), 2),
+  };
+}
+
+/**
  * Measure one episode's craft signals from its rendered page.
  *
  * Renders through the same composition `toony export stitched` uses, so it needs
@@ -618,45 +749,17 @@ export async function measureEpisodeCraft(
   const { canvas, width, height, bundle, project } = stitched;
   const ctx = canvas.getContext("2d");
   const screenHeight = Math.max(1, Math.round(width * screenAspect));
-  // Both floors are shares of the width. Nothing that decides which runs exist
-  // may read screenHeight, or the screen definition leaks into every metric
-  // computed from the run set.
-  const gutterMinRun = Math.max(2, Math.floor(width * GUTTER_MIN_RUN_FRACTION));
-  const panelMinRun = Math.max(3, Math.floor(width * PANEL_MIN_RUN_FRACTION));
 
   const stats = rowStats(ctx, width, height);
   const flags = stats.map((row) => row.stddev < FLAT_ROW_STDDEV_MAX);
-  // A flat run too short to be a reading pause is a seam inside the art.
-  for (const run of runsOf(flags)) {
-    if (!run.flat || run.length >= gutterMinRun) continue;
-    for (let i = run.start; i < run.start + run.length; i++) flags[i] = false;
-  }
-  // A non-flat run too short to be a cut is something floating in the gutter:
-  // fold it back into the gutter for rhythm and count it as its own signal.
-  let intrusions = 0;
-  for (const run of runsOf(flags)) {
-    if (run.flat || run.length >= panelMinRun) continue;
-    intrusions++;
-    for (let i = run.start; i < run.start + run.length; i++) flags[i] = true;
-  }
+  // The run rule is shared with the plan-level grade (`./plan.ts`), which builds
+  // the same flags by arithmetic. `flags` comes back reclassified by both floors,
+  // so the art rows read below are the ones the runs were taken over.
+  const runs = classifyPageRows(flags, width);
 
-  const gutterRows = flags.reduce((count, flat) => (flat ? count + 1 : count), 0);
-  const gutterRuns: number[] = [];
-  const panelRuns: number[] = [];
   const insets: number[] = [];
-  for (const run of runsOf(flags)) {
-    if (run.flat) {
-      // Normalize by WIDTH, matching the reference analyzer. Dividing by
-      // screenHeight made these two metrics scale inversely with --screen-aspect,
-      // so the same page reported 0.28 at aspect 2 and 0.14 at aspect 4 — and
-      // neither number was comparable to a reference band, which is expressed as
-      // a multiple of column width. Only the per-screen counts below may depend
-      // on the screen definition.
-      gutterRuns.push(run.length / width);
-      continue;
-    }
-    panelRuns.push(run.length / width);
-    const middle = readRow(ctx, run.start + Math.floor(run.length / 2), width);
+  for (const row of runs.panelMiddleRows) {
+    const middle = readRow(ctx, row, width);
     const { left, right } = rowMargins(middle, width);
     insets.push((left + right) / width);
   }
@@ -686,16 +789,12 @@ export async function measureEpisodeCraft(
       (cut) => (cut.image?.final ?? cut.image?.clean ?? null) === null,
     ).length,
     transitions: measureTransitionMix(
-      bundle,
+      sequencedTransitions(bundle),
       resolveReferenceWidth(project.webtoon.referenceWidth),
     ),
     metrics: {
-      gutterRatio: round(gutterRows / height, 4),
-      gutterMedian: round(median(gutterRuns), 4),
-      panelHeightMedian: round(median(panelRuns), 4),
-      panelHeightSpread: round(stddev(panelRuns), 4),
-      panelsPerScreen: round(panelRuns.length / (height / screenHeight), 2),
-      gutterIntrusionsPerScreen: round(intrusions / (height / screenHeight), 2),
+      ...pageGeometryMetrics(runs, height, screenHeight),
+      gutterIntrusionsPerScreen: round(runs.intrusions / (height / screenHeight), 2),
       panelInset: round(mean(insets), 4),
       valueMean: round(valueMean, 1),
       valueSpread: round(stddev(color.luminances), 1),

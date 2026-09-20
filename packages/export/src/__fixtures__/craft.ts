@@ -121,13 +121,18 @@ function buildProject(spec: RhythmSpec): Project {
   const cuts: Cut[] = [];
   const transitions: Transition[] = [];
   const sequence: SequenceItem[] = [];
-  spec.cutHeights.forEach((_, index) => {
+  spec.cutHeights.forEach((artHeight, index) => {
     const id = `cut-${String(index + 1).padStart(3, "0")}`;
     cuts.push({
       id,
       image: { clean: `episodes/ep-001/assets/clean/${id}.png`, final: null },
       imagePrompt: "",
       negativePrompt: "",
+      // The shape the art beside it is DRAWN at (#237). Declared so these
+      // fixtures are the ordinary case — art made under the declaration — which
+      // is what lets the plan-level grade and the rendered one be compared for
+      // agreement rather than for the size of a shape nobody asked for.
+      panelAspect: artHeight / ART_WIDTH,
     });
     if (index > 0) {
       const trId = `tr-${String(index).padStart(3, "0")}`;

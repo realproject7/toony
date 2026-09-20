@@ -12,6 +12,9 @@ usage:
   toony export <target> ...  export platform/stitched/plotlink for an episode
   toony lint [path]        lint a whole project (schema, images, overflow, manifests)
   toony lint-episode <id>  lint a single episode by id
+  toony plan [path] (--episode <id> | --spec <file>)
+                           grade an episode's page geometry from its
+                           declarations, before any image exists
   toony measure [path] --episode <id>
                            measure a rendered episode's craft signals, and grade
                            them against a target band
@@ -58,6 +61,27 @@ options:
   lint [path] --json       emit findings as JSON instead of text
   lint-episode <id> [path] [--json]
                            lint only the named episode
+  plan [path] (--episode <id> | --spec <file>) [--against <band-id|band.json>]
+       [--json] [--width <px>] [--screen-aspect <n>]
+                           the cheap half of the measurement loop. Resolves each
+                           cut's declared panelAspect and each gap's kind through
+                           the SAME resolvers the export canvas sizes them with,
+                           and reports the five page-structure metrics — gutter
+                           ratio, gutter median, panel height median and spread,
+                           panels per screen — plus the transition mix, with no
+                           image read and no canvas created. --episode reads an
+                           episode's own cut and transition lists; --spec reads a
+                           plan file, which states the structure as BEATS WITH
+                           LENGTHS (a label, how many cuts the beat runs, the
+                           shape they are declared at, the gaps between them) so
+                           an episode of a hundred panels is a handful of beats.
+                           IT CHECKS FIVE OF THE ELEVEN METRICS. The four colour
+                           metrics and panelInset need pixels, and
+                           gutterIntrusionsPerScreen counts what is drawn inside
+                           a gap; every run names those six and no verdict here
+                           stands in for \`toony measure\`. A band whose every
+                           graded range needs pixels is refused rather than
+                           passed: nothing was checked, so there is no verdict
   measure [path] --episode <id> [--against <band-id|band.json>] [--json]
           [--width <px>] [--screen-aspect <n>]
                            renders the episode the way \`export stitched\` does —
@@ -91,8 +115,11 @@ exit codes (agent-readable):
   1   domain error: validation errors (\`validate\`: schema errors, or a cut with
       no image under \`--require-images\`), lint findings
       (\`lint\`: any error/warning finding), an out-of-band measurement
-      (\`measure --against\`), a pack problem (\`packs doctor\`), or generation failure
+      (\`measure --against\`, \`plan --against\`), a pack problem (\`packs doctor\`),
+      or generation failure
       (\`generate\`: the project does not validate, the endpoint is unreachable, a
       provider error, or a timeout; in a multi-cut run, ANY failed cut)
-  2   usage error or IO failure (bad arguments, missing/unreadable files)
+  2   usage error or IO failure (bad arguments, missing/unreadable files; for
+      \`plan --against\`, also a band that grades nothing a plan can check, and a
+      plan naming a page too tall to grade at the requested column)
 `;
