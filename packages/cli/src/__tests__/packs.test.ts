@@ -17,6 +17,13 @@
 // so all six moved. `diff -r` over the six scaffolds written before and after
 // reports exactly one changed line in each: the added field in webtoon.json.
 // Nothing else in any tree moved.
+//
+// #273 re-authored the romance `palette_shift`'s fill, so ONE digest moved.
+// `diff -r` over the six scaffolds written before and after reports a single
+// changed line in the whole set — `color:` in romance's transitions.yaml — and
+// the other five trees byte-identical. Only `romance` is re-pinned below; the
+// other five keep the values #217 left, which is what makes them the control
+// rather than a second edit.
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -37,7 +44,7 @@ import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 /** Tree digest of `toony init` output, per `--genre`; all six as of #217. */
 const INIT_TREE_DIGESTS: Record<string, string> = {
   "": "24fc0c0dcca40332df8f5852840dcb5cd49ae2e6dee1c53a5f6e2f6f36cef2cc",
-  romance: "46da53d4a44776829b32c1da21b30fa689eb13966018ea2c393ec517bb2cccad",
+  romance: "609109f9611c48a90349123dfa0e642c76ba3de33438aeea2a412a6e9688fa5d",
   comedy: "fe0e38f3cedc69f213eac5bfde797ceba4af9964cf6fa2189f98a363a86824ed",
   action: "60ad151ec3552e9b115387b72b446099d29bd902771ca37329514f0494be8163",
   thriller: "4ee63ea73e971968f20357cd7e07d9efced09f527d49e779e731d69b71da32b5",
