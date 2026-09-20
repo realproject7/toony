@@ -58,6 +58,11 @@ count ranges a meaning, not to make the rest comparable.
 | `saturationMean` | colour intensity (0–1) | palette intensity |
 | `hueBias` | mean hue in degrees, or `null` with no colour at all | the pack's colour identity |
 
+Beside those eleven, `toony measure` reports the episode's **transition mix**:
+which kinds of gap it puts between its cuts, how often, and how tall each runs.
+That one is read off the declared transition records rather than off the page —
+see [the transition vocabulary a band declares](#the-transition-vocabulary-a-band-declares).
+
 ### The row rule
 
 A row is **flat** when its luminance barely varies across the width — it carries
@@ -252,6 +257,7 @@ A band is the target: a range per metric. Only the metrics it declares under
 | `screenAspect` | no | The viewport the band was measured at. The measurement adopts it, unless `--screen-aspect` says otherwise. |
 | `metrics` | yes | **At least one metric**, each `{ "min": n }`, `{ "max": n }`, or both — inclusive. Every one of them is **graded**. |
 | `recorded` | no | Ranges the band measured and does not grade. |
+| `transitionVocabulary` | no | Which kinds of gap the work uses, in what proportion, at what heights. **Graded.** |
 | `provenance` | no | What the band's numbers were measured from. |
 
 `metrics` is required and an empty `metrics` is an **error**. A band is a
@@ -386,6 +392,98 @@ a label nobody wrote a source into by accident.
 
 `--against` prints the provenance above the metric table, one line per work with
 that work's own capture facts, and carries it in `--json` as `band.provenance`.
+
+### The transition vocabulary a band declares
+
+Everything above grades how much page is spent on empty space and how tall the
+runs are. None of it asks **what is in a gap**: a band grades gutter heights and
+never looks at whether the gutter is page background, a black void, a mood field,
+or a card carrying a line. That is a separate convention of a work, and
+`transitionVocabulary` is where a band declares it (#236).
+
+```json
+{
+  "bandFormat": 1,
+  "metrics": { "gutterRatio": { "min": 0.34, "max": 0.48 } },
+  "transitionVocabulary": [
+    {
+      "kinds": ["gutter", "hard-cut"],
+      "share": { "min": 0.407, "max": 0.856 },
+      "height": { "min": 0.306, "max": 0.523 }
+    },
+    {
+      "kinds": ["narration_card", "dialogue_card", "time_card"],
+      "share": { "min": 0.144, "max": 0.242 },
+      "height": { "min": 0.626, "max": 0.971 }
+    },
+    { "kinds": ["void"], "share": { "min": 0, "max": 0.389 } }
+  ]
+}
+```
+
+| Field | Required | Rule |
+|---|---|---|
+| `kinds` | yes | 1 or more transition kind names, **from the core's own vocabulary**. A kind belongs to at most one entry across the whole band. |
+| `share` | yes | The combined share of the episode's gaps these kinds take. A range inside 0..1. |
+| `height` | no | The median drawn height of those gaps, in column widths. A range from 0. |
+
+**The kinds are a set, not one name.** That is the granularity the reference was
+measured at: a captured page is classified by colour and content, and a card is a
+card — nothing in it says whether the words are narration or dialogue. An entry
+per kind name would force a pack to invent a split that was never measured. A
+single-kind entry is the same thing with a set of one.
+
+**`share` is required and `height` is not.** A height range says how tall a gap of
+these kinds runs *when one occurs*; it says nothing when none does. An entry
+carrying only a height range could therefore be satisfied by using none of its
+kinds at all, and only a share range answers whether zero is allowed. When the
+episode draws no gap of an entry's kinds, `--against` prints the height row as
+`no gap of these kinds` rather than as a pass.
+
+**A share is a share of every gap the episode drew**, not of the gaps the band
+happened to name. Kinds no entry claims are legal and are not an error — a band
+grades what it declares, exactly as `metrics` does — and their gaps still count
+in the denominator. The measured mix prints in full beside the verdict, so what
+was left ungraded is visible.
+
+The share minimums are also checked against each other: minimums that add past 1
+describe an episode that cannot exist, and that is invisible entry by entry.
+
+#### What the comparison reads, and what it cannot see
+
+**The episode side reads the declared `type`, not the pixels.** The reference
+analyzer classifies a gap by colour and content because a capture is an image
+with no metadata; a toony episode declares its transitions, so the kind is read
+rather than inferred. Three things follow:
+
+- It is **exact**. The classifier is the part of this measurement that has
+  already been wrong without anything catching it: requiring a flat row to be
+  light as well as flat made `void` undetectable by construction on a white-page
+  work and reported 0% void for a whole genre. A re-derivation would put the
+  pack's verdict back behind that classifier.
+- It **separates kinds pixels cannot**. `narration_card` and `dialogue_card` are
+  the same rectangle with different words in it, and a `color_field` authored
+  dark is a `void` to any luminance threshold.
+- It grades the **pack**, not the art. A page-derived mix would move with
+  whatever the image provider returned, and this measurement already counts a
+  flat region inside a panel as page structure (#230), so blank sky would arrive
+  as extra empty gutter.
+
+The cost is the other half of the same fact: **this grades the script, not the
+page.** A declared `void` whose band the renderer draws light is still counted
+as a void here. The geometry metrics are the page-side check and they are read
+off pixels; the two sit side by side in one report because neither is the other.
+
+**Heights are the height a band occupies, not the number authored.** A card or a
+solid band authored below the legibility floor renders at the floor, and grading
+the authored number would grade a height nobody sees. A transition that draws no
+band at all — a plain gutter at zero height — is not a gap: it is counted and
+reported separately, so an episode whose transitions mostly vanish does not look
+like an episode that has few of them.
+
+`toony measure` prints the measured mix with or without a band, because that mix
+is what you read to author a range in the first place, and carries it in `--json`
+as `transitions` (with the per-entry verdicts under `band.transitions`).
 
 ## The loop this closes
 

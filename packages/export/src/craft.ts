@@ -22,7 +22,10 @@
 // own English content.
 
 import type { SKRSContext2D } from "@napi-rs/canvas";
+import { layoutTransition, resolveBandHeight } from "@toony/render";
 import {
+  type EpisodeBundle,
+  GUTTER_HEIGHT_MAX_PX,
   IssueCollector,
   isArray,
   isBoolean,
@@ -31,6 +34,9 @@ import {
   isPlainObject,
   isString,
   joinPath,
+  resolveReferenceWidth,
+  TRANSITION_TYPES,
+  type TransitionType,
   type ValidationResult,
 } from "@toony/schema";
 import { stitchEpisode } from "./targets.js";
@@ -180,6 +186,12 @@ export interface CraftMeasurement {
    */
   cutsWithoutImage: number;
   metrics: CraftMetrics;
+  /**
+   * Which kinds of gap the episode puts between its cuts. Read off the declared
+   * transition records rather than off the composed page — see "The transition
+   * vocabulary" below for why, and for what that choice cannot see.
+   */
+  transitions: TransitionMix;
 }
 
 export interface MeasureOptions {
@@ -430,6 +442,133 @@ function sampleColor(ctx: SKRSContext2D, width: number, artRows: readonly number
   return sums;
 }
 
+// --- The transition vocabulary ----------------------------------------------
+//
+// Everything above grades how much page is spent on empty space and how tall
+// the runs are. None of it asks what is IN a gap — a band grades gutter heights
+// and never looks at whether the gutter is page background, a black void, a
+// mood field, or a card carrying a line. That is a separate convention of a
+// work, and it is what a transition vocabulary declares.
+//
+// THIS SIDE READS THE DECLARED TYPE, NOT THE PIXELS, and the choice is
+// deliberate. #236.
+//
+// The reference analyzer classifies a gap by its colour and by whether it
+// carries content, because a capture is an image and has no metadata: flat and
+// page-coloured is an empty gutter, flat under luminance 60 is a void, flat
+// over saturation 0.18 is a colour field, content in the gap is a card. A toony
+// episode does not have that problem. Every transition in the reading sequence
+// declares its `type`, so the kind is read rather than inferred, and three
+// things follow that a re-derivation from the composed page cannot give:
+//
+//   1. It is exact. The classifier is the part of this measurement that has
+//      already been wrong in a way nothing caught: the reference side required
+//      a flat row to be LIGHT as well as flat, which made `void` undetectable
+//      by construction on a white-page work and reported 0% void for a whole
+//      genre. Grading a pack against a re-derivation grades the classifier too.
+//   2. It separates kinds a pixel rule cannot. `narration_card` and
+//      `dialogue_card` are the same rectangle with different words in it, and a
+//      `color_field` authored dark is a `void` to any luminance threshold.
+//   3. It grades the PACK. A pack ships transition records; the art beside them
+//      comes from a diffusion model. A page-derived mix would move with the art
+//      — and `toony measure` already counts any flat region inside a panel as
+//      page structure, so blank sky would arrive as extra empty gutter.
+//
+// What that costs, stated so a later reader does not have to find it out: this
+// grades the SCRIPT, not the PAGE. A declared `void` whose band the renderer
+// draws light is still counted here as a void. The geometry metrics above are
+// the page-side check and they are read off pixels; these two sit side by side
+// in one report precisely because neither one is the other.
+
+/** One transition kind, as one episode uses it. */
+export interface TransitionKindMix {
+  kind: TransitionType;
+  /** Gaps of this kind the episode draws. */
+  count: number;
+  /** Share of the episode's drawn gaps, 0..1. */
+  share: number;
+  /** Median drawn height of those gaps, as a share of the column width. */
+  heightMedian: number;
+  /**
+   * Every one of those heights, in reading order, same unit.
+   *
+   * Carried rather than summarized because a vocabulary entry can cover several
+   * kinds, and the height it grades is the median over their gaps POOLED. Built
+   * from per-kind medians instead, that figure would weight a kind used once
+   * exactly like a kind used thirty times. It is also the raw material for
+   * authoring a range in the first place.
+   */
+  heights: number[];
+}
+
+/** Which kinds of gap an episode puts between its cuts, and how tall each runs. */
+export interface TransitionMix {
+  /** Transitions in the reading sequence that draw a gap. The share denominator. */
+  gaps: number;
+  /**
+   * Transitions in the sequence that draw NOTHING. A plain gutter authored at
+   * zero height composes no band at all, so it is not a gap on the page and
+   * counting it would make the declared mix disagree with what is read. It is
+   * reported rather than dropped, for the same reason `cutsWithoutImage` is:
+   * an episode whose transitions mostly vanish should not look like an episode
+   * that has few of them.
+   */
+  undrawn: number;
+  /** Every kind the episode draws, in `TRANSITION_TYPES` order. */
+  kinds: TransitionKindMix[];
+}
+
+/**
+ * Read an episode's transition vocabulary off its declared records.
+ *
+ * Heights go through `resolveBandHeight` — the shared function the export
+ * canvas and the studio panel both size a band with — so what is measured is
+ * the height the gap actually OCCUPIES, not the number that was typed. The two
+ * differ: a card or a solid band authored below the legibility floor renders at
+ * the floor, and grading the authored number would grade a height nobody sees.
+ *
+ * It is evaluated on the project's REFERENCE column, which is the column the
+ * authored px mean something on. On any other column the same call returns the
+ * same share of the width to within rounding, since both the scaled height and
+ * the floor are proportional to it — so this number does not move with
+ * `--width`, which is what makes it comparable to a range measured elsewhere.
+ */
+export function measureTransitionMix(bundle: EpisodeBundle, referenceWidth: number): TransitionMix {
+  const byId = new Map(bundle.transitions.map((transition) => [transition.id, transition]));
+  const heights = new Map<TransitionType, number[]>();
+  let gaps = 0;
+  let undrawn = 0;
+  // The reading sequence, not the record list: a transition the sequence never
+  // reaches is not on the page, exactly as an unreferenced cut is not counted.
+  for (const item of bundle.episode.sequence) {
+    if (item.type !== "transition") continue;
+    const transition = byId.get(item.id);
+    if (transition === undefined) continue;
+    const drawn = resolveBandHeight(layoutTransition(transition), referenceWidth, referenceWidth);
+    if (drawn <= 0) {
+      undrawn++;
+      continue;
+    }
+    gaps++;
+    const measured = heights.get(transition.type);
+    if (measured === undefined) heights.set(transition.type, [drawn / referenceWidth]);
+    else measured.push(drawn / referenceWidth);
+  }
+  const kinds: TransitionKindMix[] = [];
+  for (const kind of TRANSITION_TYPES) {
+    const measured = heights.get(kind);
+    if (measured === undefined) continue;
+    kinds.push({
+      kind,
+      count: measured.length,
+      share: round(measured.length / gaps, 4),
+      heightMedian: round(median(measured), 4),
+      heights: measured.map((height) => round(height, 4)),
+    });
+  }
+  return { gaps, undrawn, kinds };
+}
+
 /**
  * Measure one episode's craft signals from its rendered page.
  *
@@ -444,7 +583,7 @@ export async function measureEpisodeCraft(
 ): Promise<CraftMeasurement> {
   const screenAspect = options.screenAspect ?? DEFAULT_SCREEN_ASPECT;
   const stitched = await stitchEpisode(root, episodeId, options.width);
-  const { canvas, width, height, bundle } = stitched;
+  const { canvas, width, height, bundle, project } = stitched;
   const ctx = canvas.getContext("2d");
   const screenHeight = Math.max(1, Math.round(width * screenAspect));
   // Both floors are shares of the width. Nothing that decides which runs exist
@@ -514,6 +653,10 @@ export async function measureEpisodeCraft(
     cutsWithoutImage: readCuts.filter(
       (cut) => (cut.image?.final ?? cut.image?.clean ?? null) === null,
     ).length,
+    transitions: measureTransitionMix(
+      bundle,
+      resolveReferenceWidth(project.webtoon.referenceWidth),
+    ),
     metrics: {
       gutterRatio: round(gutterRows / height, 4),
       gutterMedian: round(median(gutterRuns), 4),
@@ -603,11 +746,48 @@ export interface CraftBandProvenance {
 }
 
 /**
+ * One entry of a transition vocabulary: a set of transition kinds, the share of
+ * the episode's gaps they take between them, and optionally how tall they run.
+ *
+ * The kinds are a SET rather than one name because that is the granularity the
+ * reference was measured at. A capture is classified by colour and content, and
+ * a card is a card — nothing in a captured page says whether its words are
+ * narration or dialogue. An entry per schema name would force a pack to invent
+ * a split between `narration_card` and `dialogue_card` that was never measured,
+ * which is the exact defect this ticket exists to remove. A single-kind entry is
+ * the same thing with a set of one.
+ *
+ * Every name is selected from `TRANSITION_TYPES`; a band can no more add a
+ * transition kind than a pack can add an export engine. An entry has no name of
+ * its own, so nothing here introduces vocabulary the core does not already have
+ * — the report prints the kinds it covers.
+ *
+ * `share` is REQUIRED and `height` is not. A height range says how tall a gap of
+ * these kinds runs WHEN ONE OCCURS; it says nothing when none does. So an entry
+ * carrying a height range and no share range could be satisfied by using none of
+ * its kinds at all, and requiring the share is what closes that: whether zero is
+ * allowed is a question only a share range answers.
+ */
+export interface TransitionVocabularyEntry {
+  /** The transition kinds this entry covers, from `TRANSITION_TYPES`. */
+  kinds: TransitionType[];
+  /** Combined share of the episode's drawn gaps, 0..1. */
+  share: CraftBandRange;
+  /** Median drawn height of those gaps, in column widths. */
+  height?: CraftBandRange;
+}
+
+/**
  * A target band: per-metric ranges, plus the screen the numbers assume.
  *
  * `metrics` is what the band GRADES. `recorded` is what it measured and chose
  * not to grade — kept because deleting a range that should not decide a verdict
  * also throws away the only record of what was measured.
+ *
+ * `transitionVocabulary` grades what is IN the gaps the geometry above measures
+ * the size of. It lives on the band, and not on the pack manifest or on a genre
+ * entry, because it is a GRADING TARGET measured from the same episodes of the
+ * same work as `metrics`, over which `provenance` already makes one statement.
  */
 export interface CraftBand {
   bandFormat: number;
@@ -617,6 +797,8 @@ export interface CraftBand {
   metrics: Partial<Record<CraftMetricName, CraftBandRange>>;
   /** Measured ranges the band keeps but never grades against. */
   recorded?: Partial<Record<CraftMetricName, CraftBandRange>>;
+  /** Which kinds of gap the work uses, in what proportion, at what heights. */
+  transitionVocabulary?: TransitionVocabularyEntry[];
   provenance?: CraftBandProvenance;
 }
 
@@ -641,12 +823,45 @@ export interface CraftRecordedMetric {
   max: number | null;
 }
 
+/** One declared range of a vocabulary entry, measured and graded. */
+export interface TransitionRangeVerdict {
+  /** The measured figure, or null when there is nothing to measure. */
+  value: number | null;
+  min: number | null;
+  max: number | null;
+  inBand: boolean;
+}
+
+/** One vocabulary entry's verdict: the kinds it covers, and what they did. */
+export interface TransitionVocabularyVerdict {
+  /** The kinds this entry covers, as the band listed them. */
+  kinds: TransitionType[];
+  /** Gaps of those kinds the episode drew. */
+  count: number;
+  share: TransitionRangeVerdict;
+  /**
+   * The height verdict, or null when the entry declares no height range.
+   *
+   * With a range declared and NO gap of these kinds drawn, `value` is null and
+   * `inBand` is true: a height range grades the gaps that occur, and whether
+   * zero of them is acceptable was already decided by `share`. This is the one
+   * place a null value does not fail, and it is not the `hueBias` case — there,
+   * a page with no colour at all is a degenerate page and the metric was
+   * measurable in principle; here, using none of a kind is an ordinary
+   * authoring outcome that the share range grades on its own.
+   */
+  height: TransitionRangeVerdict | null;
+  inBand: boolean;
+}
+
 /** The full comparison: every graded metric, what was only recorded, the verdict. */
 export interface CraftBandReport {
   name: string | null;
   inBand: boolean;
   metrics: CraftMetricVerdict[];
   recorded: CraftRecordedMetric[];
+  /** Per vocabulary entry, in the order the band declared them. */
+  transitions: TransitionVocabularyVerdict[];
   provenance: CraftBandProvenance | null;
 }
 
@@ -656,8 +871,10 @@ const BAND_KEYS = [
   "screenAspect",
   "metrics",
   "recorded",
+  "transitionVocabulary",
   "provenance",
 ] as const;
+const VOCABULARY_ENTRY_KEYS = ["kinds", "share", "height"] as const;
 const RANGE_KEYS = ["min", "max"] as const;
 const PROVENANCE_KEYS = ["works"] as const;
 const WORK_KEYS = [
@@ -718,6 +935,15 @@ const WORK_EPISODES_MAX = 10000;
 
 /** Longest page extent one work may declare, in column widths. */
 const WORK_PAGE_LENGTH_MAX = 1000000;
+
+/**
+ * Tallest gap a vocabulary entry may name, in column widths.
+ *
+ * Derived, not chosen: a gutter height is at most `GUTTER_HEIGHT_MAX_PX` and a
+ * reference column is at least one pixel, so no episode can ever draw a gap
+ * taller than this. A range above it grades every render OUT.
+ */
+const TRANSITION_HEIGHT_MAX = GUTTER_HEIGHT_MAX_PX;
 
 function allowlistKeys(
   value: Record<string, unknown>,
@@ -812,6 +1038,160 @@ function validateRecorded(
       );
     }
     validateRange(range, keyPath, c);
+  }
+}
+
+/**
+ * A range whose ends must also sit inside `[lo, hi]`.
+ *
+ * A share outside 0..1 and a negative height are not tight targets, they are
+ * typos: nothing an episode can measure reaches them, so the band would grade
+ * every render OUT and say nothing about why.
+ */
+function validateBoundedRange(
+  value: unknown,
+  path: string,
+  code: string,
+  lo: number,
+  hi: number,
+  what: string,
+  c: IssueCollector,
+): void {
+  validateRange(value, path, c);
+  if (!isPlainObject(value)) return;
+  for (const end of RANGE_KEYS) {
+    const bound = value[end];
+    if (bound === undefined || !isFiniteNumber(bound)) continue;
+    if ((bound as number) < lo || (bound as number) > hi) {
+      c.add(joinPath(path, end), code, `${what} ${end} must be between ${lo} and ${hi}.`);
+    }
+  }
+}
+
+/**
+ * Validate the transition vocabulary: which kinds, in what proportion, at what
+ * heights.
+ *
+ * A kind belongs to at most ONE entry across the whole vocabulary. Two entries
+ * claiming the same kind would each count the same gaps, so the shares would sum
+ * past what the episode has and no reader could say what either verdict meant.
+ *
+ * Kinds NO entry claims are legal and are deliberately not an error: a band
+ * grades what it declares, exactly as `metrics` does. Their gaps still count in
+ * the denominator, because the share the reference measured is a share of all
+ * the work's gaps, not of the ones it happened to name.
+ */
+function validateTransitionVocabulary(value: unknown, c: IssueCollector): void {
+  const path = "band.transitionVocabulary";
+  if (!isArray(value)) {
+    c.add(
+      path,
+      "band.transitions.type",
+      "transitionVocabulary must be an array of transition-kind entries.",
+    );
+    return;
+  }
+  if (value.length === 0) {
+    c.add(
+      path,
+      "band.transitions.empty",
+      "transitionVocabulary must declare at least one entry, or be left out.",
+    );
+    return;
+  }
+  // One entry per kind at most, so the vocabulary cannot be longer than the
+  // vocabulary the core has.
+  if (value.length > TRANSITION_TYPES.length) {
+    c.add(
+      path,
+      "band.transitions.count",
+      `a vocabulary may declare at most ${TRANSITION_TYPES.length} entries; this one declares ${value.length}.`,
+    );
+    return;
+  }
+  const claimed = new Set<string>();
+  let shareFloor = 0;
+  for (let i = 0; i < value.length; i++) {
+    const entry = value[i];
+    const entryPath = joinPath(path, i);
+    if (!isPlainObject(entry)) {
+      c.add(entryPath, "band.transitions.entry.type", "a vocabulary entry must be an object.");
+      continue;
+    }
+    allowlistKeys(entry, VOCABULARY_ENTRY_KEYS, entryPath, "a vocabulary entry", c);
+    validateVocabularyKinds(entry.kinds, joinPath(entryPath, "kinds"), claimed, c);
+    if (entry.share === undefined) {
+      c.add(
+        joinPath(entryPath, "share"),
+        "band.transitions.share.required",
+        "a vocabulary entry must declare a share range: a height range grades the gaps that occur, and only a share says whether zero of them is allowed.",
+      );
+    } else {
+      const sharePath = joinPath(entryPath, "share");
+      validateBoundedRange(entry.share, sharePath, "band.transitions.share", 0, 1, "share", c);
+      if (isPlainObject(entry.share) && isFiniteNumber(entry.share.min)) {
+        shareFloor += entry.share.min as number;
+      }
+    }
+    if (entry.height !== undefined) {
+      validateBoundedRange(
+        entry.height,
+        joinPath(entryPath, "height"),
+        "band.transitions.height",
+        0,
+        TRANSITION_HEIGHT_MAX,
+        "height",
+        c,
+      );
+    }
+  }
+  // Shares are shares of one episode's gaps, so minimums that add past 1 cannot
+  // all be met at once. A band that no episode can pass is a defect in the band,
+  // and it is invisible entry by entry.
+  if (shareFloor > 1) {
+    c.add(
+      path,
+      "band.transitions.unsatisfiable",
+      `the declared share minimums add up to ${round(shareFloor, 4)}; no episode can be more than 1 of its own gaps.`,
+    );
+  }
+}
+
+/** Validate one entry's kind list against the schema's own vocabulary. */
+function validateVocabularyKinds(
+  value: unknown,
+  path: string,
+  claimed: Set<string>,
+  c: IssueCollector,
+): void {
+  if (!isArray(value) || value.length === 0) {
+    c.add(
+      path,
+      "band.transitions.kinds",
+      "kinds must be a non-empty array of transition kind names.",
+    );
+    return;
+  }
+  for (let i = 0; i < value.length; i++) {
+    const kind = value[i];
+    const kindPath = joinPath(path, i);
+    if (!isString(kind) || !(TRANSITION_TYPES as readonly string[]).includes(kind)) {
+      c.add(
+        kindPath,
+        "band.transitions.kind.unknown",
+        `"${String(kind)}" is not a transition kind; expected one of: ${TRANSITION_TYPES.join(", ")}. A band selects from the core's vocabulary and never extends it.`,
+      );
+      continue;
+    }
+    if (claimed.has(kind)) {
+      c.add(
+        kindPath,
+        "band.transitions.kind.duplicate",
+        `transition kind "${kind}" is already claimed by another entry; a kind belongs to one entry, or its gaps would be counted twice.`,
+      );
+      continue;
+    }
+    claimed.add(kind);
   }
 }
 
@@ -987,6 +1367,9 @@ export function validateCraftBandValue(value: unknown): ValidationResult {
   if (value.recorded !== undefined) {
     validateRecorded(value.recorded, isPlainObject(value.metrics) ? value.metrics : {}, c);
   }
+  if (value.transitionVocabulary !== undefined) {
+    validateTransitionVocabulary(value.transitionVocabulary, c);
+  }
   if (value.provenance !== undefined) validateProvenance(value.provenance, c);
   return c.result();
 }
@@ -1006,24 +1389,93 @@ export function asCraftBand(value: Record<string, unknown>): CraftBand {
     ...(typeof value.screenAspect === "number" ? { screenAspect: value.screenAspect } : {}),
     metrics: value.metrics as CraftBand["metrics"],
     ...(isPlainObject(value.recorded) ? { recorded: value.recorded as CraftBand["recorded"] } : {}),
+    ...(isArray(value.transitionVocabulary)
+      ? { transitionVocabulary: value.transitionVocabulary as TransitionVocabularyEntry[] }
+      : {}),
     ...(isPlainObject(value.provenance)
       ? { provenance: value.provenance as unknown as CraftBandProvenance }
       : {}),
   };
 }
 
+/** Is `value` inside `range`? A range end the band left out does not bind. */
+function within(value: number, range: CraftBandRange): boolean {
+  return (
+    (range.min === undefined || value >= range.min) &&
+    (range.max === undefined || value <= range.max)
+  );
+}
+
 /**
- * Grade measured metrics against a band. Only the metrics the band GRADES are
+ * Grade one episode's transition mix against a declared vocabulary.
+ *
+ * An entry's share is the combined share of ALL the gaps the episode drew, not
+ * of the gaps its own kinds account for: a work that is four fifths empty gutter
+ * is four fifths empty gutter whether or not the band bothered to name the rest.
+ * Kinds no entry claims therefore still count in the denominator, and they are
+ * visible in the measured mix beside this.
+ */
+export function compareToTransitionVocabulary(
+  mix: TransitionMix,
+  vocabulary: readonly TransitionVocabularyEntry[],
+): TransitionVocabularyVerdict[] {
+  const byKind = new Map(mix.kinds.map((kind) => [kind.kind, kind]));
+  return vocabulary.map((entry) => {
+    const drawn = entry.kinds.map((kind) => byKind.get(kind)).filter((kind) => kind !== undefined);
+    const count = drawn.reduce((sum, kind) => sum + kind.count, 0);
+    const share = round(mix.gaps === 0 ? 0 : count / mix.gaps, 4);
+    const shareVerdict: TransitionRangeVerdict = {
+      value: share,
+      min: entry.share.min ?? null,
+      max: entry.share.max ?? null,
+      inBand: within(share, entry.share),
+    };
+    let height: TransitionRangeVerdict | null = null;
+    if (entry.height !== undefined) {
+      // The median over the entry's kinds POOLED — the same figure the reference
+      // read off a page, which never knew which of two card kinds it was looking
+      // at. Taken over the per-kind medians instead it would weight a kind used
+      // once exactly like a kind used thirty times.
+      const heights = drawn.flatMap((kind) => kind.heights);
+      const measured = heights.length === 0 ? null : round(median(heights), 4);
+      height = {
+        value: measured,
+        min: entry.height.min ?? null,
+        max: entry.height.max ?? null,
+        inBand: measured === null || within(measured, entry.height),
+      };
+    }
+    return {
+      kinds: [...entry.kinds],
+      count,
+      share: shareVerdict,
+      height,
+      inBand: shareVerdict.inBand && (height === null || height.inBand),
+    };
+  });
+}
+
+/**
+ * Grade a measured episode against a band. Only the metrics the band GRADES are
  * graded; a metric with no measurable value (an episode with no colour at all
  * has no hue) can never be inside a declared range, so it fails rather than
  * passing by absence.
  *
  * A recorded metric is measured against nothing. Its value and the range the
  * band measured are reported side by side, and the verdict is computed from
- * `verdicts` alone — the recorded list is never read for it, and its entries
- * carry no verdict to read.
+ * `verdicts` and the vocabulary alone — the recorded list is never read for it,
+ * and its entries carry no verdict to read.
+ *
+ * This takes the whole MEASUREMENT rather than its metrics, and that is load
+ * bearing: a band may declare a transition vocabulary, and a caller that could
+ * hand over the metrics alone would grade such a band against nothing and pass
+ * it. There is no shape of this function that can silently skip the vocabulary.
  */
-export function compareToCraftBand(metrics: CraftMetrics, band: CraftBand): CraftBandReport {
+export function compareToCraftBand(
+  measured: Pick<CraftMeasurement, "metrics" | "transitions">,
+  band: CraftBand,
+): CraftBandReport {
+  const { metrics } = measured;
   const verdicts: CraftMetricVerdict[] = [];
   const recorded: CraftRecordedMetric[] = [];
   for (const name of CRAFT_METRIC_NAMES) {
@@ -1032,8 +1484,7 @@ export function compareToCraftBand(metrics: CraftMetrics, band: CraftBand): Craf
       const value = metrics[name];
       const min = range.min ?? null;
       const max = range.max ?? null;
-      const inBand =
-        value !== null && (min === null || value >= min) && (max === null || value <= max);
+      const inBand = value !== null && within(value, range);
       verdicts.push({ metric: name, value, min, max, inBand });
     }
     const kept = band.recorded?.[name];
@@ -1046,11 +1497,17 @@ export function compareToCraftBand(metrics: CraftMetrics, band: CraftBand): Craf
       });
     }
   }
+  const transitions = compareToTransitionVocabulary(
+    measured.transitions,
+    band.transitionVocabulary ?? [],
+  );
   return {
     name: band.name ?? null,
-    inBand: verdicts.every((verdict) => verdict.inBand),
+    inBand:
+      verdicts.every((verdict) => verdict.inBand) && transitions.every((verdict) => verdict.inBand),
     metrics: verdicts,
     recorded,
+    transitions,
     provenance: band.provenance ?? null,
   };
 }

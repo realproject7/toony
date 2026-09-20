@@ -30,6 +30,14 @@ import {
 
 const WIDTH = 600;
 
+/** One measurement with some metrics overridden; everything else kept. */
+function withMetrics(
+  measured: CraftMeasurement,
+  overrides: Partial<CraftMeasurement["metrics"]>,
+): CraftMeasurement {
+  return { ...measured, metrics: { ...measured.metrics, ...overrides } };
+}
+
 let workdir: string;
 let restless: CraftMeasurement;
 let calm: CraftMeasurement;
@@ -245,7 +253,7 @@ test("a band grades only the metrics it declares, and one miss fails the verdict
       valueMean: { min: 150, max: 255 },
     },
   };
-  const good = compareToCraftBand(calm.metrics, band);
+  const good = compareToCraftBand(calm, band);
   assert.equal(good.inBand, true);
   assert.equal(good.name, "calm");
   assert.deepEqual(
@@ -253,12 +261,12 @@ test("a band grades only the metrics it declares, and one miss fails the verdict
     ["gutterRatio", "panelHeightMedian", "valueMean"],
   );
 
-  const bad = compareToCraftBand(restless.metrics, band);
+  const bad = compareToCraftBand(restless, band);
   assert.equal(bad.inBand, false);
   assert.ok(bad.metrics.every((verdict) => !verdict.inBand));
 
   // One metric out of band is enough to fail, and the rest still report.
-  const nearly = compareToCraftBand({ ...calm.metrics, valueMean: 10 }, band);
+  const nearly = compareToCraftBand(withMetrics(calm, { valueMean: 10 }), band);
   assert.equal(nearly.inBand, false);
   assert.deepEqual(
     nearly.metrics.filter((verdict) => !verdict.inBand).map((verdict) => verdict.metric),
@@ -268,7 +276,7 @@ test("a band grades only the metrics it declares, and one miss fails the verdict
 
 test("an unmeasurable metric fails its range instead of passing by absence", () => {
   const band: CraftBand = { bandFormat: 1, metrics: { hueBias: { min: 0, max: 360 } } };
-  const report = compareToCraftBand({ ...calm.metrics, hueBias: null }, band);
+  const report = compareToCraftBand(withMetrics(calm, { hueBias: null }), band);
   assert.equal(report.inBand, false);
   assert.equal(report.metrics[0]?.value, null);
 });
@@ -447,17 +455,17 @@ test("a recorded metric is kept and reported, and never changes the verdict", ()
   const graded: CraftBand = { bandFormat: 1, metrics: { gutterRatio: { min: 0, max: 1 } } };
 
   // The range is one this episode genuinely misses: graded, it fails the band.
-  const ifGraded = compareToCraftBand(calm.metrics, {
+  const ifGraded = compareToCraftBand(calm, {
     bandFormat: 1,
     metrics: { gutterRatio: { min: 0, max: 1 }, valueMean: unreachable },
   });
   assert.equal(ifGraded.inBand, false);
 
-  const recorded = compareToCraftBand(calm.metrics, {
+  const recorded = compareToCraftBand(calm, {
     ...graded,
     recorded: { valueMean: unreachable },
   });
-  const plain = compareToCraftBand(calm.metrics, graded);
+  const plain = compareToCraftBand(calm, graded);
   assert.equal(recorded.inBand, true);
   assert.deepEqual(recorded.metrics, plain.metrics);
   assert.deepEqual(recorded.recorded, [
@@ -479,7 +487,7 @@ test("a band of the shape shipped today validates and grades exactly as it did",
   assert.ok(!Object.hasOwn(band, "recorded"));
   assert.ok(!Object.hasOwn(band, "provenance"));
 
-  const report = compareToCraftBand(calm.metrics, band);
+  const report = compareToCraftBand(calm, band);
   assert.equal(report.inBand, true);
   assert.deepEqual(
     report.metrics.map((verdict) => verdict.metric),
@@ -491,7 +499,7 @@ test("a band of the shape shipped today validates and grades exactly as it did",
   // The nine ranges decide something: one metric moved off its measured value
   // leaves the band, and only that metric.
   const moved = compareToCraftBand(
-    { ...calm.metrics, valueMean: calm.metrics.valueMean * 2 + 10 },
+    withMetrics(calm, { valueMean: calm.metrics.valueMean * 2 + 10 }),
     band,
   );
   assert.equal(moved.inBand, false);
@@ -507,7 +515,7 @@ test("a band of the shape shipped today validates and grades exactly as it did",
     recorded: { valueSpread: { min: 0, max: 0.0001 } },
     provenance: PROVENANCE,
   });
-  const after = compareToCraftBand(calm.metrics, extended);
+  const after = compareToCraftBand(calm, extended);
   assert.deepEqual(after.metrics, report.metrics);
   assert.equal(after.inBand, report.inBand);
   assert.equal(after.recorded.length, 1);
@@ -534,7 +542,7 @@ test("provenance round-trips through validation, narrowing, and the report", () 
       ["sampled", false],
     ],
   );
-  assert.deepEqual(compareToCraftBand(calm.metrics, band).provenance, PROVENANCE);
+  assert.deepEqual(compareToCraftBand(calm, band).provenance, PROVENANCE);
 });
 
 test("each new band field is rejected for every way it can be wrong", () => {
@@ -669,7 +677,7 @@ test("the band file shipped in this repository validates and grades", async () =
   assert.ok(!Object.hasOwn(band, "recorded"));
   assert.ok(!Object.hasOwn(band, "provenance"));
 
-  const report = compareToCraftBand(calm.metrics, band);
+  const report = compareToCraftBand(calm, band);
   assert.equal(report.metrics.length, Object.keys(band.metrics).length);
   assert.deepEqual(
     [...report.metrics.map((verdict) => verdict.metric)].sort(),
@@ -686,7 +694,7 @@ test("the band file shipped in this repository validates and grades", async () =
   const moved = { ...calm.metrics };
   (moved as Record<CraftMetricName, number | null>)[capped.metric] = (capped.max as number) + 1;
 
-  const over = compareToCraftBand(moved, band);
+  const over = compareToCraftBand({ ...calm, metrics: moved }, band);
   assert.equal(over.inBand, false);
   const before = new Map(report.metrics.map((verdict) => [verdict.metric, verdict.inBand]));
   assert.deepEqual(
