@@ -25,6 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { buildInitialProject, encodeYaml, writeProject } from "@toony/project-io";
+import { cutHeightAt } from "@toony/render";
 import type { Cut, SequenceItem, Transition } from "@toony/schema";
 import { CALM, RESTLESS, writeRhythmProject } from "../__fixtures__/craft.js";
 import {
@@ -183,6 +184,8 @@ test("a real episode's shape fits: ~19 beats, ~100 panels, lengths 30x apart", (
   // format imposes: each beat states its own length, its own shape and its own
   // spacing, and the report gives every length back rather than a median.
   const TYPICAL_GUTTER = 157; // ~0.196 column widths on an 800px reference
+  // A scene break is the SAME field at about twice the episode's own median.
+  const BREAK_GUTTER = 2 * TYPICAL_GUTTER;
   const shape: [cuts: number, aspect: number][] = [
     [11, 1.4],
     [9, 1.6],
@@ -216,7 +219,7 @@ test("a real episode's shape fits: ~19 beats, ~100 panels, lengths 30x apart", (
       // A scene break between beats is an ordinary gutter at about twice the
       // episode's own median — a taller number in the SAME field, not a kind of
       // its own and not a field of its own.
-      ...(index === 0 ? {} : { openWith: { type: "gutter" as const, gutterHeight: 314 } }),
+      ...(index === 0 ? {} : { openWith: { type: "gutter" as const, gutterHeight: BREAK_GUTTER } }),
     })),
   };
   assert.deepEqual(validateEpisodePlanValue(plan).issues, []);
@@ -238,16 +241,47 @@ test("a real episode's shape fits: ~19 beats, ~100 panels, lengths 30x apart", (
     longest / shortest >= 30,
     `beat lengths should span thirty fold, got ${longest / shortest}`,
   );
-  // Every beat's own length is reported, not a summary of them.
-  assert.equal(lengths.length, measured.beats?.length);
+  // A scene break needs no schema, and this is the whole of what the format is
+  // responsible for: BOTH heights reach the page, through the one
+  // `gutterHeight` field, the break at twice the typical gutter. Nothing detects
+  // a break — deriving beats from a page is a measurement feature and is not in
+  // this command — so there is no detection to assert here.
+  //
+  // The page height is asserted first because it is the only figure that moves
+  // when a break gap draws at the ordinary height, or draws and contributes no
+  // rows. The mix is read off the declared records and would not notice either.
+  const internalGaps = 103 - 19;
+  const breaks = 19 - 1;
+  assert.equal(
+    measured.height,
+    shape.reduce((sum, [cuts, aspect]) => sum + cuts * cutHeightAt(800, aspect), 0) +
+      internalGaps * TYPICAL_GUTTER +
+      breaks * BREAK_GUTTER,
+  );
 
-  // A break is found by HEIGHT, with no new schema: it is a `gutter` in the mix
-  // like every other gutter, and it draws at twice the typical one.
+  // And both heights are in the mix, under ONE kind, in the counts the plan
+  // declared. The figures are the mix's own, rounded to four decimals as every
+  // run length in a craft report is — which is also why the reported break
+  // height is not exactly twice the reported typical one, though the declared
+  // heights are: 157/800 is 0.19625 and reports as 0.1963, while 314/800 is
+  // 0.3925 already. The doubling lives in the declaration and on the page above,
+  // not in a rounded ratio.
   assert.deepEqual(
     measured.transitions.kinds.map((kind) => kind.kind),
     ["gutter"],
   );
-  assert.equal(measured.transitions.gaps, 103 - 19 + 18);
+  assert.equal(measured.transitions.gaps, internalGaps + breaks);
+  const byHeight = new Map<number, number>();
+  for (const height of measured.transitions.kinds[0]?.heights ?? []) {
+    byHeight.set(height, (byHeight.get(height) ?? 0) + 1);
+  }
+  assert.deepEqual(
+    [...byHeight.entries()].sort((a, b) => a[0] - b[0]),
+    [
+      [0.1963, internalGaps],
+      [0.3925, breaks],
+    ],
+  );
 });
 
 test("a beat that opens on a gap puts that gap before its first cut", () => {

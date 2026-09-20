@@ -88,11 +88,25 @@ export const EPISODE_PLAN_FORMAT_VERSION = 1;
  *
  * The run rule reads a page one row at a time, so this is a real allocation and
  * not a policy: a plan that validates can still name more rows than an array
- * holds. Twenty million is far past anything real — 16,667 column widths of page
- * at the 1200px default, where a measured episode runs about 138, and 200 column
- * widths even at `EXPORT_WIDTH_MAX`. What it catches is a plan that is wrong
- * rather than large, and it catches it as an error the command reports instead
- * of a crash wearing a verdict's exit code.
+ * holds. What it catches is a plan that is wrong rather than large, and it
+ * catches it as an error the command reports instead of a crash wearing a
+ * verdict's exit code.
+ *
+ * Twenty million is far past anything real — 16,667 column widths of page at the
+ * 1200px default, where a measured episode runs about 138. IT IS NOT CHEAP,
+ * though, and the figure is here so nobody raises the cap on the strength of the
+ * ideal one. Pushing exactly this many rows peaked at 541 MB RSS here and 582 MB
+ * on a reviewer's machine, against the 153 MB an exactly-sized array of them
+ * would occupy: `push` grows its backing store geometrically, so the old store
+ * and the new one are alive together at the moment it grows. Half a gigabyte,
+ * not a sixth of one.
+ *
+ * Because the cap is on ROWS, its headroom in column widths shrinks linearly
+ * with the column: 16,667 at the 1200px default, and 200 at `EXPORT_WIDTH_MAX`.
+ * Two hundred is about 1.45x a measured episode, so at that column 103 cuts of
+ * 1.4 still fit and 155 of them do not. Nothing the rendered path could itself
+ * grade is refused at any column — a page that tall is past what a canvas will
+ * allocate — so that is a note and not a defect.
  */
 export const PLAN_PAGE_ROWS_MAX = 20_000_000;
 
