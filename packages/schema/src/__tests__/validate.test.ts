@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { cloneValidProject, validProject } from "../__fixtures__/valid-project.js";
 import type { ValidationResult } from "../errors.js";
+import { PANEL_ASPECT_MAX, PANEL_ASPECT_MIN } from "../types.js";
 import { validateProject, validateWebtoon } from "../validate.js";
 
 function codes(result: ValidationResult): string[] {
@@ -661,6 +662,48 @@ test("cut craft metadata validates (shotType enum, palette/layer/styleTag string
   cut.shotType = "medium";
   cut.palette = "";
   assert.ok(codes(validateProject(project)).includes("cut.craft-meta"));
+});
+
+// --- Panel shape per cut (#237) ---------------------------------------------
+
+test("a cut without panelAspect is valid (back-compat)", () => {
+  // Every cut in the fixture omits it, and the project is valid as it stands.
+  assert.equal(validateProject(validProject).valid, true);
+});
+
+test("panelAspect accepts any height in its declared range", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  // The pilot style band's own panel-height range, which no rung of
+  // PANEL_HEIGHT_PRESETS lands in — the reason this is a number.
+  for (const aspect of [PANEL_ASPECT_MIN, 0.47, 1.396, 1.471, 2.5, PANEL_ASPECT_MAX]) {
+    cut.panelAspect = aspect;
+    const result = validateProject(project);
+    assert.equal(result.valid, true, `${aspect}: ${JSON.stringify(result.issues)}`);
+  }
+});
+
+test("panelAspect rejects a value outside the range, or a non-number", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  for (const bad of [
+    0,
+    -1,
+    PANEL_ASPECT_MIN / 2,
+    PANEL_ASPECT_MAX + 0.001,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    "1.4" as unknown as number,
+    null as unknown as number,
+  ]) {
+    cut.panelAspect = bad;
+    assert.ok(
+      codes(validateProject(project)).includes("cut.panel-aspect"),
+      `${String(bad)} was accepted`,
+    );
+  }
 });
 
 test("transition color must be a non-empty string or null", () => {

@@ -36,6 +36,8 @@ import {
   LINE_HEIGHT_MAX,
   LINE_HEIGHT_MIN,
   MANUAL_PROVIDER_ID,
+  PANEL_ASPECT_MAX,
+  PANEL_ASPECT_MIN,
   PLACEMENT_SIDES,
   PLACEMENTS,
   REVIEW_STATUSES,
@@ -341,6 +343,21 @@ export function validateCutValue(value: unknown, path: string, c: IssueCollector
   for (const key of ["palette", "layer", "styleTag"] as const) {
     if (value[key] !== undefined && !isNonEmptyString(value[key])) {
       c.add(joinPath(path, key), "cut.craft-meta", `${key} must be a non-empty string.`);
+    }
+  }
+  // Panel shape (#237) — OPTIONAL, and the one cut-level craft field that is not
+  // metadata: it becomes the generation latent's height. A range is enforced
+  // here rather than clamped at generation because an out-of-range shape is an
+  // authoring mistake, and clamping would render a panel the pack never asked
+  // for while reporting success.
+  if (value.panelAspect !== undefined) {
+    const aspect = value.panelAspect;
+    if (!isFiniteNumber(aspect) || aspect < PANEL_ASPECT_MIN || aspect > PANEL_ASPECT_MAX) {
+      c.add(
+        joinPath(path, "panelAspect"),
+        "cut.panel-aspect",
+        `panelAspect must be a number between ${PANEL_ASPECT_MIN} and ${PANEL_ASPECT_MAX} — the cut's height as a multiple of its width.`,
+      );
     }
   }
   const image = value.image;

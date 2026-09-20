@@ -37,3 +37,16 @@ test("a round-tripped project still validates", () => {
   const restored = parseProject(serializeProject(validProject));
   assert.equal(validateProject(restored).valid, true);
 });
+
+test("a declared panel shape survives the round trip (#237)", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  // A fractional height, because that is what a measured band asks for and a
+  // lossy round trip would quietly re-shape the panel.
+  cut.panelAspect = 1.4327;
+  const restored = parseProject(serializeProject(project));
+  assert.equal(restored.episodes[0]?.cuts[0]?.panelAspect, 1.4327);
+  assert.deepEqual(restored, project);
+  assert.equal(validateProject(restored).valid, true);
+});

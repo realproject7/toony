@@ -14,6 +14,12 @@
 // provider has. When the endpoint is unset or unreachable the command fails with
 // a clear, actionable message — it never fabricates a result.
 //
+// A cut's declared panel shape (`panelAspect`, #237) reaches the provider the
+// same way: it is a height in column widths, so it is resolved against the
+// column the workflow's own latent declares (or `--width`) and injected as this
+// cut's latent size. A cut that declares no shape has NO size injected, so the
+// workflow's latent stands exactly as it did before the field existed.
+//
 // `--cut` REPEATS, so this command owns the multi-cut loop instead of leaving
 // every caller to write a shell loop and invent its own error handling (#204).
 // Generation is slow and flaky against a local GPU, so a failed cut must not
@@ -41,6 +47,7 @@ import type { Character } from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 import { discoverPackContent } from "../packs.js";
 import { appendPaletteClause } from "../palette.js";
+import { latentHeightFor } from "../panel-shape.js";
 
 export interface GenerateIo {
   cwd: string;
@@ -168,13 +175,36 @@ async function readWorkspaceComfyConfig(root: string): Promise<ToonyWorkspaceCom
   }
 }
 
+/**
+ * The column the resolved workflow generates at: the width its own latent
+ * declares, read through the same injection map the provider writes sizes
+ * through, so it is the number a cut's declared shape (#237) is a multiple of.
+ * `undefined` when the mapped node carries no usable width — a mapping that
+ * points at nothing is the operator's to fix, not something to guess a column
+ * for.
+ */
+function workflowLatentWidth(config: {
+  workflow: Record<string, { inputs: Record<string, unknown> }>;
+  injectionMap: { widthNode: string; widthInput: string };
+}): number | undefined {
+  const raw =
+    config.workflow[config.injectionMap.widthNode]?.inputs?.[config.injectionMap.widthInput];
+  return typeof raw === "number" && Number.isInteger(raw) && raw > 0 ? raw : undefined;
+}
+
+/** A built provider, with the column its workflow draws at when one is known. */
+interface BuiltProvider {
+  provider: ImageProvider;
+  latentWidth?: number;
+}
+
 async function buildProvider(
   id: string,
   root: string,
   io: GenerateIo,
   workflows: ReadonlyMap<string, string>,
   workflowName: string | undefined,
-): Promise<ImageProvider | { error: string }> {
+): Promise<BuiltProvider | { error: string }> {
   if (id === "comfyui") {
     try {
       const toonyConfig = await readWorkspaceComfyConfig(root);
@@ -187,7 +217,11 @@ async function buildProvider(
         workflows,
         ...(workflowName === undefined ? {} : { workflowName }),
       });
-      return new ComfyUIProvider(config);
+      const latentWidth = workflowLatentWidth(config);
+      return {
+        provider: new ComfyUIProvider(config),
+        ...(latentWidth === undefined ? {} : { latentWidth }),
+      };
     } catch (cause) {
       if (cause instanceof ProviderError) return { error: cause.message };
       throw cause;
@@ -205,6 +239,13 @@ interface Job {
   label: string;
   target: AssetTarget;
   request: ImageRequest;
+  /**
+   * The cut's declared panel shape (#237), when it declared one. Carried rather
+   * than resolved here because it needs the column the workflow draws at, and
+   * the workflow is not resolved until after planning — planning exists to
+   * reject a caller mistake before anything reaches a provider.
+   */
+  panelAspect?: number;
 }
 
 interface PlanInput {
@@ -299,9 +340,63 @@ async function planJobs(
       label: `cut ${cutId} (${slot})`,
       target: { kind: "cut", episodeId, cutId, slot },
       request: { prompt: composed, options: optionsFor(shared, cutNegative) },
+      ...(cut?.panelAspect === undefined ? {} : { panelAspect: cut.panelAspect }),
     });
   }
   return { jobs };
+}
+
+/**
+ * Turn every job's declared panel shape (#237) into the latent size the provider
+ * generates at, in place.
+ *
+ * The shape is a height in column widths, so it needs a column: `--width` when
+ * the operator pinned one, otherwise the width the workflow's own latent
+ * declares. An explicit `--height` is the operator overriding the cut for this
+ * run and wins outright — but it is SAID, because a shape that is silently
+ * dropped is the #207 failure in a new place.
+ *
+ * A job with no declared shape is left exactly as planned: no size is injected
+ * for it, so the workflow's own latent stands, unchanged to the byte.
+ *
+ * Returns an error instead of generating when a declared shape cannot be
+ * resolved. Falling back to the workflow's latent there would render a page with
+ * the pack's pacing quietly removed, and cost GPU minutes to discover.
+ */
+function applyPanelShapes(
+  jobs: readonly Job[],
+  latentWidth: number | undefined,
+  shared: Readonly<Record<string, string | number>>,
+  io: GenerateIo,
+): { error: string } | null {
+  const declared = jobs.flatMap((job) =>
+    job.panelAspect === undefined ? [] : [{ job, panelAspect: job.panelAspect }],
+  );
+  if (declared.length === 0) return null;
+
+  if (typeof shared.height === "number") {
+    io.err(
+      `note: --height ${shared.height} overrides the declared panel shape on ${declared.length} cut(s): ${declared.map((d) => d.job.id).join(", ")}`,
+    );
+    return null;
+  }
+
+  const column = typeof shared.width === "number" ? shared.width : latentWidth;
+  if (column === undefined) {
+    return {
+      error: `cut ${declared[0]?.job.id} declares a panel shape, but the column to size it against is unknown: the workflow's latent declares no width at the mapped node. Pass --width <px>, or point the workflow's node mapping at its latent.`,
+    };
+  }
+
+  for (const { job, panelAspect } of declared) {
+    const height = latentHeightFor(column, panelAspect);
+    job.request = {
+      ...job.request,
+      options: { ...job.request.options, width: column, height },
+    };
+    job.label = `${job.label} at ${column}x${height}`;
+  }
+  return null;
 }
 
 /** Run `toony generate`. Returns the process exit code. */
@@ -384,21 +479,31 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   }
 
   const packs = await discoverPackContent(root, io);
-  const provider = await buildProvider(
+  const built = await buildProvider(
     providerId,
     root,
     io,
     packs.workflows,
     parsed.values.get("--workflow"),
   );
-  if ("error" in provider) {
-    io.err(provider.error);
+  if ("error" in built) {
+    io.err(built.error);
     return EXIT_USAGE;
   }
+  const provider = built.provider;
   if (provider.transmitsRemotely && !parsed.booleans.has("--allow-remote")) {
     io.err(
       `provider "${providerId}" would send prompt content to a non-local server; re-run with --allow-remote to opt in, or point it at a loopback endpoint (localhost or 127.0.0.1) to keep content on this machine`,
     );
+    return EXIT_USAGE;
+  }
+
+  // The declared shapes need the resolved workflow's column, so this is the
+  // first point they CAN be resolved — and it is still before the first request,
+  // so an unresolvable shape costs nothing.
+  const shapes = applyPanelShapes(jobs.jobs, built.latentWidth, shared, io);
+  if (shapes !== null) {
+    io.err(shapes.error);
     return EXIT_USAGE;
   }
 
