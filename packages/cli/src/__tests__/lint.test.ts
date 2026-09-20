@@ -1,10 +1,13 @@
 // `toony lint` / `toony lint-episode` run the headless lints against a project.
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
+import { deflateSync } from "node:zlib";
+import { loadProject, writeCuts } from "@toony/project-io";
+import type { Cut } from "@toony/schema";
 import { runExport } from "../commands/export.js";
 import { runInit } from "../commands/init.js";
 import { runLint, runLintEpisode } from "../commands/lint.js";
@@ -234,4 +237,92 @@ test("lint measures a gutter bubble against the strip the PROJECT declares (#215
     !(await lintCodes(dir)).includes("lettering/overflow"),
     "toony lint still measured the bubble against the default strip",
   );
+});
+
+// --- A declared panel shape, read back through the command (#260) -----------
+
+/** A real PNG of `width`x`height`; only its header is read back. */
+function png(width: number, height: number): Uint8Array {
+  const u32 = (v: number): number[] => [
+    (v >>> 24) & 0xff,
+    (v >>> 16) & 0xff,
+    (v >>> 8) & 0xff,
+    v & 0xff,
+  ];
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc = (bytes: number[]): number => {
+    let c = 0xffffffff;
+    for (const b of bytes) c = (crcTable[(c ^ b) & 0xff] as number) ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type: string, data: number[]): number[] => {
+    const body = [...[...type].map((ch) => ch.charCodeAt(0)), ...data];
+    return [...u32(data.length), ...body, ...u32(crc(body))];
+  };
+  const stride = width * 3;
+  const raw = Buffer.alloc(height * (stride + 1)); // filter 0 + black rows
+  return Uint8Array.from([
+    0x89,
+    0x50,
+    0x4e,
+    0x47,
+    0x0d,
+    0x0a,
+    0x1a,
+    0x0a,
+    ...chunk("IHDR", [...u32(width), ...u32(height), 8, 2, 0, 0, 0]),
+    ...chunk("IDAT", [...deflateSync(raw)]),
+    ...chunk("IEND", []),
+  ]);
+}
+
+/** Give `cut-001` real art of a known shape, and optionally a declared one. */
+async function cutWithArt(
+  dir: string,
+  size: [number, number],
+  panelAspect?: number,
+): Promise<void> {
+  const rel = "episodes/ep-001/assets/clean/cut-001.png";
+  await mkdir(join(dir, "episodes/ep-001/assets/clean"), { recursive: true });
+  await writeFile(join(dir, rel), png(size[0], size[1]));
+  const loaded = await loadProject(dir);
+  const cuts = (loaded.project.episodes[0] as { cuts: Cut[] }).cuts.map((c) =>
+    c.id === "cut-001"
+      ? {
+          ...c,
+          image: { clean: rel, final: null },
+          ...(panelAspect === undefined ? {} : { panelAspect }),
+        }
+      : c,
+  );
+  await writeCuts(dir, "ep-001", cuts);
+}
+
+test("lint reports art that does not match the shape its cut declares (#260)", async () => {
+  const dir = await scaffold();
+  await cutWithArt(dir, [200, 280], 0.3);
+  const codes = await lintCodes(dir);
+  assert.ok(
+    codes.includes("cut/panel-aspect-mismatch"),
+    `expected a panel-shape finding, got: ${codes.join(", ")}`,
+  );
+});
+
+test("the same art on a cut that declares nothing is not reported (#260)", async () => {
+  // The back-compat half, on the SAME fixture: it is the declaration that makes
+  // this a finding, not the art. A project written before the field existed
+  // cannot acquire one.
+  const dir = await scaffold();
+  await cutWithArt(dir, [200, 280]);
+  assert.ok(!(await lintCodes(dir)).includes("cut/panel-aspect-mismatch"));
+});
+
+test("art generated AT the declared shape is not reported (#260)", async () => {
+  const dir = await scaffold();
+  await cutWithArt(dir, [200, 280], 1.4);
+  assert.ok(!(await lintCodes(dir)).includes("cut/panel-aspect-mismatch"));
 });

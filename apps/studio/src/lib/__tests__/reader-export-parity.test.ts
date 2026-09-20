@@ -18,7 +18,7 @@ import { test } from "node:test";
 import { composeCut } from "@toony/export";
 import { ARTLESS_CUT_FILL, cutPlacementFrame, GUTTER_MARGIN_FILL, layoutCut } from "@toony/render";
 import type { Cut, LetteringOverlay } from "@toony/schema";
-import { resolveCutArt } from "../project.js";
+import { FALLBACK_ART, resolveCutArt } from "../project.js";
 
 /** Export raster width. Every comparison below is scale-free. */
 const RASTER_WIDTH = 600;
@@ -373,4 +373,36 @@ test("a gutter bubble's lettering lands WHERE the declared strip puts it", async
     0,
     `${leftOfBand.ink} exported pixels of gutter lettering outside the declared strip`,
   );
+});
+
+// --- A declared shape reaches BOTH stages (#260) ----------------------------
+
+test("a declared panel shape reshapes the reader's stage and the export's alike", async () => {
+  // #260 taught the export raster to stage an art-less cut at the shape its cut
+  // declares. The reader has to learn it in the same breath, or the invariant
+  // this file exists for — one shape, two consumers — is broken by the fix for
+  // something else, and no existing case here would notice, because none of them
+  // declares a shape.
+  for (const panelAspect of [0.3, 2.6]) {
+    const cut: Cut = { ...artlessCut(), panelAspect };
+    const art = await resolveCutArt(WORK_ID, WORK_ROOT, cut);
+    assert.equal(art.src, null);
+
+    const composed = await composeCut(bubbles(), null, RASTER_WIDTH, { panelAspect });
+    assert.equal(
+      composed.height,
+      Math.round(composed.width * (art.height / art.width)),
+      `declared ${panelAspect}: reader stage ${art.width}x${art.height}, export ${composed.width}x${composed.height}`,
+    );
+    // And it is genuinely the declaration doing it, not the fallback coinciding.
+    assert.notEqual(
+      composed.height,
+      Math.round(composed.width * (FALLBACK_ART.height / FALLBACK_ART.width)),
+    );
+  }
+});
+
+test("a cut that declares nothing gets the stage it always got", async () => {
+  const art = await resolveCutArt(WORK_ID, WORK_ROOT, artlessCut());
+  assert.deepEqual(art, FALLBACK_ART);
 });

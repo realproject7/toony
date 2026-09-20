@@ -952,3 +952,44 @@ test("a square-cornered bubble is untouched: same raster ink as before (#210)", 
     `square ${squareGap.worst}px vs rounded ${roundedGap.worst}px`,
   );
 });
+
+// --- The shape an art-less cut is staged at (#260) --------------------------
+
+test("an art-less cut is staged at the shape it declares", async () => {
+  // Before #260 a cut's declared `panelAspect` reached generation and nothing
+  // else, so a pack that paced its scaffold exported every art-less cut at 1.4.
+  for (const [aspect, width] of [
+    [0.3, 200],
+    [2.6, 480],
+    [1.4327, 833],
+  ] as [number, number][]) {
+    const composed = await composeCut([], null, width, { panelAspect: aspect });
+    assert.equal(composed.width, width);
+    assert.equal(composed.height, Math.round(width * aspect), `declared ${aspect}`);
+  }
+});
+
+test("an art-less cut that declares NOTHING is byte-identical to before", async () => {
+  // The back-compat claim at the pixel: absent means the fallback aspect, which
+  // is what this target shipped at. Compared as encoded bytes, not dimensions,
+  // so a stage that changed color or lost its lettering would fail too.
+  const overlays = [topLeftOverlay()];
+  const absent = await composeCut(overlays, null, 480);
+  const undefinedDeclaration = await composeCut(overlays, null, 480, { panelAspect: undefined });
+  assert.equal(absent.height, Math.round(480 * 1.4));
+  assert.deepEqual(
+    new Uint8Array(undefinedDeclaration.canvas.toBuffer("image/png")),
+    new Uint8Array(absent.canvas.toBuffer("image/png")),
+  );
+});
+
+test("a cut WITH art composes at the art's shape, whatever it declares", async () => {
+  // Nothing re-cuts an image to match a declaration made after it: the page is
+  // the page. A declaration that re-shaped a cut here would stretch published
+  // artwork, which is the opposite of what the field is for.
+  const fixture = buildSolidColorPngFixture(240, 336);
+  const declared = await composeCut([], fixture, 480, { panelAspect: 0.3 });
+  const plain = await composeCut([], fixture, 480);
+  assert.equal(declared.height, plain.height);
+  assert.equal(declared.height, Math.round(480 * (336 / 240)));
+});

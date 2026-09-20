@@ -26,7 +26,7 @@ import {
   ProjectIoError,
   summarizeEpisodes,
 } from "@toony/project-io";
-import { FALLBACK_CUT_ASPECT } from "@toony/render";
+import { cutHeightAt, FALLBACK_CUT_ASPECT, resolveCutAspect } from "@toony/render";
 import type { Character, Cut, EpisodeBundle, LetteringOverlay, Transition } from "@toony/schema";
 
 export type { EpisodeSummary, Finding, LoadedProject };
@@ -136,35 +136,47 @@ export interface CutArt {
  *  render, so this is free to be any round number. */
 const FALLBACK_ART_WIDTH = 1000;
 
-/** Default aspect when an asset is missing or its header cannot be read. The
- *  single source pages use for a cut whose art hasn't resolved (#154). The ratio
- *  is the render core's, not the studio's, so the stage a reader sees for an
- *  art-less cut is the shape the export raster gives it (#211). */
+/** Default stage for a cut whose art hasn't resolved AND which declares no shape
+ *  of its own (#154). The ratio is the render core's, not the studio's, so the
+ *  stage a reader sees for an art-less cut is the shape the export raster gives
+ *  it (#211). */
 export const FALLBACK_ART: CutArt = {
   src: null,
   width: FALLBACK_ART_WIDTH,
-  height: Math.round(FALLBACK_ART_WIDTH * FALLBACK_CUT_ASPECT),
+  height: cutHeightAt(FALLBACK_ART_WIDTH, FALLBACK_CUT_ASPECT),
 };
+
+/**
+ * The stage for a cut with no usable art: the shape the cut DECLARES
+ * (`panelAspect`, #237), else `FALLBACK_ART`'s. The export raster stages the
+ * same cut through the same resolver (#260), so the two still show one shape —
+ * which is the whole point of #211, and would have been silently lost had only
+ * the export learned to read the declaration back.
+ */
+function artlessStage(cut: Cut, src: string | null): CutArt {
+  const { aspect } = resolveCutAspect(cut.panelAspect, null);
+  return { src, width: FALLBACK_ART_WIDTH, height: cutHeightAt(FALLBACK_ART_WIDTH, aspect) };
+}
 
 /**
  * Resolve a cut's art for the preview: prefer the final image, then the clean
  * image. Reads the image header (no full decode) to get natural dimensions; on
- * any IO/parse failure the cut still renders bubbles over a default-aspect stage
+ * any IO/parse failure the cut still renders bubbles over its art-less stage
  * rather than throwing, keeping the sequence readable.
  */
 export async function resolveCutArt(workId: string, workRoot: string, cut: Cut): Promise<CutArt> {
   const rel = cut.image?.final ?? cut.image?.clean ?? null;
   const src = assetUrl(workId, workRoot, rel);
-  if (!rel || !src) return FALLBACK_ART;
+  if (!rel || !src) return artlessStage(cut, null);
   const absolute = resolveWorkAsset(workRoot, rel);
-  if (absolute === null) return FALLBACK_ART;
+  if (absolute === null) return artlessStage(cut, null);
   try {
     const bytes = await readFile(absolute);
     const dims = readImageDimensions(new Uint8Array(bytes));
-    if (!dims || dims.width <= 0 || dims.height <= 0) return { ...FALLBACK_ART, src };
+    if (!dims || dims.width <= 0 || dims.height <= 0) return artlessStage(cut, src);
     return { src, width: dims.width, height: dims.height };
   } catch {
-    return { ...FALLBACK_ART, src };
+    return artlessStage(cut, src);
   }
 }
 

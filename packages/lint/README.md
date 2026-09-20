@@ -60,10 +60,36 @@ All thresholds (`DEFAULT_IMAGE_ANALYSIS_OPTIONS`) are configurable.
 `warning` (`lettering/overflow`) for every overlay whose text overflows its box
 even at the minimum font size. It does not re-measure or re-lay-out text; it only
 attributes the layout's `overflow` flag. Cut pixel dimensions come from the
-header reader (`readImageDimensions`) when an image is present; otherwise the
-documented fallback `DEFAULT_OVERFLOW_FALLBACK` (a typical portrait cut) keeps
-the check deterministic. `resolveImage(cutId)` returns the cut's encoded image
-bytes, or `null` when none is associated.
+header reader (`readImageDimensions`) when an image is present; otherwise the cut
+is staged at the shape it declares (`Cut.panelAspect`), and only a cut declaring
+nothing falls to the documented fallback `DEFAULT_OVERFLOW_FALLBACK` (a typical
+portrait cut), which keeps the check deterministic. `resolveImage(cutId)` returns
+the cut's encoded image bytes, or `null` when none is associated.
+
+Staging an art-less cut at its declared shape matters because every cut in a
+pack's genre scaffold is art-less: what fits a bubble box depends on the font
+floor, the floor is derived from the render height, and a scaffold's declared
+height was reaching nothing here.
+
+## Declared vs rendered panel shape
+
+`lintPanelShape(bundle, resolveImage)` reports a `warning`
+(`cut/panel-aspect-mismatch`) for every cut whose art sits further than
+`PANEL_ASPECT_TOLERANCE` from the `panelAspect` it declares. A declaration binds
+when the art is made — generation resolves it into the latent height — so a cut
+that already carried art keeps composing at that art's shape, and the declaration
+is then describing a page that is not the page. Re-generate the cut to bind it,
+or drop the declaration.
+
+A cut that declares nothing is never reported, whatever shape its art is, and
+neither is one with no readable art. The tolerance is the generator's own 8px
+latent snap, not a taste call: see the constant's comment for the derivation and
+`packages/cli/src/__tests__/panel-shape.test.ts` for the assertion that it still
+covers it.
+
+Both this and the overflow stage go through `@toony/render`'s `resolveCutAspect`
+— *a cut's shape is its declaration, else its image's, else the fallback* — which
+the export raster and the studio reader also stage art-less cuts with.
 
 ## Export-manifest completeness
 

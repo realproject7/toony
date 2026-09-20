@@ -43,6 +43,9 @@ export {
 
 export { approximateMeasure } from "./measure.js";
 
+export type { CutAspectSource, CutImageSize, ResolvedCutAspect } from "./panel-shape.js";
+export { cutHeightAt, resolveCutAspect } from "./panel-shape.js";
+
 export type { BubbleKindStyle, CaptionPlate } from "./style.js";
 export {
   bubbleKindStyle,
