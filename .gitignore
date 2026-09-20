@@ -1,6 +1,8 @@
 node_modules/
 .pnpm-store/
 dist/
+# Test compiles emit here, never into dist/ — see turbo.json's `test` task.
+dist-test/
 build/
 .turbo/
 .next/

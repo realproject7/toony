@@ -16,7 +16,7 @@ import { writeLettering } from "../writer.js";
 
 const EXAMPLES = ["dead-air", "last-train"];
 
-// This file compiles to dist/__tests__/, so the repository root is four up.
+// This file compiles to dist-test/__tests__/, so the repository root is four up.
 function exampleRoot(name: string): string {
   return fileURLToPath(new URL(`../../../../examples/${name}`, import.meta.url));
 }

@@ -21,7 +21,7 @@ const H = 1200;
 /** The kinds whose default is the clean dialogue sans; the rest are display faces. */
 const DIALOGUE_KINDS: ReadonlySet<BubbleKind> = new Set(["speech", "whisper", "ambient"]);
 
-// This file compiles to dist/__tests__/, so the repository root is four up.
+// This file compiles to dist-test/__tests__/, so the repository root is four up.
 async function shippedLettering(name: string): Promise<LetteringOverlay[]> {
   const file = fileURLToPath(
     new URL(`../../../../examples/${name}/episodes/ep-001/lettering.json`, import.meta.url),
