@@ -176,15 +176,22 @@ Size is deliberately not recorded on the cut. A cut's shape already has a home i
 `panelAspect`, and re-rendering a batch at export resolution is a thing to do,
 not a thing to prevent; the size a run submitted is in the ingest log.
 
-That leaves one gap, and the log closes it. A run that pins no size takes the
-workflow's own latent — which is not what produced the image on disk if that
-image was rendered at a pinned size. Everything else replays, so the run reads as
+That leaves one gap, and the log closes it. A dimension a run does not pin takes
+the workflow's own latent — which is not what produced the image on disk if that
+image was rendered at another size. Everything else replays, so the run reads as
 a faithful repeat while replacing the plate the operator approved. `generate`
 therefore compares the size it is about to render at against the size the log
 recorded for that asset, and refuses before the first request when they differ,
-naming the flags that would repeat it. Only a run that pins no size is checked: a
-run that passes `--width`/`--height`, or a cut that declares a shape, is saying
-what size it wants.
+naming the flags that would repeat it.
+
+The comparison is per dimension, because a run that pins one of them has said
+nothing about the other: `--width 640` after a `640x960` render is checked on its
+height, and is refused rather than quietly re-rendered at `640x1216`. A dimension
+the run pins, or that the cut's `panelAspect` declares, is left alone.
+
+The instruction it prints carries the recorded **seed** whenever the run would
+not replay it — a repeat at the right size from a different seed is not a repeat.
+That is the ordinary case on the `final` slot, which replays no record at all.
 
 A failed write-back is reported as itself, never as a failed generation. The two
 states differ in what is on disk — one has no image, the other has the image and

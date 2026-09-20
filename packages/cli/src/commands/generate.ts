@@ -589,17 +589,25 @@ async function recordRenderInputs(
  * while reading as a repeat of it (#240).
  *
  * Size is the one generation input a cut does not record. A cut that declares a
- * shape (#237) says its size, and a run that pins `--width`/`--height` says its
- * size — but a run that does neither takes the workflow's latent, which is not
- * what produced the image on disk if that image was rendered at a pinned size.
+ * shape (#237) says both of its dimensions, and a run says whichever of them it
+ * pins — but an UNPINNED dimension takes the workflow's latent, which is not
+ * what produced the image on disk if that image was rendered at another size.
  * Everything else replays, so the run looks like a faithful repeat, overwrites
  * the plate the operator approved, and says nothing.
  *
- * So the check is narrow by construction: only a job that resolves NO size of
- * its own, against an image the cut still references, whose recorded render used
- * a size this run demonstrably would not. A run or a cut that SAYS what size it
- * wants is deliberate and is left alone; an asset with nothing recorded makes no
- * claim to repeat and is left alone too.
+ * Narrow by construction, and PER DIMENSION: `--width 640` alone says nothing
+ * about the height, so the height is still checked and `640x960` is not quietly
+ * re-rendered as `640x1216`. A dimension this run pins is left alone, and so is
+ * an asset with nothing recorded — "nothing recorded" is no claim to repeat,
+ * never "no difference".
+ *
+ * The escape it names has to actually repeat the image, so it carries the
+ * recorded SEED whenever this run would not use it. That is not hypothetical:
+ * the cut's record describes the clean plate, so a `--slot final` run replays no
+ * seed at all, and following a size-only instruction would re-render the final
+ * plate at the right size from a fresh roll — destroying it while obeying the
+ * tool. The same holds on the clean slot whenever the record and the log have
+ * diverged.
  *
  * It refuses rather than warning, and refuses the whole run before the first
  * request: the damage is destructive and the alternative — a warning above a
@@ -613,26 +621,35 @@ async function assertRepeatable(
   for (const { job, latent } of ready) {
     const target = job.target;
     if (target.kind !== "cut") continue;
-    if (job.inputs.width !== undefined || job.inputs.height !== undefined) continue;
-    if (cutsById.get(target.cutId)?.image?.[target.slot] == null) continue;
-    const recorded = await recordedRenderInputs(root, target);
+    // The path the RECORD holds, matched whole: an id may contain a dot, so a
+    // name-prefix lookup lets a sibling cut's asset answer for this one.
+    const assetPath = cutsById.get(target.cutId)?.image?.[target.slot];
+    if (assetPath == null) continue;
+    const recorded = await recordedRenderInputs(root, target.episodeId, assetPath);
     if (recorded === undefined) continue;
 
     const differences: string[] = [];
     const repeatFlags: string[] = [];
-    for (const [name, flag, was, now] of [
-      ["width", "--width", recorded.width, latent.width],
-      ["height", "--height", recorded.height, latent.height],
+    for (const [name, flag, was, pinned, now] of [
+      ["width", "--width", recorded.width, job.inputs.width, latent.width],
+      ["height", "--height", recorded.height, job.inputs.height, latent.height],
     ] as const) {
+      if (pinned !== undefined) continue; // this run says what it wants here
       if (typeof was !== "number" || now === undefined || was === now) continue;
       differences.push(`${name} ${now} instead of ${was}`);
       repeatFlags.push(`${flag} ${was}`);
     }
     if (differences.length === 0) continue;
+    // The seed is not a reason to refuse — a record edited on purpose is not a
+    // mistake — but a repeat that used another seed is not a repeat, so the
+    // instruction carries it whenever this run would not replay it.
+    if (typeof recorded.seed === "number" && recorded.seed !== job.inputs.seed) {
+      repeatFlags.push(`--seed ${recorded.seed}`);
+    }
     return {
       error:
         `cut ${job.id} (${target.slot}): this run would render at ${differences.join(", ")}, so it would replace the image on disk rather than repeat it — ` +
-        `the workflow's own latent stands when a run pins no size, and that image was not rendered at it. ` +
+        `the workflow's own latent stands for a dimension a run does not pin, and that image was not rendered at it. ` +
         `Pass ${repeatFlags.join(" ")} to repeat that image, or pass --width/--height to render a different size on purpose. Nothing was generated.`,
       exit: EXIT_USAGE,
     };

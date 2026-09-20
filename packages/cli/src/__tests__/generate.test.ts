@@ -2310,3 +2310,264 @@ test("a deliberate size, and an image with no recorded size, are left alone (#24
     comfy.close();
   }
 });
+
+/**
+ * The flags a refusal tells the operator to pass, taken from the message itself.
+ * A test that retypes them proves the tool agrees with the test; taking them
+ * from the output proves the instruction an operator would follow is one that
+ * repeats the render.
+ */
+function repeatFlagsFrom(stderr: string): string[] {
+  const match = /Pass ((?:--\S+ \S+ ?)+)to repeat that image/.exec(stderr);
+  assert.ok(match, `no repeat instruction in:\n${stderr}`);
+  return (match[1] ?? "").trim().split(/\s+/);
+}
+
+test("the escape a refusal names repeats the image, on the final slot too (#240)", async () => {
+  // The final slot replays no record — the record describes the clean plate —
+  // so a size-only instruction would re-render the approved final plate at the
+  // right size from a fresh seed: destroyed while obeying the tool.
+  const projectDir = await scaffold();
+  // An authored prompt, which is what a final pass renders from: the slot
+  // writes no record, so nothing else would give the second run a prompt.
+  const cutsPath = join(projectDir, "episodes", "ep-001", "cuts.yaml");
+  const authored = decodeYaml(await readFile(cutsPath, "utf8")) as Record<string, unknown>[];
+  await writeFile(
+    cutsPath,
+    encodeYaml(
+      authored.map((cut) =>
+        cut.id === "cut-001" ? { ...cut, imagePrompt: "the lettered final pass" } : cut,
+      ),
+    ),
+  );
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          "--seed",
+          "7",
+          "--width",
+          "640",
+          "--height",
+          "960",
+          "--allow-remote",
+        ],
+        first.io,
+      ),
+      EXIT_OK,
+      first.err.join("\n"),
+    );
+
+    const blind = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          "--allow-remote",
+        ],
+        blind.io,
+      ),
+      EXIT_USAGE,
+      blind.out.join("\n"),
+    );
+    assert.equal(comfy.calls(), 1, "a run that cannot repeat must not reach the provider");
+    const flags = repeatFlagsFrom(blind.err.join("\n"));
+    // The seed is in the instruction, because this slot replays none.
+    assert.ok(flags.includes("--seed"), flags.join(" "));
+
+    const obey = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          ...flags,
+          "--allow-remote",
+        ],
+        obey.io,
+      ),
+      EXIT_OK,
+      obey.err.join("\n"),
+    );
+    const [original, obeyed] = comfy.bodies().map(normalizeClientId);
+    assert.equal(obeyed, original, "following the instruction did not repeat the render");
+  } finally {
+    comfy.close();
+  }
+});
+
+test("pinning one dimension still checks the other (#240)", async () => {
+  // `--width 640` says nothing about the height, and the height is where the
+  // workflow's latent quietly replaced a 640x960 plate with a 640x1216 one.
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--prompt",
+          "a rooftop at dusk",
+          "--seed",
+          "7",
+          "--width",
+          "640",
+          "--height",
+          "960",
+          "--allow-remote",
+        ],
+        first.io,
+      ),
+      EXIT_OK,
+      first.err.join("\n"),
+    );
+
+    const half = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--width", "640", "--allow-remote"],
+        half.io,
+      ),
+      EXIT_USAGE,
+      half.out.join("\n"),
+    );
+    assert.equal(comfy.calls(), 1);
+    const err = half.err.join("\n");
+    assert.match(err, /height 1216 instead of 960/);
+    // The width it pinned is not reported as a difference: it said that one.
+    assert.doesNotMatch(err, /width 832/);
+
+    const obey = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--width",
+          "640",
+          ...repeatFlagsFrom(err),
+          "--allow-remote",
+        ],
+        obey.io,
+      ),
+      EXIT_OK,
+      obey.err.join("\n"),
+    );
+    const [original, obeyed] = comfy.bodies().map(normalizeClientId);
+    assert.equal(obeyed, original);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a sibling cut whose id contains a dot does not answer for this one (#240)", async () => {
+  // `SAFE_ASSET_ID` allows a dot, so `cut-001.alt.png` starts with the same
+  // `cut-001.` an extension-agnostic lookup would use. A cut-001 repeat must
+  // not be refused on a size cut-001 has never been rendered at.
+  const projectDir = await scaffold();
+  const cutsPath = join(projectDir, "episodes", "ep-001", "cuts.yaml");
+  const episodePath = join(projectDir, "episodes", "ep-001", "episode.yaml");
+  const cuts = decodeYaml(await readFile(cutsPath, "utf8")) as Record<string, unknown>[];
+  await writeFile(
+    cutsPath,
+    encodeYaml([...cuts, { id: "cut-001.alt", image: null, imagePrompt: "", negativePrompt: "" }]),
+  );
+  const episode = decodeYaml(await readFile(episodePath, "utf8")) as {
+    sequence: { type: string; id: string }[];
+  };
+  await writeFile(
+    episodePath,
+    encodeYaml({
+      ...episode,
+      sequence: [...episode.sequence, { type: "cut", id: "cut-001.alt" }],
+    }),
+  );
+
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    // cut-001 at the workflow's latent: nothing about its size is recorded.
+    const plain = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--prompt",
+          "a rooftop at dusk",
+          "--allow-remote",
+        ],
+        plain.io,
+      ),
+      EXIT_OK,
+      plain.err.join("\n"),
+    );
+    // The sibling at a pinned size, whose asset name shares cut-001's prefix.
+    const sibling = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001.alt",
+          "--prompt",
+          "the alternate take",
+          "--width",
+          "640",
+          "--height",
+          "960",
+          "--allow-remote",
+        ],
+        sibling.io,
+      ),
+      EXIT_OK,
+      sibling.err.join("\n"),
+    );
+
+    const repeat = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+        repeat.io,
+      ),
+      EXIT_OK,
+      repeat.err.join("\n"),
+    );
+    const [original, , repeated] = comfy.bodies().map(normalizeClientId);
+    assert.equal(repeated, original, "cut-001 did not repeat its own render");
+  } finally {
+    comfy.close();
+  }
+});

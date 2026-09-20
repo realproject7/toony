@@ -97,17 +97,6 @@ function targetRecordId(target: AssetTarget): string {
   return target.kind === "cut" ? target.cutId : target.transitionId;
 }
 
-/**
- * `assets/<slot>/<id>.` — the episode-relative name an ingested asset starts
- * with, everything but the extension the produced format decides. Shared by the
- * write and by the lookup below, so a reader can find an asset's entries without
- * knowing which format it was written in.
- */
-function episodeRelativePrefix(target: AssetTarget): string {
-  const slotDir = target.kind === "cut" ? target.slot : "clean";
-  return `assets/${slotDir}/${targetRecordId(target)}.`;
-}
-
 // Schema only requires record ids to be non-empty strings, so a valid project
 // could use ids with path separators or `..`. Asset filenames are derived from
 // the id, so reject anything that is not a safe single path segment before any
@@ -162,9 +151,14 @@ async function appendProvenance(
 }
 
 /**
- * The inputs that produced the image currently at `target`'s asset path, as the
- * ingest log recorded them (#240) — the most recent entry for that path, since
- * each ingest replaces the file the previous one wrote.
+ * The inputs that produced the image at `assetPath`, as the ingest log recorded
+ * them (#240) — the most recent entry for that exact path, since each ingest
+ * replaces the file the previous one wrote.
+ *
+ * `assetPath` is the project-relative path the RECORD holds, matched whole. It
+ * is not derived from the record's id here: an id may legally contain a dot
+ * (`SAFE_ASSET_ID` allows it), so `cut-001.` as a prefix also matches
+ * `cut-001.alt.png` — a sibling cut's asset answering for this one.
  *
  * `undefined` when nothing is recorded for it: no log, an asset imported rather
  * than generated, or one produced before inputs were recorded at all. A caller
@@ -177,15 +171,16 @@ async function appendProvenance(
  */
 export async function recordedRenderInputs(
   root: string,
-  target: AssetTarget,
+  episodeId: string,
+  assetPath: string,
 ): Promise<RenderInputs | undefined> {
-  const prefix = `episodes/${target.episodeId}/${episodeRelativePrefix(target)}`;
-  const entries = await readProvenanceLog(root, target.episodeId);
+  const entries = await readProvenanceLog(root, episodeId);
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i];
     if (typeof entry !== "object" || entry === null) continue;
-    const { assetPath, renderInputs } = entry as { assetPath?: unknown; renderInputs?: unknown };
-    if (typeof assetPath !== "string" || !assetPath.startsWith(prefix)) continue;
+    const recorded = entry as { assetPath?: unknown; renderInputs?: unknown };
+    if (recorded.assetPath !== assetPath) continue;
+    const { renderInputs } = recorded;
     if (typeof renderInputs !== "object" || renderInputs === null) return undefined;
     return renderInputs as RenderInputs;
   }
@@ -234,7 +229,8 @@ export async function ingestImageAsset(
       ? cutsFile(root, target.episodeId)
       : transitionsFile(root, target.episodeId),
   );
-  const episodeRelative = `${episodeRelativePrefix(target)}${extensionFor(result.format)}`;
+  const slotDir = target.kind === "cut" ? target.slot : "clean";
+  const episodeRelative = `assets/${slotDir}/${recordId}.${extensionFor(result.format)}`;
   // Records store a project-relative path (per the schema's ImageAssetRef
   // contract) so consumers resolve assets from the project root; the file
   // itself still lives under the episode directory.
