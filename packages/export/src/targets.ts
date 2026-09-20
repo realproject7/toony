@@ -106,12 +106,19 @@ async function loadEpisode(root: string, episodeId: string): Promise<LoadedEpiso
 }
 
 /**
- * Compose options every raster target shares. The project declares which language
- * its dialogue is written in, and that picks the DEFAULT dialogue face (#213), so
- * an exported cut lands on the same face the studio preview shows.
+ * Compose options every raster target shares — the project-level values the
+ * shared layout needs, read off `webtoon.json` in ONE place so no target can
+ * compose a cut on different terms from another. The project declares which
+ * language its dialogue is written in, and that picks the DEFAULT dialogue face
+ * (#213); it declares how much column a gutter strip takes (#215). Both are the
+ * same fields the studio preview reads, so an exported cut lands on the same
+ * face, in the same strip, as what was read.
  */
 function composeOptions(project: Project): ComposeCutOptions {
-  return { dialogueLanguage: project.webtoon.languages.dialogueLanguage };
+  return {
+    dialogueLanguage: project.webtoon.languages.dialogueLanguage,
+    gutterBandWidth: project.webtoon.gutterBandWidth,
+  };
 }
 
 /** Cut records in canonical reading order (from the episode sequence). */

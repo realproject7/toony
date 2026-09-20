@@ -299,3 +299,29 @@ test("dot directories and node_modules are not packs, but a real one still warns
   assert.equal(loud.issues.length, 1, "a real pack with no manifest must warn");
   assert.match(loud.issues[0]?.code ?? "", /manifest-missing/);
 });
+
+test("a genre's declared gutter strip survives discovery (#215)", async () => {
+  // The number a pack ships has to reach `toony init` intact: it is the only
+  // way a project ever inherits it, since nothing consults a pack at render.
+  const packsDir = join(workdir, PROJECT_PACKS_DIR);
+  await writePack(packsDir, "thriller-pack", {
+    genres: [
+      {
+        id: "thriller-noir",
+        title: "Thriller Noir",
+        file: "genres/scaffold.json",
+        gutterBandWidth: 0.32,
+      },
+      { id: "thriller-quiet", title: "Thriller Quiet", file: "genres/scaffold.json" },
+    ],
+  });
+  const loaded = await loadPacks(workdir);
+  assert.deepEqual(loaded.issues, []);
+  const declared = loaded.content.genres.find((g) => g.id === "thriller-noir");
+  const silent = loaded.content.genres.find((g) => g.id === "thriller-quiet");
+  assert.equal(declared?.gutterBandWidth, 0.32);
+  // A genre that declares none carries none, rather than a defaulted number the
+  // project would then record as an explicit choice.
+  assert.ok(silent);
+  assert.equal("gutterBandWidth" in silent, false);
+});

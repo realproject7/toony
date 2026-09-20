@@ -13,7 +13,8 @@
     {
       "id": "noir",
       "title": "Noir",
-      "file": "genres/noir.json"
+      "file": "genres/noir.json",
+      "gutterBandWidth": 0.24
     }
   ],
   "exportPresets": [

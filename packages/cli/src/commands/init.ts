@@ -6,7 +6,7 @@ import {
   buildInitialProject,
   GENRES,
   listGenreIds,
-  resolveGenreBundle,
+  resolveGenreSeed,
   slugify,
   writeProject,
 } from "@toony/project-io";
@@ -90,8 +90,15 @@ export async function runInit(args: string[], io: InitIo): Promise<number> {
   }
 
   // `genre` was checked against the merged list above, so this always resolves.
-  const starter = genre === undefined ? undefined : await resolveGenreBundle(genre, packs.genres);
-  const project = buildInitialProject(name, starter);
+  // A contributed genre may also declare the gutter strip its dialogue needs
+  // (#215); `buildInitialProject` writes it into `webtoon.json`, so the project
+  // carries the width from here on and nothing consults the pack to render.
+  const seed = genre === undefined ? undefined : await resolveGenreSeed(genre, packs.genres);
+  const project = buildInitialProject(
+    name,
+    seed?.bundle,
+    seed?.gutterBandWidth === undefined ? {} : { gutterBandWidth: seed.gutterBandWidth },
+  );
   try {
     await writeProject(target, project);
   } catch (cause) {

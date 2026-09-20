@@ -29,6 +29,9 @@ export {
 } from "./guards.js";
 export { isPathSafeId } from "./path-safe-id.js";
 export {
+  GUTTER_BAND_WIDTH_DEFAULT,
+  GUTTER_BAND_WIDTH_MAX,
+  GUTTER_BAND_WIDTH_MIN,
   isMoodColor,
   isPanelHeightPreset,
   isSpacingPreset,
@@ -41,12 +44,14 @@ export {
   PANEL_HEIGHT_PRESETS,
   type PanelHeightPreset,
   panelHeightPx,
+  resolveGutterBandWidth,
   resolveReferenceWidth,
   SPACING_PRESET_NAMES,
   SPACING_PRESETS,
   type SpacingPreset,
   STANDARD_CANVAS_WIDTH_PX,
   spacingPx,
+  validateGutterBandWidth,
 } from "./presets.js";
 export { parseProject, serializeProject } from "./serialize.js";
 export type {

@@ -149,6 +149,15 @@ export interface ComposeCutOptions {
    * raster picks the same DEFAULT dialogue face the studio preview shows (#213).
    */
   dialogueLanguage?: string;
+  /**
+   * The project's declared gutter band width (`webtoon.json` →
+   * `gutterBandWidth`), a fraction of the cut width (#215). ONE value reaches
+   * both halves of the reservation below — the strip the artwork is kept out of
+   * and the strip the bubbles are laid into — so the raster cannot draw art over
+   * the band it letters in, and the studio, reading the same field through the
+   * same layout, reserves the same strip.
+   */
+  gutterBandWidth?: number;
 }
 
 /**
@@ -185,7 +194,7 @@ export async function composeCut(
   // Reserve the gutter strip(s) (#98): the artwork fills only the `art` rect; the
   // band(s) are a neutral reading margin where gutter bubbles sit. No gutter
   // overlays → art == the whole canvas (full-bleed, byte-identical to before).
-  const { art, bands } = cutPlacementFrame(overlays, width, height);
+  const { art, bands } = cutPlacementFrame(overlays, width, height, options.gutterBandWidth);
   if (bands.length > 0) {
     ctx.fillStyle = GUTTER_MARGIN_FILL;
     ctx.fillRect(0, 0, width, height);
@@ -201,6 +210,7 @@ export async function composeCut(
   for (const bubble of layoutCut(overlays, width, height, {
     measure,
     dialogueLanguage: options.dialogueLanguage,
+    gutterBandWidth: options.gutterBandWidth,
   })) {
     drawBubble(ctx, bubble);
   }

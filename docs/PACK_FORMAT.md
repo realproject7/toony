@@ -10,6 +10,10 @@ It can contribute four things:
 | Export preset | A named engine + render options | `toony export <id> --episode <id>` |
 | Craft band | The measured target its output should hit | `toony measure --against <id>` |
 
+A genre scaffold also carries the craft settings the genre needs, which
+`toony init` writes into the new project. See
+[the gutter strip](#the-gutter-strip-a-genre-letters-in).
+
 A working example lives at
 [`packages/packs/examples/example-pack`](../packages/packs/examples/example-pack).
 Copy it to start your own.
@@ -102,7 +106,7 @@ already claimed is missing from that list rather than quietly counted.
     { "name": "high-detail", "file": "workflows/high-detail.workflow.json" }
   ],
   "genres": [
-    { "id": "noir", "title": "Noir", "file": "genres/noir.json" }
+    { "id": "noir", "title": "Noir", "file": "genres/noir.json", "gutterBandWidth": 0.24 }
   ],
   "exportPresets": [
     {
@@ -157,6 +161,77 @@ your pack draws at are the pack's decision, not Toony's.
 | `id` | The id `--genre` selects. Unique within the pack. |
 | `title` | Human-readable genre name. |
 | `file` | A complete **episode bundle**. |
+| `gutterBandWidth` | Optional. The gutter strip this genre letters in, as a fraction of the cut width, between `0.05` and `0.5`. Absent means the default `0.18`. |
+
+#### The gutter strip a genre letters in
+
+A `placement: gutter` bubble sits in a strip reserved beside the artwork, and
+`gutterBandWidth` is how much of the column that strip takes. It is the one
+craft number a genre can be *defined* by: a thriller runs two or three gutter
+intrusions per screen where a slice-of-life runs half of one, so how much room
+that dialogue gets is part of what the pack is selling — and a genre whose
+dialogue is set in a script that reads narrow needs less of it than one that
+does not.
+
+It is a number, like everything else here. `toony init --genre <id>` writes it
+into the new project's `webtoon.json`, and from then on the **project** owns it:
+the studio preview, `toony export`, and `toony lint` all read it there. Nothing
+looks at a pack again to render, so an episode reads the same whether or not the
+pack that started it is still installed, and an author can change the strip
+afterwards by editing the field.
+
+##### What changed for gutter bubbles, and what did not
+
+A gutter bubble's auto-fit used to stop shrinking at a size derived from the
+cut's **height**, while the strip is cut from its **width**. On a tall cut that
+stop was above anything the strip could letter, so the bubble reported overflow
+whatever you did to its box, and the only way out was to pin a `fontSize`. The
+stop now comes off the width instead, capped at the default strip.
+
+What moves is **gutter bubbles that were reporting overflow**, and only those.
+Two shapes of it:
+
+- a bubble whose text did not fit at any size now fits, at a smaller one — the
+  bug this exists to fix;
+- a bubble whose text still does not fit is now drawn at the new stop, which is
+  much smaller than the old one. On an 800x1600 cut with the default strip that
+  is 8.64px where it was 35.20px; on 1200x1275, 12.96px where it was 28.05px.
+  It is still flagged, so `toony lint` still tells you to fix it, but the
+  best-effort drawing under the warning is smaller than it used to be.
+
+A bubble that already fitted keeps the exact size it had: the auto-fit returns
+the largest size that fits and reads the stop only as a stop, so lowering the
+stop can only add candidates below a size that was already rejected. Nothing
+outside a gutter strip moves at all — measured over 210 composed cuts, 45
+differed and every one of them was a gutter bubble.
+
+Declaring a **different** strip width is a separate thing, and it moves more than
+the bubbles in the strip: the artwork rect is what is left over, so widening the
+strip narrows the art, and anything sized from the art moves with it — a
+full-width `impact_band` SFX most visibly. On an 800px cut, going from `0.18` to
+`0.40` takes the artwork from 656px to 480px.
+
+A wider strip buys room for a longer line, not larger minimum text: the stop
+does not climb as the strip grows. Below the default strip it scales down with
+it. Two caveats worth knowing before you size a strip:
+
+- **The stop is not a promise that any line fits.** It is set so a strip-filling
+  bubble with squared corners holds a line of the ~24 characters the craft check
+  allows. A rounded balloon's corner arcs take a further bite out of its first
+  and last lines, growing with the corner radius, so in a default rounded
+  balloon the measured worst case is nearer 16. If a line still will not fit,
+  shorten it, square the corners with `cornerRadius: 0`, give the box more
+  height, or pin a `fontSize`.
+- **A single unbreakable token can behave oddly across widths.** The corner
+  radius grows with the box and so with the strip, while the vertical padding
+  the arcs are measured from does not, so there is a window where a token that
+  fits a narrower strip stops fitting and then fits again above it. Sweeping
+  realistic cut sizes and box heights, that window ran from about `0.06` to
+  about `0.25` — it can start well below the default strip and continue above
+  it — and every affected case fitted again by `0.30`. It takes a token of
+  roughly 16 to 24 glyphs; shorter ones always fit and longer ones never did.
+  Wrappable prose does not hit this at all; a long unhyphenated word or an
+  SFX-like run of glyphs can.
 
 A scaffold file is one episode's records:
 

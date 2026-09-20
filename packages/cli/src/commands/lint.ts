@@ -123,8 +123,18 @@ async function lintEpisodeManifests(root: string, episodeId: string): Promise<Fi
   return findings;
 }
 
-/** Run image, overflow, and manifest checks for one well-formed episode. */
-async function lintEpisode(root: string, bundle: EpisodeBundle): Promise<Finding[]> {
+/**
+ * Run image, overflow, and manifest checks for one well-formed episode.
+ *
+ * `gutterBandWidth` is the project's declared gutter strip (#215): the overflow
+ * check lays bubbles out through the same renderer the studio and the export
+ * use, so it has to measure them against the strip THIS project letters in.
+ */
+async function lintEpisode(
+  root: string,
+  bundle: EpisodeBundle,
+  gutterBandWidth: number | undefined,
+): Promise<Finding[]> {
   const findings: Finding[] = [];
   const images = await resolveCutImages(root, bundle, findings);
 
@@ -133,7 +143,9 @@ async function lintEpisode(root: string, bundle: EpisodeBundle): Promise<Finding
     if (bytes) findings.push(...analyzeImageBuffer(bytes, cut.id));
   }
 
-  findings.push(...lintBubbleOverflow(bundle, (cutId) => images.get(cutId) ?? null));
+  findings.push(
+    ...lintBubbleOverflow(bundle, (cutId) => images.get(cutId) ?? null, { gutterBandWidth }),
+  );
   findings.push(...(await lintEpisodeManifests(root, bundle.episode.id)));
   return findings;
 }
@@ -201,8 +213,12 @@ async function lintAndReport(
     for (const bundle of bundles) {
       // Craft lints (#94) reuse @toony/render text layout, so run them on
       // structurally-valid bundles (alongside image/overflow/manifest checks).
-      findings.push(...lintCraft(bundle, registry));
-      findings.push(...(await lintEpisode(root, bundle)));
+      findings.push(
+        ...lintCraft(bundle, registry, {
+          gutterBandWidth: loaded.project.webtoon.gutterBandWidth,
+        }),
+      );
+      findings.push(...(await lintEpisode(root, bundle, loaded.project.webtoon.gutterBandWidth)));
     }
   }
 

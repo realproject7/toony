@@ -18,7 +18,6 @@
 // to the preview without writing.
 
 import {
-  cutPlacementFrame,
   IMPACT_BURST_FILL,
   IMPACT_BURST_STROKE,
   IMPACT_RAY_COLOR,
@@ -31,6 +30,7 @@ import Link from "next/link";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useBrowserMeasure } from "@/lib/browser-measure";
 import { clamp } from "@/lib/clamp";
+import { resolveCutStage } from "@/lib/cut-stage";
 import { persistWithGuard } from "@/lib/editor-save";
 import { newOverlay } from "@/lib/new-overlay";
 import { bubbleTextStyle } from "@/lib/overlay-text-style";
@@ -64,6 +64,12 @@ export interface CutEditorProps {
    * face the preview and the export raster resolve.
    */
   dialogueLanguage: string;
+  /**
+   * The project's resolved gutter strip width (#215), a fraction of the cut
+   * width. It reserves the strip the artwork is inset from AND goes into
+   * `layoutCut`, so the editor edits bubbles in the band the export letters in.
+   */
+  gutterBandWidth: number;
 }
 
 type DragMode =
@@ -80,6 +86,7 @@ export function CutEditor({
   art,
   initialBubbles,
   dialogueLanguage,
+  gutterBandWidth,
 }: CutEditorProps) {
   const [bubbles, setBubbles] = useState<LetteringOverlay[]>(initialBubbles);
   const [selectedId, setSelectedId] = useState<string | null>(initialBubbles[0]?.id ?? null);
@@ -108,8 +115,9 @@ export function CutEditor({
       layoutCut(bubbles, width, height, {
         ...(measure ? { measure } : {}),
         dialogueLanguage,
+        gutterBandWidth,
       }),
-    [bubbles, width, height, measure, dialogueLanguage],
+    [bubbles, width, height, measure, dialogueLanguage, gutterBandWidth],
   );
   const overflowCount = plans.filter((plan) => plan.overflow).length;
 
@@ -117,17 +125,10 @@ export function CutEditor({
   // artwork occupies only the `art` rect — the SAME cut-frame the preview and
   // export reserve — and gutter-aware overlay geometry sits over the inset art,
   // not full-bleed. With no gutter bubbles the art fills the stage (back-compat).
-  const frame = useMemo(() => cutPlacementFrame(bubbles, width, height), [bubbles, width, height]);
-  const reserved = frame.bands.length > 0;
-  const artStyle = reserved
-    ? {
-        position: "absolute" as const,
-        left: `${(frame.art.x / width) * 100}%`,
-        top: 0,
-        width: `${(frame.art.width / width) * 100}%`,
-        height: "100%",
-      }
-    : undefined;
+  const { reserved, artStyle } = useMemo(
+    () => resolveCutStage(bubbles, width, height, gutterBandWidth),
+    [bubbles, width, height, gutterBandWidth],
+  );
   const selected = bubbles.find((b) => b.id === selectedId) ?? null;
   const selectedPlan = plans.find((plan) => plan.id === selectedId) ?? null;
 

@@ -9,7 +9,7 @@
 // export; only the editing chrome is dropped. A header toggle returns to the
 // editing preview so it is always obvious how to get back to editing.
 
-import { resolveReferenceWidth } from "@toony/schema";
+import { resolveGutterBandWidth, resolveReferenceWidth } from "@toony/schema";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CutCanvas } from "@/components/cut-canvas";
@@ -58,6 +58,9 @@ export default async function EpisodeReaderPage({
   // The column this project's px gutter heights were authored against (#217), so
   // the reader scales bands the same way the export does.
   const referenceWidth = resolveReferenceWidth(loaded.project.webtoon.referenceWidth);
+  // The gutter strip this project letters in (#215) — the same field, resolved
+  // the same way, that the export raster composes cuts with.
+  const gutterBandWidth = resolveGutterBandWidth(loaded.project.webtoon.gutterBandWidth);
 
   return (
     <div data-testid="studio-episode-reader" className="reader-page">
@@ -101,6 +104,7 @@ export default async function EpisodeReaderPage({
                 workId={work.id}
                 episodeId={episode.id}
                 dialogueLanguage={loaded.project.webtoon.languages.dialogueLanguage}
+                gutterBandWidth={gutterBandWidth}
                 readOnly
               />
             );

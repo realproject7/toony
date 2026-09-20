@@ -46,6 +46,80 @@ export function resolveReferenceWidth(declared: number | undefined | null): numb
     : STANDARD_CANVAS_WIDTH_PX;
 }
 
+// --- The gutter band (#98/#215) ---------------------------------------------
+//
+// A `placement: gutter` bubble sits in a reserved strip beside the artwork, and
+// the strip's width is a fraction of the cut's width. Gutter dialogue is the
+// measured signature of the genres that lean on it, so how much column it gets
+// is a craft decision a project makes — not a number the renderer fixes. They
+// live beside the reference column because they are needed on every side of
+// that decision at once: validating `webtoon.json`, validating the pack genre
+// entry that seeds it, and laying the strip out.
+
+/**
+ * Default gutter band width, as a fraction of the cut's width. The value the
+ * strip has had since #98, so a project that declares nothing renders exactly
+ * as it did before the field existed.
+ */
+export const GUTTER_BAND_WIDTH_DEFAULT = 0.18;
+
+/**
+ * Narrowest declarable band. On the standard 800px canvas this is a 40px strip —
+ * about one short word at a size a reader can take in at arm's length. Below it
+ * the strip stops being a place dialogue is read and becomes a decorative gap.
+ */
+export const GUTTER_BAND_WIDTH_MIN = 0.05;
+
+/**
+ * Widest declarable band. At half the column the strip is no longer a reading
+ * margin beside the art — it is a second column — and a cut carrying a band on
+ * BOTH sides at this width leaves the artwork the 1px `cutPlacementFrame`
+ * clamps to, which is to say none.
+ */
+export const GUTTER_BAND_WIDTH_MAX = 0.5;
+
+/**
+ * The gutter band width a render uses, resolved from the optional
+ * `Webtoon.gutterBandWidth` (#215).
+ *
+ * Absent or unusable → {@link GUTTER_BAND_WIDTH_DEFAULT}. A declared number is
+ * clamped into the validated range, so a value that reached a renderer without
+ * passing `validateWebtoonValue` still produces a drawable strip instead of a
+ * negative art rect. This is the SINGLE resolution: the studio preview, the
+ * export raster, and the lints all reach the strip through it rather than
+ * reading the raw field, so none of them can resolve it differently from the
+ * others.
+ */
+export function resolveGutterBandWidth(declared: number | undefined | null): number {
+  if (typeof declared !== "number" || !Number.isFinite(declared)) {
+    return GUTTER_BAND_WIDTH_DEFAULT;
+  }
+  return Math.min(GUTTER_BAND_WIDTH_MAX, Math.max(GUTTER_BAND_WIDTH_MIN, declared));
+}
+
+/**
+ * Validate an optional declared gutter band width against the bounds above.
+ * Returns an error string when `value` is present and out of range, `null` when
+ * it is absent or valid — the shape `validateExportWidth` uses, for the same
+ * reason: `webtoon.json` and a pack manifest's genre entry both declare this
+ * number, and they must reject the same values with the same wording.
+ */
+export function validateGutterBandWidth(
+  value: number | undefined,
+  name = "gutterBandWidth",
+): string | null {
+  if (value === undefined) return null;
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < GUTTER_BAND_WIDTH_MIN ||
+    value > GUTTER_BAND_WIDTH_MAX
+  ) {
+    return `${name} must be a fraction of the cut width between ${GUTTER_BAND_WIDTH_MIN} and ${GUTTER_BAND_WIDTH_MAX}`;
+  }
+  return null;
+}
+
 // --- Clock-ladder spacing presets (§1/§5) -----------------------------------
 // Empty vertical space IS time: each preset is how long a no-art gap "reads"
 // at the standard scroll speed. Px on the standard canvas; authors may override.

@@ -5,7 +5,7 @@
 // scoped to the work resolved path-safely from `<workId>`. Cut images and bubble
 // overlays are resolved through `@toony/render` against this work's asset scope.
 
-import { resolveReferenceWidth } from "@toony/schema";
+import { resolveGutterBandWidth, resolveReferenceWidth } from "@toony/schema";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CutCanvas } from "@/components/cut-canvas";
@@ -53,6 +53,9 @@ export default async function EpisodePreviewPage({
   // The column this project's px gutter heights were authored against (#217), so
   // the preview scales bands the same way the export does.
   const referenceWidth = resolveReferenceWidth(loaded.project.webtoon.referenceWidth);
+  // The gutter strip this project letters in (#215), resolved once and handed to
+  // every cut, so the preview reserves the strip the export reserves.
+  const gutterBandWidth = resolveGutterBandWidth(loaded.project.webtoon.gutterBandWidth);
 
   const cutCount = episode.sequence.filter((item) => item.type === "cut").length;
   const transitionCount = episode.sequence.filter((item) => item.type === "transition").length;
@@ -128,6 +131,7 @@ export default async function EpisodePreviewPage({
                   workId={work.id}
                   episodeId={episode.id}
                   dialogueLanguage={loaded.project.webtoon.languages.dialogueLanguage}
+                  gutterBandWidth={gutterBandWidth}
                 />
               );
             }

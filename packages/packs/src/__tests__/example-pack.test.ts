@@ -28,6 +28,14 @@ test("the committed example pack loads and contributes every kind", async () => 
   assert.equal(noir.title, "Noir");
   assert.equal(noir.bundle.cuts.length, 4);
 
+  // The genre declares the gutter strip it letters in (#215), and the scaffold
+  // actually USES it — docs/PACK_FORMAT.md shows this manifest as the one to
+  // copy, so a width declared over a scaffold with no gutter bubble in it would
+  // be teaching a pack author a field that does nothing.
+  assert.equal(noir.gutterBandWidth, 0.24);
+  const inGutter = noir.bundle.lettering.filter((overlay) => overlay.placement === "gutter");
+  assert.equal(inGutter.length, 1, "the noir scaffold letters in the strip it declares");
+
   assert.deepEqual(loaded.content.exportPresets, [
     {
       id: "webtoon-tall",

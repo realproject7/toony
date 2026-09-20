@@ -31,7 +31,7 @@ import { runGenerate } from "../commands/generate.js";
 import { runInit } from "../commands/init.js";
 import { runLint } from "../commands/lint.js";
 import { runValidate } from "../commands/validate.js";
-import { EXIT_OK, EXIT_USAGE } from "../exit.js";
+import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 
 /** Tree digest of `toony init` output, per `--genre`; all six as of #217. */
 const INIT_TREE_DIGESTS: Record<string, string> = {
@@ -140,6 +140,29 @@ const NOIR = {
       reviewStatus: "draft",
     },
   ],
+};
+
+/**
+ * A gutter line that wraps to four lines in a 0.32 strip and to six in the
+ * default 0.18 one: the craft wrap check therefore reports it only when the
+ * project has not declared the wider strip its genre letters in (#215).
+ */
+const GUTTER_LINE = {
+  id: "g1",
+  cutId: "cut-001",
+  speaker: "Mina",
+  kind: "speech",
+  text: "He is not coming back tonight.",
+  font: "sans-serif",
+  fill: "#ffffff",
+  opacity: 1,
+  border: null,
+  tail: null,
+  placement: "gutter",
+  placementSide: "right",
+  geometry: { x: 0.04, y: 0.1, width: 0.92, height: 0.2 },
+  overflow: false,
+  reviewStatus: "human-edited",
 };
 
 /** Install a pack contributing all three kinds under `<workdir>/.toony/packs`. */
@@ -490,3 +513,67 @@ async function startFakeComfy(): Promise<{
     lastPrompt: () => lastPrompt,
   };
 }
+
+// --- The gutter strip a genre letters in (#215) -----------------------------
+
+test("a pack genre's gutter strip lands in the project and the project renders on it", async () => {
+  // The contract end to end: a pack declares a number, `toony init --genre`
+  // writes it into `webtoon.json`, and from there the render core — the same
+  // one the studio reads through — lays the strip out at that width. Nothing
+  // reads the pack after init, so an exported episode does not depend on which
+  // packs happen to be installed.
+  await installPack({
+    genres: [{ id: "noir", title: "Noir", file: "genres/noir.json", gutterBandWidth: 0.32 }],
+  });
+  const init = capture();
+  assert.equal(
+    await runInit(["my-story", "--genre", "noir"], init.io),
+    EXIT_OK,
+    init.err.join("\n"),
+  );
+
+  const dir = join(workdir, "my-story");
+  const webtoon = JSON.parse(await readFile(join(dir, "webtoon.json"), "utf8"));
+  assert.equal(webtoon.gutterBandWidth, 0.32);
+
+  // The scaffolded project is still a valid one.
+  const validate = capture();
+  assert.equal(await runValidate([dir], validate.io), EXIT_OK, validate.err.join("\n"));
+
+  // And what the project holds is what `toony lint` measures against. The line
+  // below wraps to four lines in the strip this pack ships and to six in the
+  // default one, so it lints clean here; taking the declared width back off the
+  // SAME project makes the wrap warning appear. That is the lint reading the
+  // project's strip rather than a constant — which is what let both authored
+  // packs be rejected for text their own genre renders fine.
+  await writeFile(
+    join(dir, "episodes", "ep-001", "lettering.json"),
+    JSON.stringify([GUTTER_LINE], null, 2),
+  );
+  const wide = capture();
+  assert.equal(await runLint([dir], wide.io), EXIT_OK, wide.out.join("\n"));
+
+  delete webtoon.gutterBandWidth;
+  await writeFile(join(dir, "webtoon.json"), JSON.stringify(webtoon, null, 2));
+  const narrow = capture();
+  assert.equal(await runLint([dir], narrow.io), EXIT_VALIDATION);
+  assert.match(narrow.out.join("\n"), /craft\/line-wrap/);
+});
+
+test("a pack that declares an unusable gutter strip is refused, and init still works", async () => {
+  // A pack is data, and bad data is reported and skipped — never a crash, and
+  // never a project carrying a width `toony validate` would reject.
+  await installPack({
+    genres: [{ id: "noir", title: "Noir", file: "genres/noir.json", gutterBandWidth: 4 }],
+  });
+  const c = capture();
+  assert.equal(await runInit(["my-story", "--genre", "noir"], c.io), EXIT_USAGE);
+  assert.match(c.err.join("\n"), /pack\.genre\.gutter-band-width/);
+  assert.match(c.err.join("\n"), /unknown genre "noir"/);
+
+  // The built-in genres are untouched by the bad pack.
+  const ok = capture();
+  assert.equal(await runInit(["plan-b", "--genre", "thriller"], ok.io), EXIT_OK, ok.err.join("\n"));
+  const webtoon = JSON.parse(await readFile(join(workdir, "plan-b", "webtoon.json"), "utf8"));
+  assert.equal("gutterBandWidth" in webtoon, false);
+});

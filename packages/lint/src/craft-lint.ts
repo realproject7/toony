@@ -82,13 +82,30 @@ function isAllCapsRun(line: string): boolean {
   return /[A-Z]/.test(line) && !/[a-z]/.test(line);
 }
 
+/** Project-level render values the craft lints must lay bubbles out with. */
+export interface CraftLintOptions {
+  /**
+   * The project's declared gutter band width (`webtoon.json` →
+   * `gutterBandWidth`), a fraction of the cut width (#215). The line-wrap check
+   * below counts the lines a bubble ACTUALLY wraps to, and a gutter bubble wraps
+   * inside its strip — so without the project's value this would count lines
+   * against the DEFAULT strip and report a wrap a wider strip never produces.
+   * Absent → the default strip, which is what such a project renders on anyway.
+   */
+  gutterBandWidth?: number;
+}
+
 /**
  * Run the craft lints over one episode bundle. `characters` is the project
  * registry (#92) used by tail-attribution; an EMPTY registry triggers graceful
  * degradation (attribution falls back to `speaker` only), so this lands
  * independently of #92. Deterministic: same inputs → same findings.
  */
-export function lintCraft(bundle: EpisodeBundle, characters: readonly Character[] = []): Finding[] {
+export function lintCraft(
+  bundle: EpisodeBundle,
+  characters: readonly Character[] = [],
+  options: CraftLintOptions = {},
+): Finding[] {
   const findings: Finding[] = [];
   const registryIds = new Set(characters.map((character) => character.id));
   const hasRegistry = registryIds.size > 0;
@@ -143,7 +160,9 @@ export function lintCraft(bundle: EpisodeBundle, characters: readonly Character[
     }
 
     if (overlay.text.trim().length > 0) {
-      const lines = layoutBubble(overlay, REFERENCE.width, REFERENCE.height).text.lines;
+      const lines = layoutBubble(overlay, REFERENCE.width, REFERENCE.height, {
+        gutterBandWidth: options.gutterBandWidth,
+      }).text.lines;
       // Line-wrap: aim for 2–4 short stacked lines. One finding per overlay.
       if (lines.length > CRAFT_MAX_LINES) {
         findings.push(

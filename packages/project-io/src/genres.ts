@@ -349,6 +349,25 @@ export interface GenreScaffold {
   id: string;
   title: string;
   bundle: EpisodeBundle;
+  /**
+   * The gutter strip width this genre letters in (#215), a fraction of the cut
+   * width, or absent when it declares none. A genre that is defined by its
+   * gutter dialogue ships the width that dialogue needs, and `toony init` writes
+   * it into the new project so the project — not the pack — carries it from
+   * then on.
+   */
+  gutterBandWidth?: number;
+}
+
+/**
+ * What `toony init --genre <id>` seeds: the starter episode bundle plus the
+ * project-level craft values the genre declares. A built-in genre contributes a
+ * bundle and nothing else, so its seed is the bundle alone.
+ */
+export interface GenreSeed {
+  bundle: EpisodeBundle;
+  /** See {@link GenreScaffold.gutterBandWidth}. */
+  gutterBandWidth?: number;
 }
 
 /**
@@ -368,13 +387,21 @@ export async function listGenreIds(scaffolds: readonly GenreScaffold[] = []): Pr
 }
 
 /**
- * Resolve a genre id to the starter episode bundle `toony init` seeds, or
- * `undefined` when no built-in genre and no contributed scaffold claims it.
+ * Resolve a genre id to what `toony init` seeds — the starter episode bundle and
+ * the project-level craft values the genre declares — or `undefined` when no
+ * built-in genre and no contributed scaffold claims it.
  */
-export async function resolveGenreBundle(
+export async function resolveGenreSeed(
   id: string,
   scaffolds: readonly GenreScaffold[] = [],
-): Promise<EpisodeBundle | undefined> {
-  if (isGenre(id)) return buildGenreEpisodeBundle(id);
-  return scaffolds.find((scaffold) => scaffold.id === id)?.bundle;
+): Promise<GenreSeed | undefined> {
+  if (isGenre(id)) return { bundle: buildGenreEpisodeBundle(id) };
+  const scaffold = scaffolds.find((candidate) => candidate.id === id);
+  if (scaffold === undefined) return undefined;
+  return {
+    bundle: scaffold.bundle,
+    ...(scaffold.gutterBandWidth === undefined
+      ? {}
+      : { gutterBandWidth: scaffold.gutterBandWidth }),
+  };
 }
