@@ -43,6 +43,8 @@ import {
   measureEpisodePlan,
   measurePlan,
   PLAN_UNCHECKED_METRICS,
+  type PlanBandGraded,
+  type PlanBandReport,
   type PlanMeasurement,
   validateEpisodePlanValue,
 } from "../plan.js";
@@ -428,6 +430,12 @@ test("a band metric a plan cannot check is neither graded nor quietly dropped", 
   assert.equal(report.metrics.length + report.unchecked.length, 3);
 });
 
+/** A report that graded something, or a failure naming what came back instead. */
+function graded(report: PlanBandReport): PlanBandGraded {
+  assert.ok(!("graded" in report), "expected a graded report, got one with nothing to grade");
+  return report;
+}
+
 test("a plan report carries no whole verdict to mistake for one", () => {
   const band = bandOf({
     bandFormat: 1,
@@ -437,14 +445,71 @@ test("a plan report carries no whole verdict to mistake for one", () => {
   // `valueMean` would fail on this page and the plan does not check it, so a
   // report with an `inBand` would be asserting something it never measured.
   assert.equal("inBand" in report, false);
-  assert.equal(report.checkedInBand, true);
+  assert.equal(graded(report).checkedInBand, true);
   assert.equal(report.unchecked.length, 1);
+});
+
+test("a band that grades nothing a plan can check gets NO verdict, not a pass", () => {
+  // Every graded range here needs pixels, and the band declares no vocabulary,
+  // so both verdict lists come back empty. `[].every(...)` is `true`, so a
+  // single boolean would have reported a pass from a grade that checked nothing
+  // — and an agent chaining `plan --against && generate` would take it.
+  const band = bandOf({
+    bandFormat: 1,
+    name: "colour only",
+    metrics: {
+      valueMean: { max: 10 },
+      valueSpread: { max: 1 },
+      saturationMean: { max: 0.01 },
+      hueBias: { max: 1 },
+      panelInset: { max: 0.01 },
+      gutterIntrusionsPerScreen: { max: 0 },
+    },
+  });
+  const report = comparePlanToCraftBand(calmPlanned, band);
+  assert.equal(report.metrics.length, 0);
+  assert.equal(report.transitions.length, 0);
+  // No verdict of any name. Both are asserted: `checkedInBand` is the field a
+  // caller of this module would read, `inBand` the one a caller that mistook it
+  // for a `CraftBandReport` would.
+  assert.equal("checkedInBand" in report, false);
+  assert.equal("inBand" in report, false);
+  assert.equal("graded" in report && report.graded, false);
+  // And it still says what the band asked for, so the caller can route it.
+  assert.equal(report.unchecked.length, 6);
+  assert.equal(report.name, "colour only");
+});
+
+test("one checkable metric is enough for a verdict, and it is that metric's", () => {
+  // The boundary of the rule above: the same colour-heavy band with a single
+  // geometry range added grades normally, so "nothing to grade" cannot swallow a
+  // band that did give the plan something.
+  const band = bandOf({
+    bandFormat: 1,
+    metrics: { valueMean: { max: 10 }, gutterRatio: { min: 0.9 } },
+  });
+  const report = comparePlanToCraftBand(calmPlanned, band);
+  assert.equal(graded(report).checkedInBand, false);
+  assert.equal(report.metrics.length, 1);
+});
+
+test("a vocabulary alone is something to grade, even with no checkable metric", () => {
+  // A mix needs no pixels, so a band whose metrics are all colour but which
+  // declares a vocabulary HAS given the plan something to decide.
+  const band = bandOf({
+    bandFormat: 1,
+    metrics: { valueMean: { max: 10 } },
+    transitionVocabulary: [{ kinds: ["gutter"], share: { min: 0.9, max: 1 } }],
+  });
+  const report = comparePlanToCraftBand(calmPlanned, band);
+  assert.equal(report.metrics.length, 0);
+  assert.equal(graded(report).checkedInBand, true);
 });
 
 test("a metric a plan CAN check still fails its range", () => {
   const band = bandOf({ bandFormat: 1, metrics: { gutterRatio: { min: 0.9 } } });
   const report = comparePlanToCraftBand(calmPlanned, band);
-  assert.equal(report.checkedInBand, false);
+  assert.equal(graded(report).checkedInBand, false);
   assert.equal(report.metrics[0]?.inBand, false);
 });
 
@@ -585,6 +650,62 @@ test("cuts the sequence stacks with nothing between them are one run, as on the 
   // art exists. The heights are what is compared here.
   const rendered = await measureEpisodeCraft(root, "ep-001", { width: 800 });
   assert.equal(rendered.height, planned.height);
+});
+
+test("a plan too tall to grade is refused as an error, not a crash", () => {
+  // The validator bounds each field and not their product, and the run rule
+  // takes a per-row array, so a plan that passes validation can still name more
+  // rows than an array holds. Before this it was `RangeError: Invalid array
+  // length` out of `Array.push` — a crash whose exit code this CLI documents as
+  // an out-of-band verdict.
+  const plan: EpisodePlan = {
+    planFormat: 1,
+    referenceWidth: 800,
+    beats: [
+      { label: "far too much page", cuts: 1000, panelAspect: 10 },
+      { label: "and again", cuts: 1000, panelAspect: 10 },
+    ],
+  };
+  // It is a VALID plan. That is the point: validation is not what stops it.
+  assert.deepEqual(validateEpisodePlanValue(plan).issues, []);
+  assert.throws(
+    () => measurePlan(plan, { width: 1200 }),
+    (error: unknown) => (error as { code?: string }).code === "plan-too-large",
+  );
+  // And the same plan at a column where it fits is graded, so the cap is a
+  // bound on the page and not on the beat.
+  const narrow = measurePlan(plan, { width: 800 });
+  assert.equal(narrow.cuts, 2000);
+  assert.equal(narrow.height, 2000 * 8000);
+});
+
+test("a plan naming more cuts than an episode has is refused at validation", () => {
+  // The cap the row bound cannot give a good message for: 500 beats of 1000
+  // cuts is half a million cuts, which is not an episode at any column.
+  const beats = Array.from({ length: 500 }, (_, index) => ({
+    label: `beat ${index + 1}`,
+    cuts: 200,
+    panelAspect: 10,
+  }));
+  assert.deepEqual(issues({ planFormat: 1, referenceWidth: 800, beats }), ["plan.cuts"]);
+  // A hundred-panel episode is nowhere near it.
+  assert.deepEqual(
+    issues({
+      planFormat: 1,
+      referenceWidth: 800,
+      beats: [{ label: "an episode", cuts: 103, panelAspect: 1.4 }],
+    }),
+    [],
+  );
+});
+
+test("an episode-derived plan reports no beats, because deriving them is not this command", () => {
+  // Null rather than an empty list, and it stays null: finding an episode's
+  // beats means finding scene breaks in a page that already exists, which is a
+  // measurement feature. This command runs before the page does.
+  assert.equal(calmPlanned.beats, null);
+  assert.equal(restlessPlanned.beats, null);
+  assert.notEqual(measurePlan(CALM_PLAN, { width: WIDTH }).beats, null);
 });
 
 test("planning an episode that does not exist fails with the export error code", async () => {

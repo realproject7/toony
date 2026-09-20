@@ -275,7 +275,8 @@ function stddev(values: readonly number[]): number {
   return Math.sqrt(sum / values.length);
 }
 
-function round(value: number, digits: number): number {
+/** Rounded to `digits`, the one rounding every reported figure goes through. */
+export function round(value: number, digits: number): number {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
 }

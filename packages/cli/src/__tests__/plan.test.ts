@@ -268,6 +268,126 @@ test("--against reports the same split in JSON, and carries no whole verdict", a
   );
 });
 
+test("a band that grades nothing a plan can check is refused, not passed", async () => {
+  // The chain this protects is `toony plan --against <band> && toony generate`.
+  // Before this, a band whose every graded range needs pixels printed the words
+  // "IN BAND" over zero checked metrics and exited 0, so the generate ran and
+  // paid the hours this command exists to save.
+  const dir = await scaffold();
+  const band = join(workdir, "colour-only.json");
+  await writeFile(
+    band,
+    JSON.stringify({
+      bandFormat: 1,
+      name: "colour only",
+      metrics: {
+        valueMean: { max: 10 },
+        saturationMean: { max: 0.01 },
+        panelInset: { max: 0.01 },
+      },
+    }),
+  );
+  const c = capture();
+  assert.equal(await runPlan([dir, "--episode", "ep-001", "--against", band], c.io), EXIT_USAGE);
+  const text = c.out.join("\n");
+  assert.match(text, /plan verdict: NOT GRADED/);
+  assert.match(text, /a plan can check none of them/);
+  // The words a caller greps for must not appear at all.
+  assert.doesNotMatch(text, /IN BAND/);
+  assert.doesNotMatch(text, /OUT OF BAND/);
+  assert.match(c.err.join("\n"), /grades nothing a plan can check/);
+
+  // The five figures still print: the measurement was fine, the band was not.
+  assert.match(text, /gutterRatio\s+[-\d.]/);
+});
+
+test("the same band with one checkable range added grades and exits normally", async () => {
+  const dir = await scaffold();
+  const band = join(workdir, "mostly-colour.json");
+  await writeFile(
+    band,
+    JSON.stringify({
+      bandFormat: 1,
+      name: "mostly colour",
+      metrics: { valueMean: { max: 10 }, gutterRatio: { min: 0, max: 1 } },
+    }),
+  );
+  const c = capture();
+  assert.equal(await runPlan([dir, "--episode", "ep-001", "--against", band], c.io), EXIT_OK);
+  assert.match(c.out.join("\n"), /plan verdict: IN BAND ON WHAT A PLAN CHECKS/);
+});
+
+test("an ungraded band carries no verdict field in JSON either", async () => {
+  const dir = await scaffold();
+  const band = join(workdir, "colour-only.json");
+  await writeFile(
+    band,
+    JSON.stringify({ bandFormat: 1, metrics: { hueBias: { min: 0, max: 360 } } }),
+  );
+  const c = capture();
+  assert.equal(
+    await runPlan([dir, "--episode", "ep-001", "--against", band, "--json"], c.io),
+    EXIT_USAGE,
+  );
+  const report = JSON.parse(c.out.join("\n")).band;
+  assert.equal(report.graded, false);
+  assert.equal(report.checkedInBand, undefined);
+  assert.equal(report.inBand, undefined);
+  assert.deepEqual(
+    report.unchecked.map((entry: { metric: string }) => entry.metric),
+    ["hueBias"],
+  );
+});
+
+test("a plan too tall to grade fails as a usage error, with no stack trace", async () => {
+  // A valid plan whose page cannot be held in memory used to throw out of the
+  // unwrapped --spec path: a stack trace on stderr and exit 1, which this CLI
+  // documents as an out-of-band verdict. A scripted gate reads that as a band
+  // result.
+  const spec = await planFile(
+    "huge.yaml",
+    [
+      "planFormat: 1",
+      "referenceWidth: 800",
+      "beats:",
+      "  - label: far too much page",
+      "    cuts: 1000",
+      "    panelAspect: 10",
+      "  - label: and again",
+      "    cuts: 1000",
+      "    panelAspect: 10",
+      "",
+    ].join("\n"),
+  );
+  const c = capture();
+  assert.equal(await runPlan(["--spec", spec, "--width", "1200"], c.io), EXIT_USAGE);
+  const err = c.err.join("\n");
+  assert.match(err, /plan failed: this plan comes to \d+ rows/);
+  assert.doesNotMatch(err, /RangeError|at Array\.push|^\s+at /m);
+  assert.equal(c.out.length, 0);
+});
+
+test("the same plan at a column where it fits is graded", async () => {
+  const spec = await planFile(
+    "large.yaml",
+    [
+      "planFormat: 1",
+      "referenceWidth: 800",
+      "beats:",
+      "  - label: far too much page",
+      "    cuts: 1000",
+      "    panelAspect: 10",
+      "  - label: and again",
+      "    cuts: 1000",
+      "    panelAspect: 10",
+      "",
+    ].join("\n"),
+  );
+  const c = capture();
+  assert.equal(await runPlan(["--spec", spec, "--width", "800", "--json"], c.io), EXIT_OK);
+  assert.equal(JSON.parse(c.out.join("\n")).cuts, 2000);
+});
+
 test("the same plan graded twice produces byte-identical JSON", async () => {
   const dir = await scaffold();
   const first = capture();

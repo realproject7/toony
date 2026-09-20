@@ -79,7 +79,9 @@ options:
                            metrics and panelInset need pixels, and
                            gutterIntrusionsPerScreen counts what is drawn inside
                            a gap; every run names those six and no verdict here
-                           stands in for \`toony measure\`
+                           stands in for \`toony measure\`. A band whose every
+                           graded range needs pixels is refused rather than
+                           passed: nothing was checked, so there is no verdict
   measure [path] --episode <id> [--against <band-id|band.json>] [--json]
           [--width <px>] [--screen-aspect <n>]
                            renders the episode the way \`export stitched\` does —
@@ -117,5 +119,7 @@ exit codes (agent-readable):
       or generation failure
       (\`generate\`: the project does not validate, the endpoint is unreachable, a
       provider error, or a timeout; in a multi-cut run, ANY failed cut)
-  2   usage error or IO failure (bad arguments, missing/unreadable files)
+  2   usage error or IO failure (bad arguments, missing/unreadable files; for
+      \`plan --against\`, also a band that grades nothing a plan can check, and a
+      plan naming a page too tall to grade at the requested column)
 `;

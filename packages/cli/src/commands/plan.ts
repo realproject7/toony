@@ -260,9 +260,20 @@ function textReport(
     lines.push(`    ${entry.metric} ${entry.reason}`);
   }
   if (report) {
+    const label = report.name === null ? "band" : `band "${report.name}"`;
+    // A band that left this grade nothing to check carries no verdict at all,
+    // and the line must not spell one. It names what the band grades and where
+    // to take it, and the command exits as a usage failure — the word "BAND" on
+    // its own, next to an exit of 0, is the green light this whole report exists
+    // to withhold.
+    if ("graded" in report) {
+      lines.push(
+        `plan verdict: NOT GRADED — ${label} grades ${report.unchecked.length} metric(s) and a plan can check none of them (${report.unchecked.map((entry) => entry.metric).join(", ")}). Run \`toony measure --against\` once the art exists.`,
+      );
+      return lines;
+    }
     const out = report.metrics.filter((verdict) => !verdict.inBand).length;
     const outEntries = report.transitions.filter((verdict) => !verdict.inBand).length;
-    const label = report.name === null ? "band" : `band "${report.name}"`;
     const checked =
       report.transitions.length === 0
         ? `${report.metrics.length} metric(s)`
@@ -347,29 +358,33 @@ export async function runPlan(args: string[], io: PlanIo): Promise<number> {
 
   let measurement: PlanMeasurement;
   let where: string;
-  if (specArg !== undefined) {
-    const specFile = resolve(io.cwd, specArg);
-    const plan = await readPlan(specFile);
-    if ("error" in plan) {
-      for (const line of plan.error) io.err(line);
-      return EXIT_USAGE;
-    }
-    measurement = measurePlan(plan, { width, screenAspect: aspect });
-    where = relative(io.cwd, specFile) || specFile;
-  } else {
-    try {
+  // BOTH paths are wrapped, not just the one that loads a project. A plan that
+  // validates can still name a page too tall to grade at the requested column,
+  // and an uncaught throw leaves this command exiting 1 with a stack trace —
+  // which is the code it documents as an out-of-band verdict.
+  try {
+    if (specArg !== undefined) {
+      const specFile = resolve(io.cwd, specArg);
+      const plan = await readPlan(specFile);
+      if ("error" in plan) {
+        for (const line of plan.error) io.err(line);
+        return EXIT_USAGE;
+      }
+      measurement = measurePlan(plan, { width, screenAspect: aspect });
+      where = relative(io.cwd, specFile) || specFile;
+    } else {
       measurement = await measureEpisodePlan(root, episodeId as string, {
         width,
         screenAspect: aspect,
       });
-    } catch (cause) {
-      if (cause instanceof ExportError || cause instanceof ProjectIoError) {
-        io.err(`plan failed: ${cause.message}`);
-        return EXIT_USAGE;
-      }
-      throw cause;
+      where = relative(io.cwd, root) || ".";
     }
-    where = relative(io.cwd, root) || ".";
+  } catch (cause) {
+    if (cause instanceof ExportError || cause instanceof ProjectIoError) {
+      io.err(`plan failed: ${cause.message}`);
+      return EXIT_USAGE;
+    }
+    throw cause;
   }
 
   const report = band === null ? null : comparePlanToCraftBand(measurement, band);
@@ -400,5 +415,16 @@ export async function runPlan(args: string[], io: PlanIo): Promise<number> {
   } else {
     for (const line of textReport(where, measurement, report)) io.out(line);
   }
-  return report !== null && !report.checkedInBand ? EXIT_VALIDATION : EXIT_OK;
+  if (report === null) return EXIT_OK;
+  // A band this grade could check nothing of is a band for `toony measure`, not
+  // an episode that passed. It exits as a usage failure so a caller chaining
+  // `toony plan --against <band> && toony generate` stops here rather than
+  // paying for a render on the strength of a check that never ran.
+  if ("graded" in report) {
+    io.err(
+      "plan failed: this band grades nothing a plan can check. Its ranges need pixels; run `toony measure --against` once the art exists.",
+    );
+    return EXIT_USAGE;
+  }
+  return report.checkedInBand ? EXIT_OK : EXIT_VALIDATION;
 }

@@ -674,6 +674,31 @@ band, in band or out. A band's verdict line names them again, so
 `checkedInBand` — so a consumer cannot sum a partial check into a whole verdict,
 the same device a recorded metric and an ungraded height already use.
 
+**A band that grades nothing a plan can check gets no verdict at all.** A band
+whose every graded range is colour, `panelInset` or `gutterIntrusionsPerScreen`,
+and which declares no vocabulary, leaves both verdict lists empty — and an empty
+list of verdicts is trivially "all in band". So that report carries `graded:
+false` and **neither** `checkedInBand` nor `inBand`, and the command exits `2`:
+
+```txt
+plan verdict: NOT GRADED — band "colour only" grades 4 metric(s) and a plan can
+check none of them (valueMean, valueSpread, saturationMean, hueBias).
+Run `toony measure --against` once the art exists.
+```
+
+Nothing checked is the most partial verdict there is, and the chain it protects
+is `toony plan --against <band> && toony generate`: a green light there costs the
+hours this command exists to save. It is the rule `validateCraftBandValue`
+already applies to a band with an empty `metrics`, one level up.
+
+**A plan that names a page too tall to grade is an error, not a crash.** The run
+rule reads a page one row at a time, and a plan can validate while naming more
+rows than can be held — `PLAN_PAGE_ROWS_MAX` is 20,000,000, about 16,667 column
+widths at the default column where a measured episode runs 138. Over it, and over
+the 2000 cuts a plan may name in all, the command fails with exit `2` and a
+message. It never exits `1`, which is the code reserved for an out-of-band
+verdict.
+
 The **transition mix** is the exception in the other direction: it is read off
 declared records, needs no pixels, and goes through the same function
 `toony measure` uses. A band's `transitionVocabulary` is therefore graded in
@@ -698,6 +723,21 @@ those cuts and names the fallback:
 
 Declare `panelAspect` on the cuts, or read the panel rows as a statement about
 Toony's default instead of about your episode.
+
+`examples/dead-air` declares `panelAspect: 1.4615385` on all seven cuts, and that
+declaration is **load-bearing for the comparison below**, not cosmetic: without
+it the plan gives that episode 13635px against the rendered 14153px, and a
+`panelHeightMedian` of `1.4` — the fallback constant — instead of `1.4617`.
+
+It is also worth knowing what does **not** establish that the value is right.
+The composed output is unchanged, but `measureEpisodeCraft` is structurally
+insensitive to `panelAspect` on a cut that has art: `composeCut` reaches the
+resolver only on its art-less branch, so declaring `0.5` against 832x1216 art
+would leave every measured figure identical too. What establishes it is the
+arithmetic and the lint. The art is 832x1216, so `1216 / 832 = 1.46153846…`
+against the declared `1.4615385` is a delta of `3.8e-8`, against the `0.02`
+tolerance `cut/panel-aspect-mismatch` allows — and that lint **does** fire on a
+deliberately wrong value, so its silence here is a pass rather than an absence.
 
 ### A structure spec: beats with lengths
 

@@ -73,6 +73,7 @@ import {
   type PageGeometryMetricName,
   type PageGeometryMetrics,
   pageGeometryMetrics,
+  round,
   type TransitionMix,
   type TransitionVocabularyVerdict,
 } from "./craft.js";
@@ -81,6 +82,19 @@ import { ExportError } from "./errors.js";
 
 /** The format version an episode plan file must declare. */
 export const EPISODE_PLAN_FORMAT_VERSION = 1;
+
+/**
+ * The tallest page a plan may be graded at, in rows.
+ *
+ * The run rule reads a page one row at a time, so this is a real allocation and
+ * not a policy: a plan that validates can still name more rows than an array
+ * holds. Twenty million is far past anything real — 16,667 column widths of page
+ * at the 1200px default, where a measured episode runs about 138, and 200 column
+ * widths even at `EXPORT_WIDTH_MAX`. What it catches is a plan that is wrong
+ * rather than large, and it catches it as an error the command reports instead
+ * of a crash wearing a verdict's exit code.
+ */
+export const PLAN_PAGE_ROWS_MAX = 20_000_000;
 
 /**
  * One gap a plan puts between two cuts.
@@ -215,7 +229,7 @@ export interface PlanBeatMeasurement {
 }
 
 /** One stacked region of a planned page, in reading order. */
-export interface PlanRegion {
+interface PlanRegion {
   /** A cut reads as art; a gap reads as inter-panel space. */
   kind: "panel" | "gap";
   /** What the region draws at, in px, on the graded column. */
@@ -252,8 +266,13 @@ export interface PlanMeasurement {
   /** The aspect those cuts were graded at. */
   fallbackAspect: number;
   /**
-   * Each beat's own span, for a plan stated as beats; null for an episode read
-   * off its cut list, which has no beats to report.
+   * Each beat's own span, for a plan stated as beats.
+   *
+   * Null for an episode read off its cut list, and that is a SCOPE BOUNDARY
+   * rather than an unfinished path. Deriving beats from an episode means finding
+   * its scene breaks in a page that already exists, which is a measurement
+   * feature; this command runs before the episode exists, and an agent authoring
+   * a plan states its beats rather than asking to be told them.
    */
   beats: PlanBeatMeasurement[] | null;
   metrics: PageGeometryMetrics;
@@ -267,21 +286,9 @@ export interface PlanMeasurement {
   transitions: TransitionMix;
 }
 
-/**
- * A plan graded against a band. It is NOT a `CraftBandReport` and carries no
- * `inBand`.
- *
- * The missing field is the point. A plan checks five of eleven metrics, so a
- * caller that summed a plan report into one verdict would be reporting a partial
- * check as a whole one. There is no field here to make that mistake with — the
- * same device `CraftRecordedMetric` uses to keep a recorded metric out of a
- * verdict, and `TransitionRangeUngraded` uses to keep an ungraded height out of
- * one.
- */
-export interface PlanBandReport {
+/** What every plan-against-band report carries, graded or not. */
+interface PlanBandCommon {
   name: string | null;
-  /** True when every metric this grade COULD check is in band. Never the whole answer. */
-  checkedInBand: boolean;
   /** The band's graded metrics that a plan can check. */
   metrics: CraftMetricVerdict[];
   /** The band's recorded ranges for metrics a plan can compute. */
@@ -292,6 +299,46 @@ export interface PlanBandReport {
   transitions: TransitionVocabularyVerdict[];
   provenance: CraftBandProvenance | null;
 }
+
+/**
+ * A plan graded against a band that grades at least one thing a plan can check.
+ *
+ * It is NOT a `CraftBandReport` and carries no `inBand`. The missing field is
+ * the point: a plan checks five of eleven metrics, so a caller that summed a
+ * plan report into one verdict would be reporting a partial check as a whole
+ * one.
+ */
+export interface PlanBandGraded extends PlanBandCommon {
+  /** True when every metric this grade COULD check is in band. Never the whole answer. */
+  checkedInBand: boolean;
+}
+
+/**
+ * A band that grades NOTHING a plan can check, and therefore carries no verdict
+ * at all — not even `checkedInBand`.
+ *
+ * A band whose every graded metric is colour, `panelInset` or
+ * `gutterIntrusionsPerScreen`, and which declares no transition vocabulary,
+ * leaves a plan with an empty verdict list. `[].every(...)` is `true`, so a
+ * single boolean would have said the plan passed, from a run that checked
+ * nothing — and an agent running `toony plan --against <band> && generate` would
+ * take the green light and pay the hours this command exists to save.
+ *
+ * "Nothing was checked" is the most partial verdict there is, so it gets the
+ * treatment the repo already gives the other two. `validateCraftBandValue`
+ * rejects a band with an empty `metrics` because recording is an addition to a
+ * target and never a way to ship one that decides nothing;
+ * `TransitionRangeUngraded` omits `inBand` so a reader cannot mistake "there was
+ * nothing to grade" for "it passed". This omits it for the same reason, and
+ * `toony plan` turns it into a usage error rather than a pass.
+ */
+export interface PlanBandUngraded extends PlanBandCommon {
+  /** Always false. Present so the two shapes are told apart by a field, not by a type. */
+  graded: false;
+}
+
+/** A plan graded against a band, or a band that gave it nothing to grade. */
+export type PlanBandReport = PlanBandGraded | PlanBandUngraded;
 
 /**
  * The `Transition` a plan gap stands for.
@@ -373,14 +420,9 @@ function beatPage(plan: EpisodePlan, width: number): PlannedPage {
     // — the unit the page is measured in, so a beat length and a panel height
     // compare directly.
     const span = regions.slice(from).reduce((sum, region) => sum + region.height, 0);
-    beats.push({ label: beat.label, cuts: beat.cuts, lengthInWidths: roundTo4(span / width) });
+    beats.push({ label: beat.label, cuts: beat.cuts, lengthInWidths: round(span / width, 4) });
   }
   return { regions, gaps, referenceWidth: plan.referenceWidth, beats };
-}
-
-/** Four decimals, the precision every run length in a craft report carries. */
-function roundTo4(value: number): number {
-  return Math.round(value * 10000) / 10000;
 }
 
 /**
@@ -425,6 +467,18 @@ function measurePage(
   width: number,
   screenAspect: number,
 ): Omit<PlanMeasurement, "episodeId" | "planName"> {
+  // Summed before anything is allocated. The run rule takes a per-row array, so
+  // a page of a billion rows is a `RangeError` from `Array.push` — a crash with
+  // a stack trace, and an exit code this CLI documents as an out-of-band
+  // verdict, which is how a scripted gate would read it. Refused here instead,
+  // with the one error type the command already turns into a usage failure.
+  const rows = page.regions.reduce((sum, region) => sum + region.height, 0);
+  if (rows > PLAN_PAGE_ROWS_MAX) {
+    throw new ExportError(
+      "plan-too-large",
+      `this plan comes to ${rows} rows at a ${width}px column, over the ${PLAN_PAGE_ROWS_MAX} a plan may be graded at (${Math.round(PLAN_PAGE_ROWS_MAX / width)} column widths of page here, where a measured episode runs about 138). Grade it at a narrower --width, or state fewer or shorter cuts.`,
+    );
+  }
   const flags: boolean[] = [];
   for (const region of page.regions) {
     const flat = region.kind === "gap";
@@ -555,15 +609,25 @@ export function comparePlanToCraftBand(
     measured.transitions,
     band.transitionVocabulary ?? [],
   );
-  return {
+  const common: PlanBandCommon = {
     name: band.name ?? null,
-    checkedInBand:
-      metrics.every((verdict) => verdict.inBand) && transitions.every((verdict) => verdict.inBand),
     metrics,
     recorded,
     unchecked,
     transitions,
     provenance: band.provenance ?? null,
+  };
+  // Nothing to grade is not a pass. Both lists can be empty at once — a band may
+  // grade only colour, `panelInset` and `gutterIntrusionsPerScreen`, and declare
+  // no vocabulary — and `[].every(...)` is `true`, so a verdict computed here
+  // would say the plan passed a check it never made. It gets no verdict instead.
+  if (metrics.length === 0 && transitions.length === 0) {
+    return { ...common, graded: false };
+  }
+  return {
+    ...common,
+    checkedInBand:
+      metrics.every((verdict) => verdict.inBand) && transitions.every((verdict) => verdict.inBand),
   };
 }
 
@@ -581,6 +645,18 @@ const GAP_KEYS = ["type", "gutterHeight"] as const;
 const PLAN_TEXT_MAX_LENGTH = 80;
 const PLAN_BEATS_MAX = 500;
 const PLAN_BEAT_CUTS_MAX = 1000;
+/**
+ * Cuts a whole plan may name, summed over its beats.
+ *
+ * The per-beat and per-plan caps bound each field and not their product: 500
+ * beats of 1000 cuts validates at half a million cuts, which is not an episode
+ * and cannot be graded at any column. A measured episode runs about a hundred
+ * panels (#233), so two thousand is twenty times a real one and still catches
+ * the plan that is wrong by an order of magnitude — at validation, where the
+ * message can name the field, rather than at the row cap, where it can only name
+ * a size.
+ */
+const PLAN_CUTS_MAX = 2000;
 const PLAN_REFERENCE_WIDTH_MIN = 1;
 const PLAN_REFERENCE_WIDTH_MAX = 20000;
 
@@ -706,6 +782,20 @@ export function validateEpisodePlanValue(value: unknown): ValidationResult {
   beats.forEach((beat, index) => {
     validateBeat(beat, `beats[${index}]`, c);
   });
+  // Only the beats that named a whole number are summed; the rest already have
+  // their own issue, and counting them as zero keeps this from reporting a
+  // second problem for the same field.
+  let cuts = 0;
+  for (const beat of beats) {
+    if (isPlainObject(beat) && isInteger(beat.cuts)) cuts += beat.cuts;
+  }
+  if (cuts > PLAN_CUTS_MAX) {
+    c.add(
+      "beats",
+      "plan.cuts",
+      `a plan may name ${PLAN_CUTS_MAX} cuts in all and this one names ${cuts}. A measured episode runs about a hundred panels.`,
+    );
+  }
   return c.result();
 }
 
