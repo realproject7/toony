@@ -51,8 +51,8 @@ prompts, assets, validation, lettering, and export.
 
 ## Generation and validation
 
-Reading a project returns its validation report alongside its records. Every
-command that refuses an invalid project uses exit 1. For example, a project
+Reading a project returns its validation report alongside its records. The
+commands listed below use exit 1 when refusing an invalid project. For example, a project
 whose only defect is a bad `shotType` produces:
 
 | command | exit | on an invalid project |
