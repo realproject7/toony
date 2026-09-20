@@ -22,7 +22,9 @@ Toony includes:
 - data-only content packs that add workflows, genre scaffolds, export presets,
   and craft bands without forking the core
   ([docs/PACK_FORMAT.md](./docs/PACK_FORMAT.md))
-- craft measurement that grades a rendered episode against a target band
+- craft measurement that grades a rendered episode against a target band, and a
+  plan-level grade that checks an episode's page geometry against the same band
+  before any image is generated
   ([docs/CRAFT_MEASURE.md](./docs/CRAFT_MEASURE.md))
 
 Toony does not include:

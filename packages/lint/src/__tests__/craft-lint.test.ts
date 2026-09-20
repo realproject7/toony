@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { measureTransitionMix } from "@toony/export";
+import { measureTransitionMix, sequencedTransitions } from "@toony/export";
 import type {
   BubbleGeometry,
   Character,
@@ -494,10 +494,14 @@ test("craft/transition-appearance skips a transition that draws no band (#267)",
   // both answers are asserted at two of them.
   for (const width of [800, 1600]) {
     const undrawn = panelBundle([{ type: "gutter", gutterHeight: 0, color: "#000000" }]);
-    assert.deepEqual(measureTransitionMix(undrawn, width), { gaps: 0, undrawn: 1, kinds: [] });
+    assert.deepEqual(measureTransitionMix(sequencedTransitions(undrawn), width), {
+      gaps: 0,
+      undrawn: 1,
+      kinds: [],
+    });
     assert.deepEqual(appearance(undrawn), [], `width ${width}: skipped`);
     const drawn = panelBundle([{ type: "gutter", gutterHeight: 1, color: "#000000" }]);
-    assert.equal(measureTransitionMix(drawn, width).gaps, 1);
+    assert.equal(measureTransitionMix(sequencedTransitions(drawn), width).gaps, 1);
     assert.equal(appearance(drawn).length, 1, `width ${width}: checked`);
   }
 });

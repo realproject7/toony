@@ -12,6 +12,7 @@ export { runInit } from "./commands/init.js";
 export { runLint, runLintEpisode } from "./commands/lint.js";
 export { runMeasure } from "./commands/measure.js";
 export { runPacks } from "./commands/packs.js";
+export { runPlan } from "./commands/plan.js";
 export { runStudio } from "./commands/studio.js";
 export { runValidate } from "./commands/validate.js";
 export { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "./exit.js";
@@ -26,6 +27,7 @@ import { runInit } from "./commands/init.js";
 import { runLint, runLintEpisode } from "./commands/lint.js";
 import { runMeasure } from "./commands/measure.js";
 import { runPacks } from "./commands/packs.js";
+import { runPlan } from "./commands/plan.js";
 import { runStudio } from "./commands/studio.js";
 import { runValidate } from "./commands/validate.js";
 import { EXIT_OK, EXIT_USAGE } from "./exit.js";
@@ -67,6 +69,8 @@ export async function run(argv: string[], io: RunIo): Promise<number> {
       return runLintEpisode(rest, io);
     case "measure":
       return runMeasure(rest, io);
+    case "plan":
+      return runPlan(rest, io);
     case "packs":
       return runPacks(rest, io);
     default:

@@ -2,6 +2,7 @@
   image:
     clean: episodes/ep-001/assets/clean/cut-001.png
     final: null
+  panelAspect: 1.4615385
   imagePrompt: Wide establishing shot of a small late-night radio station booth,
     one desk lamp, a red "ON AIR" sign glowing on the wall, rain streaking the
     dark window, empty swivel chair, moody teal shadows, cinematic, masterpiece,
@@ -16,6 +17,7 @@
   image:
     clean: episodes/ep-001/assets/clean/cut-002.png
     final: null
+  panelAspect: 1.4615385
   imagePrompt: medium shot, leaning toward a vintage broadcast microphone, warm
     amber desk lamp, faint smile, calm, headphones on, dark radio booth at night,
     masterpiece, best quality, highly detailed
@@ -30,6 +32,7 @@
   image:
     clean: episodes/ep-001/assets/clean/cut-003.png
     final: null
+  panelAspect: 1.4615385
   imagePrompt: extreme close-up of a blinking call-line button on a mixing desk,
     a single line glowing red, dust in the lamp light, shallow depth of field,
     tense, masterpiece, best quality, highly detailed
@@ -42,6 +45,7 @@
   image:
     clean: episodes/ep-001/assets/clean/cut-004.png
     final: null
+  panelAspect: 1.4615385
   imagePrompt: extreme close-up insert of one hand hovering just above a glowing
     red call-line button on a dark mixing desk, fingers tense and not yet
     touching it, single warm lamp raking across the console, deep shadow filling
@@ -57,6 +61,7 @@
   image:
     clean: episodes/ep-001/assets/clean/cut-005.png
     final: null
+  panelAspect: 1.4615385
   imagePrompt: medium shot from the listener's side, standing in a doorway of a
     dark hallway, only a phone screen lighting the lower face, menacing, rain on
     a window behind, masterpiece, best quality, highly detailed
@@ -71,6 +76,7 @@
   image:
     clean: episodes/ep-001/assets/clean/cut-006.png
     final: null
+  panelAspect: 1.4615385
   imagePrompt: extreme close-up in a nearly dark radio booth at night, wide
     frightened amber eyes, sweat on the temple, mouth slightly open in dread,
     headphones around the neck, a small cold blue monitor glow catching only one
@@ -90,6 +96,7 @@
   image:
     clean: episodes/ep-001/assets/clean/cut-007.png
     final: null
+  panelAspect: 1.4615385
   imagePrompt: empty radio booth plunged into blackout, no people, the round red
     wall sign dead and unlit, every monitor black, one last ember of red light on
     the mixing desk, rain on the window behind, near-black frame with high

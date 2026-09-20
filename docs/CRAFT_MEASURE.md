@@ -634,22 +634,193 @@ two reports cannot mistake "there was nothing to grade" for "it passed".
 `toony measure` prints the measured mix with or without a band, because that mix
 is what you read to author a range in the first place.
 
+## Planning an episode before it exists
+
+`toony measure` grades a page it composes, which costs what the art costs. A
+hundred-panel episode (#233) is three to four hours of generation against a local
+GPU, and that is one attempt. Everything the measurement says about **page
+structure** is arithmetic on the cut and transition lists and needs no pixels at
+all, so it can be answered in a second, before a prompt is chosen.
+
+```sh
+toony plan my-story --episode ep-001                    # an episode's own lists
+toony plan --spec plan.yaml                             # a structure, as beats
+toony plan my-story --episode ep-001 --against noir-band  # graded
+toony plan --spec plan.yaml --json                      # for diffing
+```
+
+Exit codes match `measure`: `0` planned (and in band on what it checked), `1`
+outside a range it **could** check, `2` a usage or IO failure.
+
+### It checks five metrics, and says so every time
+
+| | |
+|---|---|
+| **Checked** | `gutterRatio`, `gutterMedian`, `panelHeightMedian`, `panelHeightSpread`, `panelsPerScreen` |
+| **Not checked** | `gutterIntrusionsPerScreen`, `panelInset`, `valueMean`, `valueSpread`, `saturationMean`, `hueBias` |
+
+The four colour metrics are sampled from panel interiors; a `palette` field is
+not a pixel, and no arithmetic on one produces a luminance. `panelInset` on a
+render is whatever the art left flat near its border — three pages of one pack,
+identical in every geometric respect, spread it `0.070` — so nothing declared
+decides it. `gutterIntrusionsPerScreen` counts short non-flat runs inside empty
+space: a card's own text, a break's divider, a bubble over an art-less cut. All
+three are *drawn*, and a plan models regions rather than what is drawn in them.
+
+Every run names those six with the reason, in text and in `--json`, band or no
+band, in band or out. A band's verdict line names them again, so
+`plan verdict: IN BAND ON WHAT A PLAN CHECKS` can never be read as
+`verdict: IN BAND`. A plan report carries **no `inBand` field at all** — only
+`checkedInBand` — so a consumer cannot sum a partial check into a whole verdict,
+the same device a recorded metric and an ungraded height already use.
+
+The **transition mix** is the exception in the other direction: it is read off
+declared records, needs no pixels, and goes through the same function
+`toony measure` uses. A band's `transitionVocabulary` is therefore graded in
+full, and the answer does not change when the art arrives.
+
+### A cut that declares no shape
+
+A cut's height comes from `resolveCutAspect` (`packages/render/src/panel-shape.ts`)
+— its `panelAspect` declaration, else its image, else `FALLBACK_CUT_ASPECT`. A
+plan asks with **no image**, on purpose, so the same episode plans identically
+before and after generation; that is the only way a plan figure and a rendered
+one are comparable.
+
+The resolver always answers, so an undeclared cut still produces a panel figure —
+one that describes the constant `1.4` rather than the pack. The report counts
+those cuts and names the fallback:
+
+```txt
+  note: 7 of 7 cuts declare no panelAspect; they were graded at the fallback 1.4,
+  not at a shape the pack asked for.
+```
+
+Declare `panelAspect` on the cuts, or read the panel rows as a statement about
+Toony's default instead of about your episode.
+
+### A structure spec: beats with lengths
+
+`--spec` takes a plan file, which states an episode as **beats** rather than as a
+flat list of a hundred cuts. A beat is a label, how many cuts it runs, the shape
+those cuts are declared at, and the gaps around them — structure and nothing
+else. Who the characters are and where the twist sits are not geometry.
+
+```yaml
+planFormat: 1
+name: episode one
+referenceWidth: 800
+beats:
+  - label: cold open
+    cuts: 11
+    panelAspect: 1.4
+    gap: { type: gutter, gutterHeight: 157 }
+  - label: the call
+    cuts: 4
+    panelAspect: 2.2
+    openWith: { type: gutter, gutterHeight: 314 }   # a scene break
+    gap: { type: gutter, gutterHeight: 157 }
+  - label: the drop
+    cuts: 1
+    panelAspect: 0.5
+    openWith: { type: void, gutterHeight: 300 }
+```
+
+| Field | Required | Rule |
+|---|---|---|
+| `planFormat` | yes | Must be `1`. |
+| `name` | no | One line, at most 80 characters. |
+| `referenceWidth` | yes | The column the gap heights are px on, as `webtoon.json`'s own `referenceWidth` is. |
+| `beats` | yes | 1 to 500 beats, each with `label` and `cuts` (1–1000), and optional `panelAspect`, `gap`, `openWith`. |
+
+Like a band, a plan is checked against a **strict allowlist**: an unknown key is
+a rejection, so a misspelled `panelAspect` can never quietly grade a beat on the
+fallback.
+
+**Size it like a real episode, not like an act structure.** The one contiguous
+capture of a measured episode came to **19 beats over 103 panels**, and their
+lengths ran from **0.50 to 17.18 column widths** inside that single episode.
+Nothing in the format normalises a beat against its neighbours or caps the count
+at three: each beat carries its own length, its own shape and its own spacing,
+and the report gives every beat's length back rather than a median over them —
+a median across a thirty-fold spread says almost nothing.
+
+```txt
+  beats — 3, in column widths
+    cold open   11 cut(s)   17.3625
+    the call     4 cut(s)    9.3888
+    the drop     1 cut(s)       0.5
+```
+
+`lengthInWidths` covers the beat's cuts and the gaps between them, and **not**
+the gap it opens on: that gap separates this beat from the one before and belongs
+to neither, which is where a beat map cuts too.
+
+**A scene break is not a kind.** It is an ordinary gutter at about twice the
+episode's own median, so it is a larger number in the same `gutterHeight` field.
+`TRANSITION_TYPES` already carries `scene-break` for an author who wants the
+label, and neither needs a field of its own.
+
+### How far a plan is from the render
+
+Both grades resolve a cut through `resolveCutAspect` + `cutHeightAt` and a gap
+through `resolveBandHeight`, and both classify rows through the same
+`classifyPageRows`. So the **page height is identical**, and on art that is
+non-flat throughout, every checked metric is identical too.
+
+Real art is not non-flat throughout, and that is the whole of the difference.
+Measured on `examples/dead-air` at a 1200px column — seven cuts of real art, six
+gaps of five kinds:
+
+| | plan | rendered | rendered − plan |
+|---|---|---|---|
+| page height | 14153px | 14153px | **0** |
+| `gutterRatio` | 0.1325 | 0.1974 | +0.0649 |
+| `gutterMedian` | 0.25 | 0.305 | +0.0550 |
+| `panelHeightMedian` | 1.4617 | 1.3492 | −0.1125 |
+| `panelHeightSpread` | 0 | 0.3986 | +0.3986 |
+| `panelsPerScreen` | 1.19 | 1.36 | +0.17 |
+| transition mix | identical | identical | **0** |
+
+Every one of those differences is **flat rows inside the art**. That page has
+12278 rows of art, of which 919 are flat enough to read as empty space — dark
+night frames with no variation across the width — and `2794 − 1875 = 919` is
+exactly the gap between the two gutter-row counts. One cut carries a flat band
+long enough to split it in two, which is why the render finds 8 panel runs where
+the plan declares 7, and why the spread is non-zero at all.
+
+The card text inside three of the gaps — 23, 34 and 29 rows — moves none of the
+five. Each is a non-flat run far shorter than the 16%-of-width panel floor, so
+the render folds it straight back into the gutter and counts it under
+`gutterIntrusionsPerScreen`, which is one of the six a plan does not check.
+
+So a plan figure is what the **declarations** come to, and the render adds
+whatever the art leaves flat. Art can add empty space to a page; it cannot take
+any away. Treat a plan's `gutterRatio` as a floor, its `panelHeightMedian` as a
+ceiling, and re-run `toony measure` once the art is in — the plan grade never
+substitutes for it.
+
 ## The loop this closes
 
 ```txt
   1. COLLECT     reference captures of the genre
   2. MEASURE     the same signals, off the reference
   3. TRANSLATE   the numbers into a pack: gutter budgets, cut heights, palette
-  4. GENERATE    build a test episode with the pack, render it
-  5. COMPARE     toony measure --against the band
-  6. ITERATE     adjust the pack, re-render, until every metric is in band
-  7. SHIP        the pack is done when its own output measures inside the band
+  4. PLAN        toony plan --against the band, before any image exists
+  5. GENERATE    build a test episode with the pack, render it
+  6. COMPARE     toony measure --against the band
+  7. ITERATE     adjust the pack, re-render, until every metric is in band
+  8. SHIP        the pack is done when its own output measures inside the band
 ```
 
-Steps 2, 5, and 6 are mechanical. Step 3 is the craft judgement, and it is the
-part worth paying for. This command is step 5 — and it produces the same metric
+Steps 2, 4, 6, and 7 are mechanical. Step 3 is the craft judgement, and it is the
+part worth paying for. This command is step 6 — and it produces the same metric
 set as step 2, deliberately, because a comparison between two different
 definitions means nothing.
+
+Step 4 is the cheap half, and it exists because step 5 is the expensive one: a
+geometry the plan already misses is a render nobody needed to pay for. It checks
+five of the eleven metrics and never stands in for step 6.
 
 The two sides share the row rule, both run-length floors, the Rec. 709 luminance
 coefficients, the interior colour sampling, and the rounding. One difference is
@@ -682,3 +853,9 @@ Measurement is `packages/export/src/craft.ts` — it belongs with export because
 export owns the composition it reads. The command is
 `packages/cli/src/commands/measure.ts`, and pack-contributed bands come through
 the same discovery seam every other pack contribution uses.
+
+The plan-level grade is `packages/export/src/plan.ts`, beside it and for the same
+reason: it has to reach the same resolvers and the same run rule. The two share
+`classifyPageRows` and `pageGeometryMetrics`, so the run rule and the five
+geometry figures have one definition, and `measureTransitionMix`, so the mix does
+too. The command is `packages/cli/src/commands/plan.ts`.

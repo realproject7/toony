@@ -34,6 +34,7 @@ import {
   compareToTransitionVocabulary,
   measureEpisodeCraft,
   measureTransitionMix,
+  sequencedTransitions,
   type TransitionVocabularyEntry,
   validateCraftBandValue,
 } from "../craft.js";
@@ -41,6 +42,15 @@ import { encodeCanvas } from "../encode.js";
 import { stitchEpisode } from "../targets.js";
 
 const REFERENCE = STANDARD_CANVAS_WIDTH_PX;
+
+/**
+ * The mix of a BUNDLE's gaps: `measureTransitionMix` takes the gaps in reading
+ * order, and an episode's reading order is what `sequencedTransitions` reads off
+ * the sequence. Composed here so every test below states one episode.
+ */
+function bundleMix(bundle: EpisodeBundle, referenceWidth: number) {
+  return measureTransitionMix(sequencedTransitions(bundle), referenceWidth);
+}
 
 let workdir: string;
 
@@ -194,7 +204,7 @@ test("the measured height is the height the band OCCUPIES, not the number author
   // A card is floored at a tenth of the column so its text stays legible, so
   // this one draws at 0.1 though it was authored at 0.01.
   const floored = Math.round(REFERENCE * 0.01);
-  const mix = measureTransitionMix(
+  const mix = bundleMix(
     bundleOf([
       transition("tr-001", "narration_card", floored, { text: "tiny" }),
       transition("tr-002", "gutter", Math.round(REFERENCE * 0.3)),
@@ -211,7 +221,7 @@ test("the measured height is the height the band OCCUPIES, not the number author
 });
 
 test("a transition that draws no band at all is reported, and is not a gap", () => {
-  const mix = measureTransitionMix(
+  const mix = bundleMix(
     bundleOf([
       transition("tr-001", "gutter", 0),
       transition("tr-002", "gutter", 200),
@@ -239,7 +249,7 @@ test("every kind the core has is counted as itself", () => {
   // failing. Heights start above the card/band legibility floor so each one
   // draws at the height it was authored.
   const heights = TRANSITION_TYPES.map((_, index) => 120 + index * 20);
-  const mix = measureTransitionMix(
+  const mix = bundleMix(
     bundleOf(
       TRANSITION_TYPES.map((type, index) =>
         transition(`tr-${String(index + 1).padStart(3, "0")}`, type, heights[index] as number, {
@@ -263,7 +273,7 @@ test("every kind the core has is counted as itself", () => {
 test("a transition the reading sequence never reaches is not on the page", () => {
   const bundle = bundleOf([transition("tr-001", "gutter", 200)]);
   bundle.transitions.push(transition("tr-002", "void", 400));
-  const mix = measureTransitionMix(bundle, REFERENCE);
+  const mix = bundleMix(bundle, REFERENCE);
   assert.equal(mix.gaps, 1);
   assert.deepEqual(
     mix.kinds.map((kind) => kind.kind),
@@ -292,7 +302,7 @@ test("the mix does not move with the export width", async () => {
 
 /** A mix built from declared records, for the comparison tests. */
 function mixOf(...kinds: [TransitionType, number][]) {
-  return measureTransitionMix(
+  return bundleMix(
     bundleOf(
       kinds.map(([type, height], index) =>
         transition(`tr-${String(index + 1).padStart(3, "0")}`, type, height, {
@@ -319,7 +329,7 @@ test("a graded share divides by the gaps DRAWN, not by every transition", () => 
   // Two drawn gaps and two that draw nothing. The share of `void` is a half,
   // and a denominator that counted the undrawn ones would report a quarter —
   // which the band below admits, so only this assertion catches it.
-  const mix = measureTransitionMix(
+  const mix = bundleMix(
     bundleOf([
       transition("tr-001", "gutter", 0),
       transition("tr-002", "gutter", 400),
