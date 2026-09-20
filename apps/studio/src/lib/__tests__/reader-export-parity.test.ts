@@ -383,7 +383,16 @@ test("a declared panel shape reshapes the reader's stage and the export's alike"
   // this file exists for — one shape, two consumers — is broken by the fix for
   // something else, and no existing case here would notice, because none of them
   // declares a shape.
-  for (const panelAspect of [0.3, 2.6]) {
+  //
+  // The last two are in the loop for a second reason: 0.3 and 2.6 both land on
+  // whole pixels at the reader's 1000px nominal frame, so they say nothing about
+  // HOW the two sides round, and a reader that floored or ceiled would agree
+  // with the export on every one of them. 1.4327 is the shape the schema's own
+  // round-trip test and the pilot pack's cut-002 (832x1192) use, and it lands at
+  // 1432.7 — above the half pixel, so flooring the reader breaks it. Rounding
+  // has two directions and one value can only catch one, so 1.4321 (1432.1) is
+  // here for the other.
+  for (const panelAspect of [0.3, 2.6, 1.4327, 1.4321]) {
     const cut: Cut = { ...artlessCut(), panelAspect };
     const art = await resolveCutArt(WORK_ID, WORK_ROOT, cut);
     assert.equal(art.src, null);

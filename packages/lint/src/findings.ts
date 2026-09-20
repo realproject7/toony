@@ -1,7 +1,16 @@
 // Structured lint findings. Every lint in this package returns findings in this
 // shape so agents and (later) the CLI can branch on them deterministically.
 
-/** Severity of a finding. `error` blocks; `warning`/`info` are advisory. */
+/**
+ * Severity of a finding.
+ *
+ * `error` is a project that is wrong; `warning` is a project that is right but
+ * will not read as intended; `info` is a note. What a CONSUMER does with each is
+ * the consumer's decision, and `toony lint` blocks on BOTH `error` and
+ * `warning` — only `info` leaves its exit code at 0 (see `hasBlockingFindings`
+ * in the CLI's `lint.ts`). Choosing `warning` over `info` is therefore choosing
+ * to fail a build, not to leave an advisory note.
+ */
 export type Severity = "error" | "warning" | "info";
 
 /** A single, actionable lint finding. */

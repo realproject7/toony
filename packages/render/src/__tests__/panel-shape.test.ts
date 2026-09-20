@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { PANEL_ASPECT_MAX, PANEL_ASPECT_MIN } from "@toony/schema";
 import { FALLBACK_CUT_ASPECT } from "../layout.js";
 import { cutHeightAt, resolveCutAspect } from "../panel-shape.js";
 
@@ -39,21 +40,53 @@ test("with neither, the fallback — and a caller may bring its own", () => {
   });
 });
 
-test("a declaration that is not a positive finite number is passed over", () => {
-  // The schema validator owns that message (`panelAspect must be a number
-  // between …`); propagating it as a shape would turn one defect into a canvas
-  // nothing can draw on.
-  for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+test("a declaration outside the schema's bounds is passed over", () => {
+  // The schema validator owns the MESSAGE (`panelAspect must be a number between
+  // …`); this owns not STAGING it. The studio's episode and reader pages render
+  // a project with nothing gating on validity, so a declared 500 here is a
+  // 500-column stage and 1e308 an Infinity-tall one — `cutHeightAt` returns
+  // exactly that. Every value below is just outside a real bound or not a number
+  // at all, and each must reach the same answer as declaring nothing.
+  const bad = [
+    0,
+    -1,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+    PANEL_ASPECT_MIN - 0.001,
+    PANEL_ASPECT_MAX + 0.001,
+    500,
+    1e308,
+  ];
+  for (const value of bad) {
     assert.deepEqual(
-      resolveCutAspect(bad, null),
+      resolveCutAspect(value, null),
       { aspect: FALLBACK_CUT_ASPECT, source: "fallback" },
-      `${bad} was treated as a shape`,
+      `${value} was treated as a shape`,
     );
     assert.deepEqual(
-      resolveCutAspect(bad, PORTRAIT),
+      resolveCutAspect(value, PORTRAIT),
       { aspect: 1600 / 1200, source: "image" },
-      `${bad} was treated as a shape over the art`,
+      `${value} was treated as a shape over the art`,
     );
+    assert.ok(
+      Number.isFinite(cutHeightAt(1000, resolveCutAspect(value, null).aspect)),
+      `${value} staged a cut at a height nothing can draw`,
+    );
+  }
+  // A value parsed off disk that is not a number at all cannot coerce through.
+  assert.equal(
+    resolveCutAspect("5" as unknown as number, null).source,
+    "fallback",
+    'a string "5" coerced its way through the bounds',
+  );
+});
+
+test("the bounds themselves are declarable", () => {
+  // The other side of the check: what the schema lets an author WRITE must
+  // still stage, or the range check has quietly become a house style.
+  for (const ok of [PANEL_ASPECT_MIN, PANEL_ASPECT_MAX, 0.3, 1.4327, 3.45]) {
+    assert.deepEqual(resolveCutAspect(ok, PORTRAIT), { aspect: ok, source: "declared" });
   }
 });
 
@@ -74,21 +107,26 @@ test("a caller's fallback SIZE survives the round trip through an aspect", () =>
   // `@toony/lint` stages an undeclared art-less cut by handing its documented
   // fallback canvas in as a RATIO and multiplying back out. A cut that declares
   // nothing must land on exactly the canvas it landed on before the declaration
-  // existed, so that round trip has to be lossless — at the shipped size and at
-  // every other shape a caller might document.
-  const sizes: [number, number][] = [
-    [1200, 1600],
-    [1000, 1400],
-    [1200, 1601],
-    [833, 1193],
-    [3, 7],
-    [1, 1],
-    [1920, 1],
-  ];
-  for (const [width, height] of sizes) {
-    const { aspect } = resolveCutAspect(undefined, null, height / width);
-    assert.equal(cutHeightAt(width, aspect), height, `${width}x${height} did not round-trip`);
+  // existed, so that round trip has to be lossless.
+  //
+  // Named sizes alone do not prove that, and quietly: 1200x1600, 1000x1400 and
+  // every other round shape multiply back EXACTLY, so `Math.floor` and
+  // `Math.ceil` pass them too. It is the awkward ratios that carry the claim —
+  // 61/7 lands a hair under its integer and 29/7 a hair over — so the sweep
+  // below is the test and the two named pairs say which end each covers.
+  assert.equal(cutHeightAt(7, resolveCutAspect(undefined, null, 61 / 7).aspect), 61);
+  assert.equal(cutHeightAt(7, resolveCutAspect(undefined, null, 29 / 7).aspect), 29);
+  assert.equal(cutHeightAt(1200, resolveCutAspect(undefined, null, 1600 / 1200).aspect), 1600);
+
+  let checked = 0;
+  for (let width = 1; width <= 400; width++) {
+    for (let height = 1; height <= 400; height++) {
+      const { aspect } = resolveCutAspect(undefined, null, height / width);
+      assert.equal(cutHeightAt(width, aspect), height, `${width}x${height} did not round-trip`);
+      checked++;
+    }
   }
+  assert.equal(checked, 160_000);
 });
 
 test("a height is whole pixels and never zero", () => {

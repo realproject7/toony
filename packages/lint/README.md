@@ -17,8 +17,12 @@ interface Finding {
 }
 ```
 
-`error` blocks; `warning`/`info` are advisory. `sortFindings` gives a stable
-order and `isClean` reports whether any error is present.
+`error` is a project that is wrong, `warning` one that is right but will not read
+as intended, `info` a note. What each means for an exit code belongs to the
+consumer: `toony lint` blocks on `error` AND `warning`, so only `info` leaves it
+at 0. `sortFindings` gives a stable order and `isClean` reports whether any
+`error` is present — which is a narrower question than whether `toony lint`
+passes.
 
 ## Schema and sequence lints
 

@@ -17,7 +17,6 @@ export {
   TRANSITION_MONOTONY_RUN_MAX,
 } from "./craft-lint.js";
 export type { ResolveCutImage } from "./cut-image.js";
-export { readCutDimensions } from "./cut-image.js";
 export type { Finding, Severity } from "./findings.js";
 export { finding, isClean, sortFindings } from "./findings.js";
 export type { ImageAnalysisOptions } from "./image/analyze.js";

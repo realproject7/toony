@@ -11,7 +11,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type Canvas, createCanvas } from "@napi-rs/canvas";
-import { layoutCut } from "@toony/render";
+import { ARTLESS_CUT_FILL, layoutCut } from "@toony/render";
 import type { LetteringOverlay } from "@toony/schema";
 import { composeCut } from "../compose.js";
 
@@ -969,18 +969,46 @@ test("an art-less cut is staged at the shape it declares", async () => {
   }
 });
 
-test("an art-less cut that declares NOTHING is byte-identical to before", async () => {
-  // The back-compat claim at the pixel: absent means the fallback aspect, which
-  // is what this target shipped at. Compared as encoded bytes, not dimensions,
-  // so a stage that changed color or lost its lettering would fail too.
-  const overlays = [topLeftOverlay()];
-  const absent = await composeCut(overlays, null, 480);
-  const undefinedDeclaration = await composeCut(overlays, null, 480, { panelAspect: undefined });
-  assert.equal(absent.height, Math.round(480 * 1.4));
-  assert.deepEqual(
-    new Uint8Array(undefinedDeclaration.canvas.toBuffer("image/png")),
-    new Uint8Array(absent.canvas.toBuffer("image/png")),
-  );
+/** A byte as two lowercase hex digits, for comparing against a `#rrggbb` constant. */
+function hex2(value: number | undefined): string {
+  return (value ?? 0).toString(16).padStart(2, "0");
+}
+
+test("an art-less cut that declares NOTHING lands on the shipped stage", async () => {
+  // The back-compat claim, stated as what this test can actually see. The
+  // shipped stage is a size, a fill and the lettering on top of it, and all
+  // three are checked here against literals — the size against `480 * 1.4`, the
+  // paper against the fill constant, the lettering by finding ink that is not
+  // that fill. What it cannot do is compare against the PREVIOUS build: that
+  // comparison is a byte-for-byte diff of real exports across two checkouts, and
+  // it lives outside the tree.
+  //
+  // Passing the option explicitly as `undefined` is the same branch as omitting
+  // it, so those two agreeing proves nothing; it is here only to pin that an
+  // explicit `undefined` is not treated as a declaration.
+  const composed = await composeCut([topLeftOverlay()], null, 480);
+  assert.equal(composed.width, 480);
+  assert.equal(composed.height, Math.round(480 * 1.4));
+
+  const ctx = composed.canvas.getContext("2d");
+  const paper = ctx.getImageData(composed.width - 3, composed.height - 3, 1, 1).data;
+  assert.equal(`#${[paper[0], paper[1], paper[2]].map(hex2).join("")}`, ARTLESS_CUT_FILL);
+  assert.equal(paper[3], 255);
+
+  // The bubble is drawn on it: somewhere in the overlay's box is a pixel that is
+  // not the paper. Without this the two assertions above would pass on a blank
+  // stage that had lost its lettering entirely.
+  const { data } = ctx.getImageData(0, 0, composed.width, Math.round(composed.height * 0.3));
+  let ink = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i] !== paper[0] || data[i + 1] !== paper[1] || data[i + 2] !== paper[2]) ink++;
+  }
+  assert.ok(ink > 0, "the art-less stage exported no lettering at all");
+
+  const explicitUndefined = await composeCut([topLeftOverlay()], null, 480, {
+    panelAspect: undefined,
+  });
+  assert.equal(explicitUndefined.height, composed.height);
 });
 
 test("a cut WITH art composes at the art's shape, whatever it declares", async () => {

@@ -16,6 +16,7 @@
 //
 // This module is the one answer, so the three cannot drift.
 
+import { PANEL_ASPECT_MAX, PANEL_ASPECT_MIN } from "@toony/schema";
 import { FALLBACK_CUT_ASPECT } from "./layout.js";
 
 /** Which of the three sources a resolved shape came from. */
@@ -48,10 +49,14 @@ export interface CutImageSize {
  * actually has, and it divides height by width in this one place so the two
  * sides of the comparison cannot be computed differently.
  *
- * A declaration outside `PANEL_ASPECT_MIN`..`PANEL_ASPECT_MAX`, or not a
- * positive finite number at all, is not this function's finding to make — the
- * schema validator owns that message — so it is passed over rather than
- * propagated as a shape nothing can render.
+ * A declaration outside `PANEL_ASPECT_MIN`..`PANEL_ASPECT_MAX`, or not a number
+ * at all, is passed over. Saying so is not this function's job — the schema
+ * validator owns that message, and duplicating it would send an author looking
+ * for two problems — but STAGING it is, and it must not: `toony validate`,
+ * `toony lint` and `toony export` all gate on validity, while the studio's
+ * episode and reader pages render whatever is on disk. A declared 500 would give
+ * that reader a 500-column stage and `1e308` an `Infinity`-tall one, where
+ * before this field was read back they were the fallback.
  *
  * `fallbackAspect` lets a caller that stages art-less cuts on its own documented
  * canvas keep that canvas; absent, it is the render core's `FALLBACK_CUT_ASPECT`.
@@ -61,7 +66,15 @@ export function resolveCutAspect(
   image: CutImageSize | null,
   fallbackAspect: number = FALLBACK_CUT_ASPECT,
 ): ResolvedCutAspect {
-  if (panelAspect !== undefined && Number.isFinite(panelAspect) && panelAspect > 0) {
+  // The bounds reject NaN and both infinities on their own, since every
+  // comparison with NaN is false. `typeof` is still checked because a project is
+  // parsed off disk and the studio renders it before anything validates it, and
+  // a string "5" would otherwise coerce its way through both comparisons.
+  if (
+    typeof panelAspect === "number" &&
+    panelAspect >= PANEL_ASPECT_MIN &&
+    panelAspect <= PANEL_ASPECT_MAX
+  ) {
     return { aspect: panelAspect, source: "declared" };
   }
   if (image !== null && image.width > 0 && image.height > 0) {

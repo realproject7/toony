@@ -27,11 +27,16 @@ import { type Finding, finding } from "./findings.js";
  * is resolved into a latent height snapped to ComfyUI's 8px grid, so even art
  * made UNDER the declaration comes back up to half a block — 4px — off it. Four
  * pixels is `4 / column` of a width, which is 0.0048 at an 832px column and
- * grows as the column narrows; 0.02 covers the snap at any column of 256px or
- * wider, a third the column the recorded render pass generated at and narrower
- * than any latent worth sampling. (`panel-shape.test.ts` in the CLI asserts that
- * against the conversion itself, over a sweep of columns, so this cannot quietly
- * stop covering it.)
+ * grows as the column narrows. 0.02 covers the snap at every column of **201px
+ * and up**; 200 is the exact boundary, where `4 / 200` IS 0.02 and whether a
+ * given shape trips it comes down to float dust (a declared 2.02 does, a
+ * declared 0.1 does not). Below that a correctly generated cut can be reported.
+ * Nothing samples a 200px latent — the recorded render pass used 832 — but
+ * `--width` takes any positive integer, so the failure mode is worth naming: a
+ * spurious warning, at a column nobody generates at. (`panel-shape.test.ts` in
+ * the CLI asserts this against the conversion itself, at the aspects that round
+ * hardest rather than at round-looking ones, so it cannot quietly stop covering
+ * it.)
  *
  * The other bound is that it must still catch a re-cut panel, and 0.02 is an
  * order of magnitude under the gaps a pacing pack actually declares between

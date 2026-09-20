@@ -90,10 +90,17 @@ test("a declaration outside the schema's range is the validator's finding, not t
   }
 });
 
-test("the tolerance is the boundary, and it is the declared number that moves", () => {
-  // Brackets `PANEL_ASPECT_TOLERANCE` from both sides at a declared 1.0: 0.015
-  // of a width off is inside it, 0.025 is not. Shrinking the constant to 0.01 or
-  // widening it to 0.05 breaks one of these.
+test("the tolerance brackets what is reported, and it is the declared number that moves", () => {
+  // Brackets `PANEL_ASPECT_TOLERANCE`'s VALUE from both sides at a declared 1.0:
+  // 0.015 of a width off is inside it, 0.025 is not. Shrinking the constant to
+  // 0.01 or widening it to 0.05 breaks one of these.
+  //
+  // What it does NOT pin is whether the comparison is `<=` or `<`. No pair of
+  // integer pixel dimensions puts a cut EXACTLY 0.02 of a width from a declared
+  // shape — searched over declared 0.10..10.00 at two decimals and every width
+  // to 4000, with no hit — so the boundary is measure-zero in doubles and
+  // unreachable through any art fixture. Flipping the operator is a silent
+  // no-op, and saying otherwise here would be the claim, not the test.
   assert.ok(PANEL_ASPECT_TOLERANCE > 0.015 && PANEL_ASPECT_TOLERANCE < 0.025);
   assert.deepEqual(lint(cut(1), art(200, 203)), []);
   assert.equal(lint(cut(1), art(200, 205)).length, 1);
