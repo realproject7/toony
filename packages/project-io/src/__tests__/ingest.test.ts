@@ -45,6 +45,20 @@ function manualResult(): ProviderResult {
   };
 }
 
+function generatedResult(): ProviderResult {
+  return {
+    bytes: pngWithText(),
+    format: "png",
+    provenance: { source: "comfyui", providerId: "comfyui", contentType: "image/png" },
+  };
+}
+
+async function readLog(root: string): Promise<Record<string, unknown>[]> {
+  return JSON.parse(
+    await readFile(join(root, "episodes", "ep-001", "logs", "ingest.json"), "utf8"),
+  );
+}
+
 async function freshProject(): Promise<string> {
   const base = await mkdtemp(join(tmpdir(), "toony-io-"));
   const root = join(base, "proj");
@@ -133,6 +147,46 @@ test("a neutral provenance entry is recorded without leaking absolute paths", as
   assert.equal(log[0].providerId, "manual");
   assert.equal(typeof log[0].sha256, "string");
   // No absolute project path may appear anywhere in the provenance log.
+  assert.ok(!JSON.stringify(log).includes(root));
+});
+
+test("an ingest that was not generated records no render inputs (#240)", async () => {
+  // A manual import has no generation inputs, so the key is absent rather than
+  // present and empty: its entry is exactly the one it has always written.
+  const root = await freshProject();
+  await ingestImageAsset(
+    root,
+    { kind: "cut", episodeId: "ep-001", cutId: "cut-001", slot: "clean" },
+    manualResult(),
+  );
+  const log = await readLog(root);
+  assert.equal(Object.hasOwn(log[0] ?? {}, "renderInputs"), false);
+});
+
+test("render inputs are recorded beside the asset's identity (#240)", async () => {
+  const root = await freshProject();
+  const inputs = {
+    prompt: "short black bob, amber eyes, a hero on a rooftop",
+    basePrompt: "a hero on a rooftop",
+    negativePrompt: "lowres",
+    seed: 91723,
+    workflow: "high-detail",
+    width: 832,
+    height: 1248,
+  };
+  await ingestImageAsset(
+    root,
+    { kind: "cut", episodeId: "ep-001", cutId: "cut-001", slot: "clean" },
+    generatedResult(),
+    inputs,
+  );
+  const log = await readLog(root);
+  assert.equal(log.length, 1);
+  assert.deepEqual(log[0]?.renderInputs, inputs);
+  // The identity fields are untouched by the addition.
+  assert.equal(log[0]?.assetPath, "episodes/ep-001/assets/clean/cut-001.png");
+  assert.equal(log[0]?.source, "comfyui");
+  // And the entry is still neutral: no absolute path reaches the log.
   assert.ok(!JSON.stringify(log).includes(root));
 });
 

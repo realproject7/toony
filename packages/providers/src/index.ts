@@ -7,6 +7,7 @@ export {
   ComfyUIProvider,
   type FetchLike,
   isLoopbackEndpoint,
+  randomSeed,
 } from "./comfyui.js";
 export {
   COMFYUI_DEFAULT_LOCAL_URL,
