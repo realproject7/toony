@@ -53,7 +53,7 @@ cover both reporters/locales, color escapes, missing tasks and incomplete output
 ## Compiler controls
 
 `pnpm test:verification` runs the infrastructure controls, including the pinned
-TypeScript compiler against temporary fixture configs and actual output files.
+TypeScript compiler against isolated fixture configs and actual output files.
 It covers seven emit-precedence cases, incremental/composite build-info paths,
 and rejected inline flags. A second task claiming the actual emit directory must
 produce a checker finding. Build-info writes are measured separately: the output
