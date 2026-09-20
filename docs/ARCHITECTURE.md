@@ -96,8 +96,11 @@ The format is documented in [PACK_FORMAT.md](./PACK_FORMAT.md).
 
 A pack's own output can be graded rather than eyeballed. `toony measure` composes
 an episode exactly as the stitched export does and reads the page back as craft
-signals — gutter budget, cut heights and density, inset, and palette — so a pack
-is finished when its output lands inside a target band. The measurement is
-provider-free and deterministic, and language-dependent craft (bubble size, line
-count, text density) is deliberately left to the lints that run on our own
-content. See [CRAFT_MEASURE.md](./CRAFT_MEASURE.md).
+signals — the geometry and colour of the composed page, plus the transition
+vocabulary read off the episode's declared records — so a pack is finished when
+its output lands inside a target band. The measurement is provider-free and
+deterministic, and language-dependent craft (bubble size, line count, text
+density) is deliberately left to the lints that run on our own content.
+`CRAFT_MEASURE.md` carries the signal list; this paragraph does not, because a
+list in prose goes stale the next time one is added. See
+[CRAFT_MEASURE.md](./CRAFT_MEASURE.md).

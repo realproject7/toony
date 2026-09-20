@@ -372,6 +372,31 @@ is refused outright by a toony older than the field, so a pack that ships one
 should state the minimum toony version it needs. Both are documented in
 [`CRAFT_MEASURE.md`](./CRAFT_MEASURE.md#band-files).
 
+A band can further declare the **transition vocabulary** of the work it was
+measured from — which kinds of gap it puts between its cuts, in what proportion,
+at what heights — and that one **does** decide the verdict:
+
+```json
+"transitionVocabulary": [
+  { "kinds": ["gutter"], "share": { "min": 0.46, "max": 0.57 }, "height": { "min": 0.41, "max": 0.52 } },
+  { "kinds": ["narration_card", "dialogue_card"], "share": { "min": 0.18, "max": 0.33 } }
+]
+```
+
+It sits on the band, and not on the manifest or on a genre entry, because it is a
+**grading target** measured from the same episodes of the same work as the band's
+own metrics — the thing `provenance` already makes one statement about — rather
+than a render knob a project edits. A genre entry's `gutterBandWidth` is the
+other shape: a number `toony init` writes into the new project, which the project
+then owns. Nothing consults a vocabulary to render.
+
+**A pack selects kinds; it never adds one.** Every name in `kinds` must be one of
+the core's transition types, and a name the core does not have is a rejection.
+This is the same rule an export preset lives under: a preset picks one of the
+built-in engines, and a vocabulary picks from the built-in kinds. The full field
+reference, and what the comparison can and cannot see, are in
+[`CRAFT_MEASURE.md`](./CRAFT_MEASURE.md#the-transition-vocabulary-a-band-declares).
+
 Discovery checks the file is there and carries its path, exactly as it does for a
 workflow graph; the band itself is parsed and validated by the command that
 measures, so `@toony/packs` stays free of the measurement.

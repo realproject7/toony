@@ -97,6 +97,59 @@ async function readBand(file: string): Promise<CraftBand | { error: string[] }> 
   return asCraftBand(parsed as Record<string, unknown>);
 }
 
+/** A range end the band left open prints as `*`, the same as a metric's does. */
+function rangeOf(verdict: { min: number | null; max: number | null }): string {
+  return `${verdict.min ?? "*"}..${verdict.max ?? "*"}`;
+}
+
+/**
+ * What kind of gap the episode puts between its cuts, and — when the band
+ * declares a vocabulary — how that compares.
+ *
+ * The mix always prints, band or no band, because it is a measurement like the
+ * table above it and because it is what you read to author a range in the first
+ * place. It says on its own line that it comes from the declared transition
+ * records: the numbers above are read off pixels and these are not, and a
+ * reader who takes them for the same kind of evidence will trust the wrong one.
+ */
+function transitionLines(
+  mix: CraftMeasurement["transitions"],
+  graded: CraftBandReport["transitions"],
+): string[] {
+  const lines = [`  transition mix — ${mix.gaps} gap(s) drawn, from the declared kinds`];
+  if (mix.undrawn > 0) {
+    lines.push(
+      `    note: ${mix.undrawn} transition(s) draw no band at all and are not counted as gaps.`,
+    );
+  }
+  const kindWidth = Math.max(4, ...mix.kinds.map((kind) => kind.kind.length));
+  for (const kind of mix.kinds) {
+    lines.push(
+      `    ${kind.kind.padEnd(kindWidth)}  ${String(kind.count).padStart(3)}  share ${String(kind.share).padStart(6)}  height ${String(kind.heightMedian).padStart(6)}`,
+    );
+  }
+  if (graded.length === 0) return lines;
+  lines.push(`  transition vocabulary — ${graded.length} entry(s) graded`);
+  for (const entry of graded) {
+    lines.push(`    ${entry.kinds.join("+")}  ${entry.count} gap(s)`);
+    lines.push(
+      `      share   ${String(entry.share.value).padStart(7)}  ${rangeOf(entry.share).padEnd(16)} ${entry.share.inBand ? "in" : "OUT"}`,
+    );
+    const height = entry.height;
+    if (height === null) continue;
+    // A height range with no gap of these kinds to measure is NOT a pass, and
+    // must never print as one: the share range above already decided whether
+    // zero of them was allowed, and this row has nothing left to say. The
+    // report carries no verdict for it at all, which is what `in` / `OUT` reads
+    // off here.
+    const graded = "inBand" in height;
+    const shown = graded ? String(height.value) : "—";
+    const mark = !graded ? "no gap of these kinds" : height.inBand ? "in" : "OUT";
+    lines.push(`      height  ${shown.padStart(7)}  ${rangeOf(height).padEnd(16)} ${mark}`);
+  }
+  return lines;
+}
+
 function textReport(
   root: string,
   measurement: CraftMeasurement,
@@ -161,17 +214,29 @@ function textReport(
     }
     lines.push(`  ${name.padEnd(width)}  ${shown.padStart(8)}`);
   }
+  lines.push(...transitionLines(measurement.transitions, report?.transitions ?? []));
   if (report) {
-    const out = report.metrics.filter((verdict) => !verdict.inBand).length;
+    const outMetrics = report.metrics.filter((verdict) => !verdict.inBand).length;
+    const outEntries = report.transitions.filter((verdict) => !verdict.inBand).length;
     const label = report.name === null ? "band" : `band "${report.name}"`;
     const also =
       report.recorded.length === 0
         ? ""
         : ` (${report.recorded.length} further metric(s) recorded, not graded)`;
+    // With no vocabulary declared, these two lines are what they always were: a
+    // band that does not use the field reports exactly as it did before it.
+    const graded =
+      report.transitions.length === 0
+        ? `${report.metrics.length} metric(s)`
+        : `${report.metrics.length} metric(s) and ${report.transitions.length} transition entry(s)`;
+    const outside =
+      report.transitions.length === 0
+        ? `${outMetrics} of ${report.metrics.length} metric(s)`
+        : `${outMetrics} of ${report.metrics.length} metric(s) and ${outEntries} of ${report.transitions.length} transition entry(s)`;
     lines.push(
       report.inBand
-        ? `verdict: IN BAND — ${report.metrics.length} metric(s) graded against ${label}${also}`
-        : `verdict: OUT OF BAND — ${out} of ${report.metrics.length} metric(s) outside ${label}${also}`,
+        ? `verdict: IN BAND — ${graded} graded against ${label}${also}`
+        : `verdict: OUT OF BAND — ${outside} outside ${label}${also}`,
     );
   }
   return lines;
@@ -254,7 +319,7 @@ export async function runMeasure(args: string[], io: MeasureIo): Promise<number>
     throw cause;
   }
 
-  const report = band === null ? null : compareToCraftBand(measurement.metrics, band);
+  const report = band === null ? null : compareToCraftBand(measurement, band);
   if (parsed.json) {
     io.out(
       JSON.stringify(
@@ -268,6 +333,7 @@ export async function runMeasure(args: string[], io: MeasureIo): Promise<number>
           cuts: measurement.cuts,
           cutsWithoutImage: measurement.cutsWithoutImage,
           metrics: measurement.metrics,
+          transitions: measurement.transitions,
           band: report,
         },
         null,
