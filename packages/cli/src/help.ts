@@ -40,7 +40,16 @@ options:
                            --workflow selects a workflow a pack contributed;
                            repeat --cut to generate several cuts in one run: it
                            prints a per-cut summary, keeps every cut it
-                           finished, and exits non-zero if any cut failed
+                           finished, and exits non-zero if any cut failed.
+                           a project that does not validate is refused before
+                           anything is sent: the run prints the report
+                           \`toony validate\` prints, plus the offending value as
+                           authored, and exits 1 having generated nothing. There
+                           is no override flag. A project that is only half
+                           WIRED — a record not yet in the episode sequence, a
+                           sequence entry whose record is not written yet, or an
+                           episode nothing has been sequenced into — warns on
+                           stderr and generates anyway
   export <platform|stitched|plotlink|preset> [path] --episode <id>
          [--width <px>] [--format png|jpg] [--quality <0-100>]
                            writes into the project's exports/ folder + manifest;
@@ -83,7 +92,7 @@ exit codes (agent-readable):
       no image under \`--require-images\`), lint findings
       (\`lint\`: any error/warning finding), an out-of-band measurement
       (\`measure --against\`), a pack problem (\`packs doctor\`), or generation failure
-      (\`generate\`: endpoint unreachable, provider error, or timeout; in a
-      multi-cut run, ANY failed cut)
+      (\`generate\`: the project does not validate, the endpoint is unreachable, a
+      provider error, or a timeout; in a multi-cut run, ANY failed cut)
   2   usage error or IO failure (bad arguments, missing/unreadable files)
 `;
