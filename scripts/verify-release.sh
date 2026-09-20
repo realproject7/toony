@@ -53,22 +53,35 @@ echo $$ >"$WORK/$PID_FILE"
 
 # No trap runs on SIGKILL, and a directory unique to one run has no later run of
 # that ref to sweep it -- which the old fixed path did have. So each run collects
-# the directories whose runs are gone. Each one is a full clone plus the two
+# the ones it can PROVE are abandoned. Each is a full clone plus the two
 # node_modules trees the run installed, sitting there until the OS reaps its
 # temp directory.
 #
-# A live run is identified by the pid it recorded, so this cannot take a
-# directory out from under a gate still using it, including the other gates that
-# share this machine. The age test is for the window between `mktemp` and that
-# pid being written: a directory younger than a minute is left for the next run.
+# "Prove" is the whole of it, because the failure mode here is deleting a live
+# gate's checkout and turning the only merge gate this repo has into a spurious
+# FAIL. A directory is collectable only when it carries a pid marker AND that
+# process is gone. Two things are therefore deliberately left alone:
+#
+#   - A directory with no marker. It was made by a version of this script that
+#     does not write one: every ref that has not integrated this change, which
+#     on the day this lands is most of them. Nothing here can tell such a run
+#     from an abandoned one, so it is not ours to collect; its own script clears
+#     it on the next run of its ref, exactly as it did before.
+#   - A directory whose marker names a live process, including a gate started by
+#     another lane on this machine.
+#
+# A recycled pid reads as live and leaks rather than deleting, which is the
+# harmless direction. The age test is redundant cover for the window between
+# `mktemp` and the marker being written -- that window is already excluded by
+# the marker check above -- and it stays because the operation it guards is
+# `rm -rf`.
 for dir in "${TMPDIR:-/tmp}"/toony-verify-*; do
   [ -d "$dir" ] || continue
   [ "$dir" = "$WORK" ] && continue
   [ -n "$(find "$dir" -maxdepth 0 -mmin +1 2>/dev/null)" ] || continue
   owner="$(cat "$dir/$PID_FILE" 2>/dev/null)"
-  if [ -n "$owner" ] && ps -p "$owner" -o pid= >/dev/null 2>&1; then
-    continue
-  fi
+  [ -n "$owner" ] || continue
+  ps -p "$owner" -o pid= >/dev/null 2>&1 && continue
   echo "verify-release: collecting an abandoned scratch directory ($dir)"
   rm -rf "$dir"
 done
