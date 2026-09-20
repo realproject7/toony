@@ -66,6 +66,7 @@ export {
   summarizeEpisodes,
 } from "./reader.js";
 export { buildInitialProject, type InitialCraftOptions, slugify } from "./scaffold.js";
+export { readStoryBible, STORY_BIBLE_TEMPLATE } from "./story-bible.js";
 export { listWorkspace, type WorkspaceEntry } from "./workspace.js";
 export {
   writeCuts,

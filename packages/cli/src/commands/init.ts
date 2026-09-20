@@ -12,6 +12,7 @@ import {
 } from "@toony/project-io";
 import { EXIT_OK, EXIT_USAGE } from "../exit.js";
 import { discoverPackContent } from "../packs.js";
+import { shellQuote } from "../shell.js";
 
 const USAGE = `usage: toony init <name> [--genre <${GENRES.join("|")}>]`;
 
@@ -109,6 +110,6 @@ export async function runInit(args: string[], io: InitIo): Promise<number> {
 
   const flavor = genre ? ` (${genre} template)` : "";
   io.out(`created project "${project.webtoon.projectId}"${flavor} at ${target}`);
-  io.out(`next: cd ${target} && toony validate`);
+  io.out(`next: cd ${shellQuote(target)} && toony validate`);
   return EXIT_OK;
 }

@@ -34,7 +34,7 @@ export const STYLE_GUIDE_FILE = "style-guide.md";
  * Folders that always exist in a scaffolded project, as path segments.
  * Per-episode asset/export/log folders live under each episode directory.
  */
-export const PROJECT_DIRS = ["characters", "assets", "logs"] as const;
+export const PROJECT_DIRS = ["assets", "logs"] as const;
 export const EPISODE_DIRS = [
   "assets/clean",
   "assets/final",

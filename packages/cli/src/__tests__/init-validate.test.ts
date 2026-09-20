@@ -2,12 +2,13 @@
 // a field makes `validate` fail with actionable, agent-readable output.
 
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { cutsFile, GENRES, slugify, transitionsFile } from "@toony/project-io";
 import type { Cut, Project } from "@toony/schema";
+import { recordedShellCommand } from "../__fixtures__/shell.js";
 import { runInit } from "../commands/init.js";
 import { runLint } from "../commands/lint.js";
 import { cutsWithoutImage, runValidate } from "../commands/validate.js";
@@ -43,6 +44,28 @@ test("init scaffolds a project that validate accepts", async () => {
   const code = await runValidate([projectDir], validate.io);
   assert.equal(code, EXIT_OK, validate.out.concat(validate.err).join("\n"));
   assert.match(validate.out.join("\n"), /^valid:/);
+});
+
+test("the printed init command enters the exact directory without shell expansion (#283)", async () => {
+  for (const name of [
+    '$(printf injected > "$TOONY_SHELL_SENTINEL")',
+    '`printf injected > "$TOONY_SHELL_SENTINEL"`',
+    "$HOME",
+    "line\nbreak",
+    "tab\there",
+    "both'\"quotes\\and space",
+  ]) {
+    const target = join(workdir, name);
+    const c = capture();
+    assert.equal(await runInit([target], c.io), EXIT_OK, c.err.join("\n"));
+    const instruction = c.out.find((line) => line.startsWith("next: "))?.slice(6);
+    assert.ok(instruction);
+    const sentinel = join(workdir, "unexpected-shell-effect");
+    const result = recordedShellCommand(instruction, workdir, { TOONY_SHELL_SENTINEL: sentinel });
+    assert.equal(await realpath(result.cwd), await realpath(target));
+    assert.deepEqual(result.args, ["validate"]);
+    await assert.rejects(() => readFile(sentinel), { code: "ENOENT" });
+  }
 });
 
 test("init refuses to overwrite an existing directory", async () => {

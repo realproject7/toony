@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 
 import { decodeYaml, encodeYaml, writeConfig } from "@toony/project-io";
+import { recordedShellCommand } from "../__fixtures__/shell.js";
 import { runExport } from "../commands/export.js";
 import { runGenerate } from "../commands/generate.js";
 import { runInit } from "../commands/init.js";
@@ -2319,19 +2320,24 @@ test("a deliberate size, and an image with no recorded size, are left alone (#24
 
 /**
  * The flags a refusal tells the operator to pass, taken from the message itself
- * and tokenized as a shell would: a bare word, or the double-quoted string the
- * command prints for a value that is not one word.
+ * and executed by a real shell using a harmless argv recorder.
  *
  * A test that retypes the flags proves the tool agrees with the test; taking
  * them from the output proves the instruction an operator would follow is one
  * that repeats the render.
  */
 function repeatFlagsFrom(stderr: string): string[] {
-  const line = stderr.split("\n").find((l) => l.trim().startsWith("--"));
-  assert.ok(line, `no repeat instruction in:\n${stderr}`);
-  return (line.trim().match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []).map((token) =>
-    token.startsWith('"') ? (JSON.parse(token) as string) : token,
-  );
+  return recordedShellCommand(`toony ${repeatInstruction(stderr)}`, workdir).args;
+}
+
+function repeatInstruction(stderr: string): string {
+  const marker =
+    "to repeat that image, add these to the command (replacing any it already passes):\n";
+  const start = stderr.indexOf(marker);
+  assert.notEqual(start, -1, `no repeat instruction in:\n${stderr}`);
+  const rest = stderr.slice(start + marker.length);
+  const note = rest.lastIndexOf("\n  (no flag restores ");
+  return note === -1 ? rest : rest.slice(0, note);
 }
 
 test("the escape a refusal names repeats the image, on the final slot too (#240)", async () => {
@@ -3225,6 +3231,340 @@ test("a prompt no flag can restore is named, not guessed at (#240)", async () =>
     const err = blind.err.join("\n");
     assert.deepEqual(repeatFlagsFrom(err), ["--width", "640", "--height", "960", "--seed", "7"]);
     assert.match(err, /no flag restores prompt/);
+  } finally {
+    comfy.close();
+  }
+});
+
+// These controls inspect real HTTP graphs and execute the printed shell text.
+test("every repeat argument survives an actual shell without executing project data (#283)", async () => {
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  const logPath = join(projectDir, "episodes/ep-001/logs/ingest.json");
+  try {
+    const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          "--prompt",
+          "original",
+          "--width",
+          "640",
+          "--height",
+          "960",
+          "--seed",
+          "7",
+        ],
+        first.io,
+      ),
+      EXIT_OK,
+      first.err.join("\n"),
+    );
+    for (const value of [
+      '$(printf injected > "$TOONY_SHELL_SENTINEL")',
+      '`printf injected > "$TOONY_SHELL_SENTINEL"`',
+      "$HOME",
+      "line\nbreak",
+      "tab\there",
+      "both'\"quotes\\and space",
+    ]) {
+      const log = await readIngestLog(projectDir);
+      const entry = log.at(-1) as { renderInputs: Record<string, unknown> };
+      Object.assign(entry.renderInputs, {
+        workflow: value,
+        basePrompt: value,
+        prompt: value,
+        negativePrompt: value,
+      });
+      await writeFile(logPath, `${JSON.stringify(log, null, 2)}\n`);
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      assert.equal(
+        await runGenerate(
+          [
+            projectDir,
+            "--episode",
+            "ep-001",
+            "--cut",
+            "cut-001",
+            "--slot",
+            "final",
+            "--prompt",
+            "current",
+            "--seed",
+            "11",
+          ],
+          c.io,
+        ),
+        EXIT_USAGE,
+      );
+      const sentinel = join(workdir, "unexpected-shell-effect");
+      const { args } = recordedShellCommand(
+        `toony ${repeatInstruction(c.err.join("\n"))}`,
+        workdir,
+        { TOONY_SHELL_SENTINEL: sentinel },
+      );
+      assert.deepEqual(args, [
+        "--width",
+        "640",
+        "--height",
+        "960",
+        "--seed",
+        "7",
+        "--workflow",
+        value,
+        "--prompt",
+        value,
+        "--negative",
+        value,
+      ]);
+      await assert.rejects(() => readFile(sentinel), { code: "ENOENT" });
+    }
+    assert.equal(comfy.calls(), 1);
+  } finally {
+    comfy.close();
+  }
+});
+
+for (const slot of ["clean", "final"]) {
+  test(`wire prompts and legacy whitespace records repeat exactly in ${slot} (#285)`, async () => {
+    const projectDir = await scaffold();
+    const cutPath = join(projectDir, "episodes/ep-001/cuts.yaml");
+    await writeFile(
+      cutPath,
+      encodeYaml(
+        (await readCuts(projectDir)).map((cut) => ({ ...cut, imagePrompt: "stored scene" })),
+      ),
+    );
+    const positive = " \t a rooftop at dusk \n ";
+    const negative = " \t lowres and blur \n ";
+    const comfy = await startFakeComfy(pngWithText());
+    try {
+      const target = [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--slot", slot];
+      const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+      assert.equal(
+        await runGenerate(
+          [
+            ...target,
+            "--prompt",
+            positive,
+            "--negative",
+            negative,
+            "--width",
+            "640",
+            "--height",
+            "960",
+            "--seed",
+            "7",
+          ],
+          first.io,
+        ),
+        EXIT_OK,
+        first.err.join("\n"),
+      );
+      const body = JSON.parse(comfy.bodies()[0] as string);
+      const log = await readIngestLog(projectDir);
+      const entry = log.at(-1) as { renderInputs: Record<string, unknown> };
+      assert.equal(entry.renderInputs.prompt, body.prompt["6"].inputs.text);
+      assert.equal(entry.renderInputs.prompt, positive.trim());
+      assert.equal(entry.renderInputs.basePrompt, positive);
+      assert.equal(entry.renderInputs.negativePrompt, body.prompt["7"].inputs.text);
+      assert.equal(entry.renderInputs.negativePrompt, negative);
+      const cut = (await readCuts(projectDir)).find((item) => item.id === "cut-001");
+      assert.equal(cut?.imagePrompt, slot === "clean" ? positive : "stored scene");
+      // Emulate a pre-fix log without altering the already-submitted graph.
+      entry.renderInputs.prompt = positive;
+      const historical = JSON.stringify(entry);
+      const logPath = join(projectDir, "episodes/ep-001/logs/ingest.json");
+      const oldBytes = `${JSON.stringify(log, null, 2)}\n`;
+      await writeFile(logPath, oldBytes);
+      const blind = capture({ TOONY_COMFYUI_URL: comfy.url });
+      assert.equal(await runGenerate(target, blind.io), EXIT_USAGE);
+      assert.equal(await readFile(logPath, "utf8"), oldBytes);
+      const flags = repeatFlagsFrom(blind.err.join("\n"));
+      assert.equal(flags.includes("--prompt"), slot === "final");
+      if (slot === "final") assert.equal(flags[flags.indexOf("--prompt") + 1], positive);
+      const replay = capture({ TOONY_COMFYUI_URL: comfy.url });
+      assert.equal(
+        await runGenerate([...target, ...flags], replay.io),
+        EXIT_OK,
+        replay.err.join("\n"),
+      );
+      assert.deepEqual(comfy.bodies().map(normalizeClientId), [
+        normalizeClientId(comfy.bodies()[0] as string),
+        normalizeClientId(comfy.bodies()[0] as string),
+      ]);
+      assert.equal(JSON.stringify((await readIngestLog(projectDir))[0]), historical);
+    } finally {
+      comfy.close();
+    }
+  });
+}
+
+test("absent, blank and untouched bibles leave wire graphs unchanged (#238)", async () => {
+  const projectDir = await scaffold();
+  const bible = join(projectDir, "story-bible.md");
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    for (const state of ["template", "missing", "blank"]) {
+      if (state === "missing") await rm(bible);
+      if (state === "blank") await writeFile(bible, " \n\t");
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      assert.equal(
+        await runGenerate(
+          [
+            projectDir,
+            "--episode",
+            "ep-001",
+            "--cut",
+            "cut-001",
+            "--prompt",
+            "a quiet street",
+            "--seed",
+            "7",
+          ],
+          c.io,
+        ),
+        EXIT_OK,
+        c.err.join("\n"),
+      );
+    }
+    const graphs = comfy.bodies().map(normalizeClientId);
+    assert.equal(graphs[0], graphs[1]);
+    assert.equal(graphs[0], graphs[2]);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("bible context is read once, explicit base wins, and repeated runs do not accumulate it (#238)", async () => {
+  const projectDir = await scaffold();
+  const bible = join(projectDir, "story-bible.md");
+  await writeFile(bible, "The world is a red desert.");
+  const comfy = await startFakeComfy(pngWithText(), undefined, () =>
+    writeFile(bible, "The world is a blue ocean."),
+  );
+  try {
+    const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--cut",
+          "cut-002",
+          "--prompt",
+          "explicit scene",
+          "--seed",
+          "7",
+        ],
+        first.io,
+      ),
+      EXIT_OK,
+      first.err.join("\n"),
+    );
+    const original = "Story context:\nThe world is a red desert.\n\nScene:\nexplicit scene";
+    assert.deepEqual(comfy.prompts(), [original, original]);
+    for (const cut of await readCuts(projectDir)) assert.equal(cut.imagePrompt, "explicit scene");
+    for (let i = 0; i < 2; i++) {
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      assert.equal(
+        await runGenerate([projectDir, "--episode", "ep-001", "--cut", "cut-001"], c.io),
+        EXIT_OK,
+        c.err.join("\n"),
+      );
+    }
+    assert.deepEqual(
+      comfy.prompts().slice(2),
+      Array(2).fill("Story context:\nThe world is a blue ocean.\n\nScene:\nexplicit scene"),
+    );
+  } finally {
+    comfy.close();
+  }
+});
+
+test("bible read failure prevents provider work (#238)", async () => {
+  const projectDir = await scaffold();
+  await rm(join(projectDir, "story-bible.md"));
+  await mkdir(join(projectDir, "story-bible.md"));
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--prompt", "scene"],
+        c.io,
+      ),
+      EXIT_USAGE,
+    );
+    assert.match(c.err.join("\n"), /could not read story-bible\.md/);
+    assert.equal(comfy.calls(), 0);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("repeat prompt flags require unchanged bible composition (#238)", async () => {
+  const projectDir = await scaffold();
+  const bible = join(projectDir, "story-bible.md");
+  await writeFile(bible, "The world is a red desert.");
+  const comfy = await startFakeComfy(pngWithText());
+  const target = [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--slot", "final"];
+  try {
+    const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          ...target,
+          "--prompt",
+          "recorded scene",
+          "--width",
+          "640",
+          "--height",
+          "960",
+          "--seed",
+          "7",
+        ],
+        first.io,
+      ),
+      EXIT_OK,
+      first.err.join("\n"),
+    );
+    const blind = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate([...target, "--prompt", "different scene"], blind.io),
+      EXIT_USAGE,
+    );
+    const flags = repeatFlagsFrom(blind.err.join("\n"));
+    assert.equal(flags[flags.indexOf("--prompt") + 1], "recorded scene");
+    const replay = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate([...target, ...flags], replay.io),
+      EXIT_OK,
+      replay.err.join("\n"),
+    );
+    assert.equal(
+      normalizeClientId(comfy.bodies()[0] as string),
+      normalizeClientId(comfy.bodies()[1] as string),
+    );
+    await writeFile(bible, "The world is a blue ocean.");
+    const changed = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate([...target, "--prompt", "different scene"], changed.io),
+      EXIT_USAGE,
+    );
+    assert.equal(repeatFlagsFrom(changed.err.join("\n")).includes("--prompt"), false);
+    assert.match(changed.err.join("\n"), /no flag restores prompt/);
+    assert.equal(comfy.calls(), 2);
   } finally {
     comfy.close();
   }
