@@ -230,7 +230,10 @@ function tscInvocations(command) {
 
     const configs = [];
     let outDirOverride;
-    let noEmit = false;
+    // Three states, not two. `undefined` is "the command said nothing about
+    // emitting", which is NOT the same as `--noEmit false`, and collapsing them
+    // left the caller guessing which one it had.
+    let noEmitFlag;
     let unreadable;
 
     for (let i = 0; i < args.length; i++) {
@@ -263,10 +266,16 @@ function tscInvocations(command) {
         else outDirOverride = value;
       } else if (flag === "--noEmit") {
         const read = readBoolean(args, i);
-        noEmit = read.value;
+        noEmitFlag = read.value;
         i += read.consumed - 1;
       }
     }
+
+    // `--noEmit` on the command line settles the question by itself: it beats
+    // whatever the config says, and no other flag overrides it. Settle it BEFORE
+    // asking which config was named, or `tsc --noEmit` with no `-p` gets
+    // reported as an emit that cannot be located, when it emits nothing at all.
+    if (noEmitFlag === true) continue;
 
     if (unreadable !== undefined) {
       found.push({ unreadable, segment: segment.trim() });
@@ -279,7 +288,7 @@ function tscInvocations(command) {
       continue;
     }
     for (const config of configs) {
-      found.push({ config, outDirOverride, noEmitFlag: noEmit });
+      found.push({ config, outDirOverride, noEmitFlag });
     }
   }
   return found;
@@ -372,10 +381,19 @@ function main() {
         });
         continue;
       }
-      if (noEmitFlag || (resolved.noEmit && outDirOverride === undefined)) continue;
-      // A command-line `--outDir` beats the config, so `tsc -p tsconfig.test.json
-      // --outDir dist` puts test output back in `dist` while the config still
-      // reads `dist-test`. Read the command, not just the file it names.
+      // Whether this invocation emits, by tsc's own precedence. `--noEmit` on
+      // the command line decides it when present, and the config decides it
+      // otherwise. `--outDir` is NOT part of this decision: verified against
+      // this repo's pinned typescript, `--outDir out` does not defeat a config
+      // `noEmit: true` (still emits nothing), and `--noEmit false` against that
+      // same config DOES emit, into the config's own outDir. Treating an
+      // `--outDir` as evidence that the command changed the emit decision got
+      // both of those backwards, and the second one is the #253 defect itself
+      // classified as harmless.
+      if (noEmitFlag === undefined ? resolved.noEmit : noEmitFlag) continue;
+      // Where it emits is a separate question, and there `--outDir` does win:
+      // `tsc -p tsconfig.test.json --outDir dist` puts test output back into
+      // `dist` while the config still reads `dist-test`.
       if (outDirOverride !== undefined) {
         resolved = { ...resolved, outDir: resolve(packageDir, outDirOverride) };
       }
