@@ -151,6 +151,7 @@ test("stage logs survive failure and deleted scratch directories without rerunni
       );
       assert.equal(result.status, 7);
       assert.match(result.stdout, /compiler diagnostic TS5083/);
+      assert.equal(readFileSync(join(logs, `node-24-${stage}.log.status`), "utf8"), "exit=7\n");
       assert.equal(
         readFileSync(join(logs, `node-24-${stage}.log`), "utf8"),
         "compiler diagnostic TS5083\n",
@@ -171,6 +172,10 @@ test("stage logs survive failure and deleted scratch directories without rerunni
     );
     assert.equal(result.status, 1);
     assert.match(result.stdout, /scratch checkout disappeared during stage/);
+    assert.equal(
+      readFileSync(join(logs, "node-24-test.log.status"), "utf8"),
+      "exit=1\nscratch=missing\n",
+    );
     assert.match(readFileSync(join(logs, "node-24-test.log"), "utf8"), /original-cause/);
   } finally {
     rmSync(root, { recursive: true, force: true });

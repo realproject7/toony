@@ -11,7 +11,9 @@ run_stage() {
     return 1
   fi
   if "$@" >"$log" 2>&1; then status=0; else status=$?; fi
+  printf 'exit=%s\n' "$status" >"$log.status"
   if [ ! -d "$CLONE" ] || [ ! -f "$CLONE/package.json" ]; then
+    echo "scratch=missing" >>"$log.status"
     echo "  $stage: FAIL (scratch checkout disappeared during stage: $CLONE; log: $log)"
     tail -30 "$log"
     return 1
