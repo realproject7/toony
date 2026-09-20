@@ -1,5 +1,14 @@
 # MVP Capstone — Original Episode Production Test
 
+**Scale of the evidence (2026-09-21).** The PASSED records below demonstrate the
+pipeline on seven-cut original shorts. They do not establish production readiness
+for a full-length episode. The measured reference sample contains 67–103 panel
+bands per episode; one band can contain more than one panel. Issue #243 tracks a
+separate original run of at least 60 cuts, with stage timings and recorded
+failures. Until that run is completed, generation time, review, lint, and export
+behavior at that scale remain unverified. PlotLink currently accepts at most 20
+cut images, so a 60-cut episode cannot pass that export target unchanged.
+
 Status: PASSED (2026-06-17)
 
 The MVP's quality bar is not "files are created" — it is that Toony can produce
