@@ -9,6 +9,15 @@
 // removed required input, an uninstalled node type. ComfyUI never queues or
 // executes a graph it rejects, so recording these ran no work on the server.
 //
+// Six bodies were recorded and four are kept here. The two left out (an empty
+// graph, and a POST with no `prompt` key) both came back with `node_errors: {}`,
+// the shape promptRejectedWithoutNodeErrorsResponse already covers.
+//
+// One thing these recordings CANNOT show: every option list the server sent had
+// a single entry, because the recording machine has one checkpoint installed. A
+// one-entry list cannot distinguish "list them all" from "list the first", so
+// the multi-value case is asserted from a synthetic body in the protocol test.
+//
 // ONE redaction was applied: the recording machine's real installed checkpoint
 // filename was replaced with "base-model-v1.safetensors" wherever it appeared,
 // because it identifies that machine's model library while the tests only need

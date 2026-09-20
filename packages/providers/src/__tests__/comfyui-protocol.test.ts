@@ -104,18 +104,57 @@ test("parsePromptId leaves a rejection without node_errors exactly as it was", (
   assert.ok(!error.message.includes("\n"));
 });
 
-test("parsePromptId still names a reported node that carries no error entries", () => {
-  // Defensive: no recorded body does this, but a node ComfyUI names must not
-  // vanish from the message just because its errors array is empty.
+test("parsePromptId lists EVERY valid value ComfyUI offered, in order", () => {
+  // Synthetic because the recording machine has a single checkpoint, so every
+  // recorded option list has one entry, and one entry cannot tell "join all"
+  // apart from "first only", "last only" or "reversed". The plural case is the
+  // one #222 exists for: a buyer with three checkpoints must see all three, or
+  // they set TOONY_COMFYUI_CHECKPOINT from a truncated list and the choices
+  // that would have worked stay invisible.
   const error = rejectionOf({
     error: { message: "Prompt outputs failed validation" },
-    node_errors: { "4": { class_type: "CheckpointLoaderSimple", errors: [] } },
+    node_errors: {
+      "4": {
+        class_type: "CheckpointLoaderSimple",
+        errors: [
+          {
+            message: "Value not in list",
+            extra_info: {
+              input_name: "ckpt_name",
+              input_config: [
+                ["a-model.safetensors", "b-model.safetensors", "c-model.safetensors"],
+                { tooltip: "The name of the checkpoint (model) to load." },
+              ],
+              received_value: "model.safetensors",
+            },
+          },
+        ],
+      },
+    },
   });
   assert.equal(
     error.message,
     "ComfyUI rejected the workflow: Prompt outputs failed validation\n" +
-      "  node 4 (CheckpointLoaderSimple): rejected, no detail given.",
+      '  node 4 (CheckpointLoaderSimple) ckpt_name: Value not in list (got "model.safetensors", ' +
+      "valid: a-model.safetensors, b-model.safetensors, c-model.safetensors)",
   );
+});
+
+test("parsePromptId still names a reported node whose errors field is not a list", () => {
+  // `errors` is read off an unknown-typed external body. ComfyUI always sends an
+  // array today, but a node it explicitly named must not vanish from the message
+  // if that ever arrives absent or another type.
+  for (const errors of [undefined, null, "boom", 7, {}]) {
+    const error = rejectionOf({
+      error: { message: "Prompt outputs failed validation" },
+      node_errors: { "4": { class_type: "CheckpointLoaderSimple", errors } },
+    });
+    assert.equal(
+      error.message,
+      "ComfyUI rejected the workflow: Prompt outputs failed validation\n" +
+        "  node 4 (CheckpointLoaderSimple): rejected, no detail given.",
+    );
+  }
 });
 
 test("parsePromptId keeps the old rejection message when node_errors is absent or unusable", () => {
