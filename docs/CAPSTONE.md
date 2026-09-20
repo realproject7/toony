@@ -379,13 +379,17 @@ Seeds for the re-rendered cuts: 004 → 2104, 006 → 2106, 007 → 2107.
 
 # Panel Shape Per Cut — Controlled Render Pass
 
-Status: PASSED (2026-09-20)
+Recorded 2026-09-20.
 
 `Cut.panelAspect` (#237) lets a cut declare its own height in column widths, so a
 pack's genre scaffold can pace instead of producing every cut at one height. The
 bar is not "the field exists" — `palette` existed for four releases and was read
 by nothing (#207). It is that a declared shape reaches generation and shows up in
-the measured page. This records the run that shows it.
+the measured page.
+
+Unlike every section above it, this one cannot be re-run from this repository: it
+needs a private style pack, a local GPU and a checkpoint. What it records is the
+part that is repeatable in principle and was verified twice here.
 
 ## What was produced
 
@@ -401,52 +405,25 @@ difference is that one project's cuts declare a shape and the other's do not.
   2.10 2.60 3.15 3.45 widths. Each generated at that height against the
   workflow's own 832px column: 832×248 through 832×2872.
 
-Both projects pass `toony validate` and `toony lint` clean, and both were measured
-with `toony measure --against <the pack's band>` at the band's own screen aspect
-of 4.
+Both projects pass `toony validate` and `toony lint` clean.
 
-## What the two renders measure
-
-| metric | control | shaped | band |
-|---|---|---|---|
-| `panelHeightSpread` | **0.0052** | **1.1527** | 1.0525–1.2345 (recorded) |
-| `panelsPerScreen` | 2.11 **OUT** | 1.90 in | 1.85–2.08 |
-| `gutterRatio` | 0.2445 in | 0.2203 in | 0.213–0.252 |
-| `gutterMedian` | 0.4967 in | 0.49 in | 0.441–0.516 |
-| `panelHeightMedian` | 1.4325 in | 1.4325 in | 1.396–1.471 |
-| `panelInset` | 0.062 **OUT** | 0.0741 **OUT** | 0.092–0.131 |
-| `valueMean` | 152.6 in | 149.8 **OUT** | 152.2–163.8 |
-| `saturationMean` | 0.169 in | 0.171 in | 0.134–0.187 |
-| `hueBias` | 184.3 in | 186.4 in | 150.4–202.3 |
-
-## What this run proves
+## What it shows
 
 - **A page of identical cuts is flat, and the flatness is structural.** The
   control's `panelHeightSpread` is 0.0052 — zero to measurement noise — however
-  tall those identical cuts are. No amount of tuning the latent moves it.
-- **The declared shapes put the page in the reference range.** 1.1527 sits inside
-  the 1.0525–1.2345 the band recorded off four whole episodes of its source work.
+  tall those identical cuts are. Declaring the nine shapes moves it to 1.1527,
+  inside the 1.0525–1.2345 the band recorded off four whole episodes of its
+  source work. No amount of tuning one latent moves the control.
 - **Declared and rendered heights are one number.** Every generated image came
   back at its declared aspect within half a latent block (832×2872 for a declared
   3.45; the largest error across the nine is 0.004 of a width), and the composed
   page takes each panel's height from that image.
-- **`panelsPerScreen` came in as a consequence, not as a target.** The control
-  reproduces the 2.11 the pack's own notes record against a ceiling of 2.08:
-  identical cuts at that height force too much gutter. Varying the heights lands
-  it at 1.90 without touching a gutter value.
 - **The one cut whose declared shape equals the workflow latent generated
   byte-identical art in both runs** (cut-002, declared 1.43, `sha256 7c6333ec1212`
   on both sides). The shape path and the no-shape path meet where they should.
 
-## Two metrics that did not come in, with their numbers
-
-- **`panelInset` misses in BOTH renders** (0.062 control, 0.0741 shaped, floor
-  0.092), so it is not something panel shape caused. The metric is dominated by
-  how many cuts carry a gutter-placed bubble, and it sits next to an already-open
-  defect in what the inset counts.
-- **`valueMean` fell from 152.6 to 149.8**, 2.4 under the floor. This one IS
-  attributable to the shapes: seed and prompts were held fixed, so the difference
-  is what the checkpoint draws at 832×248 and 832×2872 instead of 832×1192. It is
-  one sample, so whether it is a systematic darkening at extreme aspects or run
-  variance is not settled here. Recorded rather than tuned away: a pack is not
-  re-seeded until a colour metric passes.
+The full nine-metric table for both renders, including the two metrics that did
+not come in and why, is recorded on #237. One of them, `valueMean`, moved from
+152.6 to 149.8 against a floor of 152.2 and is attributable to this change on a
+single seed, so the pack's "in band on all eight" result belongs to the control
+render, not to this one.

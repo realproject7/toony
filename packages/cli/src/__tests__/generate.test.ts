@@ -522,6 +522,61 @@ test("--height overrides a declared shape, and the run says so (#237)", async ()
   }
 });
 
+test("an out-of-range or non-numeric panel shape is refused, and nothing is generated (#237)", async () => {
+  // `toony generate` never reads `loadProject`'s validation report, so a project
+  // `toony validate` rejects still reaches the shape resolver. Left unguarded,
+  // each of these either clamped to a one-block sliver or was dropped while the
+  // run exited 0 reporting a size nobody asked for: #207 in a new place.
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    for (const authored of ["0", "-1", "0.099", "10.001", ".nan", ".inf", '"tall"', '"1.4"']) {
+      await authorPanelShapes(projectDir, [authored as unknown as number, undefined]);
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      const code = await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+        c.io,
+      );
+      assert.equal(code, EXIT_VALIDATION, `${authored} was not refused: ${c.err.join("\n")}`);
+      // Refused BEFORE the GPU, not after: an invalid shape costs nothing.
+      assert.deepEqual(comfy.latents(), [], `${authored} reached the generator`);
+      assert.match(c.err.join("\n"), /cut cut-001 declares panelAspect .* run "toony validate"/);
+    }
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a declared shape with no column to resolve against refuses the run (#237)", async () => {
+  // The column comes from the workflow's own latent, read through the injection
+  // map. Point the map at a node the graph does not have and there is no column:
+  // the alternative, falling back to the workflow's latent, would render the
+  // page with the pack's pacing quietly removed and cost GPU minutes to find.
+  const projectDir = await scaffold();
+  await authorPanelShapes(projectDir, [1.5, undefined]);
+  const workflowPath = join(projectDir, "no-latent.workflow.json");
+  await writeFile(
+    workflowPath,
+    JSON.stringify({
+      "1": { class_type: "CLIPTextEncode", inputs: { text: "" } },
+      "9": { class_type: "SaveImage", inputs: { filename_prefix: "toony", images: ["1", 0] } },
+    }),
+  );
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url, TOONY_COMFYUI_WORKFLOW: workflowPath });
+    const code = await runGenerate(
+      [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+      c.io,
+    );
+    assert.equal(code, EXIT_USAGE, c.err.join("\n"));
+    assert.deepEqual(comfy.latents(), []);
+    assert.match(c.err.join("\n"), /the column to size it against is unknown/);
+  } finally {
+    comfy.close();
+  }
+});
+
 /** Arguments for a run over `cutIds`, with a prompt supplied for all of them. */
 function multiCutArgs(projectDir: string, cutIds: string[]): string[] {
   return [

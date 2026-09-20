@@ -203,7 +203,10 @@ one height cannot do either.
 ```
 
 `panelAspect` is the cut's **height as a multiple of its own width**, between 0.1
-and 10. Width-multiples, not pixels, for two reasons:
+and 10. Those are authoring bounds, not runnable ones: at an 832px column a
+`panelAspect` of 10 is an 8320px latent most local setups cannot sample, and the
+tallest panel in the worked example is 3.45. Width-multiples, not pixels, for two
+reasons:
 
 - it is the unit a craft band grades panel height in (`panelHeightMedian`, and
   `panelHeightSpread` for how much the heights vary), so what a scaffold declares
@@ -215,21 +218,38 @@ It is not metadata. `toony generate` resolves it against the column the workflow
 own latent declares — `panelAspect` 0.62 on an 832px latent generates at
 832×512, snapped to ComfyUI's 8px latent grid — and the composed page takes each
 panel's height from the image it generated. So declared height and rendered
-height are one number, and a run reports the size it resolved:
+height are one number for art made under the declaration, and a run reports the
+size it resolved:
 
 ```txt
 generated episodes/ep-001/assets/clean/cut-003.png for cut cut-003 (clean) at 832x512 in ep-001 — …
 ```
 
-Three rules worth knowing before you author a whole episode of them:
+`shotType` and `panelAspect` are independent on purpose. The pilot pack declares
+1.43, 2.1 and 2.6 on three `medium` cuts and 0.44, 0.58 and 0.74 on three
+`close_up` cuts, because one shot word spans 1.8x of height in the work it was
+measured from. There is no table from one to the other, here or in the code.
+
+Rules worth knowing before you author a whole episode of them:
 
 - **A cut that declares nothing is untouched.** No size is injected for it at
   all, so your workflow's own latent stands, exactly as before this field existed.
+- **The shape binds when the art is made.** A cut that already carries art
+  composes at that art's aspect, whatever it declares: nothing re-cuts an image
+  to match a declaration made after it. Re-generate the cut
+  (`toony generate --cut <id>`) to bind the new shape. Until then the page is the
+  page, and the declaration describes the next render of it.
 - **`--width` re-columns it; `--height` overrides it.** A pinned width becomes
   the column the shape is a multiple of. A pinned height replaces the shape for
-  that run, and the run says on stderr which cuts it overrode.
+  that run, and the run says on stderr which cuts it overrode. A column off the
+  8px latent grid is passed through as given while the height is snapped, so the
+  rendered aspect can differ from the declared one by up to 7px of height.
 - **A shape that cannot be resolved fails the run before anything is generated,**
   rather than falling back to the latent and quietly removing the pack's pacing.
+  That covers a value outside the bounds above (the run exits 1 and names the
+  cut), a workflow whose latent declares no width (exit 2), and a workflow whose
+  node mapping points at a height input the graph does not have — that last one
+  surfaces per cut, when the size is injected, rather than before the run.
 
 ### `exportPresets[]`
 

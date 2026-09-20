@@ -43,7 +43,7 @@ import {
   resolveComfyUIConfig,
   type ToonyWorkspaceComfyConfig,
 } from "@toony/providers";
-import type { Character } from "@toony/schema";
+import { type Character, PANEL_ASPECT_MAX, PANEL_ASPECT_MIN } from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 import { discoverPackContent } from "../packs.js";
 import { appendPaletteClause } from "../palette.js";
@@ -364,15 +364,36 @@ async function planJobs(
  * the pack's pacing quietly removed, and cost GPU minutes to discover.
  */
 function applyPanelShapes(
-  jobs: readonly Job[],
+  jobs: Job[],
   latentWidth: number | undefined,
   shared: Readonly<Record<string, string | number>>,
   io: GenerateIo,
-): { error: string } | null {
+): { error: string; exit: number } | null {
   const declared = jobs.flatMap((job) =>
     job.panelAspect === undefined ? [] : [{ job, panelAspect: job.panelAspect }],
   );
   if (declared.length === 0) return null;
+
+  // The bounds are re-applied here, at the one place the number is USED, because
+  // this command never consults `loadProject`'s validation report: a project that
+  // `toony validate` rejects still reaches this function. Without this check a
+  // NaN, a quoted number or an out-of-range value would be injected or dropped
+  // and the run would exit 0 reporting a size nobody asked for — #207 again, and
+  // the clamp `latentHeightFor`'s one-block floor would otherwise perform.
+  // `Number.isFinite` also rejects a YAML string, which the compile-time type
+  // cannot.
+  const invalid = declared.find(
+    ({ panelAspect }) =>
+      !Number.isFinite(panelAspect) ||
+      panelAspect < PANEL_ASPECT_MIN ||
+      panelAspect > PANEL_ASPECT_MAX,
+  );
+  if (invalid) {
+    return {
+      error: `cut ${invalid.job.id} declares panelAspect ${JSON.stringify(invalid.panelAspect)}, which is not a number between ${PANEL_ASPECT_MIN} and ${PANEL_ASPECT_MAX}; run "toony validate" for the full report. Nothing was generated.`,
+      exit: EXIT_VALIDATION,
+    };
+  }
 
   if (typeof shared.height === "number") {
     io.err(
@@ -385,6 +406,7 @@ function applyPanelShapes(
   if (column === undefined) {
     return {
       error: `cut ${declared[0]?.job.id} declares a panel shape, but the column to size it against is unknown: the workflow's latent declares no width at the mapped node. Pass --width <px>, or point the workflow's node mapping at its latent.`,
+      exit: EXIT_USAGE,
     };
   }
 
@@ -504,7 +526,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   const shapes = applyPanelShapes(jobs.jobs, built.latentWidth, shared, io);
   if (shapes !== null) {
     io.err(shapes.error);
-    return EXIT_USAGE;
+    return shapes.exit;
   }
 
   const generated: string[] = [];
