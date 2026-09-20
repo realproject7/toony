@@ -550,9 +550,13 @@ export function measureTransitionMix(bundle: EpisodeBundle, referenceWidth: numb
       continue;
     }
     gaps++;
+    // Rounded ONCE, here. Everything downstream — the per-kind median below and
+    // the pooled median a multi-kind entry is graded on — reads this same list,
+    // so there is no second rounding for the two to disagree about.
+    const height = round(drawn / referenceWidth, 4);
     const measured = heights.get(transition.type);
-    if (measured === undefined) heights.set(transition.type, [drawn / referenceWidth]);
-    else measured.push(drawn / referenceWidth);
+    if (measured === undefined) heights.set(transition.type, [height]);
+    else measured.push(height);
   }
   const kinds: TransitionKindMix[] = [];
   for (const kind of TRANSITION_TYPES) {
@@ -562,8 +566,8 @@ export function measureTransitionMix(bundle: EpisodeBundle, referenceWidth: numb
       kind,
       count: measured.length,
       share: round(measured.length / gaps, 4),
-      heightMedian: round(median(measured), 4),
-      heights: measured.map((height) => round(height, 4)),
+      heightMedian: median(measured),
+      heights: measured,
     });
   }
   return { gaps, undrawn, kinds };
@@ -1421,8 +1425,10 @@ export function compareToTransitionVocabulary(
 ): TransitionVocabularyVerdict[] {
   const byKind = new Map(mix.kinds.map((kind) => [kind.kind, kind]));
   return vocabulary.map((entry) => {
-    const drawn = entry.kinds.map((kind) => byKind.get(kind)).filter((kind) => kind !== undefined);
-    const count = drawn.reduce((sum, kind) => sum + kind.count, 0);
+    const covered = entry.kinds
+      .map((kind) => byKind.get(kind))
+      .filter((kind) => kind !== undefined);
+    const count = covered.reduce((sum, kind) => sum + kind.count, 0);
     const share = round(mix.gaps === 0 ? 0 : count / mix.gaps, 4);
     const shareVerdict: TransitionRangeVerdict = {
       value: share,
@@ -1436,8 +1442,8 @@ export function compareToTransitionVocabulary(
       // read off a page, which never knew which of two card kinds it was looking
       // at. Taken over the per-kind medians instead it would weight a kind used
       // once exactly like a kind used thirty times.
-      const heights = drawn.flatMap((kind) => kind.heights);
-      const measured = heights.length === 0 ? null : round(median(heights), 4);
+      const heights = covered.flatMap((kind) => kind.heights);
+      const measured = heights.length === 0 ? null : median(heights);
       height = {
         value: measured,
         min: entry.height.min ?? null,
