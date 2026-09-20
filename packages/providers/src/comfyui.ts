@@ -47,8 +47,15 @@ function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** A non-negative 32-bit seed, as ComfyUI samplers expect. */
-function randomSeed(): number {
+/**
+ * A non-negative 32-bit seed, as ComfyUI samplers expect.
+ *
+ * Exported because a seed rolled inside `produce` is gone by the time the
+ * result comes back, so a caller that RECORDS what produced an image has to
+ * choose the seed before the request (#240). The roll below stays as the
+ * default for callers that do not.
+ */
+export function randomSeed(): number {
   return Math.floor(Math.random() * 0xffffffff);
 }
 

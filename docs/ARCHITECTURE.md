@@ -139,6 +139,89 @@ the validator addresses an episode's sequence through the bundle
 `episodes[0].episode.sequence`, and read naively that reported a present
 sequence as missing.
 
+### What a render records
+
+Generation is the one step in the pipeline that costs minutes and is not
+deterministic, and it used to be the only one that wrote down nothing about its
+own inputs. The provenance entry said what the file was — path, provider, size,
+digest — and nothing about how it was made. So no render could be repeated, and
+the prompt an agent converged on over a hundred panels lived in shell history.
+
+A finished cut render now writes four fields back onto the cut — `imagePrompt`,
+`negativePrompt`, `imageSeed`, `imageWorkflow` — and appends the same inputs, as
+submitted, to the episode's ingest log. Each flag falls back to the recorded
+value, so `toony generate --episode ep-001 --cut cut-004` with nothing else
+repeats the image the operator accepted. `PROJECT_FORMAT.md` has the fields.
+
+Three choices in that are worth knowing:
+
+- **The seed is chosen by the command, not by the provider.** A seed rolled
+  inside `produce` is gone by the time the result comes back, and a seed nobody
+  recorded is a render nobody can repeat.
+- **The prompt on the cut is the cut's OWN.** The character lockstrings (#92) and
+  the palette clause (#207) compose on top of it on every run, so recording the
+  composed string there would compound it. The composed string is what the ingest
+  log keeps, because that is the string the model was given.
+- **The workflow is a NAME, never a path.** Because the name lives per cut, one
+  batch can span several workflows, and a run resolves one provider per distinct
+  name rather than making the first cut's choice the whole run's.
+- **The record describes the `clean` plate.** A cut has one prompt and one seed
+  and two images. A `--slot final` render that wrote the record replaced the
+  clean plate's inputs, and the next default run — no flags, `--slot clean` —
+  redrew the accepted plate from the final pass's prompt and seed. So `final`
+  neither writes the record nor reads it; its inputs are in the ingest log,
+  whose entries are per asset path.
+
+Size is deliberately not recorded on the cut. A cut's shape already has a home in
+`panelAspect`, and re-rendering a batch at export resolution is a thing to do,
+not a thing to prevent; the size a run submitted is in the ingest log.
+
+That leaves one gap, and the log closes it. A dimension a run does not pin takes
+the workflow's own latent — which is not what produced the image on disk if that
+image was rendered at another size. Everything else replays, so the run reads as
+a faithful repeat while replacing the plate the operator approved. `generate`
+therefore compares the size it is about to render at against the size the log
+recorded for that asset, and refuses before the first request when they differ,
+naming the flags that would repeat it.
+
+The comparison is per dimension, because a run that pins one of them has said
+nothing about the other: `--width 640` after a `640x960` render is checked on its
+height, and is refused rather than quietly re-rendered at `640x1216`. A dimension
+the run pins, or that the cut's `panelAspect` declares, is left alone.
+
+The instruction it prints is built from the record, field by field, and names
+**every input this run would not arrive at by itself** — not a list of fields
+someone remembered. A repeat at the right size from a different seed, through a
+different graph, or from a different prompt is not a repeat, and an operator who
+follows an incomplete instruction destroys the plate they were keeping. That
+list is `REPEAT_INPUTS` in the generate command, keyed on `RenderInputs` so a
+field added to the record and not decided there does not compile.
+
+Two things fall out of building it that way rather than by hand. The `final`
+slot replays nothing — no prompt, no negative prompt, no seed, no workflow — and
+is covered without the instruction knowing about slots, because each of those
+fields simply differs. And a transition, which has no record of its own at all,
+is covered the same way.
+
+The prompt is the one input recorded twice, and it takes two questions rather
+than one. WHETHER to name a prompt is decided by the SUBMITTED one, the only
+string the model ever saw. WHAT to say comes from the base prompt, because
+`--prompt` is composed again with the lockstrings and the palette clause on the
+way in. Neither answers the other's question: asking the base prompt's own
+question prints a flag whenever an ingredient merely MOVED between the authored
+prompt and a craft field — the #92 migration is exactly that — and the flag then
+composes the ingredient in twice.
+
+The value is only an instruction if composing it NOW still produces what was
+submitted, so the refusal composes it and checks. When the cut's own characters
+or palette changed under the record, nothing a flag can say restores that
+prompt, and the field is named as unrestorable rather than guessed at.
+
+A failed write-back is reported as itself, never as a failed generation. The two
+states differ in what is on disk — one has no image, the other has the image and
+its reference — and reporting the second as the first sends an operator to redo
+a render that succeeded, which a re-run would draw differently.
+
 ## Export Targets
 
 Platform export:

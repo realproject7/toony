@@ -707,6 +707,58 @@ test("panelAspect rejects a value outside the range, or a non-number", () => {
   }
 });
 
+// --- Recorded render inputs (#240) -------------------------------------------
+
+test("a cut without the recorded render inputs is valid (back-compat)", () => {
+  // Every cut in the fixture omits both, and the project is valid as it stands:
+  // a cut that has never been generated has nothing to record.
+  assert.equal(validateProject(validProject).valid, true);
+});
+
+test("imageSeed accepts a non-negative integer and rejects anything else", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  for (const seed of [0, 7, 91723, 0xffffffff]) {
+    cut.imageSeed = seed;
+    const result = validateProject(project);
+    assert.equal(result.valid, true, `${seed}: ${JSON.stringify(result.issues)}`);
+  }
+  for (const bad of [
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    "7" as unknown as number,
+    null as unknown as number,
+  ]) {
+    cut.imageSeed = bad;
+    assert.ok(
+      codes(validateProject(project)).includes("cut.image-seed"),
+      `${String(bad)} was accepted`,
+    );
+  }
+});
+
+test("imageWorkflow must be a non-empty string when present", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  cut.imageWorkflow = "high-detail";
+  assert.equal(
+    validateProject(project).valid,
+    true,
+    JSON.stringify(validateProject(project).issues),
+  );
+  for (const bad of ["", 3 as unknown as string, null as unknown as string]) {
+    cut.imageWorkflow = bad;
+    assert.ok(
+      codes(validateProject(project)).includes("cut.image-workflow"),
+      `${String(bad)} was accepted`,
+    );
+  }
+});
+
 test("transition color must be a non-empty string or null", () => {
   const project = cloneValidProject();
   const transition = project.episodes[0]?.transitions[0];

@@ -153,14 +153,19 @@ export async function writeLettering(
 /**
  * Persist one episode's cut records to its `cuts.yaml`, validating the full set
  * against `@toony/schema` first and refusing to write if any cut is invalid.
- * This is the surgical write path the focused cut editor (#8) uses to save
- * cut-level fields (e.g. `imagePrompt`/`negativePrompt`): it touches only the
- * target episode's cuts file and leaves every other file byte-stable. Output is
+ * This is the surgical write path for cut-level fields (`imagePrompt`,
+ * `negativePrompt`, `imageSeed`, `imageWorkflow`): it touches only the target
+ * episode's cuts file and leaves every other file byte-stable. Output is
  * deterministic (sorted keys), so a no-op save re-emits identical bytes.
  *
+ * `toony generate` is its production caller: after a successful render it writes
+ * the inputs that produced the image back onto the cut (#240). It was written
+ * for the focused cut editor (#8), which does not exist yet — the fields and the
+ * guarantees are the same ones an editor needs, so it is the same path.
+ *
  * Cut ids must be unique within the set so edits target deterministically.
- * Image-asset references are left as supplied; the editor only mutates cut-level
- * text fields, so the round-trip preserves existing image associations.
+ * Image-asset references are left as supplied; callers mutate cut-level text and
+ * render-input fields, so the round-trip preserves existing image associations.
  */
 export async function writeCuts(root: string, episodeId: string, cuts: Cut[]): Promise<void> {
   const c = new IssueCollector();
