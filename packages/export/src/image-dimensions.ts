@@ -31,23 +31,34 @@ function readGif(buffer: Uint8Array, view: DataView): ImageDimensions | null {
 }
 
 function readJpeg(buffer: Uint8Array, view: DataView): ImageDimensions | null {
-  // Walk segment markers until a Start-Of-Frame carrying dimensions.
+  // Walk only the header, advancing on every iteration. FF fill bytes belong
+  // to the marker prefix, not its length. TEM, SOI and restart markers have no
+  // length at all; SOS/EOI end the search if no frame header preceded them.
   let offset = 2;
-  while (offset + 9 < buffer.length) {
+  while (offset < buffer.length) {
     if (buffer[offset] !== 0xff) {
       offset++;
       continue;
     }
-    const marker = buffer[offset + 1] ?? 0;
-    // SOF0..SOF15, excluding DHT(c4), JPG(c8), DAC(cc).
+    while (buffer[offset] === 0xff) offset++;
+    if (offset >= buffer.length) return null;
+    const marker = buffer[offset++] ?? 0;
+    if (marker === 0) continue; // Stuffed FF/00: resume the marker search.
+    if (marker === 0xd9 || marker === 0xda) return null;
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+    if (offset + 2 > buffer.length) return null;
+    const segmentLength = view.getUint16(offset);
+    if (segmentLength < 2) return null;
+    // SOF0..SOF15, excluding DHT(c4), JPG(c8), DAC(cc). Only the leading
+    // frame fields are needed here; actual decoding still validates the image.
     if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-      const height = view.getUint16(offset + 5);
-      const width = view.getUint16(offset + 7);
+      if (segmentLength < 8 || offset + 8 > buffer.length) return null;
+      const height = view.getUint16(offset + 3);
+      const width = view.getUint16(offset + 5);
       return { format: "jpeg", width, height };
     }
-    const segmentLength = view.getUint16(offset + 2);
-    if (segmentLength < 2) return null;
-    offset += 2 + segmentLength;
+    if (segmentLength > buffer.length - offset) return null;
+    offset += segmentLength;
   }
   return null;
 }

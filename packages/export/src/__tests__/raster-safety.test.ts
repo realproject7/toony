@@ -70,6 +70,33 @@ test("safe decoding preserves the direct decoder's scaled pixels, including alph
   }
 });
 
+test("JPEG marker fill preserves prepared and composed pixels", async () => {
+  const canvas = createCanvas(3, 5);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#376b91";
+  ctx.fillRect(0, 0, 3, 5);
+  ctx.fillStyle = "#cc7744";
+  ctx.fillRect(0, 2, 3, 2);
+  const jpeg = canvas.toBuffer("image/jpeg");
+  const filled = Buffer.concat([jpeg.subarray(0, 2), Buffer.from([0xff]), jpeg.subarray(2)]);
+  const pixels = async (bytes: Uint8Array) => {
+    const image = await loadImage(Buffer.from(bytes));
+    const expected = createCanvas(12, 20);
+    expected.getContext("2d").drawImage(image, 0, 0, 12, 20);
+    return expected.toBuffer("image/png");
+  };
+  // Establish that the changed bytes are native-decodable and pixel-identical
+  // before testing the header preflight that used to reject this valid fill.
+  const expected = await pixels(jpeg);
+  assert.deepEqual(await pixels(filled), expected);
+  const prepared = await prepareImage(filled, 'cut "filled-jpeg"');
+  assert.equal(prepared.width, 3);
+  assert.equal(prepared.height, 5);
+  assert.deepEqual(await pixels(prepared.bytes), expected);
+  const composed = await composeCut([], filled, 12);
+  assert.deepEqual(composed.canvas.toBuffer("image/png"), expected);
+});
+
 function crc32(bytes: Uint8Array): number {
   let crc = 0xffffffff;
   for (const byte of bytes) {

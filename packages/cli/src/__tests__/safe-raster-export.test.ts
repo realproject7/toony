@@ -1,12 +1,13 @@
 // Spawn the actual CLI so native signal exits cannot masquerade as JS errors.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { createCanvas } from "@napi-rs/canvas";
 import { buildInitialProject, writeProject } from "@toony/project-io";
 
 const CLI = fileURLToPath(new URL("../bin.js", import.meta.url));
@@ -134,5 +135,31 @@ test("a 60-cut episode still exports and measures at a small test width", async 
     const result = run([...command, root, "--episode", "ep-001", "--width", "16"]);
     assert.equal(result.signal, null);
     assert.equal(result.status, 0, result.stderr);
+  }
+});
+
+test("real CLI exports valid JPEG marker fill from an external cwd without pixel drift", async () => {
+  const root = join(workdir, "filled-jpeg");
+  const project = buildInitialProject("filled-jpeg");
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  cut.image = { clean: "episodes/ep-001/assets/clean/filled.jpg", final: null };
+  await writeProject(root, project);
+  const canvas = createCanvas(3, 5);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#376b91";
+  ctx.fillRect(0, 0, 3, 5);
+  const jpeg = canvas.toBuffer("image/jpeg");
+  const filled = Buffer.concat([jpeg.subarray(0, 2), Buffer.from([0xff]), jpeg.subarray(2)]);
+  let original: Buffer | undefined;
+  for (const bytes of [jpeg, filled]) {
+    await writeFile(join(root, cut.image.clean as string), bytes);
+    const result = run(["export", "platform", root, "--episode", "ep-001", "--width", "12"]);
+    assert.equal(result.error, undefined);
+    assert.equal(result.signal, null);
+    assert.equal(result.status, 0, result.stderr);
+    const output = await readFile(join(root, "episodes/ep-001/exports/platform/001.png"));
+    if (original) assert.deepEqual(output, original);
+    else original = output;
   }
 });
