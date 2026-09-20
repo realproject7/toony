@@ -100,7 +100,11 @@ const COLOR_ROW_SAMPLES = 200;
 /** Every Nth pixel of a sampled row's interior contributes colour. */
 const COLOR_PIXEL_STRIDE = 8;
 
-/** Per-channel tolerance for "this pixel matches the row's edge colour". */
+/**
+ * Per-channel tolerance for "this pixel matches the anchor it is compared with".
+ * Which pixel that anchor IS differs between the two callers below, so the
+ * tolerance says nothing about which edge a run belongs to.
+ */
 const EDGE_MATCH_TOLERANCE = 10;
 
 /** The metrics this command reports, in display order. */
@@ -138,7 +142,12 @@ export interface CraftMetrics {
   panelsPerScreen: number;
   /** Elements floating in the gutter, per screen (`placement: gutter` lettering). */
   gutterIntrusionsPerScreen: number;
-  /** Share of the width left as flat margin at a panel's edges. */
+  /**
+   * Share of the width left as flat margin at a panel's two edges, summed. Each
+   * edge is measured against its own outermost pixel, so a page and its mirror
+   * report the same number. The two runs are independent and are not clipped
+   * against each other, so the sum is not bounded by 1.
+   */
   panelInset: number;
   /** Mean luminance of the panel interiors. */
   valueMean: number;
@@ -273,24 +282,86 @@ function readRow(ctx: SKRSContext2D, y: number, width: number): Uint8ClampedArra
 }
 
 /**
- * How many pixels at each edge of a row match its outermost pixel — the flat page
- * margin an inset panel leaves beside the art.
+ * How far one uniform colour reaches inward from one end of a row.
+ *
+ * `step` picks the end — `1` starts at x=0 and walks right, `-1` starts at
+ * x=width-1 and walks left — and `anchor` is the pixel whose colour the run is
+ * required to keep. The two are separate arguments because which pixel a run is
+ * compared against is exactly what #255 turned out to be about.
  */
-function rowMargins(row: Uint8ClampedArray, width: number): { left: number; right: number } {
-  const matches = (x: number): boolean => {
+function edgeRun(row: Uint8ClampedArray, width: number, step: 1 | -1, anchor: number): number {
+  const a = anchor * 4;
+  let run = 0;
+  let x = step === 1 ? 0 : width - 1;
+  while (run < width) {
     const i = x * 4;
+    let matches = true;
     for (let c = 0; c < 3; c++) {
-      if (Math.abs((row[i + c] as number) - (row[c] as number)) >= EDGE_MATCH_TOLERANCE) {
-        return false;
+      if (Math.abs((row[i + c] as number) - (row[a + c] as number)) >= EDGE_MATCH_TOLERANCE) {
+        matches = false;
+        break;
       }
     }
-    return true;
-  };
-  let left = 0;
-  while (left < width && matches(left)) left++;
-  let right = 0;
-  while (right < width && matches(width - 1 - right)) right++;
-  return { left, right };
+    if (!matches) break;
+    run++;
+    x += step;
+  }
+  return run;
+}
+
+/**
+ * The flat page margin an inset panel leaves beside the art, per edge: how far
+ * one colour reaches inward from an edge, EACH EDGE MEASURED AGAINST ITS OWN
+ * outermost pixel. The two edges are independent: neither has to match the
+ * other and neither is clipped by it, so a page margined on one side, on both,
+ * or on neither is read for what each side is. A reserved band is always the
+ * white `GUTTER_MARGIN_FILL`; a page whose two edges are DIFFERENT colours gets
+ * that from its art, as `examples/dead-air` does.
+ *
+ * Each edge against itself, because until #255 both were compared against the
+ * LEFT-most pixel and `panelInset` therefore answered a different question:
+ * which side the reserved band sits on. A band on the left IS the left-most
+ * pixel, so it registered at its full width; the same band on the right was
+ * compared against art, so it registered as nothing. Two lanes measured the gap
+ * independently — 0.1801 against 0.0013 on one scaffold, 0.106 against 0.0544
+ * on another — and one shipped pack stopped grading the metric over it (#248).
+ *
+ * Per-edge anchoring makes the pair exactly mirror-symmetric. A mirrored row is
+ * `row'[x] = row[width - 1 - x]`, so `row'`'s left-hand run walks the same
+ * pixels against the same anchor as this row's right-hand run: the two swap,
+ * and their SUM — which is all `panelInset` reports — is identical. Neither run
+ * reads the other edge, so no ordering between them can leak in.
+ *
+ * The two runs are also never clipped against each other, so the sum is not
+ * bounded by 1: a row of two flat tones reports essentially the whole width,
+ * measured at 0.9967 on drawn art.
+ *
+ * THIS IS NOW A DIFFERENCE FROM THE REFERENCE ANALYZER, and the second one —
+ * see docs/CRAFT_MEASURE.md, "The loop this closes". The reference anchors both
+ * runs on the row's left-most pixel, exactly as the rule replaced here did, and
+ * its captures include full-bleed pages, where the two sides part. The
+ * difference is upward on this side: a full-bleed gradient page measures 0.0367
+ * against the reference convention and 0.0750 against this one. Both shipped
+ * `panelInset` ranges were read under the reference convention and are being
+ * re-derived there before either pack grades the metric again.
+ */
+function rowMargins(row: Uint8ClampedArray, width: number): { left: number; right: number } {
+  return { left: edgeRun(row, width, 1, 0), right: edgeRun(row, width, -1, width - 1) };
+}
+
+/**
+ * The margin rule as it stood before #255: both runs anchored on the row's
+ * LEFT-most pixel. Named, not inlined, so `git grep` finds both rules and no
+ * reader has to work out which one a pair of bare arguments spells.
+ *
+ * Only `sampleColor` calls this, and it is the reference analyzer's own rule.
+ * Nothing that reports geometry may use it — that is the defect #255 removed.
+ */
+function legacyLeftAnchoredMargins(
+  row: Uint8ClampedArray,
+  width: number,
+): { left: number; right: number } {
+  return { left: edgeRun(row, width, 1, 0), right: edgeRun(row, width, -1, 0) };
 }
 
 interface ColorSums {
@@ -306,13 +377,35 @@ interface ColorSums {
  * one: sampling whole rows made every genre come back near-white, because an
  * inset panel leaves flat page background at both edges and the margin dominates
  * the average. Trimming each row's margins separated them immediately.
+ *
+ * The trim goes through `legacyLeftAnchoredMargins`: both runs on the row's
+ * left-most pixel, the rule `rowMargins` carried before #255. It is kept for two
+ * reasons, in this order.
+ *
+ * FIRST, it is one of the definitions this side is BUILT to share with the
+ * reference analyzer, which anchors both runs on the left-most pixel. This
+ * measurement already differs from the reference in two places — the light-row
+ * clause, and `panelInset`'s margin rule since #255 — and changing the trim
+ * would make three. A band is a comparison between the two sides, and every
+ * difference is a place that comparison leaks.
+ *
+ * SECOND, the re-basing cost, measured rather than guessed: anchoring the
+ * right-hand run on the right-hand pixel moves `examples/dead-air` from 85.2 to
+ * 86.0 mean luminance, 73.2 to 73.5 spread, 0.263 to 0.261 saturation and 159.2
+ * to 156.8 hue, and the calm rhythm fixture from 209.6 to 210.4 and 0.173 to
+ * 0.171.
+ *
+ * The cost of keeping it is real and is #257's: a reserved band on the right is
+ * not recognised here, so its pixels are averaged into the palette, and the same
+ * art measures a mean luminance of 76.4 with the band on the left and 110.0 with
+ * it on the right.
  */
 function sampleColor(ctx: SKRSContext2D, width: number, artRows: readonly number[]): ColorSums {
   const sums: ColorSums = { luminances: [], saturations: [], hues: [] };
   const stride = Math.max(1, Math.floor(artRows.length / COLOR_ROW_SAMPLES));
   for (let index = 0; index < artRows.length; index += stride) {
     const row = readRow(ctx, artRows[index] as number, width);
-    const { left, right } = rowMargins(row, width);
+    const { left, right } = legacyLeftAnchoredMargins(row, width);
     const trimmed = left + right < width - 8;
     const from = trimmed ? left : 0;
     const to = trimmed ? width - right : width;
