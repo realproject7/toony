@@ -22,7 +22,7 @@
 // own English content.
 
 import type { SKRSContext2D } from "@napi-rs/canvas";
-import { layoutTransition, resolveBandHeight } from "@toony/render";
+import { layoutTransition, rec709Luminance, resolveBandHeight } from "@toony/render";
 import {
   type EpisodeBundle,
   GUTTER_HEIGHT_MAX_PX,
@@ -206,10 +206,13 @@ export interface MeasureOptions {
  * `@toony/lint`'s image analysis uses Rec. 601 for its own thresholds; the two
  * are deliberately not shared, because a craft number that does not use the
  * reference's coefficients cannot be compared with the reference's band.
+ *
+ * The formula itself is `@toony/render`'s `rec709Luminance` (#267), which the
+ * render core's band-appearance buckets read a colour with. Those buckets are
+ * the kind side of the same comparison this file's `transitionVocabulary`
+ * grades, so a second copy here would be two definitions of one measured value.
  */
-function luminance(r: number, g: number, b: number): number {
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
+const luminance = rec709Luminance;
 
 interface RowStats {
   mean: number;
