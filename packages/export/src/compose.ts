@@ -38,6 +38,7 @@ import {
 import type { LetteringOverlay, Transition } from "@toony/schema";
 import { canvasFontFamily, registerToonyFonts } from "./fonts.js";
 import { createCanvasMeasure } from "./measure.js";
+import { assertRasterSize, prepareImage } from "./raster-safety.js";
 
 // Band labels (transition cards/breaks) use a registered curated face so the
 // stitched export never falls back to the host's default sans. The band typeface
@@ -50,13 +51,6 @@ export interface ComposedCut {
   canvas: Canvas;
   width: number;
   height: number;
-}
-
-// @napi-rs/canvas@1.0.0's `new Image(); img.src = …` sets width/height but never
-// decodes pixels, so a later drawImage paints nothing. The async loadImage()
-// fully decodes the buffer, which is what drawImage actually needs.
-async function decode(imageBytes: Uint8Array): Promise<Image> {
-  return loadImage(Buffer.from(imageBytes));
 }
 
 function traceOutline(ctx: SKRSContext2D, outline: readonly BalloonCommand[]): void {
@@ -144,6 +138,8 @@ function drawBubble(ctx: SKRSContext2D, b: BubbleRender): void {
 }
 
 export interface ComposeCutOptions {
+  /** Target record for an actionable decode/allocation error. */
+  imageLabel?: string;
   /**
    * The project's declared dialogue language (`webtoon.json` →
    * `languages.dialogueLanguage`). Handed straight to the shared layout so the
@@ -186,16 +182,16 @@ export async function composeCut(
   // The stage for a cut with no usable art: the shape it declares, else the
   // fallback (#260). No image is offered to the resolver because in the branches
   // that use this there is none — a cut that HAS art is staged at that art.
-  const artlessHeight = cutHeightAt(width, resolveCutAspect(options.panelAspect, null).aspect);
   let height: number;
   let image: Image | null = null;
   if (imageBytes) {
-    image = await decode(imageBytes);
-    const natW = image.width > 0 ? image.width : width;
-    const natH = image.height > 0 ? image.height : artlessHeight;
-    height = Math.max(1, Math.round((natH * width) / natW));
+    const safe = await prepareImage(imageBytes, options.imageLabel ?? "cut image");
+    height = cutRasterHeight(width, options.panelAspect, safe);
+    assertRasterSize(width, height, options.imageLabel ?? "cut");
+    image = await loadImage(Buffer.from(safe.bytes));
   } else {
-    height = artlessHeight;
+    height = cutRasterHeight(width, options.panelAspect, null);
+    assertRasterSize(width, height, options.imageLabel ?? "cut");
   }
 
   // Register the bundled curated faces before any text is measured or drawn so the
@@ -229,6 +225,17 @@ export async function composeCut(
     drawBubble(ctx, bubble);
   }
   return { canvas, width, height };
+}
+
+/** The same height is used for allocation preflight and actual composition. */
+export function cutRasterHeight(
+  width: number,
+  panelAspect: number | undefined,
+  image: { width: number; height: number } | null,
+): number {
+  return image
+    ? Math.max(1, Math.round((image.height * width) / image.width))
+    : cutHeightAt(width, resolveCutAspect(panelAspect, null).aspect);
 }
 
 function drawBandText(
@@ -372,6 +379,7 @@ export function composeTransitionBand(
   // scales the authored px from the reference column to this one (#217).
   const height = resolveBandHeight(render, width, referenceWidth);
   if (height <= 0) return null;
+  assertRasterSize(width, height, `transition "${transition.id}"`);
 
   // Band labels draw with a bundled curated face; register before drawing.
   registerToonyFonts();

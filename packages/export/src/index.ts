@@ -53,6 +53,7 @@ export {
   type RasterFormat,
 } from "./encode.js";
 export { ExportError } from "./errors.js";
+export { type ImageDimensions, type ImageFormat, readImageDimensions } from "./image-dimensions.js";
 export {
   EXPORT_TARGET_KINDS,
   type ExportManifest,
