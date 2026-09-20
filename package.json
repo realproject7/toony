@@ -19,7 +19,8 @@
     "render-inputs": "node scripts/check-render-inputs.mjs",
     "task-outputs": "node scripts/check-task-outputs.mjs",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run scan && pnpm run no-stub && pnpm run render-inputs && pnpm run task-outputs",
-    "verify-release": "./scripts/verify-release.sh"
+    "verify-release": "./scripts/verify-release.sh",
+    "test:verification": "node --test scripts/__tests__/*.test.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.0",
