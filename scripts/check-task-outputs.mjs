@@ -271,16 +271,23 @@ function tscInvocations(command) {
       }
     }
 
-    // `--noEmit` on the command line settles the question by itself: it beats
-    // whatever the config says, and no other flag overrides it. Settle it BEFORE
-    // asking which config was named, or `tsc --noEmit` with no `-p` gets
-    // reported as an emit that cannot be located, when it emits nothing at all.
-    if (noEmitFlag === true) continue;
-
+    // An argument this could not read comes first, and outranks `--noEmit`.
+    // The two can both be set by one command: in `--outDir --noEmit`, the value
+    // of `--outDir` is missing and the token that would have been it is read
+    // again as a flag. Real tsc does no such thing -- it takes `--noEmit` as the
+    // directory name and emits into `./--noEmit/` -- so the one reading here
+    // that is certainly wrong is "this emits nothing". Report it.
     if (unreadable !== undefined) {
       found.push({ unreadable, segment: segment.trim() });
       continue;
     }
+    // With the arguments all read, `--noEmit` on the command line settles the
+    // question by itself: it beats whatever the config says, and no other flag
+    // overrides it. Settle it BEFORE asking which config was named, or
+    // `tsc --noEmit` with no `-p` gets reported as an emit that cannot be
+    // located, when it emits nothing at all.
+    if (noEmitFlag === true) continue;
+
     if (configs.length === 0) {
       // A bare `tsc` reads whichever tsconfig.json it finds from the cwd. Where
       // that lands is not something this can resolve from the command alone.
