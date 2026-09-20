@@ -336,14 +336,14 @@ function edgeRun(row: Uint8ClampedArray, width: number, step: 1 | -1, anchor: nu
  * bounded by 1: a row of two flat tones reports essentially the whole width,
  * measured at 0.9967 on drawn art.
  *
- * THIS IS NOW A DIFFERENCE FROM THE REFERENCE ANALYZER, and the second one —
- * see docs/CRAFT_MEASURE.md, "The loop this closes". The reference anchors both
- * runs on the row's left-most pixel, exactly as the rule replaced here did, and
- * its captures include full-bleed pages, where the two sides part. The
- * difference is upward on this side: a full-bleed gradient page measures 0.0367
- * against the reference convention and 0.0750 against this one. Both shipped
- * `panelInset` ranges were read under the reference convention and are being
- * re-derived there before either pack grades the metric again.
+ * This parted from the reference analyzer when #255 landed, and the reference
+ * side has since adopted the same per-edge rule, so the two agree again — see
+ * docs/CRAFT_MEASURE.md, "The loop this closes". The old convention anchored
+ * both runs on the row's left-most pixel, and captures include full-bleed
+ * pages, where the two read differently: a full-bleed gradient page measures
+ * 0.0367 under it and 0.0750 under this rule. Both shipped `panelInset` ranges
+ * were read under the old convention and were re-derived per edge (the table in
+ * CRAFT_MEASURE.md carries the numbers).
  */
 function rowMargins(row: Uint8ClampedArray, width: number): { left: number; right: number } {
   return { left: edgeRun(row, width, 1, 0), right: edgeRun(row, width, -1, width - 1) };
