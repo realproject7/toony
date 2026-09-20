@@ -175,3 +175,63 @@ test("lint surfaces craft/rhythm-monotony via toony lint (#100)", async () => {
     JSON.stringify(report.findings),
   );
 });
+
+// --- The gutter strip the command lints against (#215) -----------------------
+
+/** A gutter line that needs more column than the default strip gives it. */
+const WIDE_GUTTER_LINE = {
+  id: "g1",
+  cutId: "cut-001",
+  speaker: "Mina",
+  kind: "speech",
+  text: "This line needs more column than the default strip allows.",
+  font: "sans-serif",
+  fill: "#ffffff",
+  opacity: 1,
+  border: null,
+  tail: null,
+  placement: "gutter",
+  placementSide: "right",
+  geometry: { x: 0.04, y: 0.1, width: 0.92, height: 0.03 },
+  overflow: false,
+  reviewStatus: "human-edited",
+};
+
+/** Every finding code `toony lint --json` reported for `dir`. */
+async function lintCodes(dir: string): Promise<string[]> {
+  const c = capture();
+  await runLint([dir, "--json"], c.io);
+  const report = JSON.parse(c.out.join("\n"));
+  return (report.findings as { code: string }[]).map((f) => f.code);
+}
+
+test("lint measures a gutter bubble against the strip the PROJECT declares (#215)", async () => {
+  // `@toony/lint` takes the strip as an option; this is the command's half of
+  // that — reading `webtoon.json` and handing it over. Asserted on the finding
+  // codes rather than the exit code, because the same long line also trips the
+  // craft wrap check at the wider strip, and that check is not what is under
+  // test here.
+  const dir = await scaffold();
+  await writeFile(
+    join(dir, "episodes", "ep-001", "lettering.json"),
+    JSON.stringify([WIDE_GUTTER_LINE], null, 2),
+  );
+
+  // With no declared strip the line does not fit at any size, which is the
+  // warning the ticket was opened about.
+  assert.ok(
+    (await lintCodes(dir)).includes("lettering/overflow"),
+    "the fixture must overflow on the default strip",
+  );
+
+  // Declaring the strip its genre letters in clears it — and only because the
+  // command passed the project's value down; on the default it still overflows.
+  const webtoonPath = join(dir, "webtoon.json");
+  const webtoon = JSON.parse(await readFile(webtoonPath, "utf8"));
+  webtoon.gutterBandWidth = 0.5;
+  await writeFile(webtoonPath, JSON.stringify(webtoon, null, 2));
+  assert.ok(
+    !(await lintCodes(dir)).includes("lettering/overflow"),
+    "toony lint still measured the bubble against the default strip",
+  );
+});

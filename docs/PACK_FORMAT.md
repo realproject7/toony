@@ -180,11 +180,38 @@ looks at a pack again to render, so an episode reads the same whether or not the
 pack that started it is still installed, and an author can change the strip
 afterwards by editing the field.
 
-A wider strip buys room for a longer line, not larger minimum text: the auto-fit
-floor for a gutter bubble is a fraction of the cut's width capped at the default
-strip, so it does not climb as the strip grows, and it does not climb with the
-cut's height either. You should not need to pin a `fontSize` on a gutter bubble
-to make it fit.
+##### What changed for gutter bubbles, and what did not
+
+A gutter bubble's auto-fit used to stop shrinking at a size derived from the
+cut's **height**, while the strip is cut from its **width**. On a tall cut that
+stop was above anything the strip could letter, so the bubble reported overflow
+whatever you did to its box, and the only way out was to pin a `fontSize`. The
+stop now comes off the width instead, capped at the default strip.
+
+So one thing renders differently from before: **a gutter bubble whose text did
+not fit at any size now fits, at a smaller one.** That is the bug this fixes, and
+it is the whole of what moves. A bubble that already fitted keeps the exact size
+it had — the auto-fit returns the largest size that fits and reads the stop only
+as a stop, so lowering the stop can only add candidates below a size that was
+already rejected — and nothing outside a gutter strip is touched at all.
+
+A wider strip buys room for a longer line, not larger minimum text: the stop
+does not climb as the strip grows. Below the default strip it scales down with
+it. Two caveats worth knowing before you size a strip:
+
+- **The stop is not a promise that any line fits.** It is set so a strip-filling
+  bubble with squared corners holds a line of the ~24 characters the craft check
+  allows. A rounded balloon's corner arcs take a further bite out of its first
+  and last lines, growing with the corner radius, so in a default rounded
+  balloon the measured worst case is nearer 16. If a line still will not fit,
+  shorten it, square the corners with `cornerRadius: 0`, give the box more
+  height, or pin a `fontSize`.
+- **A single unbreakable token can behave oddly across widths.** The corner
+  radius grows with the box and so with the strip, while the vertical padding
+  the arcs are measured from does not. Between roughly `0.10` and `0.18` a long
+  token that fits a narrower strip can stop fitting, and start again above that.
+  Wrappable prose does not hit this; a long unhyphenated word or an SFX-like run
+  of glyphs can.
 
 A scaffold file is one episode's records:
 

@@ -126,6 +126,28 @@ function inkInFraction(
   return { ink, total };
 }
 
+/**
+ * The first and last raster columns carrying LETTERING: a pixel that is neither
+ * the neutral paper the artwork rect is filled with nor the white margin a
+ * reserved strip is filled with. Used to ask the raster where the bubble
+ * actually landed, rather than only whether it stayed out of somewhere.
+ */
+function letteringColumns(raster: Raster): { first: number; last: number } {
+  let first = -1;
+  let last = -1;
+  for (let x = 0; x < raster.width; x++) {
+    for (let y = 0; y < raster.height; y++) {
+      if (isColor(raster, x, y, ARTLESS_CUT_FILL) || isColor(raster, x, y, GUTTER_MARGIN_FILL)) {
+        continue;
+      }
+      if (first < 0) first = x;
+      last = x;
+      break;
+    }
+  }
+  return { first, last };
+}
+
 /** Compose an art-less cut and read its pixels back. */
 async function exportRaster(
   overlays: LetteringOverlay[],
@@ -286,10 +308,15 @@ test("a project's declared gutter strip is the SAME strip in the reader and the 
   assert.ok(isColor(raster, bandX, y, GUTTER_MARGIN_FILL));
 });
 
-test("a gutter bubble's lettering lands inside the declared strip in the export", async () => {
-  // The strip is reserved for the bubble, so the bubble has to be IN it: the
-  // reserved-strip half and the laid-out half of the same number.
-  const declared = 0.34;
+test("a gutter bubble's lettering lands WHERE the declared strip puts it", async () => {
+  // Two-sided on purpose. "No lettering left of the strip" is satisfied by an
+  // export that reserved the declared strip for artwork and then lettered inside
+  // the DEFAULT one — the bubble ends up further right, so nothing crosses the
+  // edge and a one-sided probe sees nothing wrong. So the raster is asked where
+  // the lettering actually starts, and that is compared against the box the
+  // shared plan puts it in: the studio reads that box, the export drew these
+  // pixels, and they have to be the same place.
+  const declared = 0.45;
   const art = await resolveCutArt(WORK_ID, WORK_ROOT, artlessCut());
   const overlays = [
     bubble("ov-gutter", {
@@ -303,7 +330,32 @@ test("a gutter bubble's lettering lands inside the declared strip in the export"
   const [plan] = layoutCut(overlays, art.width, art.height, { gutterBandWidth: declared });
   assert.ok(plan?.band);
   const raster = await exportRaster(overlays, declared);
-  // Every pixel of lettering in the exported cut sits right of the strip's edge.
+  const scale = raster.width / art.width;
+
+  const { first, last } = letteringColumns(raster);
+  assert.ok(first >= 0, "the exported cut carries no lettering at all");
+  // The lines are centre-anchored, so the column the drawn glyphs sit around is
+  // the anchor the plan hands every consumer. Compare those.
+  const inkCentre = (first + last) / 2;
+  const planCentre = (plan.lines[0]?.anchorX ?? 0) * scale;
+  assert.ok(
+    Math.abs(inkCentre - planCentre) <= 3,
+    `lettering is centred on column ${inkCentre}, but the plan anchors it at ${planCentre.toFixed(1)}`,
+  );
+  assert.ok(last - first <= plan.box.width * scale, "the lettering is wider than its own box");
+
+  // A raster that reserved the declared strip and then laid the bubble out
+  // against the DEFAULT one puts the same text here instead — further right,
+  // still inside the declared strip, so nothing crosses any edge and a
+  // one-sided probe stays silent. That is the mutation this separation catches.
+  const defaultBand = art.width * 0.18;
+  const defaultCentre = (art.width - defaultBand + defaultBand * (0.04 + 0.92 / 2)) * scale;
+  assert.ok(
+    defaultCentre - planCentre > 3 * 10,
+    "the fixture no longer separates the declared strip from the default one",
+  );
+
+  // And still one-sided too: nothing crosses out of the strip into the artwork.
   const leftOfBand = inkInFraction(raster, {
     x: 0,
     y: 0,

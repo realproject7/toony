@@ -99,12 +99,19 @@ authored box is the same share of whatever strip the project declares. Its
 
 The auto-fit floor for a gutter bubble comes off the cut's WIDTH — the dimension
 the strip is cut from — capped at the default strip, rather than off its height.
-So the floor does not climb as a cut gets taller (the strip beside a taller panel
-is no narrower), and it does not climb as the strip gets wider (a pack that buys
-column is buying room for a longer line, not a bigger minimum).
+So it does not climb as a cut gets taller (the strip beside a taller panel is no
+narrower), and it does not climb as the strip gets wider (a pack that buys column
+is buying room for a longer line, not a bigger minimum).
 `gutterBubbleMinFontSize` is the one function that decides it, and the caller
-takes the smaller of it and the height-derived floor, so the floor only ever
-drops and a layout that already fits keeps the size it had.
+takes the SMALLER of it and the height-derived floor: the floor only ever drops,
+so a layout that already fits keeps the size it had, and on a very wide short cut
+(height under about half the width) the height term is still the smaller one and
+still binds.
+
+What the floor buys is measured, not promised: with the balloon's corners squared
+a strip-filling bubble holds a craft-length line at the floor, and with the
+default rounded corners it holds fewer, because the arcs take a further bite that
+grows with the radius (#210). `docs/PACK_FORMAT.md` states both for a pack author.
 
 ## Narration caption plate (#186)
 

@@ -24,6 +24,20 @@ import { overlay, speechOverlay } from "./fixtures.js";
 const W = 800;
 const H = 1200;
 
+/**
+ * Prose long enough to exhaust the auto-fit descent in a short gutter box, so
+ * the plan's `fontSize` IS the floor and `overflow` is true. Wrappable, not one
+ * long token: the wrap has to be able to use the column it is given.
+ */
+const EXHAUSTING_PROSE = "the rain kept on and nobody came to the door ".repeat(6);
+
+/** Prose that fits at every strip width below, so the size it fits AT is the subject. */
+const FITTING_PROSE =
+  "the rain kept on and nobody came to the door at all that night or the next one either";
+
+/** A box short enough that the auto-fit descent runs out of room vertically. */
+const SHORT_BOX = { x: 0.04, y: 0.1, width: 0.92, height: 0.06 };
+
 /** A gutter bubble that fills most of its strip, as both authored packs do. */
 function gutter(over: Partial<LetteringOverlay> = {}): LetteringOverlay {
   return overlay({
@@ -178,7 +192,10 @@ test("a gutter line that fits a short cut still fits a tall one (#215)", () => {
 });
 
 test("the floor a gutter bubble may descend to comes off the width, not the height", () => {
-  const o = gutter({ text: "x".repeat(400) }); // nothing fits: the floor is used
+  // Text that nothing fits, in a box short enough that the descent runs out:
+  // the size on the plan is then the floor itself, not a size that happened to
+  // fit above it.
+  const o = gutter({ text: EXHAUSTING_PROSE, geometry: SHORT_BOX });
   const heightFloor = (h: number) => defaultBubbleFontRange(h).minFontSize;
   let floor: number | null = null;
   for (const aspect of [1.0, 1.4, 2.0, 3.0]) {
@@ -194,26 +211,86 @@ test("the floor a gutter bubble may descend to comes off the width, not the heig
   }
 });
 
-test("a wider strip buys room for a longer line, not a bigger minimum", () => {
+test("the floor scales down with a narrow strip and is capped at the default", () => {
   // A floor that rose with the strip would hand back the column a pack just
-  // bought, so a narrower strip lowers the floor and a wider one does not raise
-  // it — and the text a gutter bubble can hold never falls as the strip grows.
+  // bought. So below the default it scales in proportion — a 0.05 strip cannot
+  // honour the 0.18 floor — and at or above the default it stops. BOTH halves
+  // are swept: a sweep that only sampled above the cap would pass just as well
+  // on an implementation that had no cap at all.
+  const band = (declared: number) => W * declared;
+  const base = gutterBubbleMinFontSize(band(GUTTER_BAND_WIDTH_DEFAULT), W);
+  let previous = 0;
+  for (const narrower of [GUTTER_BAND_WIDTH_MIN, 0.08, 0.12, 0.15]) {
+    const floor = gutterBubbleMinFontSize(band(narrower), W);
+    assert.ok(floor < base, `${narrower}: a narrower strip must lower the floor with it`);
+    assert.ok(floor > previous, `${narrower}: the floor did not follow the strip down`);
+    previous = floor;
+  }
+  for (const wider of [0.2, 0.25, 0.4, GUTTER_BAND_WIDTH_MAX]) {
+    assert.equal(gutterBubbleMinFontSize(band(wider), W), base, `${wider}: the cap did not hold`);
+  }
+
+  // …and the layout really descends to that number at a narrow strip too, not
+  // only at the default the test above uses.
   const height = Math.round(W * 2);
-  const o = gutter({ text: "x".repeat(400) });
-  const floorFor = (declared: number) =>
-    layoutBubble(o, W, height, { gutterBandWidth: declared }).text.fontSize;
-  const base = floorFor(GUTTER_BAND_WIDTH_DEFAULT);
-  assert.ok(floorFor(0.08) < base, "a narrower strip must lower the floor with it");
-  for (const wider of [0.25, 0.4, GUTTER_BAND_WIDTH_MAX]) {
-    assert.equal(floorFor(wider), base, `${wider}: a wider strip raised the floor`);
+  const o = gutter({ text: EXHAUSTING_PROSE, geometry: SHORT_BOX });
+  for (const narrow of [0.12, 0.15]) {
+    const plan = layoutBubble(o, W, height, { gutterBandWidth: narrow });
+    assert.equal(plan.overflow, true, `${narrow}: the fixture must exhaust the descent`);
+    assert.ok(plan.band);
+    assert.equal(plan.text.fontSize, gutterBubbleMinFontSize(plan.band.width, W));
+    assert.ok(plan.text.fontSize < base, `${narrow}: the narrow strip kept the default floor`);
   }
-  // And the room itself grows: the same text wraps to no more lines than before.
-  let previous = Number.POSITIVE_INFINITY;
-  for (const declared of [GUTTER_BAND_WIDTH_DEFAULT, 0.25, 0.4, GUTTER_BAND_WIDTH_MAX]) {
-    const lines = layoutBubble(o, W, height, { gutterBandWidth: declared }).text.lines.length;
-    assert.ok(lines <= previous, `${declared}: a wider strip held less text`);
-    previous = lines;
+});
+
+test("a wider strip buys room for a longer line", () => {
+  // The point of the cap: the same prose is set LARGER and stacks into fewer
+  // lines as the strip grows. Wrappable text, because a single unbreakable token
+  // cannot use extra column at all — see the non-monotonic case below.
+  const height = Math.round(W * 2);
+  const o = gutter({
+    text: FITTING_PROSE,
+    geometry: { x: 0.04, y: 0.1, width: 0.92, height: 0.3 },
+  });
+  const sweep = [GUTTER_BAND_WIDTH_MIN, 0.08, 0.12, GUTTER_BAND_WIDTH_DEFAULT, 0.25, 0.4];
+  let lastFont = 0;
+  const lines: number[] = [];
+  for (const declared of sweep) {
+    const plan = layoutBubble(o, W, height, { gutterBandWidth: declared });
+    assert.equal(plan.overflow, false, `${declared}: the fixture must fit`);
+    assert.ok(plan.text.fontSize > lastFont, `${declared}: a wider strip set no larger`);
+    lastFont = plan.text.fontSize;
+    lines.push(plan.text.lines.length);
   }
+  // Line count falls across the sweep. Not at every step: below a point the box
+  // HEIGHT caps the size before the strip's width does, and the wrap is unmoved.
+  for (let i = 1; i < lines.length; i++) {
+    assert.ok((lines[i] ?? 0) <= (lines[i - 1] ?? 0), `${sweep[i]}: a wider strip held less text`);
+  }
+  assert.ok(
+    (lines.at(-1) ?? 0) < (lines[0] ?? 0),
+    "the widest strip held no more than the narrowest",
+  );
+});
+
+test("a single unbreakable token can fit a narrow strip and not a middling one", () => {
+  // Recorded, not asserted away. A balloon's corner radius grows with its box
+  // and therefore with the strip, while the vertical padding the arcs are
+  // measured from does not — so between about 0.10 and 0.18 the arc takes more
+  // column than the wider strip hands back, and a token that cannot be wrapped
+  // out of the arc's way stops fitting before it starts fitting again. Prose
+  // does not hit it (the test above), and docs/PACK_FORMAT.md warns a band
+  // author who is lettering something unbreakable.
+  const token = gutter({
+    text: "e".repeat(24),
+    geometry: { x: 0.04, y: 0.1, width: 0.92, height: 0.6 },
+  });
+  const overflowAt = (declared: number) =>
+    layoutBubble(token, 1600, 694, { gutterBandWidth: declared }).overflow;
+  assert.equal(overflowAt(0.08), false);
+  assert.equal(overflowAt(0.12), true, "the dip is gone: PACK_FORMAT.md's warning is now wrong");
+  assert.equal(overflowAt(GUTTER_BAND_WIDTH_DEFAULT), true);
+  assert.equal(overflowAt(0.25), false);
 });
 
 test("the floor only ever drops, so a bubble that already fits keeps its size", () => {
@@ -234,9 +311,86 @@ test("the floor only ever drops, so a bubble that already fits keeps its size", 
   }
 });
 
+test("a gutter-placed impact_band SFX keeps the height floor: its box is the art", () => {
+  // `placement: "gutter"` with `sfxMode: "impact_band"` is schema-valid, and the
+  // impact box is overwritten with the cut's ART rect — so the bubble is not in
+  // the strip at all, and the strip's floor would be the wrong one to give it.
+  // Pinned against the same SFX in panel, which is the geometry it really has.
+  const height = Math.round(W * 3);
+  const impact = { text: EXHAUSTING_PROSE, kind: "sfx" as const, sfxMode: "impact_band" as const };
+  const inPanel = layoutBubble(overlay({ id: "s", ...impact }), W, height);
+  const inGutter = layoutBubble(
+    overlay({ id: "s", ...impact, placement: "gutter", placementSide: "right" }),
+    W,
+    height,
+  );
+  assert.equal(inPanel.overflow, true, "the fixture must exhaust the descent");
+  assert.equal(inGutter.overflow, true);
+  assert.ok(inGutter.band, "the plan still reports the strip it declared");
+  assert.equal(
+    inGutter.text.fontSize,
+    inPanel.text.fontSize,
+    "a full-width SFX took the strip's floor although its box is the artwork",
+  );
+  assert.ok(inGutter.text.fontSize > gutterBubbleMinFontSize(inGutter.band.width, W));
+});
+
+// --- What the floor change moves, and what it leaves alone ------------------
+//
+// The amended AC 2: byte-for-byte holds for a project with no gutter bubble and
+// for every gutter bubble that already fitted, and NOT for one that overflowed
+// at every size — which is the bug the ticket was opened about. "Before" is the
+// old floor, `defaultBubbleFontRange(height).minFontSize`, so both halves can be
+// pinned here without a second copy of the renderer to compare against.
+
+test("a gutter bubble that fitted before the floor moved is unchanged by it", () => {
+  // The descent walks DOWN from the maximum and returns the first size that
+  // fits, reading the floor only as a stop. A size at or above the old floor is
+  // one the old descent reached and returned too, so lowering the stop cannot
+  // have moved it.
+  const o = gutter({ text: "Hey." });
+  for (const aspect of [0.58, 1.0, 1.4, 2.0, 3.0]) {
+    const height = Math.round(W * aspect);
+    const plan = layoutBubble(o, W, height, {});
+    assert.equal(plan.overflow, false, `aspect ${aspect}`);
+    assert.ok(
+      plan.text.fontSize >= defaultBubbleFontRange(height).minFontSize,
+      `aspect ${aspect}: fitted at ${plan.text.fontSize}, below the pre-#215 floor`,
+    );
+  }
+});
+
+test("a gutter bubble that overflowed at every size now fits, smaller", () => {
+  // The exception, measured rather than asserted. The romance case from the
+  // ticket: a 1200x1275 cut, the default strip, a line that did not fit at any
+  // size the old descent could reach — 28.05px and flagged, now 26.75px and not.
+  const frameWidth = 1200;
+  const frameHeight = 1275;
+  const o = gutter({
+    text: "Still no answer from the other side.",
+    geometry: { x: 0.04, y: 0.1, width: 0.92, height: 0.12 },
+  });
+  const oldFloor = defaultBubbleFontRange(frameHeight).minFontSize;
+
+  // Before: the old floor was the smallest size the descent could try, and the
+  // line did not fit at it — so no size it could reach fitted, and the plan came
+  // back flagged. Pinning the size makes that the layout's own answer.
+  const atOldFloor = layoutBubble({ ...o, fontSize: oldFloor }, frameWidth, frameHeight);
+  assert.equal(atOldFloor.overflow, true, "the fixture must not fit at the pre-#215 floor");
+
+  // After: it fits, at a size strictly below that floor. Smaller text is the
+  // whole of what an author sees change, and only on a bubble that was reporting
+  // overflow before.
+  const now = layoutBubble(o, frameWidth, frameHeight);
+  assert.equal(now.overflow, false, "the line still does not fit");
+  assert.ok(now.text.fontSize < oldFloor, `fitted at ${now.text.fontSize}, not below ${oldFloor}`);
+  assert.ok(now.band);
+  assert.ok(now.text.fontSize >= gutterBubbleMinFontSize(now.band.width, frameWidth));
+});
+
 test("an in-panel bubble's floor is untouched by the gutter floor", () => {
   const height = Math.round(W * 3);
-  const long = { ...speechOverlay, text: "x".repeat(400) };
+  const long = { ...speechOverlay, text: EXHAUSTING_PROSE };
   const plan = layoutBubble(long, W, height);
   assert.equal(plan.overflow, true);
   assert.equal(plan.text.fontSize, defaultBubbleFontRange(height).minFontSize);

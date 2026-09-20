@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { approximateMeasure, gutterBubbleMinFontSize } from "@toony/render";
-import type { BubbleGeometry, EpisodeBundle, LetteringOverlay } from "@toony/schema";
+import { gutterBubbleMinFontSize, layoutBubble } from "@toony/render";
+import {
+  type BubbleGeometry,
+  type EpisodeBundle,
+  GUTTER_BAND_WIDTH_DEFAULT,
+  type LetteringOverlay,
+} from "@toony/schema";
 import { encodePng, makeSolidRaster } from "../__fixtures__/images.js";
 import { CRAFT_MAX_LINE_CHARS } from "../craft-lint.js";
 import { lintBubbleOverflow } from "../overflow-lint.js";
@@ -123,23 +128,102 @@ test("the overflow lint measures a gutter bubble against the PROJECT's strip", (
   );
 });
 
-test("a gutter bubble's auto-fit floor can hold a craft-length line in its strip", () => {
+// The cut sizes and box heights both facts below are measured over. Real
+// shapes: portrait and landscape cuts, a square one, and boxes from a one-line
+// strip label to one filling most of the strip.
+const FLOOR_SWEEP_CUTS: [number, number][] = [
+  [1200, 1275],
+  [1200, 694],
+  [800, 1120],
+  [1600, 694],
+  [1200, 2400],
+  [900, 900],
+];
+const FLOOR_SWEEP_HEIGHTS = [0.06, 0.08, 0.12, 0.2, 0.35, 0.5, 0.7, 0.85];
+
+/**
+ * A strip-filling gutter bubble whose text is `chars` body glyphs on one line,
+ * pinned to the auto-fit FLOOR of the default strip. One unbreakable token, so
+ * the wrap cannot rescue it: this is the worst case for a line of that length.
+ */
+function atTheFloor(
+  chars: number,
+  frameWidth: number,
+  geometryHeight: number,
+  over: Partial<LetteringOverlay> = {},
+): LetteringOverlay {
+  const bandWidth = frameWidth * GUTTER_BAND_WIDTH_DEFAULT;
+  return {
+    ...overlay("ov-floor", "cut-001", "e".repeat(chars), {
+      x: 0.04,
+      y: 0.1,
+      width: 0.92, // what both authored packs set; an authoring habit, not a rule
+      height: geometryHeight,
+    }),
+    placement: "gutter",
+    placementSide: "right",
+    fontSize: gutterBubbleMinFontSize(bandWidth, frameWidth),
+    ...over,
+  };
+}
+
+test("squared off, a gutter balloon holds a craft-length line at its auto-fit floor", () => {
   // `gutterBubbleMinFontSize` is derived from the craft line-length limit, and
   // that limit lives in THIS package — the render core cannot import it. So the
-  // derivation is checked here, by measuring a line of exactly that length at
-  // the floor against the text column a strip-filling gutter bubble has. If
-  // either number moves, this fails rather than the two quietly drifting apart.
-  const line = "e".repeat(CRAFT_MAX_LINE_CHARS); // a body glyph: the common case
-  for (const frameWidth of [600, 1200, 2400]) {
-    // The floor is capped at the default strip, so that is where it binds; a
-    // narrower strip lowers it in proportion and stays inside its own column.
-    const bandWidth = frameWidth * 0.18;
-    const box = bandWidth * 0.92; // what both authored packs set
-    const column = box - 2 * Math.max(2, box * 0.06); // the layout's own padding
-    const width = approximateMeasure(line, gutterBubbleMinFontSize(bandWidth, frameWidth));
-    assert.ok(
-      width <= column,
-      `a ${CRAFT_MAX_LINE_CHARS}-character line needs ${width.toFixed(1)}px in a ${column.toFixed(1)}px column`,
-    );
+  // derivation is checked here, and through the REAL layout rather than a second
+  // copy of its padding arithmetic: if either number moves, or the padding or
+  // the measurer does, this fails instead of the two drifting apart.
+  //
+  // With the corners squared the box padding is the whole story, and the
+  // derivation holds everywhere.
+  for (const [frameWidth, frameHeight] of FLOOR_SWEEP_CUTS) {
+    for (const height of FLOOR_SWEEP_HEIGHTS) {
+      const plan = layoutBubble(
+        atTheFloor(CRAFT_MAX_LINE_CHARS, frameWidth, height, { cornerRadius: 0 }),
+        frameWidth,
+        frameHeight,
+      );
+      assert.equal(
+        plan.overflow,
+        false,
+        `${frameWidth}x${frameHeight} box height ${height}: a ${CRAFT_MAX_LINE_CHARS}-character line did not fit at the floor`,
+      );
+    }
+  }
+});
+
+test("a rounded gutter balloon holds fewer, and the docs say so", () => {
+  // The other half of the same claim, because the comment on the fraction and
+  // docs/PACK_FORMAT.md both state it: a balloon's corner arcs take a further
+  // bite out of the first and last lines (#210), the bite grows with the corner
+  // radius, and the radius grows with the box. So the default ROUNDED balloon
+  // does not hold a craft-length line at the floor everywhere...
+  const roundedFailures = FLOOR_SWEEP_CUTS.flatMap(([w, h]) =>
+    FLOOR_SWEEP_HEIGHTS.filter(
+      (height) => layoutBubble(atTheFloor(CRAFT_MAX_LINE_CHARS, w, height), w, h).overflow,
+    ),
+  );
+  assert.ok(
+    roundedFailures.length > 0,
+    "the arcs no longer bite: the fraction can be re-derived without them, and the docs' caveat is now wrong",
+  );
+
+  // ...and what it does hold is this, measured over the same sweep. A lower
+  // bound, not a promise of exactly sixteen: it may only ever rise.
+  const FLOOR_LINE_CHARS = 16;
+  assert.ok(FLOOR_LINE_CHARS < CRAFT_MAX_LINE_CHARS);
+  for (const [frameWidth, frameHeight] of FLOOR_SWEEP_CUTS) {
+    for (const height of FLOOR_SWEEP_HEIGHTS) {
+      const plan = layoutBubble(
+        atTheFloor(FLOOR_LINE_CHARS, frameWidth, height),
+        frameWidth,
+        frameHeight,
+      );
+      assert.equal(
+        plan.overflow,
+        false,
+        `${frameWidth}x${frameHeight} box height ${height}: even ${FLOOR_LINE_CHARS} characters did not fit at the floor`,
+      );
+    }
   }
 });

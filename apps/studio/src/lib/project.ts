@@ -211,11 +211,17 @@ export async function resolveEpisodeRenderInputs(
  * back to the lint's default dimensions. Findings are returned in deterministic
  * order. This is the single place the editor route and the editor page share, so
  * the inline panel and the on-demand refresh produce identical results.
+ *
+ * `gutterBandWidth` is the project's declared gutter strip (`webtoon.json`;
+ * #215). Both lints lay bubbles out through the same renderer the preview uses,
+ * so a panel that did not pass it would report overflow and wrap counts against
+ * the DEFAULT strip beside a preview drawn on the project's.
  */
 export async function lintEpisodeBundle(
   workRoot: string,
   bundle: EpisodeBundle,
   characters: readonly Character[],
+  gutterBandWidth?: number,
 ): Promise<Finding[]> {
   const imageBytes = new Map<string, Uint8Array>();
   await Promise.all(
@@ -233,9 +239,9 @@ export async function lintEpisodeBundle(
   );
 
   const findings: Finding[] = [
-    ...lintCraft(bundle, characters),
+    ...lintCraft(bundle, characters, { gutterBandWidth }),
     ...lintCharacterRefs(bundle, characters),
-    ...lintBubbleOverflow(bundle, (cutId) => imageBytes.get(cutId) ?? null),
+    ...lintBubbleOverflow(bundle, (cutId) => imageBytes.get(cutId) ?? null, { gutterBandWidth }),
   ];
   return sortFindings(findings);
 }

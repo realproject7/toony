@@ -292,18 +292,28 @@ export function defaultBubbleFontRange(renderHeight: number): {
  * How much of a gutter strip's width one line of body text may need at the
  * auto-fit FLOOR, expressed as `fontSize / bandWidth` (#215).
  *
- * Derived, not chosen. A gutter bubble is authored a little narrower than its
- * strip (~0.92) and keeps ~88% of its box as text column after the 6%-per-side
- * padding, so ~0.81 of the band is column; a body glyph advances ~0.52em in the
- * shared measurer; and a wrapped line is not meant to run past the ~24
- * characters the craft line-length check allows at thumb distance. That gives
- * 0.81 / (0.52 * 24) ≈ 0.065, rounded DOWN so the corner arcs the wrap must also
- * clear come out of the margin rather than out of the line.
+ * Derived from the box, and then measured. A gutter bubble is authored a little
+ * narrower than its strip — both packs use 0.92, an authoring habit nothing in
+ * the format pins — and keeps ~88% of its box as text column after the
+ * 6%-per-side padding, so ~0.81 of the band is column; a body glyph advances
+ * ~0.52em in the shared measurer; and a wrapped line is not meant to run past
+ * the ~24 characters the craft line-length check allows at thumb distance. That
+ * gives 0.81 / (0.52 * 24) ≈ 0.065, rounded down to 0.06.
+ *
+ * What that buys, measured through `layoutBubble` rather than argued: with the
+ * balloon's corners SQUARED a 24-character line fits at this floor at every cut
+ * size and box height tested. The rounding does NOT cover the rounded default:
+ * a balloon's corner arcs take a further bite out of the first and last lines
+ * (#210) that grows with the corner radius, and the radius grows with the box,
+ * so at many box shapes a 24-character line still does not fit at the floor. The
+ * measured worst case over that sweep is 16 characters. So this floor makes the
+ * descent reach INTO the strip; it does not promise a craft-length line in every
+ * balloon, and `docs/PACK_FORMAT.md` tells an author so.
  *
  * The craft limit lives in `@toony/lint`, which is built ON this package, so it
- * cannot be imported here. `@toony/lint`'s own tests check this floor against it
- * by measuring a line of that length at the floor against the column a strip
- * gives it, so the two cannot drift apart unnoticed.
+ * cannot be imported here. `@toony/lint`'s tests check both halves of the
+ * paragraph above against it by laying real overlays out, so neither the limit
+ * nor this fraction can move without one of them failing.
  */
 const GUTTER_MIN_FONT_FRAC = 0.06;
 

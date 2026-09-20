@@ -51,10 +51,10 @@ export function resolveReferenceWidth(declared: number | undefined | null): numb
 // A `placement: gutter` bubble sits in a reserved strip beside the artwork, and
 // the strip's width is a fraction of the cut's width. Gutter dialogue is the
 // measured signature of the genres that lean on it, so how much column it gets
-// is a craft decision a project makes — not a number the renderer fixes. These
-// live beside the reference column because the same three parties need them:
-// the schema validating `webtoon.json`, the render core laying the strip out,
-// and the pack format, whose genre entries seed the value into a new project.
+// is a craft decision a project makes — not a number the renderer fixes. They
+// live beside the reference column because they are needed on every side of
+// that decision at once: validating `webtoon.json`, validating the pack genre
+// entry that seeds it, and laying the strip out.
 
 /**
  * Default gutter band width, as a fraction of the cut's width. The value the
@@ -72,8 +72,9 @@ export const GUTTER_BAND_WIDTH_MIN = 0.05;
 
 /**
  * Widest declarable band. At half the column the strip is no longer a reading
- * margin beside the art — it is a second column — and a cut with a band on each
- * side would leave no artwork at all.
+ * margin beside the art — it is a second column — and a cut carrying a band on
+ * BOTH sides at this width leaves the artwork the 1px `cutPlacementFrame`
+ * clamps to, which is to say none.
  */
 export const GUTTER_BAND_WIDTH_MAX = 0.5;
 

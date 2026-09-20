@@ -97,8 +97,10 @@ test("the default gutter strip is the width it has been since #98", () => {
   assert.equal(GUTTER_BAND_WIDTH_DEFAULT, 0.18);
   assert.ok(GUTTER_BAND_WIDTH_MIN < GUTTER_BAND_WIDTH_DEFAULT);
   assert.ok(GUTTER_BAND_WIDTH_DEFAULT < GUTTER_BAND_WIDTH_MAX);
-  // Two strips at the maximum still leave a column of artwork between them.
-  assert.ok(GUTTER_BAND_WIDTH_MAX * 2 <= 1);
+  // One strip at the maximum still leaves half the column as artwork; two of
+  // them take the whole cut, which is why this is the ceiling and not higher.
+  assert.ok(GUTTER_BAND_WIDTH_MAX < 1);
+  assert.ok(GUTTER_BAND_WIDTH_MAX * 2 >= 1);
 });
 
 test("an absent or unusable declared strip resolves to the default", () => {

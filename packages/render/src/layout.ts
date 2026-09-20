@@ -246,9 +246,9 @@ export interface Rect {
  * lays out; the remaining width is the art. The canvas dimensions never change,
  * so studio and export agree without any per-consumer adjustment.
  *
- * Every band in this module comes from HERE — `cutPlacementFrame` for the cut's
- * reserved strips, `layoutBubble` for the rect one bubble maps into — so the two
- * cannot derive different strips from the same resolved width.
+ * Every band in this module comes from HERE, whether it is being reserved from
+ * the artwork or laid a bubble into, so no two of them can derive a different
+ * strip from the same resolved width.
  */
 function gutterBandRect(
   width: number,
@@ -295,12 +295,16 @@ export function cutPlacementFrame(
     if (side === "left") left = band;
     else right = band;
   }
+  // A zero-width strip is not a strip: on a degenerate canvas every rect here
+  // collapses, and reporting a band of no width would have a consumer reserve
+  // a margin that does not exist where it used to draw full-bleed artwork.
+  const leftWidth = left && left.width > 0 ? left.width : 0;
+  const rightWidth = right && right.width > 0 ? right.width : 0;
   const bands: Rect[] = [];
-  if (left) bands.push(left);
-  if (right) bands.push(right);
-  const taken = (left?.width ?? 0) + (right?.width ?? 0);
+  if (left && leftWidth > 0) bands.push(left);
+  if (right && rightWidth > 0) bands.push(right);
   return {
-    art: { x: left?.width ?? 0, y: 0, width: Math.max(1, width - taken), height },
+    art: { x: leftWidth, y: 0, width: Math.max(1, width - leftWidth - rightWidth), height },
     bands,
   };
 }
