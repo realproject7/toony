@@ -322,12 +322,17 @@ Rules worth knowing before you author a whole episode of them:
 - **A shape that cannot be resolved fails the run before anything is generated,**
   rather than falling back to the latent and quietly removing the pack's pacing.
   A value outside the bounds above makes the project invalid, so `toony generate`
-  refuses the whole run (exit 1) and prints the report `toony validate` prints,
-  which names the field by its path — `episodes[0].cuts[2].panelAspect`, the
-  cut's position in `cuts.yaml`, not its id. A workflow whose latent declares no
-  width exits 2 and names the cut by id. A workflow whose node mapping points at
-  a height input the graph does not have surfaces per cut, when the size is
-  injected, rather than before the run.
+  refuses the whole run (exit 1) and prints the report `toony validate` prints —
+  which names the field by its path, `episodes[0].cuts[2].panelAspect`, the cut's
+  position in `cuts.yaml` rather than its id — followed by a line naming the cut
+  id and the value as authored, so a quoted `"1.4"` reads as the string it is. A
+  workflow whose latent declares no width exits 2 and names the cut by id.
+- **A node mapping that points at a missing INPUT is not an error.** Only a
+  missing node, or a node with no `inputs` object, fails; an input key the graph
+  does not have is created with the injected value. So a mapping that names the
+  right node and the wrong input silently adds a field the sampler ignores, and
+  the run generates at the workflow's own size. Point the mapping at the input
+  the graph actually declares.
 
 ### `exportPresets[]`
 

@@ -41,12 +41,14 @@ options:
                            repeat --cut to generate several cuts in one run: it
                            prints a per-cut summary, keeps every cut it
                            finished, and exits non-zero if any cut failed.
-                           A project that does not validate is refused before
+                           a project that does not validate is refused before
                            anything is sent: the run prints the report
-                           \`toony validate\` prints and exits 1, generating
-                           nothing. There is no override flag — incomplete is
-                           not invalid, so this refuses malformed records, not
-                           work in progress
+                           \`toony validate\` prints, plus the offending value as
+                           authored, and exits 1 having generated nothing. There
+                           is no override flag. A project that is only half
+                           WIRED — a record not yet in the episode sequence, or
+                           a sequence entry whose record is not written yet —
+                           warns on stderr and generates anyway
   export <platform|stitched|plotlink|preset> [path] --episode <id>
          [--width <px>] [--format png|jpg] [--quality <0-100>]
                            writes into the project's exports/ folder + manifest;

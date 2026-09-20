@@ -419,6 +419,344 @@ test("a cut's palette reaches the provider as WORDS, appended last (#207)", asyn
 // project `toony validate` rejects generated anyway: art written from records
 // nobody had checked, and a run that exited 0.
 
+/** Append a well-formed cut that the episode sequence does not name yet. */
+async function authorUnsequencedCut(projectDir: string): Promise<void> {
+  const cutsPath = join(projectDir, "episodes", "ep-001", "cuts.yaml");
+  const existing = await readFile(cutsPath, "utf8");
+  await writeFile(
+    cutsPath,
+    `${existing.trimEnd()}\n- id: cut-003\n  image: null\n  imagePrompt: a new scene\n  negativePrompt: ""\n`,
+  );
+}
+
+test("a cut written but not yet sequenced WARNS and generates (#261)", async () => {
+  // The state the refusal must not block. Appending a finished cut and not yet
+  // wiring it into the sequence is one ordinary authoring step, and refusing on
+  // it made the whole project unreachable: the new cut, the long-finished
+  // cut-001, and every transition, all refused at once.
+  const projectDir = await scaffold();
+  await authorUnsequencedCut(projectDir);
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    // `toony validate` does reject it — that is the whole point of the case.
+    const validate = capture();
+    assert.equal(await runValidate([projectDir], validate.io), EXIT_VALIDATION);
+    assert.match(validate.out.join("\n"), /\[cut\.orphan\]/);
+
+    for (const [what, args] of [
+      ["the new cut", ["--cut", "cut-003"]],
+      ["a wired cut", ["--cut", "cut-001", "--prompt", "x"]],
+      ["a transition", ["--transition", "tr-001", "--prompt", "x"]],
+    ] as const) {
+      const before = comfy.calls();
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      const code = await runGenerate(
+        [projectDir, "--episode", "ep-001", ...args, "--allow-remote"],
+        c.io,
+      );
+      assert.equal(code, EXIT_OK, `${what}: ${c.err.join("\n")}`);
+      assert.equal(comfy.calls() - before, 1, `${what} did not reach the generator`);
+      // Loud, not silent: the run names what is unwired on stderr.
+      assert.match(c.err.join("\n"), /warning: 1 unwired reference\(s\)/, what);
+      assert.match(c.err.join("\n"), /\[cut\.orphan\] episodes\[0\]\.cuts/, what);
+    }
+  } finally {
+    comfy.close();
+  }
+});
+
+test("every wiring code warns, and an off-list code still refuses (#261)", async () => {
+  // The allowlist is by exact code and FAILS CLOSED, so both halves need pinning
+  // on the same suite: each wiring state proceeds, and one data defect alongside
+  // it refuses the whole run.
+  const projectDir = await scaffold();
+  const episodeDir = join(projectDir, "episodes", "ep-001");
+  const pristine = {
+    cuts: await readFile(join(episodeDir, "cuts.yaml"), "utf8"),
+    episode: await readFile(join(episodeDir, "episode.yaml"), "utf8"),
+    transitions: await readFile(join(episodeDir, "transitions.yaml"), "utf8"),
+    lettering: await readFile(join(episodeDir, "lettering.json"), "utf8"),
+  };
+  const restore = async () => {
+    await writeFile(join(episodeDir, "cuts.yaml"), pristine.cuts);
+    await writeFile(join(episodeDir, "episode.yaml"), pristine.episode);
+    await writeFile(join(episodeDir, "transitions.yaml"), pristine.transitions);
+    await writeFile(join(episodeDir, "lettering.json"), pristine.lettering);
+  };
+  /** Insert sequence entries just above the `title:` line. */
+  const sequence = async (lines: string[]) => {
+    const rows = pristine.episode.split("\n");
+    const at = rows.findIndex((row) => row.startsWith("title:"));
+    rows.splice(at, 0, ...lines);
+    await writeFile(join(episodeDir, "episode.yaml"), rows.join("\n"));
+  };
+  const WIRING: [string, string, () => Promise<void>][] = [
+    ["cut.orphan", "cut.orphan", () => authorUnsequencedCut(projectDir)],
+    [
+      "transition.orphan",
+      "transition.orphan",
+      async () =>
+        writeFile(
+          join(episodeDir, "transitions.yaml"),
+          `${pristine.transitions.trimEnd()}\n- agentNote: null\n  gutterHeight: 48\n  humanNote: null\n  id: tr-002\n  image: null\n  reviewStatus: draft\n  sfx: null\n  text: null\n  type: gutter\n`,
+        ),
+    ],
+    [
+      "sequence.missing-cut",
+      "sequence.missing-cut",
+      () => sequence(["  - id: cut-009", "    type: cut"]),
+    ],
+    [
+      "sequence.missing-transition",
+      "sequence.missing-transition",
+      // Swapping the sequenced id leaves tr-001 unreferenced too, so this row
+      // covers a missing transition AND an orphaned one in one project.
+      async () =>
+        writeFile(
+          join(episodeDir, "episode.yaml"),
+          pristine.episode.replace("id: tr-001", "id: tr-009"),
+        ),
+    ],
+    [
+      "overlay.missing-cut",
+      "overlay.missing-cut",
+      async () =>
+        writeFile(
+          join(episodeDir, "lettering.json"),
+          JSON.stringify([
+            {
+              id: "ov-9",
+              cutId: "cut-404",
+              speaker: "Mina",
+              kind: "speech",
+              text: "hi",
+              font: "Nanum Gothic",
+              fill: "#ffffff",
+              opacity: 1,
+              border: { width: 2, color: "#101010" },
+              tail: { x: 0.4, y: 0.7 },
+              geometry: { x: 0.1, y: 0.1, width: 0.3, height: 0.1 },
+              overflow: false,
+              reviewStatus: "draft",
+            },
+          ]),
+        ),
+    ],
+  ];
+
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    for (const [name, code, author] of WIRING) {
+      await restore();
+      await author();
+      // The state really is invalid, and really does carry this code — without
+      // this the run below could be passing because the project is simply valid.
+      const validate = capture();
+      assert.equal(await runValidate([projectDir], validate.io), EXIT_VALIDATION, name);
+      assert.match(validate.out.join("\n"), new RegExp(`\\[${code.replace(".", "\\.")}\\]`), name);
+
+      const before = comfy.calls();
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      const exit = await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--prompt", "x", "--allow-remote"],
+        c.io,
+      );
+      assert.equal(exit, EXIT_OK, `${name} refused: ${c.err.join("\n")}`);
+      assert.equal(comfy.calls() - before, 1, `${name} did not reach the generator`);
+      assert.match(c.err.join("\n"), /warning: \d+ unwired reference\(s\)/, name);
+
+      // Now add ONE data defect on top. The allowlist must not rescue it.
+      const cuts = await readFile(join(episodeDir, "cuts.yaml"), "utf8");
+      await writeFile(
+        join(episodeDir, "cuts.yaml"),
+        cuts.replace("- id: cut-001", "- id: cut-001\n  shotType: not_a_shot_type"),
+      );
+      const stillBefore = comfy.calls();
+      const blocked = capture({ TOONY_COMFYUI_URL: comfy.url });
+      const blockedExit = await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--prompt", "x", "--allow-remote"],
+        blocked.io,
+      );
+      assert.equal(blockedExit, EXIT_VALIDATION, `${name} + a data defect was not refused`);
+      assert.equal(comfy.calls() - stillBefore, 0, `${name} + a data defect reached the generator`);
+      assert.match(blocked.err.join("\n"), /nothing was generated/, name);
+      // The wiring issue is still reported — refusing does not hide it.
+      assert.match(blocked.err.join("\n"), new RegExp(`\\[${code.replace(".", "\\.")}\\]`), name);
+    }
+  } finally {
+    comfy.close();
+  }
+});
+
+test("the refusal names the VALUE as authored, not just the rule (#261)", async () => {
+  // A quoted number is the case that bites: the validator says "panelAspect must
+  // be a number between 0.1 and 10", the author looks at `cuts.yaml`, sees
+  // `panelAspect: "1.4"` — and it IS a number between 0.1 and 10. The quotes are
+  // the entire defect. #237 had a hand-written affordance for exactly this and
+  // it must not be lost to the generic report.
+  const projectDir = await scaffold();
+  const cutsPath = join(projectDir, "episodes", "ep-001", "cuts.yaml");
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    for (const [authored, shown] of [
+      ['"1.4"', '"1.4"'],
+      [".nan", "NaN"],
+      [".inf", "Infinity"],
+      ['"tall"', '"tall"'],
+      ["0", "0"],
+    ] as const) {
+      await writeFile(
+        cutsPath,
+        [
+          "- id: cut-001",
+          "  image: null",
+          "  imagePrompt: a stored scene",
+          '  negativePrompt: ""',
+          "- id: cut-002",
+          "  image: null",
+          '  imagePrompt: ""',
+          '  negativePrompt: ""',
+          `  panelAspect: ${authored}`,
+          "",
+        ].join("\n"),
+      );
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      const code = await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--prompt", "x", "--allow-remote"],
+        c.io,
+      );
+      assert.equal(code, EXIT_VALIDATION, `${authored}: ${c.err.join("\n")}`);
+      assert.equal(comfy.calls(), 0, `${authored} reached the generator`);
+      // The cut's id and the value exactly as written, quotes and all.
+      assert.ok(
+        c.err.join("\n").includes(`episodes[0].cuts[1].panelAspect (cut-002) is ${shown}`),
+        `${authored} printed as: ${c.err.join("\n")}`,
+      );
+    }
+    // A field whose key is misspelled reads as absent — the one thing its
+    // "must be a non-empty string" message cannot say.
+    await writeFile(
+      cutsPath,
+      [
+        "- id: cut-001",
+        "  image: null",
+        "  imagePrompt: a stored scene",
+        '  negativePrompt: ""',
+        "  characters:",
+        "    - mina",
+        "- id: cut-002",
+        "  image: null",
+        '  imagePrompt: ""',
+        '  negativePrompt: ""',
+        "",
+      ].join("\n"),
+    );
+    await writeFile(
+      join(projectDir, "webtoon.json"),
+      JSON.stringify({
+        ...JSON.parse(await readFile(join(projectDir, "webtoon.json"), "utf8")),
+        characters: [{ id: "mina", name: "Mina", lockstrng: "short black bob" }],
+      }),
+    );
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--prompt", "x", "--allow-remote"],
+      c.io,
+    );
+    assert.equal(code, EXIT_VALIDATION, c.err.join("\n"));
+    assert.ok(
+      c.err.join("\n").includes("webtoon.characters[0].lockstring (mina) is absent"),
+      c.err.join("\n"),
+    );
+  } finally {
+    comfy.close();
+  }
+});
+
+test("the gate sits below the flag checks and above planning (#261)", async () => {
+  // Error PRECEDENCE, which nothing else pins: three placements of the gate all
+  // refuse an invalid project and all send nothing, so only the message an
+  // author actually gets tells them apart.
+  const projectDir = await scaffold();
+  await authorInvalidProject(projectDir);
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    // BELOW the flag checks: a bad flag is still a usage error, not a
+    // validation report about an unrelated field.
+    const slot = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--slot", "bogus"],
+        slot.io,
+      ),
+      EXIT_USAGE,
+    );
+    assert.match(slot.err.join("\n"), /--slot must be/);
+    assert.doesNotMatch(slot.err.join("\n"), /\[cut\.shot-type\]/);
+
+    // `--slot` is checked before the project path is even resolved, so it
+    // cannot tell a gate placed just below that point from one placed just
+    // above the size flags. `--seed` is parsed AFTER the path, and is what
+    // separates them.
+    const seed = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        // Not "-1": the value guard rejects a leading dash at parse time, which
+        // is above the path resolution too. A non-integer reaches the check.
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--seed", "1.5", "--allow-remote"],
+        seed.io,
+      ),
+      EXIT_USAGE,
+    );
+    assert.match(seed.err.join("\n"), /--seed must be a non-negative integer/);
+    assert.doesNotMatch(seed.err.join("\n"), /\[cut\.shot-type\]/);
+
+    // ABOVE planJobs: an invalid project with no usable prompt is named as
+    // invalid, not as a missing --prompt.
+    const prompt = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-002", "--allow-remote"],
+        prompt.io,
+      ),
+      EXIT_VALIDATION,
+    );
+    assert.match(prompt.err.join("\n"), /\[cut\.shot-type\]/);
+    assert.doesNotMatch(prompt.err.join("\n"), /has neither/);
+
+    // ABOVE applyPanelShapes: a workflow with no latent width would fail shape
+    // resolution with exit 2; the invalid project is reported first, with 1.
+    const workflowPath = join(projectDir, "no-latent.workflow.json");
+    await writeFile(
+      workflowPath,
+      JSON.stringify({
+        "1": { class_type: "CLIPTextEncode", inputs: { text: "" } },
+        "9": { class_type: "SaveImage", inputs: { filename_prefix: "toony", images: ["1", 0] } },
+      }),
+    );
+    const cutsPath = join(projectDir, "episodes", "ep-001", "cuts.yaml");
+    const cuts = await readFile(cutsPath, "utf8");
+    await writeFile(cutsPath, cuts.replace("- id: cut-001", "- id: cut-001\n  panelAspect: 1.5"));
+    const shape = capture({
+      TOONY_COMFYUI_URL: comfy.url,
+      TOONY_COMFYUI_WORKFLOW: workflowPath,
+    });
+    assert.equal(
+      await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+        shape.io,
+      ),
+      EXIT_VALIDATION,
+    );
+    assert.match(shape.err.join("\n"), /\[cut\.shot-type\]/);
+    assert.doesNotMatch(shape.err.join("\n"), /column to size it against/);
+
+    assert.equal(comfy.calls(), 0, "a placement probe reached the generator");
+  } finally {
+    comfy.close();
+  }
+});
+
 /** Author two problems `toony validate` reports, in two different cuts. */
 async function authorInvalidProject(projectDir: string): Promise<void> {
   await writeFile(
@@ -534,7 +872,8 @@ test("an unreadable project is still a usage error, not a validation one (#261)"
 });
 
 // The request bodies `origin/main` sent for the VALID project built below, at
-// commit 3de40da — the tree BEFORE this ticket's gate existed. Recorded through
+// commit 3de40da, and re-recorded unchanged at 5785a4e after main moved on —
+// the tree BEFORE this ticket's gate existed. Recorded through
 // this same fake server and compared byte for byte, because the back-compat
 // criterion is about what leaves the process, not about what the diff looks
 // like.
@@ -773,6 +1112,15 @@ test("an out-of-range or non-numeric panel shape is refused, and nothing is gene
         c.err.join("\n"),
         /\[cut\.panel-aspect\] episodes\[0\]\.cuts\[0\]\.panelAspect/,
         `${authored} was refused without naming the field: ${c.err.join("\n")}`,
+      );
+      // ...and the value as authored, which the schema's message cannot give.
+      // `.nan` and `.inf` must name themselves rather than print as `null`, and
+      // a quoted number must keep its quotes — those are the rows #237 carried
+      // and the report on its own does not replace.
+      const shown = { ".nan": "NaN", ".inf": "Infinity" }[authored] ?? authored;
+      assert.ok(
+        c.err.join("\n").includes(`(cut-001) is ${shown}`),
+        `${authored} printed as: ${c.err.join("\n")}`,
       );
     }
     // The bounds themselves are INCLUSIVE. They now live in ONE place — the

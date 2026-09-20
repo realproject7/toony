@@ -24,8 +24,12 @@
 // Every input above — the prompt, the lockstrings, the palette, the shape — is
 // read out of records this command does not otherwise check, so generating from
 // an unvalidated project spends GPU minutes on data nobody has looked at and
-// then writes art into the project. See `docs/ARCHITECTURE.md` ("Validation is a
-// precondition for output") for why the refusal has no override flag.
+// then writes art into the project. The one exception is a project that is
+// merely half-wired — a record written but not yet sequenced, or a sequence
+// entry whose record is not written yet — which warns loudly and proceeds,
+// because refusing it makes the whole project unreachable while any one part of
+// it is mid-edit. `../generate-gate.ts` owns that line and the reasoning for it;
+// `docs/ARCHITECTURE.md` ("Generation and validation") has the operator view.
 //
 // `--cut` REPEATS, so this command owns the multi-cut loop instead of leaving
 // every caller to write a shell loop and invent its own error handling (#204).
@@ -53,6 +57,7 @@ import {
 } from "@toony/providers";
 import type { Character } from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
+import { authoredValueLines, partitionIssues } from "../generate-gate.js";
 import { discoverPackContent } from "../packs.js";
 import { appendPaletteClause } from "../palette.js";
 import { latentHeightFor } from "../panel-shape.js";
@@ -366,9 +371,10 @@ function planJobs(
  * schema rejects still reached this function; the run's validation gate (#261)
  * is what covers it now, and every cut in `bundle.cuts` goes through
  * `validateCutValue`, which applies `PANEL_ASPECT_MIN`/`MAX` and rejects a
- * non-finite or non-numeric value. Keeping a second copy of the bounds would
- * leave the CLI free to drift from the schema and refuse a project
- * `toony validate` calls valid.
+ * non-finite or non-numeric value. `cut.panel-aspect` is not on the gate's
+ * wiring allowlist, so it refuses rather than warns. Keeping a second copy of
+ * the bounds would leave the CLI free to drift from the schema and refuse a
+ * project `toony validate` calls valid.
  *
  * Returns an error instead of generating when a declared shape cannot be
  * RESOLVED — there is no column to size it against. Falling back to the
@@ -481,32 +487,54 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   // used to generate anyway: art written into the project from data nobody had
   // looked at, and a run that exited 0.
   //
-  // The refusal is total and has no override flag, for two reasons. First, the
-  // other command that turns a project into artefacts already refuses this way
-  // and offers no override (`@toony/export`'s `loadEpisode`), so the pipeline
-  // has one rule instead of one rule with an exception. Second, this does not
-  // block work in progress: INCOMPLETE is not INVALID here. A cut with no image
-  // and no prompt still validates — that is exactly why `--require-images` is
-  // opt-in (`validate.ts`) — so a project only fails this gate when its records
-  // are genuinely malformed, and the report below says which and where.
-  //
   // A transition run is covered too. It needs no cut data, but it still writes
-  // into the project through the same ingest path.
+  // into the project through the same ingest path, and on the tree before this
+  // gate a `--transition` run against a project that could not even be LOADED
+  // submitted its request first and failed afterwards.
+  //
+  // Placement is deliberate and pinned by test. It is BELOW the flag checks
+  // above, so `--slot bogus` is still the usage error it has always been rather
+  // than a validation report about an unrelated field. It is ABOVE `planJobs`
+  // and `applyPanelShapes`, so an invalid project is named as invalid instead of
+  // surfacing as whatever secondary complaint the run would have hit first.
+  //
+  // `@toony/generate-gate` owns what refuses and what only warns, and why.
   let loaded: LoadedProject;
   try {
     loaded = await loadProject(root);
   } catch (cause) {
-    io.err(cause instanceof ProjectIoError ? cause.message : String(cause));
-    return EXIT_USAGE;
+    // Matches `validate.ts`: an IO/parse failure is a usage error; anything else
+    // is a bug in the reader and must not be disguised as one.
+    if (cause instanceof ProjectIoError) {
+      io.err(cause.message);
+      return EXIT_USAGE;
+    }
+    throw cause;
   }
   if (!loaded.validation.valid) {
-    // The SAME report `toony validate` prints, from the same function, so an
-    // author reads one command's output instead of running two.
-    io.err(textReport(root, loaded.validation));
-    io.err(
-      'nothing was generated: "toony generate" does not generate from a project that does not validate. Fix the issue(s) above and re-run.',
-    );
-    return EXIT_VALIDATION;
+    const { blocking, wiring } = partitionIssues(loaded.validation);
+    if (blocking.length === 0) {
+      // Half-wired, not malformed: every record generation reads is intact and
+      // only the references between them are unfinished. Say so loudly — this
+      // is the "loud warning" half of the ticket — and generate.
+      io.err(`warning: ${wiring.length} unwired reference(s) in ${root}:`);
+      for (const issue of wiring) io.err(`  - [${issue.code}] ${issue.path}`);
+      io.err('generating anyway; run "toony validate" for the full report.');
+    } else {
+      // The SAME report `toony validate` prints, from the same function, so an
+      // author reads one command's output instead of running two. Any blocking
+      // issue refuses the whole run, even alongside wiring ones.
+      io.err(textReport(root, loaded.validation));
+      // ...then what the validator cannot say: the value that is actually there.
+      // Without it, `panelAspect: "1.4"` answers "must be a number between 0.1
+      // and 10" with a number between 0.1 and 10, and the quotes — the entire
+      // defect — go unmentioned.
+      for (const line of authoredValueLines(loaded.project, blocking)) io.err(line);
+      io.err(
+        'nothing was generated: "toony generate" does not generate from a project that does not validate. Fix the issue(s) above and re-run.',
+      );
+      return EXIT_VALIDATION;
+    }
   }
 
   // Plan every job BEFORE the first request. Usage problems (an unusable prompt)
