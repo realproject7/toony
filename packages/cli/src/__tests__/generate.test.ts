@@ -1659,6 +1659,7 @@ test("a finished cut render records the inputs that produced it (#240)", async (
     const log = await readIngestLog(projectDir);
     assert.deepEqual(log.at(-1)?.renderInputs, {
       prompt: "a hero on a rooftop, webtoon style",
+      basePrompt: "a hero on a rooftop, webtoon style",
       negativePrompt: "lowres",
       seed: 91723,
     });
@@ -1797,8 +1798,12 @@ test("the prompt a cut records is its own, so a re-run composes once (#240)", as
     // The ingest log keeps the composed one: that is the string the model saw.
     const recorded = (await readIngestLog(projectDir)).at(-1)?.renderInputs as {
       prompt?: string;
+      basePrompt?: string;
     };
     assert.equal(recorded?.prompt, comfy.prompts()[0]);
+    // And the base prompt beside it: the composed one cannot be fed back to
+    // `--prompt`, so the record keeps the string that can.
+    assert.equal(recorded?.basePrompt, "a rooftop at dusk");
 
     // Re-run from the project alone: the lockstring and the clause appear once,
     // not twice, and the whole request repeats.
@@ -2021,6 +2026,7 @@ test("a final-slot render leaves the clean plate's record alone (#240)", async (
     const log = await readIngestLog(projectDir);
     assert.deepEqual(log.at(-1)?.renderInputs, {
       prompt: "the lettered final pass",
+      basePrompt: "the lettered final pass",
       negativePrompt: "",
       seed: 222,
     });
@@ -2312,15 +2318,20 @@ test("a deliberate size, and an image with no recorded size, are left alone (#24
 });
 
 /**
- * The flags a refusal tells the operator to pass, taken from the message itself.
- * A test that retypes them proves the tool agrees with the test; taking them
- * from the output proves the instruction an operator would follow is one that
- * repeats the render.
+ * The flags a refusal tells the operator to pass, taken from the message itself
+ * and tokenized as a shell would: a bare word, or the double-quoted string the
+ * command prints for a value that is not one word.
+ *
+ * A test that retypes the flags proves the tool agrees with the test; taking
+ * them from the output proves the instruction an operator would follow is one
+ * that repeats the render.
  */
 function repeatFlagsFrom(stderr: string): string[] {
-  const match = /run it with ((?:--\S+ \S+ ?)+)instead of/.exec(stderr);
-  assert.ok(match, `no repeat instruction in:\n${stderr}`);
-  return (match[1] ?? "").trim().split(/\s+/);
+  const line = stderr.split("\n").find((l) => l.trim().startsWith("--"));
+  assert.ok(line, `no repeat instruction in:\n${stderr}`);
+  return (line.trim().match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []).map((token) =>
+    token.startsWith('"') ? (JSON.parse(token) as string) : token,
+  );
 }
 
 test("the escape a refusal names repeats the image, on the final slot too (#240)", async () => {
@@ -2632,6 +2643,202 @@ test("the instruction names the whole size, not just the piece this run omitted 
     assert.equal(
       await runGenerate(
         [projectDir, "--episode", "ep-001", "--cut", "cut-001", ...flags, "--allow-remote"],
+        obey.io,
+      ),
+      EXIT_OK,
+      obey.err.join("\n"),
+    );
+    const [original, obeyed] = comfy.bodies().map(normalizeClientId);
+    assert.equal(obeyed, original);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("the instruction carries every input the run would not replay (#240)", async () => {
+  // The cut's authored prompt is NOT the final pass's prompt, which is the
+  // ordinary case and the one an instruction built from a hand-written list of
+  // fields keeps missing: the record describes the clean plate, so a final run
+  // replays none of the prompt, the negative prompt or the seed.
+  const projectDir = await scaffold();
+  const cutsPath = join(projectDir, "episodes", "ep-001", "cuts.yaml");
+  await writeFile(
+    cutsPath,
+    encodeYaml(
+      ((await readCuts(projectDir)) as Record<string, unknown>[]).map((cut) =>
+        cut.id === "cut-001" ? { ...cut, imagePrompt: "a rooftop at dusk" } : cut,
+      ),
+    ),
+  );
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          "--prompt",
+          "the lettered final pass, speech balloon room at top",
+          "--negative",
+          "text artifacts",
+          "--seed",
+          "7",
+          "--width",
+          "640",
+          "--height",
+          "960",
+          "--allow-remote",
+        ],
+        first.io,
+      ),
+      EXIT_OK,
+      first.err.join("\n"),
+    );
+
+    const blind = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          "--allow-remote",
+        ],
+        blind.io,
+      ),
+      EXIT_USAGE,
+      blind.out.join("\n"),
+    );
+    assert.equal(comfy.calls(), 1);
+
+    const flags = repeatFlagsFrom(blind.err.join("\n"));
+    // Every input this run would have got wrong, none of them left out.
+    assert.deepEqual(flags, [
+      "--width",
+      "640",
+      "--height",
+      "960",
+      "--seed",
+      "7",
+      "--prompt",
+      "the lettered final pass, speech balloon room at top",
+      "--negative",
+      "text artifacts",
+    ]);
+
+    const obey = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          ...flags,
+          "--allow-remote",
+        ],
+        obey.io,
+      ),
+      EXIT_OK,
+      obey.err.join("\n"),
+    );
+    const [original, obeyed] = comfy.bodies().map(normalizeClientId);
+    assert.equal(obeyed, original, "following the instruction did not repeat the render");
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a transition is guarded the same way a cut is (#240)", async () => {
+  // A transition's inputs are in the log with a size like any other asset, and
+  // it has no record of its own to replay — so a re-run of the same command
+  // without the size flags replaced the band at the workflow's latent.
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--transition",
+          "tr-001",
+          "--prompt",
+          "a rain gutter",
+          "--seed",
+          "7",
+          "--width",
+          "640",
+          "--height",
+          "960",
+          "--allow-remote",
+        ],
+        first.io,
+      ),
+      EXIT_OK,
+      first.err.join("\n"),
+    );
+
+    // `--prompt` is required for a transition, so this is the same command with
+    // the size dropped — the shape the operator actually types.
+    const blind = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--transition",
+          "tr-001",
+          "--prompt",
+          "a rain gutter",
+          "--allow-remote",
+        ],
+        blind.io,
+      ),
+      EXIT_USAGE,
+      blind.out.join("\n"),
+    );
+    assert.equal(
+      comfy.calls(),
+      1,
+      "a transition run that cannot repeat still reached the provider",
+    );
+    const err = blind.err.join("\n");
+    assert.match(err, /transition tr-001/);
+    const flags = repeatFlagsFrom(err);
+    // The seed too: a transition record has nowhere to keep one.
+    assert.deepEqual(flags, ["--width", "640", "--height", "960", "--seed", "7"]);
+
+    const obey = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--transition",
+          "tr-001",
+          "--prompt",
+          "a rain gutter",
+          ...flags,
+          "--allow-remote",
+        ],
         obey.io,
       ),
       EXIT_OK,

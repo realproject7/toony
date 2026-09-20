@@ -565,9 +565,11 @@ test("the escape a refusal names carries the workflow the plate was rendered wit
       blind.out.join("\n"),
     );
     const err = blind.err.join("\n");
-    const match = /run it with ((?:--\S+ \S+ ?)+)instead of/.exec(err);
-    assert.ok(match, `no repeat instruction in:\n${err}`);
-    const flags = (match[1] ?? "").trim().split(/\s+/);
+    const line = err.split("\n").find((l) => l.trim().startsWith("--"));
+    assert.ok(line, `no repeat instruction in:\n${err}`);
+    const flags = (line.trim().match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []).map((token) =>
+      token.startsWith('"') ? (JSON.parse(token) as string) : token,
+    );
     assert.ok(flags.includes("--workflow"), flags.join(" "));
 
     // The instruction, verbatim: the pack's graph (steps 40 / dpmpp_2m), not the

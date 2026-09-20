@@ -167,6 +167,7 @@ test("render inputs are recorded beside the asset's identity (#240)", async () =
   const root = await freshProject();
   const inputs = {
     prompt: "short black bob, amber eyes, a hero on a rooftop",
+    basePrompt: "a hero on a rooftop",
     negativePrompt: "lowres",
     seed: 91723,
     workflow: "high-detail",

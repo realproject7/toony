@@ -62,16 +62,26 @@ export interface IngestResult {
  * this is the only record of how it was made, and without it no render is
  * reproducible and no panel can answer "what produced this?".
  *
- * `prompt` is the prompt AS SUBMITTED — character lockstrings and the palette
- * clause already composed in — because that is the string the model was given,
- * not the shorter one the cut stores.
+ * Both prompts are kept, and they are not the same string. `prompt` is what was
+ * SUBMITTED, with the character lockstrings and the palette clause composed in,
+ * because that is what the model was given and therefore what tells a repeat of
+ * a render from a replacement of it. `basePrompt` is what the RUN was given,
+ * before that composition — the value `--prompt` takes. Feeding the composed one
+ * back through `--prompt` composes it a second time, so a record that kept only
+ * the submitted prompt could not say how to ask for it again.
  *
  * Neutral by the same rule as `AssetProvenance`: these are the operator's own
  * generation inputs, never an endpoint, an account, a key, or a local path. A
  * manual import has no generation inputs and records none.
+ *
+ * Every field here is an input a re-run has to get right, so a consumer that
+ * answers "can this run repeat that render?" must answer for ALL of them. See
+ * `REPEAT_INPUTS` in the CLI's generate command, which is keyed on this type so
+ * a field added here cannot be silently left out of that answer.
  */
 export interface RenderInputs {
   prompt: string;
+  basePrompt: string;
   negativePrompt: string;
   seed: number;
   /** The workflow's NAME, when the run selected one by name; never a path. */

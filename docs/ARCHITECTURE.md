@@ -189,12 +189,24 @@ nothing about the other: `--width 640` after a `640x960` render is checked on it
 height, and is refused rather than quietly re-rendered at `640x1216`. A dimension
 the run pins, or that the cut's `panelAspect` declares, is left alone.
 
-The instruction it prints carries every input the run would not replay by
-itself — the recorded **seed** and the recorded **workflow** — because a repeat
-at the right size from a different seed, or through a different graph, is not a
-repeat. Both are the ordinary case on the `final` slot, which replays no record
-at all. It names both dimensions too: a dimension the run pinned stays in the
-operator's command, so naming only the missing one would be false.
+The instruction it prints is built from the record, field by field, and names
+**every input this run would not arrive at by itself** — not a list of fields
+someone remembered. A repeat at the right size from a different seed, through a
+different graph, or from a different prompt is not a repeat, and an operator who
+follows an incomplete instruction destroys the plate they were keeping. That
+list is `REPEAT_INPUTS` in the generate command, keyed on `RenderInputs` so a
+field added to the record and not decided there does not compile.
+
+Two things fall out of building it that way rather than by hand. The `final`
+slot replays nothing — no prompt, no negative prompt, no seed, no workflow — and
+is covered without the instruction knowing about slots, because each of those
+fields simply differs. And a transition, which has no record of its own at all,
+is covered the same way.
+
+The prompt is the one field whose instruction is not its own recorded value.
+What a repeat needs is the prompt as the run was GIVEN it, because `--prompt` is
+composed again with the lockstrings and the palette clause; handing back the
+submitted string would compose it twice. The record keeps both for that reason.
 
 A failed write-back is reported as itself, never as a failed generation. The two
 states differ in what is on disk — one has no image, the other has the image and

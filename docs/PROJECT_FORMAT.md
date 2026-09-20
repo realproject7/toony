@@ -106,8 +106,10 @@ render neither writes it nor reads it back, and a final pass is regenerated the
 way it always was — from `imagePrompt` and a fresh seed unless the run pins one.
 
 The same inputs are appended to the episode's `logs/ingest.json` entry for the
-asset, for BOTH slots, and there the prompt is the one that was SUBMITTED —
-character lockstrings and the palette clause already composed in. The entries are
+asset, for BOTH slots, and there the prompt is kept twice: `prompt` is the one
+that was SUBMITTED, with the character lockstrings and the palette clause
+composed in, and `basePrompt` is the one the run was given, which is the value
+`--prompt` takes. The entries are
 per asset path, so that is where a final pass's inputs live, and any panel can
 answer what produced it. A manually imported asset records no render inputs,
 having none.

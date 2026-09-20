@@ -81,7 +81,7 @@ import {
   resolveComfyUIConfig,
   type ToonyWorkspaceComfyConfig,
 } from "@toony/providers";
-import type { Character, Cut } from "@toony/schema";
+import type { Character, Cut, EpisodeBundle } from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 import { authoredValueLines, partitionIssues } from "../generate-gate.js";
 import { discoverPackContent } from "../packs.js";
@@ -290,13 +290,6 @@ interface Job {
    */
   inputs: RenderInputs;
   /**
-   * The prompt to write back onto the cut (#240): the cut's OWN prompt, before
-   * the lockstrings and the palette clause compose into `inputs.prompt`, so a
-   * later run composes once instead of compounding. Absent for a transition,
-   * which has no prompt field to write back to.
-   */
-  basePrompt?: string;
-  /**
    * The cut's declared panel shape (#237), when it declared one. Carried rather
    * than resolved here because it needs the column the workflow draws at, and
    * the workflow is not resolved until after planning — planning exists to
@@ -340,6 +333,7 @@ interface PlanInput {
  */
 function resolveInputs(
   prompt: string,
+  basePrompt: string,
   negativePrompt: string,
   shared: Readonly<Record<string, string | number>>,
   workflow: string | undefined,
@@ -348,6 +342,7 @@ function resolveInputs(
   const resolvedWorkflow = workflow ?? record?.imageWorkflow;
   return {
     prompt,
+    basePrompt,
     negativePrompt,
     seed: typeof shared.seed === "number" ? shared.seed : (record?.imageSeed ?? randomSeed()),
     ...(resolvedWorkflow === undefined ? {} : { workflow: resolvedWorkflow }),
@@ -400,7 +395,9 @@ function planJobs(
       return { error: NO_PROMPT, usage: true };
     // A transition record has no prompt or seed fields, so nothing is written
     // back for it; its inputs are recorded in the ingest log like a cut's.
-    const inputs = resolveInputs(prompt, negative ?? "", shared, workflow, undefined);
+    // A transition composes nothing, so what was submitted and what the run was
+    // given are the same string.
+    const inputs = resolveInputs(prompt, prompt, negative ?? "", shared, workflow, undefined);
     return {
       jobs: [
         {
@@ -448,6 +445,7 @@ function planJobs(
     // two images, and it is read above, before this.
     const inputs = resolveInputs(
       composed,
+      cutPrompt,
       cutNegative ?? "",
       shared,
       workflow,
@@ -459,7 +457,6 @@ function planJobs(
       target: { kind: "cut", episodeId, cutId, slot },
       request: requestFor(inputs),
       inputs,
-      basePrompt: cutPrompt,
       ...(cut?.panelAspect === undefined ? {} : { panelAspect: cut.panelAspect }),
     });
   }
@@ -567,7 +564,7 @@ async function recordRenderInputs(
       cut.id === target.cutId
         ? {
             ...cut,
-            imagePrompt: job.basePrompt ?? cut.imagePrompt,
+            imagePrompt: job.inputs.basePrompt,
             negativePrompt: job.inputs.negativePrompt,
             imageSeed: job.inputs.seed,
             ...(job.inputs.workflow === undefined ? {} : { imageWorkflow: job.inputs.workflow }),
@@ -586,11 +583,126 @@ async function recordRenderInputs(
 
 /**
  * A value as it has to appear in an instruction the operator retypes. A pack
- * workflow name is only required to be a non-empty string, so one containing a
- * space would otherwise print as two arguments.
+ * workflow name, and any prompt, are only required to be non-empty strings, so
+ * one containing a space would otherwise print as two arguments.
  */
-function flagValue(value: string): string {
-  return /^[A-Za-z0-9._-]+$/.test(value) ? value : JSON.stringify(value);
+function flagValue(value: unknown): string {
+  const text = String(value);
+  return /^[A-Za-z0-9._-]+$/.test(text) ? text : JSON.stringify(text);
+}
+
+/** What one job would submit, for comparison against what a record holds. */
+interface RepeatContext {
+  job: Job;
+  latent: { width?: number; height?: number };
+}
+
+/**
+ * No answer, as distinct from an answer of `undefined`.
+ *
+ * `undefined` is a VALUE this run would submit: it names no workflow, so the
+ * local config resolves one, and that is a real difference from a recorded name.
+ * `UNKNOWABLE` is the absence of an answer — the workflow's latent declares no
+ * width at the mapped node, so nothing can be said about what this run would
+ * render at, and a difference must not be claimed. Reading the first as the
+ * second is how the workflow fell out of the instruction on the one slot that
+ * never replays it.
+ */
+const UNKNOWABLE = Symbol("unknowable");
+
+/** How one recorded input is compared against this run, and asked for again. */
+interface RepeatInput {
+  /**
+   * What THIS run would use for that input, or `UNKNOWABLE` when there is no
+   * answer to compare. `undefined` is an answer: see the symbol's own note.
+   */
+  submitted: (ctx: RepeatContext) => string | number | undefined | typeof UNKNOWABLE;
+  /**
+   * Whether a difference here REFUSES the run. Size only, and only where the run
+   * left the dimension for the workflow to decide: a record edited on purpose is
+   * not a mistake, and refusing on the rest would turn every deliberate edit
+   * into a usage error whose only answer is retyping the value just written.
+   */
+  refuses: (ctx: RepeatContext) => boolean;
+  /** The flag that asks for the recorded value, or null when another field's does. */
+  instruct: (recorded: RenderInputs) => string | null;
+}
+
+/**
+ * How a repeat of a recorded render gets each input back — one entry per field
+ * of `RenderInputs`, and the whole of what `assertRepeatable` knows.
+ *
+ * Keyed by `keyof RenderInputs`, so a field added to the record and not decided
+ * here does not compile. That is the entire point of the shape. The instruction
+ * this table builds has shipped incomplete three times — first without the seed,
+ * then without the workflow, then without the prompts — and every omission was
+ * silent, because the fields were enumerated by hand and the list was shorter
+ * than the record. An operator who follows an incomplete instruction destroys
+ * the plate they were trying to keep, having done exactly what the tool said.
+ *
+ * A field is named only when this run would NOT arrive at the recorded value by
+ * itself, which is the same question for every field and is asked the same way:
+ * compare `submitted` against the record. That covers the slot asymmetry without
+ * knowing about it — a cut's record describes its clean plate, so a `--slot
+ * final` run replays none of the prompt, the negative prompt, the seed or the
+ * workflow, and each of them differs and is named.
+ */
+const REPEAT_INPUTS: Record<keyof RenderInputs, RepeatInput> = {
+  // A dimension the run pinned is deliberate, so it does not refuse — but it is
+  // still NAMED when it differs, because the operator's own `--width` stays in
+  // the command and an instruction that leaves it out is false.
+  width: {
+    submitted: ({ job, latent }) => job.inputs.width ?? latent.width ?? UNKNOWABLE,
+    refuses: ({ job }) => job.inputs.width === undefined,
+    instruct: (recorded) => `--width ${recorded.width}`,
+  },
+  height: {
+    submitted: ({ job, latent }) => job.inputs.height ?? latent.height ?? UNKNOWABLE,
+    refuses: ({ job }) => job.inputs.height === undefined,
+    instruct: (recorded) => `--height ${recorded.height}`,
+  },
+  seed: {
+    submitted: ({ job }) => job.inputs.seed,
+    refuses: () => false,
+    instruct: (recorded) => `--seed ${recorded.seed}`,
+  },
+  workflow: {
+    submitted: ({ job }) => job.inputs.workflow,
+    refuses: () => false,
+    instruct: (recorded) =>
+      typeof recorded.workflow === "string" ? `--workflow ${flagValue(recorded.workflow)}` : null,
+  },
+  // The SUBMITTED prompt is what the model saw, so it is what tells a repeat
+  // from a replacement — but the flag that restores it takes the BASE prompt,
+  // because `planJobs` composes the lockstrings and the palette clause again.
+  // Handing back the composed string would compose it twice.
+  prompt: {
+    submitted: ({ job }) => job.inputs.prompt,
+    refuses: () => false,
+    instruct: (recorded) =>
+      typeof recorded.basePrompt === "string" ? `--prompt ${flagValue(recorded.basePrompt)}` : null,
+  },
+  negativePrompt: {
+    submitted: ({ job }) => job.inputs.negativePrompt,
+    refuses: () => false,
+    instruct: (recorded) => `--negative ${flagValue(recorded.negativePrompt)}`,
+  },
+  // Carried by `prompt`, whose instruction is built from this value: composing
+  // this one produced that one, so a difference here that left the submitted
+  // prompt identical changed nothing the model saw.
+  basePrompt: {
+    submitted: ({ job }) => job.inputs.basePrompt,
+    refuses: () => false,
+    instruct: () => null,
+  },
+};
+
+/** The project-relative image a record currently points at, for either kind. */
+function associatedAsset(bundle: EpisodeBundle | undefined, target: AssetTarget): string | null {
+  if (target.kind === "cut") {
+    return bundle?.cuts.find((cut) => cut.id === target.cutId)?.image?.[target.slot] ?? null;
+  }
+  return bundle?.transitions.find((t) => t.id === target.transitionId)?.image ?? null;
 }
 
 /**
@@ -604,24 +716,12 @@ function flagValue(value: string): string {
  * Everything else replays, so the run looks like a faithful repeat, overwrites
  * the plate the operator approved, and says nothing.
  *
- * Narrow by construction, and PER DIMENSION: `--width 640` alone says nothing
- * about the height, so the height is still checked and `640x960` is not quietly
- * re-rendered as `640x1216`. A dimension this run pins is left alone, and so is
- * an asset with nothing recorded — "nothing recorded" is no claim to repeat,
- * never "no difference".
- *
- * The escape it names has to actually repeat the image, so it carries every
- * input this run would not replay by itself: the recorded SEED and the recorded
- * WORKFLOW. That is not hypothetical — the cut's record describes the clean
- * plate, so a `--slot final` run replays neither, and an instruction missing
- * either one re-renders the final plate at the right size from a fresh roll, or
- * through whatever workflow the local config resolves, and destroys it while the
- * operator does exactly what the tool said. The same holds on the clean slot
- * whenever the record and the log have diverged.
- *
- * It names every dimension the record carries, pinned or not, for the same
- * reason: "pass --width 640" is false when the operator's own `--height` stays
- * in the command, and the size that repeats the image is both of them.
+ * That is the only thing it refuses over, and the check is narrow by
+ * construction: an asset with nothing recorded is no claim to repeat, and a
+ * dimension the run pinned is deliberate. What it then PRINTS is a different
+ * question, and `REPEAT_INPUTS` answers it for every field of the record rather
+ * than for the ones anybody remembered: an instruction that repeats the render
+ * is the reason this refusal exists.
  *
  * It refuses rather than warning, and refuses the whole run before the first
  * request: the damage is destructive and the alternative — a warning above a
@@ -630,47 +730,47 @@ function flagValue(value: string): string {
 async function assertRepeatable(
   root: string,
   ready: readonly ReadyJob[],
-  cutsById: ReadonlyMap<string, Cut>,
+  bundle: EpisodeBundle | undefined,
 ): Promise<{ error: string; exit: number } | null> {
   for (const { job, latent } of ready) {
     const target = job.target;
-    if (target.kind !== "cut") continue;
     // The path the RECORD holds, matched whole: an id may contain a dot, so a
-    // name-prefix lookup lets a sibling cut's asset answer for this one.
-    const assetPath = cutsById.get(target.cutId)?.image?.[target.slot];
-    if (assetPath == null) continue;
+    // name-prefix lookup lets a sibling record's asset answer for this one.
+    const assetPath = associatedAsset(bundle, target);
+    if (assetPath === null) continue;
     const recorded = await recordedRenderInputs(root, target.episodeId, assetPath);
     if (recorded === undefined) continue;
 
+    const ctx: RepeatContext = { job, latent };
     const differences: string[] = [];
-    const repeatFlags: string[] = [];
-    for (const [name, flag, was, pinned, now] of [
-      ["width", "--width", recorded.width, job.inputs.width, latent.width],
-      ["height", "--height", recorded.height, job.inputs.height, latent.height],
-    ] as const) {
-      if (typeof was === "number") repeatFlags.push(`${flag} ${was}`);
-      if (pinned !== undefined) continue; // this run says what it wants here
-      if (typeof was !== "number" || now === undefined || was === now) continue;
-      differences.push(`${name} ${now} instead of ${was}`);
+    const instructions: string[] = [];
+    let unaskable = false;
+    for (const key of Object.keys(REPEAT_INPUTS) as (keyof RenderInputs)[]) {
+      const was = recorded[key];
+      if (was === undefined) continue; // nothing recorded for it to differ from
+      const input = REPEAT_INPUTS[key];
+      const now = input.submitted(ctx);
+      if (now === UNKNOWABLE || now === was) continue; // no answer, or already right
+      if (input.refuses(ctx)) differences.push(`${key} ${now} instead of ${was}`);
+      const flag = input.instruct(recorded);
+      if (flag === null) unaskable ||= key === "prompt";
+      else instructions.push(flag);
     }
     if (differences.length === 0) continue;
-    // Neither of these is a reason to refuse — a record edited on purpose is not
-    // a mistake — but a render that used another seed, or another workflow, is
-    // not a repeat. The instruction carries each one this run would not replay.
-    if (typeof recorded.seed === "number" && recorded.seed !== job.inputs.seed) {
-      repeatFlags.push(`--seed ${recorded.seed}`);
+
+    const lines = [
+      `${job.label.split(" at ")[0]}: this run would render at ${differences.join(", ")}, so it would replace the image on disk rather than repeat it — ` +
+        `the workflow's own latent stands for a dimension a run does not pin, and that image was not rendered at it. Nothing was generated.`,
+      "to repeat that image, add these to the command (replacing any it already passes):",
+      `  ${instructions.join(" ")}`,
+    ];
+    if (unaskable) {
+      // Only an entry written before the base prompt was recorded can land here.
+      lines.push(
+        `  (the prompt that produced it is in the ingest log for ${assetPath}; this record predates the prompt being stored as it was typed, so no flag can restore it)`,
+      );
     }
-    if (typeof recorded.workflow === "string" && recorded.workflow !== job.inputs.workflow) {
-      repeatFlags.push(`--workflow ${flagValue(recorded.workflow)}`);
-    }
-    return {
-      error:
-        `cut ${job.id} (${target.slot}): this run would render at ${differences.join(", ")}, so it would replace the image on disk rather than repeat it — ` +
-        `the workflow's own latent stands for a dimension a run does not pin, and that image was not rendered at it. ` +
-        `To repeat that image, run it with ${repeatFlags.join(" ")} instead of what this run passes. ` +
-        `To render something different on purpose, pass the size you want. Nothing was generated.`,
-      exit: EXIT_USAGE,
-    };
+    return { error: lines.join("\n"), exit: EXIT_USAGE };
   }
   return null;
 }
@@ -872,13 +972,8 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   // Sizes are final here, so this is the first point a run can tell a repeat of
   // an accepted image from a replacement of it — and it is still before the
   // first request, so refusing costs nothing.
-  const cutsById = new Map(
-    (loaded.project.episodes.find((b) => b.episode.id === episodeId)?.cuts ?? []).map((cut) => [
-      cut.id,
-      cut,
-    ]),
-  );
-  const repeatable = await assertRepeatable(root, ready, cutsById);
+  const bundle = loaded.project.episodes.find((b) => b.episode.id === episodeId);
+  const repeatable = await assertRepeatable(root, ready, bundle);
   if (repeatable !== null) {
     io.err(repeatable.error);
     return repeatable.exit;
