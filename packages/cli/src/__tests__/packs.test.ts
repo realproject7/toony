@@ -26,7 +26,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { decodeYaml } from "@toony/project-io";
+import { decodeYaml, encodeYaml } from "@toony/project-io";
 import { runExport } from "../commands/export.js";
 import { runGenerate } from "../commands/generate.js";
 import { runInit } from "../commands/init.js";
@@ -505,6 +505,97 @@ test("one batch runs each cut with the workflow that cut recorded (#240)", async
     assert.equal(one?.["3"]?.inputs.steps, 40);
     assert.equal(two?.["3"]?.inputs.steps, 12);
     assert.equal(two?.["3"]?.inputs.sampler_name, "ddim");
+  } finally {
+    comfy.close();
+  }
+});
+
+test("the escape a refusal names carries the workflow the plate was rendered with (#240)", async () => {
+  // A final plate rendered through a named workflow has nothing to replay it
+  // from — the cut's record describes the clean slot. An instruction naming only
+  // the size and the seed re-renders it at the right size, from the right seed,
+  // through the WRONG graph, and the operator gets there by obeying the tool.
+  await installPack();
+  const init = capture();
+  assert.equal(await runInit(["my-story"], init.io), EXIT_OK);
+  const dir = join(workdir, "my-story");
+  // An authored prompt: a final render writes no record to fall back on.
+  const cutsPath = join(dir, "episodes", "ep-001", "cuts.yaml");
+  const cuts = (await cutsOnDisk(dir)).map((cut) =>
+    cut.id === "cut-001" ? { ...cut, imagePrompt: "the lettered final pass" } : cut,
+  );
+  await writeFile(cutsPath, encodeYaml(cuts));
+
+  const comfy = await startFakeComfy();
+  try {
+    const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          dir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          "--workflow",
+          "high-detail",
+          "--seed",
+          "7",
+          "--width",
+          "640",
+          "--height",
+          "960",
+          "--allow-remote",
+        ],
+        first.io,
+      ),
+      EXIT_OK,
+      first.err.join("\n"),
+    );
+
+    const blind = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [dir, "--episode", "ep-001", "--cut", "cut-001", "--slot", "final", "--allow-remote"],
+        blind.io,
+      ),
+      EXIT_USAGE,
+      blind.out.join("\n"),
+    );
+    const err = blind.err.join("\n");
+    const match = /run it with ((?:--\S+ \S+ ?)+)instead of/.exec(err);
+    assert.ok(match, `no repeat instruction in:\n${err}`);
+    const flags = (match[1] ?? "").trim().split(/\s+/);
+    assert.ok(flags.includes("--workflow"), flags.join(" "));
+
+    // The instruction, verbatim: the pack's graph (steps 40 / dpmpp_2m), not the
+    // bundled default (steps 25 / euler) the config would otherwise resolve.
+    const obey = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          dir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--slot",
+          "final",
+          ...flags,
+          "--allow-remote",
+        ],
+        obey.io,
+      ),
+      EXIT_OK,
+      obey.err.join("\n"),
+    );
+    const [original, repeated] = comfy.graphs();
+    assert.equal(repeated?.["3"]?.inputs.steps, 40, "the repeat used another graph");
+    assert.deepEqual(repeated?.["3"]?.inputs, original?.["3"]?.inputs);
+    assert.deepEqual(repeated?.["5"]?.inputs, original?.["5"]?.inputs);
+    assert.deepEqual(repeated?.["6"]?.inputs, original?.["6"]?.inputs);
   } finally {
     comfy.close();
   }

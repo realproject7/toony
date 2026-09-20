@@ -585,6 +585,15 @@ async function recordRenderInputs(
 }
 
 /**
+ * A value as it has to appear in an instruction the operator retypes. A pack
+ * workflow name is only required to be a non-empty string, so one containing a
+ * space would otherwise print as two arguments.
+ */
+function flagValue(value: string): string {
+  return /^[A-Za-z0-9._-]+$/.test(value) ? value : JSON.stringify(value);
+}
+
+/**
  * Refuse a run that would REPLACE an accepted image with a different render
  * while reading as a repeat of it (#240).
  *
@@ -601,13 +610,18 @@ async function recordRenderInputs(
  * an asset with nothing recorded — "nothing recorded" is no claim to repeat,
  * never "no difference".
  *
- * The escape it names has to actually repeat the image, so it carries the
- * recorded SEED whenever this run would not use it. That is not hypothetical:
- * the cut's record describes the clean plate, so a `--slot final` run replays no
- * seed at all, and following a size-only instruction would re-render the final
- * plate at the right size from a fresh roll — destroying it while obeying the
- * tool. The same holds on the clean slot whenever the record and the log have
- * diverged.
+ * The escape it names has to actually repeat the image, so it carries every
+ * input this run would not replay by itself: the recorded SEED and the recorded
+ * WORKFLOW. That is not hypothetical — the cut's record describes the clean
+ * plate, so a `--slot final` run replays neither, and an instruction missing
+ * either one re-renders the final plate at the right size from a fresh roll, or
+ * through whatever workflow the local config resolves, and destroys it while the
+ * operator does exactly what the tool said. The same holds on the clean slot
+ * whenever the record and the log have diverged.
+ *
+ * It names every dimension the record carries, pinned or not, for the same
+ * reason: "pass --width 640" is false when the operator's own `--height` stays
+ * in the command, and the size that repeats the image is both of them.
  *
  * It refuses rather than warning, and refuses the whole run before the first
  * request: the damage is destructive and the alternative — a warning above a
@@ -634,23 +648,27 @@ async function assertRepeatable(
       ["width", "--width", recorded.width, job.inputs.width, latent.width],
       ["height", "--height", recorded.height, job.inputs.height, latent.height],
     ] as const) {
+      if (typeof was === "number") repeatFlags.push(`${flag} ${was}`);
       if (pinned !== undefined) continue; // this run says what it wants here
       if (typeof was !== "number" || now === undefined || was === now) continue;
       differences.push(`${name} ${now} instead of ${was}`);
-      repeatFlags.push(`${flag} ${was}`);
     }
     if (differences.length === 0) continue;
-    // The seed is not a reason to refuse — a record edited on purpose is not a
-    // mistake — but a repeat that used another seed is not a repeat, so the
-    // instruction carries it whenever this run would not replay it.
+    // Neither of these is a reason to refuse — a record edited on purpose is not
+    // a mistake — but a render that used another seed, or another workflow, is
+    // not a repeat. The instruction carries each one this run would not replay.
     if (typeof recorded.seed === "number" && recorded.seed !== job.inputs.seed) {
       repeatFlags.push(`--seed ${recorded.seed}`);
+    }
+    if (typeof recorded.workflow === "string" && recorded.workflow !== job.inputs.workflow) {
+      repeatFlags.push(`--workflow ${flagValue(recorded.workflow)}`);
     }
     return {
       error:
         `cut ${job.id} (${target.slot}): this run would render at ${differences.join(", ")}, so it would replace the image on disk rather than repeat it — ` +
         `the workflow's own latent stands for a dimension a run does not pin, and that image was not rendered at it. ` +
-        `Pass ${repeatFlags.join(" ")} to repeat that image, or pass --width/--height to render a different size on purpose. Nothing was generated.`,
+        `To repeat that image, run it with ${repeatFlags.join(" ")} instead of what this run passes. ` +
+        `To render something different on purpose, pass the size you want. Nothing was generated.`,
       exit: EXIT_USAGE,
     };
   }

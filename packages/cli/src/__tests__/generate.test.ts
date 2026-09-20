@@ -2318,7 +2318,7 @@ test("a deliberate size, and an image with no recorded size, are left alone (#24
  * repeats the render.
  */
 function repeatFlagsFrom(stderr: string): string[] {
-  const match = /Pass ((?:--\S+ \S+ ?)+)to repeat that image/.exec(stderr);
+  const match = /run it with ((?:--\S+ \S+ ?)+)instead of/.exec(stderr);
   assert.ok(match, `no repeat instruction in:\n${stderr}`);
   return (match[1] ?? "").trim().split(/\s+/);
 }
@@ -2567,6 +2567,78 @@ test("a sibling cut whose id contains a dot does not answer for this one (#240)"
     );
     const [original, , repeated] = comfy.bodies().map(normalizeClientId);
     assert.equal(repeated, original, "cut-001 did not repeat its own render");
+  } finally {
+    comfy.close();
+  }
+});
+
+test("the instruction names the whole size, not just the piece this run omitted (#240)", async () => {
+  // A pinned dimension that does NOT match the record stays in the operator's
+  // command, so "pass --width 640" would land them at 640x1000 and call it a
+  // repeat. What repeats the image is both dimensions.
+  const projectDir = await scaffold();
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const first = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--prompt",
+          "a rooftop at dusk",
+          "--seed",
+          "7",
+          "--width",
+          "640",
+          "--height",
+          "960",
+          "--allow-remote",
+        ],
+        first.io,
+      ),
+      EXIT_OK,
+      first.err.join("\n"),
+    );
+
+    const conflicting = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [
+          projectDir,
+          "--episode",
+          "ep-001",
+          "--cut",
+          "cut-001",
+          "--height",
+          "1000",
+          "--allow-remote",
+        ],
+        conflicting.io,
+      ),
+      EXIT_USAGE,
+      conflicting.out.join("\n"),
+    );
+    const err = conflicting.err.join("\n");
+    assert.match(err, /width 832 instead of 640/);
+    const flags = repeatFlagsFrom(err);
+    assert.deepEqual(flags, ["--width", "640", "--height", "960"]);
+
+    // And following it repeats the render, height included.
+    const obey = capture({ TOONY_COMFYUI_URL: comfy.url });
+    assert.equal(
+      await runGenerate(
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", ...flags, "--allow-remote"],
+        obey.io,
+      ),
+      EXIT_OK,
+      obey.err.join("\n"),
+    );
+    const [original, obeyed] = comfy.bodies().map(normalizeClientId);
+    assert.equal(obeyed, original);
   } finally {
     comfy.close();
   }

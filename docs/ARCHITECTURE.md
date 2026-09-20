@@ -189,9 +189,12 @@ nothing about the other: `--width 640` after a `640x960` render is checked on it
 height, and is refused rather than quietly re-rendered at `640x1216`. A dimension
 the run pins, or that the cut's `panelAspect` declares, is left alone.
 
-The instruction it prints carries the recorded **seed** whenever the run would
-not replay it — a repeat at the right size from a different seed is not a repeat.
-That is the ordinary case on the `final` slot, which replays no record at all.
+The instruction it prints carries every input the run would not replay by
+itself — the recorded **seed** and the recorded **workflow** — because a repeat
+at the right size from a different seed, or through a different graph, is not a
+repeat. Both are the ordinary case on the `final` slot, which replays no record
+at all. It names both dimensions too: a dimension the run pinned stays in the
+operator's command, so naming only the missing one would be false.
 
 A failed write-back is reported as itself, never as a failed generation. The two
 states differ in what is on disk — one has no image, the other has the image and
