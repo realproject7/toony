@@ -34,7 +34,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { createCanvas } from "@napi-rs/canvas";
-import { decodeYaml, encodeYaml } from "@toony/project-io";
+import { decodeYaml, encodeYaml, loadProject } from "@toony/project-io";
 import { recordedShellCommand } from "../__fixtures__/shell.js";
 import { runExport } from "../commands/export.js";
 import { runGenerate } from "../commands/generate.js";
@@ -225,6 +225,44 @@ test("with no packs installed, init writes byte-for-byte what it wrote before th
     );
     await rm(join(workdir, "demo"), { recursive: true, force: true });
   }
+});
+
+test("init reports each resolved starter fragment's shape and plans before mass generation", async () => {
+  const assertFragmentSummary = async (name: string, output: string[]): Promise<void> => {
+    const { project } = await loadProject(join(workdir, name));
+    const cuts = project.episodes.reduce((count, bundle) => count + bundle.cuts.length, 0);
+    const transitions = project.episodes.reduce(
+      (count, bundle) => count + bundle.transitions.length,
+      0,
+    );
+    const cutLabel = `${cuts} cut${cuts === 1 ? "" : "s"}`;
+    const transitionLabel = `${transitions} transition${transitions === 1 ? "" : "s"}`;
+    assert.ok(
+      output.includes(`starter fragment: ${cutLabel}, ${transitionLabel}`),
+      `init summary must describe the resolved project: ${output.join("\n")}`,
+    );
+    assert.ok(
+      output.some((line) => /before mass generation: .*toony plan --episode ep-001$/.test(line)),
+      `init must direct the author to plan before generating: ${output.join("\n")}`,
+    );
+  };
+
+  const bare = capture();
+  assert.equal(await runInit(["bare"], bare.io), EXIT_OK, bare.err.join("\n"));
+  await assertFragmentSummary("bare", bare.out);
+
+  const core = capture();
+  assert.equal(
+    await runInit(["core", "--genre", "romance"], core.io),
+    EXIT_OK,
+    core.err.join("\n"),
+  );
+  await assertFragmentSummary("core", core.out);
+
+  await installPack();
+  const pack = capture();
+  assert.equal(await runInit(["pack", "--genre", "noir"], pack.io), EXIT_OK, pack.err.join("\n"));
+  await assertFragmentSummary("pack", pack.out);
 });
 
 test("a pack that is installed but not selected changes nothing init writes", async () => {
