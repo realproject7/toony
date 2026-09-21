@@ -97,6 +97,18 @@ test("JPEG marker fill preserves prepared and composed pixels", async () => {
   assert.deepEqual(composed.canvas.toBuffer("image/png"), expected);
 });
 
+test("prepared bytes reuse the source decode during composition", async () => {
+  const source = createCanvas(3, 5).toBuffer("image/jpeg");
+  const first = await prepareImage(source, 'cut "cache-source"');
+
+  // Target preflight owns `source`; composeCut receives `first.bytes`. Both
+  // identities must return the original PreparedImage, so the latter cannot
+  // launch another decoder child and normalize the image a second time.
+  assert.strictEqual(await prepareImage(source, 'cut "cache-source-again"'), first);
+  assert.notStrictEqual(first.bytes, source);
+  assert.strictEqual(await prepareImage(first.bytes, 'cut "cache-normalized"'), first);
+});
+
 function crc32(bytes: Uint8Array): number {
   let crc = 0xffffffff;
   for (const byte of bytes) {

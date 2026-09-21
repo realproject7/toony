@@ -53,7 +53,9 @@ export interface PreparedImage {
 }
 
 // A weak identity cache avoids decoding twice between target preflight and
-// composeCut. It contains only encoder-produced buffers, never source bytes.
+// composeCut. Each successful decode is retained under both the untrusted
+// source identity and its encoder-produced normalized bytes: targets prepare
+// the former, then composition receives the latter.
 const prepared = new WeakMap<Uint8Array, PreparedImage>();
 const canvasModule = createRequire(import.meta.url).resolve("@napi-rs/canvas");
 
@@ -173,6 +175,7 @@ export async function prepareImage(bytes: Uint8Array, label: string): Promise<Pr
     width: png.readUInt32BE(16),
     height: png.readUInt32BE(20),
   };
+  prepared.set(bytes, result);
   prepared.set(result.bytes, result);
   return result;
 }
