@@ -4,11 +4,17 @@
 // the project's `exports/<target>` folder, and emits a manifest with
 // project-relative paths.
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, open, writeFile } from "node:fs/promises";
 import { type Canvas, createCanvas } from "@napi-rs/canvas";
 import { loadProject } from "@toony/project-io";
+import { layoutTransition, resolveBandHeight } from "@toony/render";
 import { type Cut, type EpisodeBundle, type Project, resolveReferenceWidth } from "@toony/schema";
-import { type ComposeCutOptions, composeCut, composeTransitionBand } from "./compose.js";
+import {
+  type ComposeCutOptions,
+  composeCut,
+  composeTransitionBand,
+  cutRasterHeight,
+} from "./compose.js";
 import {
   DEFAULT_JPEG_QUALITY,
   DEFAULT_WEBP_QUALITY,
@@ -18,6 +24,7 @@ import {
 } from "./defaults.js";
 import { encodeCanvas, encodeWebpToFit, type RasterFormat } from "./encode.js";
 import { ExportError } from "./errors.js";
+import { readImageDimensions } from "./image-dimensions.js";
 import {
   type ExportManifest,
   type ExportTargetKind,
@@ -30,6 +37,13 @@ import {
   sha256Hex,
 } from "./manifest.js";
 import { buildPlotlinkMarkdown } from "./markdown.js";
+import {
+  assertRasterBudget,
+  assertRasterSize,
+  IMAGE_FILE_BYTES_MAX,
+  type PreparedImage,
+  prepareImage,
+} from "./raster-safety.js";
 
 export interface ExportOptions {
   /** Render width in px. Each target has a sensible default. */
@@ -49,7 +63,8 @@ export interface ExportOutput {
 interface LoadedEpisode {
   project: Project;
   bundle: EpisodeBundle;
-  imageFor: (cutId: string) => Uint8Array | null;
+  imageFor: (cutId: string) => PreparedImage | null;
+  imageDataBytes: number;
 }
 
 async function writeFileSafe(file: string, data: string | Uint8Array, what: string): Promise<void> {
@@ -81,27 +96,70 @@ async function loadEpisode(root: string, episodeId: string): Promise<LoadedEpiso
     throw new ExportError("episode-not-found", `episode not found: ${episodeId}`);
   }
 
-  const images = new Map<string, Uint8Array | null>();
+  const images = new Map<string, PreparedImage | null>();
+  let imageDataBytes = 0;
   for (const cut of bundle.cuts) {
     const ref = cut.image?.final ?? cut.image?.clean ?? null;
     if (ref === null) {
       images.set(cut.id, null);
       continue;
     }
+    let bytes: Uint8Array;
     try {
-      images.set(cut.id, new Uint8Array(await readFile(`${root}/${ref}`)));
-    } catch {
+      const file = await open(`${root}/${ref}`, "r");
+      try {
+        const { size } = await file.stat();
+        if (size > IMAGE_FILE_BYTES_MAX) {
+          throw new ExportError(
+            "invalid-image",
+            `cut "${cut.id}" has ${size} encoded bytes; the source image limit is ${IMAGE_FILE_BYTES_MAX} bytes.`,
+          );
+        }
+        // A bounded read from the open file cannot grow beyond the checked size
+        // if another process appends to it while this export is running.
+        bytes = new Uint8Array(size);
+        let offset = 0;
+        while (offset < size) {
+          const { bytesRead } = await file.read(bytes, offset, size - offset, offset);
+          if (bytesRead === 0) break;
+          offset += bytesRead;
+        }
+        bytes = bytes.subarray(0, offset);
+      } finally {
+        await file.close();
+      }
+    } catch (cause) {
+      if (cause instanceof ExportError) throw cause;
       throw new ExportError(
         "asset-not-found",
         `cut "${cut.id}" references "${ref}", which could not be read.`,
       );
     }
+    const shape = readImageDimensions(bytes);
+    if (shape) {
+      // Before native decode, budget this child's source image, normalization
+      // canvas and raw-equivalent encoded output, alongside retained inputs.
+      assertRasterBudget(
+        imageDataBytes + bytes.byteLength + shape.width * shape.height * 12 + 1024 * 1024,
+        `episode "${episodeId}" source cut "${cut.id}" (${shape.width} x ${shape.height})`,
+      );
+    }
+    const image = await prepareImage(bytes, `cut "${cut.id}"`);
+    // Conservatively include source bytes, normalized bytes, and all source
+    // pixel storage rather than depending on native garbage-collection timing.
+    imageDataBytes += bytes.byteLength + image.bytes.byteLength + image.width * image.height * 4;
+    assertRasterBudget(
+      imageDataBytes,
+      `episode "${episodeId}" source images through cut "${cut.id}"`,
+    );
+    images.set(cut.id, image);
   }
 
   return {
     project: loaded.project,
     bundle,
     imageFor: (cutId) => images.get(cutId) ?? null,
+    imageDataBytes,
   };
 }
 
@@ -120,10 +178,47 @@ async function loadEpisode(root: string, episodeId: string): Promise<LoadedEpiso
  */
 function composeOptions(project: Project, cut: Cut): ComposeCutOptions {
   return {
+    imageLabel: `cut "${cut.id}"`,
     dialogueLanguage: project.webtoon.languages.dialogueLanguage,
     gutterBandWidth: project.webtoon.gutterBandWidth,
     panelAspect: cut.panelAspect,
   };
+}
+
+/** Check the entire allocation plan before creating any cut, band or page canvas. */
+function preflightRasters(loaded: LoadedEpisode, width: number, stitched: boolean): number {
+  const { bundle, project, imageFor, imageDataBytes } = loaded;
+  const cuts = new Map(bundle.cuts.map((cut) => [cut.id, cut]));
+  const transitions = new Map(bundle.transitions.map((transition) => [transition.id, transition]));
+  const referenceWidth = resolveReferenceWidth(project.webtoon.referenceWidth);
+  let totalHeight = 0;
+  let largestHeight = 1;
+  let count = 0;
+  for (const item of bundle.episode.sequence) {
+    let height = 0;
+    if (item.type === "cut") {
+      const cut = cuts.get(item.id);
+      if (cut) height = cutRasterHeight(width, cut.panelAspect, imageFor(cut.id));
+    } else if (stitched) {
+      const transition = transitions.get(item.id);
+      if (transition)
+        height = resolveBandHeight(layoutTransition(transition), width, referenceWidth);
+    }
+    if (height <= 0) continue;
+    assertRasterSize(width, height, `${item.type} "${item.id}"`);
+    totalHeight += height;
+    largestHeight = Math.max(largestHeight, height);
+    count++;
+  }
+  totalHeight = Math.max(1, totalHeight);
+  const label = `episode "${bundle.episode.id}" (${count} rasters, ${width} x ${totalHeight})`;
+  if (stitched) assertRasterSize(width, totalHeight, label);
+  // Reserve the band collection, final canvas, and one raw-equivalent encoded
+  // output buffer (or measure's bounded pixel reads). Platform/PlotLink retain
+  // one cut canvas plus its output instead. Codec scratch space is additional.
+  const canvasBytes = width * (stitched ? totalHeight * 3 : largestHeight * 2) * 4;
+  assertRasterBudget(imageDataBytes + canvasBytes, label);
+  return totalHeight;
 }
 
 /** Cut records in canonical reading order (from the episode sequence). */
@@ -186,8 +281,10 @@ export async function exportPlatform(
   episodeId: string,
   options: ExportOptions = {},
 ): Promise<ExportOutput> {
-  const { bundle, project, imageFor } = await loadEpisode(root, episodeId);
+  const loaded = await loadEpisode(root, episodeId);
+  const { bundle, project, imageFor } = loaded;
   const width = Math.max(1, Math.round(options.width ?? PLATFORM_DEFAULT_WIDTH));
+  preflightRasters(loaded, width, false);
   const format: RasterFormat = options.format ?? "png";
   const quality = format === "jpeg" ? (options.quality ?? DEFAULT_JPEG_QUALITY) : null;
 
@@ -202,7 +299,7 @@ export async function exportPlatform(
     const overlays = bundle.lettering.filter((o) => o.cutId === cut.id);
     const composed = await composeCut(
       overlays,
-      imageFor(cut.id),
+      imageFor(cut.id)?.bytes ?? null,
       width,
       composeOptions(project, cut),
     );
@@ -246,8 +343,10 @@ export async function stitchEpisode(
   episodeId: string,
   width?: number,
 ): Promise<StitchedEpisode> {
-  const { bundle, project, imageFor } = await loadEpisode(root, episodeId);
+  const loaded = await loadEpisode(root, episodeId);
+  const { bundle, project, imageFor } = loaded;
   const renderWidth = Math.max(1, Math.round(width ?? STITCHED_DEFAULT_WIDTH));
+  const totalHeight = preflightRasters(loaded, renderWidth, true);
   // The column the project's px gutter heights were authored against (#217).
   // Cuts already scale to `renderWidth`; the bands scale from here, so the page
   // rhythm is a property of the project and not of the requested width.
@@ -264,7 +363,7 @@ export async function stitchEpisode(
       const overlays = bundle.lettering.filter((o) => o.cutId === cut.id);
       const composed = await composeCut(
         overlays,
-        imageFor(cut.id),
+        imageFor(cut.id)?.bytes ?? null,
         renderWidth,
         composeOptions(project, cut),
       );
@@ -277,10 +376,6 @@ export async function stitchEpisode(
     }
   }
 
-  const totalHeight = Math.max(
-    1,
-    bands.reduce((sum, b) => sum + b.height, 0),
-  );
   const canvas = createCanvas(renderWidth, totalHeight);
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#ffffff";
@@ -339,8 +434,10 @@ export async function exportPlotlink(
   episodeId: string,
   options: ExportOptions = {},
 ): Promise<ExportOutput> {
-  const { bundle, project, imageFor } = await loadEpisode(root, episodeId);
+  const loaded = await loadEpisode(root, episodeId);
+  const { bundle, project, imageFor } = loaded;
   const width = Math.max(1, Math.round(options.width ?? PLOTLINK_DEFAULT_WIDTH));
+  preflightRasters(loaded, width, false);
   const cuts = orderedCuts(bundle);
   if (cuts.length > PLOTLINK_MAX_IMAGES) {
     throw new ExportError(
@@ -362,7 +459,7 @@ export async function exportPlotlink(
     const overlays = bundle.lettering.filter((o) => o.cutId === cut.id);
     const composed = await composeCut(
       overlays,
-      imageFor(cut.id),
+      imageFor(cut.id)?.bytes ?? null,
       width,
       composeOptions(project, cut),
     );

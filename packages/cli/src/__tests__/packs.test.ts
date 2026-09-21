@@ -33,6 +33,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
+import { createCanvas } from "@napi-rs/canvas";
 import { decodeYaml, encodeYaml } from "@toony/project-io";
 import { recordedShellCommand } from "../__fixtures__/shell.js";
 import { runExport } from "../commands/export.js";
@@ -839,11 +840,8 @@ test("an unreadable pack file is reported and the rest of the pack still works",
 // --- A ComfyUI-shaped test server, so `generate` exercises the real path -----
 
 const PROMPT_ID = "pack-test-1";
-const ONE_PIXEL_PNG = Buffer.from(
-  "89504e470d0a1a0a0000000d49484452000000010000000108020000009077" +
-    "3dfa0000000c4944415408d763f8cfc0000003010100b7b8b7bf0000000049454e44ae426082",
-  "hex",
-);
+// A real encoded fixture: the old hand-built 69-byte PNG crashed native decode.
+const ONE_PIXEL_PNG = createCanvas(1, 1).toBuffer("image/png");
 
 async function startFakeComfy(): Promise<{
   url: string;
