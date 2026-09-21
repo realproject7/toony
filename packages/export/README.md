@@ -36,7 +36,10 @@ Packing is deterministic and greedy, not a promise that every episode can fit.
 All strips are encoded before replacing a previous PlotLink package. Publication
 stages a complete directory and preserves unrelated files; obsolete images are
 removed only when owned by the previous valid manifest. A conflicting unowned
-output filename is reported without overwriting it. The bounded markdown is a
+output filename is reported without overwriting it. Claimed previous outputs
+must be regular files whose sizes and SHA-256 hashes match the manifest;
+changed or missing files and symlinks stop replacement, including stale images
+and the markdown support file. The bounded markdown is a
 support artifact and may be truncated at a line boundary above 10,000 characters;
 the image strips still contain the complete rendered episode.
 
