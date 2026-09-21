@@ -6,8 +6,10 @@ for a full-length episode. The measured reference sample contains 67–103 panel
 bands per episode; one band can contain more than one panel. Issue #243 tracks a
 separate original run of at least 60 cuts, with stage timings and recorded
 failures. Until that run is completed, generation time, review, lint, and export
-behavior at that scale remain unverified. PlotLink currently accepts at most 20
-cut images, so a 60-cut episode cannot pass that export target unchanged.
+behavior at that scale remain unverified by this capstone. PlotLink export now
+packs consecutive rendered cuts and transitions into at most 20 image strips
+for one episode; the image-file limit is not a source-cut limit. Each strip must
+meet the byte and WebP dimension limits at the requested width and quality.
 
 Status: PASSED (2026-06-17)
 

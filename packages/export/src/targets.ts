@@ -22,7 +22,7 @@ import {
   PLOTLINK_DEFAULT_WIDTH,
   STITCHED_DEFAULT_WIDTH,
 } from "./defaults.js";
-import { encodeCanvas, encodeWebpToFit, type RasterFormat } from "./encode.js";
+import { encodeCanvas, type RasterFormat } from "./encode.js";
 import { ExportError } from "./errors.js";
 import { readImageDimensions } from "./image-dimensions.js";
 import {
@@ -37,6 +37,8 @@ import {
   sha256Hex,
 } from "./manifest.js";
 import { buildPlotlinkMarkdown } from "./markdown.js";
+import { writePlotlinkPackage } from "./plotlink-package.js";
+import { type EpisodeBand, encodePlotlinkStrips, WEBP_DIMENSION_MAX } from "./plotlink-strips.js";
 import {
   assertRasterBudget,
   assertRasterSize,
@@ -186,7 +188,12 @@ function composeOptions(project: Project, cut: Cut): ComposeCutOptions {
 }
 
 /** Check the entire allocation plan before creating any cut, band or page canvas. */
-function preflightRasters(loaded: LoadedEpisode, width: number, stitched: boolean): number {
+function preflightRasters(
+  loaded: LoadedEpisode,
+  width: number,
+  stitched: boolean,
+  strips = false,
+): number {
   const { bundle, project, imageFor, imageDataBytes } = loaded;
   const cuts = new Map(bundle.cuts.map((cut) => [cut.id, cut]));
   const transitions = new Map(bundle.transitions.map((transition) => [transition.id, transition]));
@@ -199,7 +206,7 @@ function preflightRasters(loaded: LoadedEpisode, width: number, stitched: boolea
     if (item.type === "cut") {
       const cut = cuts.get(item.id);
       if (cut) height = cutRasterHeight(width, cut.panelAspect, imageFor(cut.id));
-    } else if (stitched) {
+    } else if (stitched || strips) {
       const transition = transitions.get(item.id);
       if (transition)
         height = resolveBandHeight(layoutTransition(transition), width, referenceWidth);
@@ -214,9 +221,14 @@ function preflightRasters(loaded: LoadedEpisode, width: number, stitched: boolea
   const label = `episode "${bundle.episode.id}" (${count} rasters, ${width} x ${totalHeight})`;
   if (stitched) assertRasterSize(width, totalHeight, label);
   // Reserve the band collection, final canvas, and one raw-equivalent encoded
-  // output buffer (or measure's bounded pixel reads). Platform/PlotLink retain
-  // one cut canvas plus its output instead. Codec scratch space is additional.
-  const canvasBytes = width * (stitched ? totalHeight * 3 : largestHeight * 2) * 4;
+  // output buffer (or measure's bounded pixel reads). Strip export holds bands,
+  // one codec-sized canvas and raw-equivalent encode/retry buffers, plus all
+  // accepted compressed files. Platform retains one cut canvas and its output.
+  // Codec scratch space is additional.
+  const canvasBytes = strips
+    ? width * (totalHeight + Math.min(totalHeight, WEBP_DIMENSION_MAX) * 3) * 4 +
+      PLOTLINK_MAX_IMAGES * PLOTLINK_MAX_BYTES
+    : width * (stitched ? totalHeight * 3 : largestHeight * 2) * 4;
   assertRasterBudget(imageDataBytes + canvasBytes, label);
   return totalHeight;
 }
@@ -344,9 +356,30 @@ export async function stitchEpisode(
   width?: number,
 ): Promise<StitchedEpisode> {
   const loaded = await loadEpisode(root, episodeId);
-  const { bundle, project, imageFor } = loaded;
+  const { bundle, project } = loaded;
   const renderWidth = Math.max(1, Math.round(width ?? STITCHED_DEFAULT_WIDTH));
   const totalHeight = preflightRasters(loaded, renderWidth, true);
+  const bands = await composeEpisodeBands(loaded, renderWidth);
+
+  const canvas = createCanvas(renderWidth, totalHeight);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, renderWidth, totalHeight);
+  let y = 0;
+  for (const band of bands) {
+    ctx.drawImage(band.canvas, 0, y);
+    y += band.height;
+  }
+
+  return { canvas, width: renderWidth, height: totalHeight, project, bundle };
+}
+
+/** The same rendered sequence feeds stitched pages and PlotLink strips. */
+async function composeEpisodeBands(
+  loaded: LoadedEpisode,
+  renderWidth: number,
+): Promise<EpisodeBand[]> {
+  const { bundle, project, imageFor } = loaded;
   // The column the project's px gutter heights were authored against (#217).
   // Cuts already scale to `renderWidth`; the bands scale from here, so the page
   // rhythm is a property of the project and not of the requested width.
@@ -355,7 +388,7 @@ export async function stitchEpisode(
   const transitionsById = new Map(bundle.transitions.map((t) => [t.id, t]));
   const cutsById = new Map(bundle.cuts.map((c) => [c.id, c]));
 
-  const bands: { canvas: Canvas; height: number }[] = [];
+  const bands: EpisodeBand[] = [];
   for (const item of bundle.episode.sequence) {
     if (item.type === "cut") {
       const cut = cutsById.get(item.id);
@@ -376,17 +409,7 @@ export async function stitchEpisode(
     }
   }
 
-  const canvas = createCanvas(renderWidth, totalHeight);
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, renderWidth, totalHeight);
-  let y = 0;
-  for (const band of bands) {
-    ctx.drawImage(band.canvas, 0, y);
-    y += band.height;
-  }
-
-  return { canvas, width: renderWidth, height: totalHeight, project, bundle };
+  return bands;
 }
 
 /** Export one stitched image preserving cuts, gutters, transitions, and lettering. */
@@ -435,14 +458,19 @@ export async function exportPlotlink(
   options: ExportOptions = {},
 ): Promise<ExportOutput> {
   const loaded = await loadEpisode(root, episodeId);
-  const { bundle, project, imageFor } = loaded;
+  const { bundle, project } = loaded;
   const width = Math.max(1, Math.round(options.width ?? PLOTLINK_DEFAULT_WIDTH));
-  preflightRasters(loaded, width, false);
-  const cuts = orderedCuts(bundle);
-  if (cuts.length > PLOTLINK_MAX_IMAGES) {
+  if (!Number.isSafeInteger(width) || width > WEBP_DIMENSION_MAX) {
     throw new ExportError(
-      "plotlink.too-many-images",
-      `PlotLink allows at most ${PLOTLINK_MAX_IMAGES} images; this episode has ${cuts.length} cuts.`,
+      "plotlink.invalid-width",
+      `PlotLink WebP width must be at most ${WEBP_DIMENSION_MAX} pixels. Choose a smaller export width.`,
+    );
+  }
+  const totalHeight = preflightRasters(loaded, width, false, true);
+  if (totalHeight > PLOTLINK_MAX_IMAGES * WEBP_DIMENSION_MAX) {
+    throw new ExportError(
+      "plotlink.cannot-fit",
+      `The complete episode is ${totalHeight} pixels tall at this width, exceeding ${PLOTLINK_MAX_IMAGES} WebP strips of ${WEBP_DIMENSION_MAX} pixels. Choose a smaller export width and check lettering readability. The previous export is unchanged.`,
     );
   }
 
@@ -451,45 +479,38 @@ export async function exportPlotlink(
 
   const outRel = `episodes/${episodeId}/exports/plotlink`;
   const outAbs = `${root}/${outRel}`;
-  await ensureDir(outAbs);
-
-  const files: ManifestFile[] = [];
-  for (let i = 0; i < cuts.length; i++) {
-    const cut = cuts[i] as Cut;
-    const overlays = bundle.lettering.filter((o) => o.cutId === cut.id);
-    const composed = await composeCut(
-      overlays,
-      imageFor(cut.id)?.bytes ?? null,
-      width,
-      composeOptions(project, cut),
-    );
-    const fit = encodeWebpToFit(
-      composed.canvas,
-      PLOTLINK_MAX_BYTES,
-      options.quality ?? DEFAULT_WEBP_QUALITY,
-    );
-    if (!fit.withinBudget) {
-      throw new ExportError(
-        "plotlink.too-large",
-        `cut "${cut.id}" could not be compressed under ${PLOTLINK_MAX_BYTES} bytes for PlotLink.`,
-      );
+  const bands = await composeEpisodeBands(loaded, width);
+  let strips: ReturnType<typeof encodePlotlinkStrips>;
+  try {
+    strips = encodePlotlinkStrips(bands, width, options.quality ?? DEFAULT_WEBP_QUALITY);
+  } finally {
+    for (const band of bands) {
+      band.canvas.width = 1;
+      band.canvas.height = 1;
     }
+  }
+
+  const outputs = new Map<string, string | Uint8Array>();
+  const files: ManifestFile[] = [];
+  for (let i = 0; i < strips.length; i++) {
+    const strip = strips[i];
+    if (!strip) continue;
     const name = `${String(i + 1).padStart(3, "0")}.webp`;
-    await writeFileSafe(`${outAbs}/${name}`, fit.bytes, "a PlotLink image");
+    outputs.set(name, strip.bytes);
     files.push({
       path: `${outRel}/${name}`,
       format: "webp",
-      width: fit.width,
-      height: fit.height,
-      byteSize: fit.bytes.length,
-      quality: fit.quality,
-      sha256: sha256Hex(fit.bytes),
+      width: strip.width,
+      height: strip.height,
+      byteSize: strip.bytes.length,
+      quality: strip.quality,
+      sha256: sha256Hex(strip.bytes),
     });
   }
 
   const mdName = "episode.md";
   const mdBytes = new TextEncoder().encode(markdownText);
-  await writeFileSafe(`${outAbs}/${mdName}`, markdownText, "the PlotLink markdown");
+  outputs.set(mdName, markdownText);
   const markdown: ManifestMarkdown = {
     path: `${outRel}/${mdName}`,
     characters: markdownText.length,
@@ -497,6 +518,7 @@ export async function exportPlotlink(
   };
 
   const manifest = buildManifest("plotlink", project, bundle, width, files, markdown);
-  await writeManifest(outAbs, manifest);
+  outputs.set(MANIFEST_FILE, stableJson(manifest));
+  await writePlotlinkPackage(outAbs, outRel, outputs);
   return { manifest, outDir: outAbs };
 }

@@ -244,9 +244,10 @@ Stitched export:
 PlotLink-ready export:
 
 - WebP images
-- max 20 images per episode
-- max 1MB per image
-- reading order preserved
+- max 20 image strips per episode (multiple consecutive cuts per strip)
+- max 1,000,000 bytes per image, max 16,383px per dimension
+- complete reading sequence preserved, including lettering and transition bands
+- requested width and quality retained; impossible fits fail before replacing prior output
 - generated markdown between 500 and 10,000 characters
 - manifest included
 
