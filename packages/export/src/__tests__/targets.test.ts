@@ -84,7 +84,7 @@ test("plotlink export writes WebP within budget, markdown, and a manifest", asyn
 
   assert.deepEqual(validateManifest(out.manifest), []);
   assert.equal(out.manifest.target, "plotlink");
-  assert.equal(out.manifest.files.length, 2);
+  assert.equal(out.manifest.files.length, 1);
   for (const file of out.manifest.files) {
     assert.equal(file.format, "webp");
     assert.ok(file.byteSize <= 1_000_000);
@@ -106,11 +106,16 @@ test("plotlink export refuses an episode below the markdown minimum", async () =
   await assert.rejects(() => exportPlotlink(root, "ep-001"), ExportError);
 });
 
-test("plotlink export enforces the 20-image limit", async () => {
+test("plotlink packs 21 cuts into at most 20 images instead of rejecting source cut count", async () => {
   const base = await mkdtemp(join(tmpdir(), "toony-export-"));
   const root = join(base, "proj");
   await writeProject(root, buildManyCutsProject(21));
-  await assert.rejects(() => exportPlotlink(root, "ep-001"), ExportError);
+  const out = await exportPlotlink(root, "ep-001");
+  assert.ok(out.manifest.files.length <= 20);
+  assert.equal(
+    out.manifest.files.reduce((height, file) => height + file.height, 0),
+    21 * 1120,
+  );
 });
 
 test("export refuses an unknown episode", async () => {
