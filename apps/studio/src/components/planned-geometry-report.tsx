@@ -206,14 +206,18 @@ export function PlannedGeometryReport({
                             )}
                           </td>
                           <td className="planned-geometry-transition-results">
-                            <span className={entry.share.inBand ? "chip chip-ok" : "chip chip-danger"}>
+                            <span
+                              className={entry.share.inBand ? "chip chip-ok" : "chip chip-danger"}
+                            >
                               {entry.share.inBand
                                 ? "Share in band"
                                 : `Share misses by ${number(entry.share.miss)}`}
                             </span>
                             {gradedHeight && (
                               <span
-                                className={gradedHeight.inBand ? "chip chip-ok" : "chip chip-danger"}
+                                className={
+                                  gradedHeight.inBand ? "chip chip-ok" : "chip chip-danger"
+                                }
                               >
                                 {gradedHeight.inBand
                                   ? "Height in band"
