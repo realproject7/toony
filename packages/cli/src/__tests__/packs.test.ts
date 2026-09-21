@@ -34,6 +34,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { decodeYaml, encodeYaml } from "@toony/project-io";
+import { recordedShellCommand } from "../__fixtures__/shell.js";
 import { runExport } from "../commands/export.js";
 import { runGenerate } from "../commands/generate.js";
 import { runInit } from "../commands/init.js";
@@ -574,9 +575,7 @@ test("the escape a refusal names carries the workflow the plate was rendered wit
     const err = blind.err.join("\n");
     const line = err.split("\n").find((l) => l.trim().startsWith("--"));
     assert.ok(line, `no repeat instruction in:\n${err}`);
-    const flags = (line.trim().match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []).map((token) =>
-      token.startsWith('"') ? (JSON.parse(token) as string) : token,
-    );
+    const flags = recordedShellCommand(`toony ${line.trim()}`, workdir).args;
     assert.ok(flags.includes("--workflow"), flags.join(" "));
 
     // The instruction, verbatim: the pack's graph (steps 40 / dpmpp_2m), not the
@@ -675,9 +674,7 @@ test("a plate rendered with no named workflow is repeated with no named workflow
     const err = named.err.join("\n");
     const line = err.split("\n").find((l) => l.trim().startsWith("--"));
     assert.ok(line, `no repeat instruction in:\n${err}`);
-    const flags = (line.trim().match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []).map((token) =>
-      token.startsWith('"') ? (JSON.parse(token) as string) : token,
-    );
+    const flags = recordedShellCommand(`toony ${line.trim()}`, workdir).args;
     // The instruction says to name no workflow, which is a thing a run can say.
     assert.deepEqual(flags, ["--width", "640", "--height", "960", "--workflow", ""]);
 
