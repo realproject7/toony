@@ -40,6 +40,7 @@ import { runExport } from "../commands/export.js";
 import { runGenerate } from "../commands/generate.js";
 import { runInit } from "../commands/init.js";
 import { runLint } from "../commands/lint.js";
+import { runPlan } from "../commands/plan.js";
 import { runValidate } from "../commands/validate.js";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 
@@ -176,7 +177,10 @@ const GUTTER_LINE = {
 };
 
 /** Install a pack contributing all three kinds under `<workdir>/.toony/packs`. */
-async function installPack(manifestOverrides: Record<string, unknown> = {}): Promise<string> {
+async function installPack(
+  manifestOverrides: Record<string, unknown> = {},
+  episodeId = NOIR.episode.id,
+): Promise<string> {
   const dir = join(workdir, ".toony", "packs", "example-pack");
   await mkdir(join(dir, "workflows"), { recursive: true });
   await mkdir(join(dir, "genres"), { recursive: true });
@@ -199,7 +203,10 @@ async function installPack(manifestOverrides: Record<string, unknown> = {}): Pro
     }),
   );
   await writeFile(join(dir, "workflows", "high-detail.json"), JSON.stringify(GRAPH));
-  await writeFile(join(dir, "genres", "noir.json"), JSON.stringify(NOIR));
+  await writeFile(
+    join(dir, "genres", "noir.json"),
+    JSON.stringify({ ...NOIR, episode: { ...NOIR.episode, id: episodeId } }),
+  );
   return dir;
 }
 
@@ -235,6 +242,8 @@ test("init reports each resolved starter fragment's shape and plans before mass 
       (count, bundle) => count + bundle.transitions.length,
       0,
     );
+    const episodeId = project.episodes[0]?.episode.id;
+    assert.ok(episodeId, "a starter fragment must include an episode to plan");
     const cutLabel = `${cuts} cut${cuts === 1 ? "" : "s"}`;
     const transitionLabel = `${transitions} transition${transitions === 1 ? "" : "s"}`;
     assert.ok(
@@ -242,8 +251,17 @@ test("init reports each resolved starter fragment's shape and plans before mass 
       `init summary must describe the resolved project: ${output.join("\n")}`,
     );
     assert.ok(
-      output.some((line) => /before mass generation: .*toony plan --episode ep-001$/.test(line)),
+      output.includes(
+        `before mass generation: cd ${join(workdir, name)} && toony plan --episode ${episodeId}`,
+      ),
       `init must direct the author to plan before generating: ${output.join("\n")}`,
+    );
+
+    const plan = capture();
+    assert.equal(
+      await runPlan([join(workdir, name), "--episode", episodeId], plan.io),
+      EXIT_OK,
+      `the printed plan command must be runnable: ${plan.err.join("\n")}`,
     );
   };
 
@@ -259,7 +277,7 @@ test("init reports each resolved starter fragment's shape and plans before mass 
   );
   await assertFragmentSummary("core", core.out);
 
-  await installPack();
+  await installPack({}, "noir-prologue");
   const pack = capture();
   assert.equal(await runInit(["pack", "--genre", "noir"], pack.io), EXIT_OK, pack.err.join("\n"));
   await assertFragmentSummary("pack", pack.out);

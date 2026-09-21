@@ -126,7 +126,12 @@ export async function runInit(args: string[], io: InitIo): Promise<number> {
   const flavor = genre ? ` (${genre} template)` : "";
   io.out(`created project "${project.webtoon.projectId}"${flavor} at ${target}`);
   io.out(starterFragmentSummary(project));
-  io.out(`before mass generation: cd ${shellQuote(target)} && toony plan --episode ep-001`);
+  const firstEpisodeId = project.episodes[0]?.episode.id;
+  if (firstEpisodeId !== undefined) {
+    io.out(
+      `before mass generation: cd ${shellQuote(target)} && toony plan --episode ${shellQuote(firstEpisodeId)}`,
+    );
+  }
   io.out(`next: cd ${shellQuote(target)} && toony validate`);
   return EXIT_OK;
 }

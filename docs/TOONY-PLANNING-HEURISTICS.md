@@ -18,12 +18,13 @@ that exact starting point rather than a claim about every template. Develop the
 fragment into an episode plan before paying for a large generation run:
 
 ```sh
-toony plan --episode ep-001
+toony plan --episode <starter-episode-id>
 ```
 
-Use the reported fragment shape to choose the next beats and vary their rhythm;
-do not multiply a seed mechanically. When comparing a plan or a finished
-episode with a craft band, record and read scale through the band's existing
+Use the first episode ID written by `toony init` — it is not universally
+`ep-001` — with the reported fragment shape to choose the next beats and vary
+their rhythm; do not multiply a seed mechanically. When comparing a plan or a
+finished episode with a craft band, record and read scale through the band's existing
 `provenance.works[].pageLengthInWidths` field. That length is the common
 evidence for how much page a measurement represents; this guidance adds no
 second scale definition.
