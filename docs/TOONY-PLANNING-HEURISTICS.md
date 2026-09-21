@@ -9,6 +9,26 @@ These are heuristics, not hard rules — but several are checked by `toony lint`
 (e.g. `craft/rhythm-monotony`, `craft/bubble-density`, `craft/tail-attribution`),
 so a scaffold that follows them stays lint-clean.
 
+## Start with a fragment, then plan the episode
+
+Every `toony init` result is a **starter fragment**, not a completed episode.
+The command reports the cut and transition counts from the resolved project it
+wrote — including a selected pack scaffold — so the number is evidence about
+that exact starting point rather than a claim about every template. Develop the
+fragment into an episode plan before paying for a large generation run:
+
+```sh
+toony plan --episode <starter-episode-id>
+```
+
+Use the first episode ID written by `toony init` — it is not universally
+`ep-001` — with the reported fragment shape to choose the next beats and vary
+their rhythm; do not multiply a seed mechanically. When comparing a plan or a
+finished episode with a craft band, record and read scale through the band's existing
+`provenance.works[].pageLengthInWidths` field. That length is the common
+evidence for how much page a measurement represents; this guidance adds no
+second scale definition.
+
 ## Universal heuristics
 
 - **Open a location with scale.** Lead a scene with an `establishing_wide` (or

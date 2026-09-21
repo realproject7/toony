@@ -33,6 +33,21 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+function plural(count: number, singular: string): string {
+  return `${count} ${singular}${count === 1 ? "" : "s"}`;
+}
+
+/** Count the resolved starter records, not the selected genre's presumed shape. */
+function starterFragmentSummary(project: ReturnType<typeof buildInitialProject>): string {
+  let cuts = 0;
+  let transitions = 0;
+  for (const bundle of project.episodes) {
+    cuts += bundle.cuts.length;
+    transitions += bundle.transitions.length;
+  }
+  return `starter fragment: ${plural(cuts, "cut")}, ${plural(transitions, "transition")}`;
+}
+
 /** Run `toony init`. Returns the process exit code. */
 export async function runInit(args: string[], io: InitIo): Promise<number> {
   // Packs are discovered from the folder `init` is run in — the workspace a new
@@ -110,6 +125,13 @@ export async function runInit(args: string[], io: InitIo): Promise<number> {
 
   const flavor = genre ? ` (${genre} template)` : "";
   io.out(`created project "${project.webtoon.projectId}"${flavor} at ${target}`);
+  io.out(starterFragmentSummary(project));
+  const firstEpisodeId = project.episodes[0]?.episode.id;
+  if (firstEpisodeId !== undefined) {
+    io.out(
+      `before mass generation: cd ${shellQuote(target)} && toony plan --episode ${shellQuote(firstEpisodeId)}`,
+    );
+  }
   io.out(`next: cd ${shellQuote(target)} && toony validate`);
   return EXIT_OK;
 }
