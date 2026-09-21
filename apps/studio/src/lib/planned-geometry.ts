@@ -8,6 +8,7 @@ import {
   measureEpisodePlan,
   type PlanBandReport,
   type PlanMeasurement,
+  type TransitionVocabularyVerdict,
   validateCraftBandValue,
 } from "@toony/export";
 import type { PackContent } from "@toony/packs";
@@ -77,4 +78,53 @@ export async function loadPlannedGeometry(
 /** Distance outside a range, in the same units as the displayed metric. */
 export function rangeMiss(value: number, min: number | null, max: number | null): number {
   return min !== null && value < min ? min - value : max !== null && value > max ? value - max : 0;
+}
+
+/**
+ * Presentation-ready transition-vocabulary measurements. `checkedInBand` includes
+ * these verdicts, so the Studio report must expose each contributing share and
+ * height result instead of leaving an aggregate failure unexplained.
+ */
+export interface PlannedTransitionRangeDetail {
+  value: number;
+  min: number | null;
+  max: number | null;
+  inBand: boolean;
+  miss: number;
+}
+
+export interface PlannedTransitionRangeUngradedDetail {
+  value: null;
+  min: number | null;
+  max: number | null;
+  graded: false;
+}
+
+export interface PlannedTransitionVocabularyDetail {
+  kinds: TransitionVocabularyVerdict["kinds"];
+  count: number;
+  share: PlannedTransitionRangeDetail;
+  height: PlannedTransitionRangeDetail | PlannedTransitionRangeUngradedDetail | null;
+  inBand: boolean;
+}
+
+export function transitionVocabularyDetails(
+  report: Pick<PlanBandReport, "transitions">,
+): PlannedTransitionVocabularyDetail[] {
+  return report.transitions.map((entry) => ({
+    kinds: entry.kinds,
+    count: entry.count,
+    share: {
+      ...entry.share,
+      miss: rangeMiss(entry.share.value, entry.share.min, entry.share.max),
+    },
+    height:
+      entry.height !== null && "inBand" in entry.height
+        ? {
+            ...entry.height,
+            miss: rangeMiss(entry.height.value, entry.height.min, entry.height.max),
+          }
+        : entry.height,
+    inBand: entry.inBand,
+  }));
 }

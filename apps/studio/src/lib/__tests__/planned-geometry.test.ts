@@ -6,10 +6,14 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { comparePlanToCraftBand, measureEpisodePlan } from "@toony/export";
+import { comparePlanToCraftBand, measureEpisodePlan, type PlanBandReport } from "@toony/export";
 import type { PackContent } from "@toony/packs";
 import { buildInitialProject, writeProject } from "@toony/project-io";
-import { loadPlannedGeometry, rangeMiss } from "../planned-geometry.js";
+import {
+  loadPlannedGeometry,
+  rangeMiss,
+  transitionVocabularyDetails,
+} from "../planned-geometry.js";
 
 const EMPTY_CONTENT: PackContent = {
   workflows: new Map(),
@@ -61,4 +65,27 @@ test("no-band and missing-band states do not invent a craft verdict", async (t) 
   assert.ok(missing.measurement);
   assert.equal(missing.report, null);
   assert.match(missing.error ?? "", /no longer available/);
+});
+
+test("transition vocabulary exposes each visible share and height miss behind the aggregate", () => {
+  const report = {
+    transitions: [
+      {
+        kinds: ["gutter"],
+        count: 2,
+        share: { value: 0.25, min: 0.5, max: 0.75, inBand: false },
+        height: { value: 0.1, min: 0.2, max: 0.8, inBand: false },
+        inBand: false,
+      },
+    ],
+  } satisfies Pick<PlanBandReport, "transitions">;
+
+  const [detail] = transitionVocabularyDetails(report);
+  assert.deepEqual(detail, {
+    kinds: ["gutter"],
+    count: 2,
+    share: { value: 0.25, min: 0.5, max: 0.75, inBand: false, miss: 0.25 },
+    height: { value: 0.1, min: 0.2, max: 0.8, inBand: false, miss: 0.1 },
+    inBand: false,
+  });
 });

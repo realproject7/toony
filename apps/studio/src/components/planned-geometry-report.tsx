@@ -3,7 +3,7 @@
 // is guessed from a genre or persisted into the project's schema.
 
 import type { PlanBandReport, PlanMeasurement } from "@toony/export";
-import { rangeMiss } from "@/lib/planned-geometry";
+import { rangeMiss, transitionVocabularyDetails } from "@/lib/planned-geometry";
 
 interface BandOption {
   id: string;
@@ -59,7 +59,9 @@ export function PlannedGeometryReport({
         </div>
         {gradedReport && (
           <span className={gradedReport.checkedInBand ? "chip chip-ok" : "chip chip-danger"}>
-            {gradedReport.checkedInBand ? "Checked metrics in band" : "Checked metrics out of band"}
+            {gradedReport.checkedInBand
+              ? "Checked plan measures in band"
+              : "Checked plan measures out of band"}
           </span>
         )}
         {ungraded && <span className="chip chip-warn">Not graded</span>}
@@ -146,6 +148,90 @@ export function PlannedGeometryReport({
               </tbody>
             </table>
           </div>
+          {report && transitionVocabularyDetails(report).length > 0 && (
+            <section
+              className="planned-geometry-transitions"
+              aria-labelledby="planned-transition-vocabulary"
+              data-testid="planned-transition-vocabulary"
+            >
+              <h3 id="planned-transition-vocabulary">Declared transition vocabulary</h3>
+              <p className="planned-geometry-summary">
+                These share and height checks are included in the checked plan result above.
+              </p>
+              <div className="planned-geometry-table-wrap">
+                <table className="planned-geometry-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Declared kinds</th>
+                      <th scope="col">Drawn gaps</th>
+                      <th scope="col">Share</th>
+                      <th scope="col">Median height</th>
+                      <th scope="col">Result</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {transitionVocabularyDetails(report).map((entry) => {
+                      const height = entry.height;
+                      const gradedHeight = height !== null && "inBand" in height ? height : null;
+                      return (
+                        <tr key={entry.kinds.join(",")}>
+                          <th scope="row">{entry.kinds.join(", ")}</th>
+                          <td>{entry.count}</td>
+                          <td>
+                            {number(entry.share.value)} of all drawn gaps
+                            <br />
+                            <span className="planned-geometry-detail">
+                              Band: {range(entry.share.min, entry.share.max)}
+                            </span>
+                          </td>
+                          <td>
+                            {height === null ? (
+                              "Not declared"
+                            ) : gradedHeight ? (
+                              <>
+                                {number(gradedHeight.value)} column widths
+                                <br />
+                                <span className="planned-geometry-detail">
+                                  Band: {range(gradedHeight.min, gradedHeight.max)}
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                No matching drawn gaps
+                                <br />
+                                <span className="planned-geometry-detail">
+                                  Height not graded; band: {range(height.min, height.max)}
+                                </span>
+                              </>
+                            )}
+                          </td>
+                          <td className="planned-geometry-transition-results">
+                            <span className={entry.share.inBand ? "chip chip-ok" : "chip chip-danger"}>
+                              {entry.share.inBand
+                                ? "Share in band"
+                                : `Share misses by ${number(entry.share.miss)}`}
+                            </span>
+                            {gradedHeight && (
+                              <span
+                                className={gradedHeight.inBand ? "chip chip-ok" : "chip chip-danger"}
+                              >
+                                {gradedHeight.inBand
+                                  ? "Height in band"
+                                  : `Height misses by ${number(gradedHeight.miss)}`}
+                              </span>
+                            )}
+                            {!gradedHeight && height !== null && (
+                              <span className="planned-geometry-detail">Height not graded</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
           {report && report.unchecked.length > 0 && (
             <p className="planned-geometry-summary">
               This band also grades metrics unavailable from a plan:{" "}
