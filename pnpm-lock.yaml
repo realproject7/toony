@@ -29,6 +29,9 @@ importers:
       '@toony/lint':
         specifier: workspace:*
         version: link:../../packages/lint
+      '@toony/packs':
+        specifier: workspace:*
+        version: link:../../packages/packs
       '@toony/project-io':
         specifier: workspace:*
         version: link:../../packages/project-io

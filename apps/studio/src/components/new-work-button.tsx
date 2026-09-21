@@ -11,10 +11,11 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 
-export function NewWorkButton() {
+export function NewWorkButton({ genres }: { genres: readonly { id: string; title: string }[] }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [genre, setGenre] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,11 +31,12 @@ export function NewWorkButton() {
       const response = await fetch("/api/work", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: trimmed }),
+        body: JSON.stringify({ name: trimmed, ...(genre ? { genre } : {}) }),
       });
       const data = (await response.json()) as { ok: boolean; id?: string; error?: string };
       if (!response.ok || !data.ok || !data.id) {
         setError(data.error ?? "Could not create the work.");
+        router.refresh();
         return;
       }
       router.push(`/w/${encodeURIComponent(data.id)}`);
@@ -44,7 +46,7 @@ export function NewWorkButton() {
     } finally {
       setBusy(false);
     }
-  }, [name, router]);
+  }, [name, genre, router]);
 
   if (!open) {
     return (
@@ -65,6 +67,7 @@ export function NewWorkButton() {
         type="text"
         className="new-work-input"
         placeholder="Webtoon title"
+        aria-label="Webtoon title"
         value={name}
         disabled={busy}
         onChange={(e) => {
@@ -77,6 +80,29 @@ export function NewWorkButton() {
         }}
         data-testid="new-work-name"
       />
+      <select
+        className="new-work-input"
+        aria-label="Starter (optional)"
+        data-testid="new-work-genre"
+        value={genre}
+        disabled={busy}
+        onChange={(event) => {
+          setGenre(event.target.value);
+          setError(null);
+        }}
+      >
+        <option value="">Bare default (no genre)</option>
+        {genre && !genres.some((entry) => entry.id === genre) && (
+          <option value={genre} disabled>
+            {genre} (unavailable)
+          </option>
+        )}
+        {genres.map((entry) => (
+          <option key={entry.id} value={entry.id}>
+            {entry.title}
+          </option>
+        ))}
+      </select>
       <button
         type="button"
         className="btn btn-primary"

@@ -13,23 +13,15 @@
 
 import { mkdir, stat } from "node:fs/promises";
 import { join, sep } from "node:path";
-import { buildInitialProject, slugify, writeProject } from "@toony/project-io";
+import { slugify, writeProject } from "@toony/project-io";
 import { safeErrorMessage } from "@/lib/errors";
+import { buildStudioProject, discoverStudioPacks, isCreateWorkPayload } from "@/lib/packs";
 import { workspaceRoot } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-interface CreatePayload {
-  name: string;
-}
-
 function badRequest(message: string): Response {
   return Response.json({ ok: false, error: message }, { status: 400 });
-}
-
-function isCreatePayload(value: unknown): value is CreatePayload {
-  if (typeof value !== "object" || value === null) return false;
-  return typeof (value as Record<string, unknown>).name === "string";
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -48,8 +40,8 @@ export async function POST(request: Request): Promise<Response> {
   } catch {
     return badRequest("request body must be valid JSON");
   }
-  if (!isCreatePayload(payload)) {
-    return badRequest("request body must be { name: string }");
+  if (!isCreateWorkPayload(payload)) {
+    return badRequest("request body must be { name: string, genre?: string }");
   }
   const name = payload.name.trim();
   if (name.length === 0) {
@@ -73,12 +65,21 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
+    // Re-discover at submit time: a removed pack must never silently create a
+    // different starter than the one the author selected.
+    const packs = await discoverStudioPacks(root);
+    const project = await buildStudioProject(name, payload.genre, packs.content);
+    if (!project) {
+      return badRequest(
+        `Starter "${payload.genre}" is no longer available. Choose another starter or the bare default.`,
+      );
+    }
     // First-run: the workspace root (e.g. ~/Documents/Toony) may not exist yet.
     // `writeProject` creates only the work folder non-recursively and requires
     // its parent to exist, so ensure the workspace root first — otherwise a
     // first-ever "New webtoon" would fail with ENOENT on a missing root (#75).
     await mkdir(root, { recursive: true });
-    await writeProject(target, buildInitialProject(name));
+    await writeProject(target, project);
   } catch (cause) {
     return Response.json(
       { ok: false, error: safeErrorMessage(cause, "could not create the work") },

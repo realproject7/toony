@@ -10,6 +10,7 @@
 import { join } from "node:path";
 import Link from "next/link";
 import { NewWorkButton } from "@/components/new-work-button";
+import { discoverStudioPacks } from "@/lib/packs";
 import { assetUrl } from "@/lib/project";
 import { listWorks, workspaceRoot } from "@/lib/workspace";
 
@@ -26,6 +27,7 @@ function formatUpdated(iso: string): string {
 export default async function LibraryPage() {
   const works = await listWorks();
   const wsRoot = workspaceRoot();
+  const packs = await discoverStudioPacks(wsRoot);
   const totalEpisodes = works.reduce((sum, work) => sum + work.episodeCount, 0);
   const totalCuts = works.reduce((sum, work) => sum + work.cutCount, 0);
 
@@ -48,10 +50,18 @@ export default async function LibraryPage() {
           </div>
         </div>
         <div className="editor-actions">
-          <NewWorkButton />
+          <NewWorkButton genres={packs.genreOptions} />
         </div>
       </header>
 
+      {packs.warnings.length > 0 && (
+        <details className="notice" data-testid="pack-warnings">
+          <summary>Some pack content is unavailable ({packs.warnings.length})</summary>
+          {packs.warnings.map((warning) => (
+            <p key={warning}>{warning}</p>
+          ))}
+        </details>
+      )}
       {works.length === 0 ? (
         <section className="notice" data-testid="library-empty">
           <h2 className="card-title">No works yet</h2>
@@ -60,7 +70,7 @@ export default async function LibraryPage() {
             folder in the workspace and opens its dashboard.
           </p>
           <p>
-            <NewWorkButton />
+            <NewWorkButton genres={packs.genreOptions} />
           </p>
         </section>
       ) : (

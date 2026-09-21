@@ -10,7 +10,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CutCanvas } from "@/components/cut-canvas";
 import { LoadError } from "@/components/load-error";
+import { PlannedGeometryReport } from "@/components/planned-geometry-report";
 import { TransitionBlock } from "@/components/transition-block";
+import { discoverStudioPacks } from "@/lib/packs";
+import { loadPlannedGeometry } from "@/lib/planned-geometry";
 import {
   cutReviewCounts,
   FALLBACK_ART,
@@ -25,10 +28,13 @@ export const dynamic = "force-dynamic";
 
 export default async function EpisodePreviewPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ workId: string; id: string }>;
+  searchParams: Promise<{ band?: string | string[] }>;
 }) {
   const { workId, id } = await params;
+  const query = await searchParams;
   const work = await resolveWork(decodeURIComponent(workId));
   if (!work) notFound();
   const episodeId = decodeURIComponent(id);
@@ -61,6 +67,16 @@ export default async function EpisodePreviewPage({
   const reviewCounts = cutReviewCounts(bundle.cuts);
   const cutCount = episode.sequence.filter((item) => item.type === "cut").length;
   const transitionCount = episode.sequence.filter((item) => item.type === "transition").length;
+  // The work root preserves a work-local pack's precedence over a workspace
+  // pack. Selection is URL state only: this project has no genre→band contract.
+  const selectedBandId = typeof query.band === "string" ? query.band : "";
+  const packs = await discoverStudioPacks(work.root);
+  const plannedGeometry = await loadPlannedGeometry(
+    work.root,
+    episode.id,
+    selectedBandId,
+    packs.content,
+  );
 
   return (
     <div data-testid="studio-episode-preview">
@@ -188,6 +204,11 @@ export default async function EpisodePreviewPage({
               <b>{lettering.length}</b>
             </div>
           </div>
+          <PlannedGeometryReport
+            bands={packs.craftBandOptions}
+            selectedBandId={selectedBandId}
+            {...plannedGeometry}
+          />
         </aside>
       </div>
     </div>
