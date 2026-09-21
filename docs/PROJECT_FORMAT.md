@@ -7,7 +7,6 @@ my-webtoon/
   webtoon.json
   story-bible.md
   style-guide.md
-  characters/
   episodes/
     ep-001/
       episode.yaml
@@ -26,6 +25,17 @@ my-webtoon/
   assets/
   logs/
 ```
+
+`story-bible.md` carries authored premise, cast and world context into image
+generation. An absent, blank or untouched scaffold has no effect. The generator
+reads it once per invocation and composes it with the scene, character lockstrings
+and palette. `--prompt` overrides the base scene text; the bible remains context.
+Stored cut prompts stay as authored so repeated generation never accumulates
+context. Other bible read errors stop the run before a provider is called.
+
+The character registry is `webtoon.json`'s `characters` array, edited by agents or
+CLI workflows. New scaffolds do not create an unused `characters/` folder; old
+folders remain untouched. `style-guide.md` is unchanged by this composition path.
 
 ## `webtoon.json`
 

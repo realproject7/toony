@@ -69,6 +69,7 @@ import {
   ProjectIoError,
   type RenderInputs,
   readConfig,
+  readStoryBible,
   recordedRenderInputs,
   writeCuts,
 } from "@toony/project-io";
@@ -87,6 +88,7 @@ import { passesAuthoringGate } from "../generate-gate.js";
 import { discoverPackContent } from "../packs.js";
 import { appendPaletteClause } from "../palette.js";
 import { latentHeightFor } from "../panel-shape.js";
+import { shellQuote } from "../shell.js";
 
 export interface GenerateIo {
   cwd: string;
@@ -306,6 +308,7 @@ interface ReadyJob {
 }
 
 interface PlanInput {
+  storyBible: string;
   episodeId: string;
   cutIds: readonly string[];
   transitionId?: string;
@@ -341,7 +344,7 @@ function resolveInputs(
 ): RenderInputs {
   const resolvedWorkflow = workflow ?? record?.imageWorkflow;
   return {
-    prompt,
+    prompt: prompt.trim(),
     basePrompt,
     negativePrompt,
     seed: typeof shared.seed === "number" ? shared.seed : (record?.imageSeed ?? randomSeed()),
@@ -371,6 +374,20 @@ function requestFor(inputs: RenderInputs): ImageRequest {
   };
 }
 
+/** Compose once for both new requests and repeat-instruction verification. */
+function composePrompt(
+  basePrompt: string,
+  cut: Cut | undefined,
+  registry: readonly Character[],
+  storyBible: string,
+): string {
+  const scene = appendPaletteClause(
+    injectCharacterLockstrings(basePrompt, cut?.characters, registry),
+    cut?.palette,
+  );
+  return storyBible === "" ? scene : `Story context:\n${storyBible}\n\nScene:\n${scene}`;
+}
+
 /**
  * Resolve every requested job's prompt BEFORE any of them runs.
  *
@@ -388,16 +405,22 @@ function planJobs(
   loaded: LoadedProject,
   input: PlanInput,
 ): { jobs: Job[] } | { error: string; usage: boolean } {
-  const { episodeId, cutIds, transitionId, slot, prompt, negative, workflow, shared } = input;
+  const { episodeId, cutIds, transitionId, slot, prompt, negative, workflow, shared, storyBible } =
+    input;
   const NO_PROMPT = "generation requires --prompt <text> (or a non-empty cut imagePrompt)";
   if (transitionId !== undefined) {
     if (prompt === undefined || prompt.trim().length === 0)
       return { error: NO_PROMPT, usage: true };
     // A transition record has no prompt or seed fields, so nothing is written
     // back for it; its inputs are recorded in the ingest log like a cut's.
-    // A transition composes nothing, so what was submitted and what the run was
-    // given are the same string.
-    const inputs = resolveInputs(prompt, prompt, negative ?? "", shared, workflow, undefined);
+    const inputs = resolveInputs(
+      composePrompt(prompt, undefined, [], storyBible),
+      prompt,
+      negative ?? "",
+      shared,
+      workflow,
+      undefined,
+    );
     return {
       jobs: [
         {
@@ -435,10 +458,7 @@ function planJobs(
     }
     // Lockstrings prepend (#92), then the palette clause appends (#207), so the
     // colour qualifies the whole scene rather than one character's description.
-    const composed = appendPaletteClause(
-      injectCharacterLockstrings(cutPrompt, cut?.characters, registry),
-      cut?.palette,
-    );
+    const composed = composePrompt(cutPrompt, cut, registry, storyBible);
     // The cut's recorded inputs describe its clean plate, so only a clean run
     // replays them. The PROMPT still falls back for either slot, as it has since
     // #38: `imagePrompt` is authored text a cut has always shared between its
@@ -581,16 +601,6 @@ async function recordRenderInputs(
   }
 }
 
-/**
- * A value as it has to appear in an instruction the operator retypes. A pack
- * workflow name, and any prompt, are only required to be non-empty strings, so
- * one containing a space would otherwise print as two arguments.
- */
-function flagValue(value: unknown): string {
-  const text = String(value);
-  return /^[A-Za-z0-9._-]+$/.test(text) ? text : JSON.stringify(text);
-}
-
 /** What one job would submit, for comparison against what a record holds. */
 interface RepeatContext {
   job: Job;
@@ -699,19 +709,19 @@ const REPEAT_INPUTS: Record<keyof RenderInputs, RepeatInput> = {
     recorded: (record) => record.width ?? UNRECORDED,
     submitted: ({ job, latent }) => job.inputs.width ?? latent.width ?? UNKNOWABLE,
     refuses: ({ job }) => job.inputs.width === undefined,
-    instruct: (value) => (typeof value === "number" ? `--width ${value}` : null),
+    instruct: (value) => (typeof value === "number" ? `--width ${shellQuote(value)}` : null),
   },
   height: {
     recorded: (record) => record.height ?? UNRECORDED,
     submitted: ({ job, latent }) => job.inputs.height ?? latent.height ?? UNKNOWABLE,
     refuses: ({ job }) => job.inputs.height === undefined,
-    instruct: (value) => (typeof value === "number" ? `--height ${value}` : null),
+    instruct: (value) => (typeof value === "number" ? `--height ${shellQuote(value)}` : null),
   },
   seed: {
     recorded: (record) => record.seed ?? UNRECORDED,
     submitted: ({ job }) => job.inputs.seed,
     refuses: () => false,
-    instruct: (value) => (typeof value === "number" ? `--seed ${value}` : null),
+    instruct: (value) => (typeof value === "number" ? `--seed ${shellQuote(value)}` : null),
   },
   // The ONLY field whose absence in the record is an answer rather than silence:
   // it says the producing run named no workflow, and `--workflow ""` is how a
@@ -721,8 +731,8 @@ const REPEAT_INPUTS: Record<keyof RenderInputs, RepeatInput> = {
     submitted: ({ job }) => job.inputs.workflow,
     refuses: () => false,
     instruct: (value) => {
-      if (value === undefined) return `--workflow ""`;
-      return typeof value === "string" ? `--workflow ${flagValue(value)}` : null;
+      if (value === undefined) return `--workflow ${shellQuote("")}`;
+      return typeof value === "string" ? `--workflow ${shellQuote(value)}` : null;
     },
   },
   // Two entries, two questions, and neither can answer both.
@@ -742,13 +752,15 @@ const REPEAT_INPUTS: Record<keyof RenderInputs, RepeatInput> = {
   // record, nothing a flag can say restores that prompt, and this returns null
   // so the field is named rather than guessed at.
   prompt: {
-    recorded: (record) => record.prompt ?? UNRECORDED,
+    // Older logs stored whitespace that the provider trimmed before submission.
+    // Compare their original wire meaning without rewriting the historical log.
+    recorded: (record) => (typeof record.prompt === "string" ? record.prompt.trim() : UNRECORDED),
     submitted: ({ job }) => job.inputs.prompt,
     refuses: () => false,
     instruct: (_value, record, ctx) => {
       if (typeof record.basePrompt !== "string") return null;
-      return ctx.recompose(record.basePrompt) === record.prompt
-        ? `--prompt ${flagValue(record.basePrompt)}`
+      return ctx.recompose(record.basePrompt) === record.prompt?.trim()
+        ? `--prompt ${shellQuote(record.basePrompt)}`
         : null;
     },
   },
@@ -764,13 +776,13 @@ const REPEAT_INPUTS: Record<keyof RenderInputs, RepeatInput> = {
       typeof record.prompt === "string" ? UNRECORDED : (record.basePrompt ?? UNRECORDED),
     submitted: ({ job }) => job.inputs.basePrompt,
     refuses: () => false,
-    instruct: (value) => (typeof value === "string" ? `--prompt ${flagValue(value)}` : null),
+    instruct: (value) => (typeof value === "string" ? `--prompt ${shellQuote(value)}` : null),
   },
   negativePrompt: {
     recorded: (record) => record.negativePrompt ?? UNRECORDED,
     submitted: ({ job }) => job.inputs.negativePrompt,
     refuses: () => false,
-    instruct: (value) => (typeof value === "string" ? `--negative ${flagValue(value)}` : null),
+    instruct: (value) => (typeof value === "string" ? `--negative ${shellQuote(value)}` : null),
   },
 };
 
@@ -809,6 +821,7 @@ async function assertRepeatable(
   ready: readonly ReadyJob[],
   bundle: EpisodeBundle | undefined,
   registry: readonly Character[],
+  storyBible: string,
 ): Promise<{ error: string; exit: number } | null> {
   for (const { job, latent } of ready) {
     const target = job.target;
@@ -824,11 +837,7 @@ async function assertRepeatable(
     const ctx: RepeatContext = {
       job,
       latent,
-      recompose: (basePrompt) =>
-        appendPaletteClause(
-          injectCharacterLockstrings(basePrompt, cut?.characters, registry),
-          cut?.palette,
-        ),
+      recompose: (basePrompt) => composePrompt(basePrompt, cut, registry, storyBible).trim(),
     };
     const differences: string[] = [];
     const instructions: string[] = [];
@@ -967,6 +976,14 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   if (!passesAuthoringGate(root, loaded, "generate", io.err)) {
     return EXIT_VALIDATION;
   }
+  let storyBible: string;
+  try {
+    storyBible = await readStoryBible(root);
+  } catch (cause) {
+    if (!(cause instanceof ProjectIoError)) throw cause;
+    io.err(cause.message);
+    return EXIT_USAGE;
+  }
 
   // Filter only after the project's validation gate. A status alone selects the
   // episode; explicit cut ids narrow that scope. Unknown ids must not disappear
@@ -1007,6 +1024,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   // second rule here is how the two drift.
   const workflowFlag = parsed.values.get("--workflow") || undefined;
   const jobs = planJobs(loaded, {
+    storyBible,
     episodeId,
     cutIds,
     ...(transitionId === undefined ? {} : { transitionId }),
@@ -1077,6 +1095,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     ready,
     bundle,
     loaded.project.webtoon.characters ?? [],
+    storyBible,
   );
   if (repeatable !== null) {
     io.err(repeatable.error);
@@ -1108,7 +1127,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
             `generated ${ingested.assetPath} for ${job.label}, but recording what produced it failed: ${failure}`,
           );
           io.err(
-            `${job.id}: the image and its reference are on disk — do NOT re-render it, a re-run would draw a different one. Fix the problem above and re-record with --seed ${job.inputs.seed}.`,
+            `${job.id}: the image and its reference are on disk — do NOT re-render it, a re-run would draw a different one. Fix the problem above and re-record with --seed ${shellQuote(job.inputs.seed)}.`,
           );
           failureCode ??= EXIT_USAGE;
           unrecorded.push(job.id);

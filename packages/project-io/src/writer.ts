@@ -38,12 +38,7 @@ import {
   transitionsFile,
   webtoonPath,
 } from "./paths.js";
-
-const STORY_BIBLE_TEMPLATE = `# Story Bible
-
-One-paragraph premise, the core cast, and the world rules that every episode
-must stay consistent with. Keep this in the project's prompt language.
-`;
+import { STORY_BIBLE_TEMPLATE } from "./story-bible.js";
 
 const STYLE_GUIDE_TEMPLATE = `# Style Guide
 
