@@ -26,6 +26,12 @@ export function EpisodeList({ workId, episodes }: { workId: string; episodes: Ep
             </div>
             <StatusChip status={episode.status} />
             <div className="episode-row-counts">
+              <span data-testid={`episode-review-${episode.id}`}>
+                <b>
+                  {episode.finalCutCount} / {episode.cutCount}
+                </b>{" "}
+                cuts final
+              </span>
               <span>
                 <b>{episode.cutCount}</b> cuts
               </span>

@@ -414,6 +414,8 @@ export interface ImageAssetRef {
  */
 export interface Cut {
   id: string;
+  /** Artwork review only. Absent means draft/unreviewed, without rewriting old projects. */
+  reviewStatus?: ReviewStatus;
   image: ImageAssetRef | null;
   imagePrompt: string;
   negativePrompt: string;
