@@ -78,3 +78,44 @@ export function transitionsFile(root: string, episodeId: string): string {
 export function letteringFile(root: string, episodeId: string): string {
   return join(episodeDir(root, episodeId), LETTERING_FILE);
 }
+
+// --- Authored planning artifacts (optional) ---------------------------------
+//
+// One folder holds the whole family, so "nothing else in a project reads this"
+// is a single testable claim. It is created only by an explicit write of one of
+// these artifacts: `writeProject` does not scaffold it, and a project without it
+// loads, validates and exports exactly as it always did.
+
+/** Folder holding the project's authored planning artifacts. */
+export const SCRIPT_DIR = "script";
+
+/** Project-level production brief (JSON), inside `SCRIPT_DIR`. */
+export const BRIEF_FILE = "brief.json";
+
+/** Folder holding one episode script per episode id, inside `SCRIPT_DIR`. */
+export const SCRIPT_EPISODES_DIR = "episodes";
+
+/** Filename suffix of one episode script. */
+export const SCRIPT_FILE_SUFFIX = ".json";
+
+export function scriptDir(root: string): string {
+  return join(root, SCRIPT_DIR);
+}
+
+export function briefPath(root: string): string {
+  return join(root, SCRIPT_DIR, BRIEF_FILE);
+}
+
+export function scriptEpisodesDir(root: string): string {
+  return join(root, SCRIPT_DIR, SCRIPT_EPISODES_DIR);
+}
+
+export function episodeScriptFile(root: string, episodeId: string): string {
+  // Same defense in depth as `episodeDir`: the episode id is the only path
+  // segment derived from artifact data here, so an unsafe id is refused before
+  // it is ever joined.
+  if (!isPathSafeId(episodeId)) {
+    throw new Error(`unsafe episode id: ${JSON.stringify(episodeId)}`);
+  }
+  return join(scriptEpisodesDir(root), `${episodeId}${SCRIPT_FILE_SUFFIX}`);
+}

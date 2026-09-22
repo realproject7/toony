@@ -41,6 +41,8 @@ export {
   type TransitionAssetTarget,
 } from "./ingest.js";
 export {
+  BRIEF_FILE,
+  briefPath,
   CUTS_FILE,
   cutsFile,
   EPISODE_DIRS,
@@ -48,12 +50,18 @@ export {
   EPISODES_DIR,
   episodeDir,
   episodeFile,
+  episodeScriptFile,
   episodesDir,
   LETTERING_FILE,
   letteringFile,
   PROJECT_DIRS,
+  SCRIPT_DIR,
+  SCRIPT_EPISODES_DIR,
+  SCRIPT_FILE_SUFFIX,
   STORY_BIBLE_FILE,
   STYLE_GUIDE_FILE,
+  scriptDir,
+  scriptEpisodesDir,
   TRANSITIONS_FILE,
   transitionsFile,
   WEBTOON_FILE,
@@ -66,6 +74,15 @@ export {
   summarizeEpisodes,
 } from "./reader.js";
 export { buildInitialProject, type InitialCraftOptions, slugify } from "./scaffold.js";
+export {
+  type LoadedBrief,
+  type LoadedEpisodeScript,
+  readBrief,
+  readEpisodeScript,
+  revisionId,
+  writeBrief,
+  writeEpisodeScript,
+} from "./script.js";
 export { readStoryBible, STORY_BIBLE_TEMPLATE } from "./story-bible.js";
 export { listWorkspace, type WorkspaceEntry } from "./workspace.js";
 export {
