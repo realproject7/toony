@@ -72,15 +72,28 @@ export function foldPathSafeId(id: string): string {
  *
  * A message that names a filesystem has to be true of that filesystem. APFS
  * folds case and normalization form, so it merges every pair `foldPathSafeId`
- * merges. NTFS folds case and preserves normalization form, so it merges only a
- * pair that is already one string once case alone is folded; naming it for a
+ * merges. NTFS folds case by an upcase table and preserves normalization form,
+ * so it merges only a pair that is one string under that table; naming it for a
  * pair it keeps apart as two entries tells the reader something untrue about
- * the filesystem under the reader's own feet. Both guards over ids that become
- * a path segment take the phrase from here, so neither can name a filesystem
- * the other would not.
+ * the filesystem under the reader's own feet.
+ *
+ * Lowercasing alone does not answer that, because a lowercase mapping is not
+ * always case alone. `ep-İ` (U+0130) lowercases to `ep-i` followed by
+ * U+0307, an id an author can write on its own, so the two compare equal
+ * lowercased while differing in normalization form. `ep-K` (U+212A),
+ * `ep-Å` (U+212B) and `ep-Ω` (U+2126) lowercase onto the ordinary
+ * letters they decompose to under NFC, hiding a normalization difference the
+ * same way. `ep-ẞ` (U+1E9E) against `ep-ß`, and `ep-ϴ` (U+03F4)
+ * against `ep-Θ`, are capitals that share a lowercase and keep their own
+ * uppercase. Uppercased, every one of those pairs is two different strings,
+ * which is what NTFS's table holds, so both simple mappings have to agree
+ * before the phrase names NTFS. Requiring the second one only ever drops NTFS
+ * and never adds it, so no pair gains a filesystem it did not have. Both guards
+ * over ids that become a path segment take the phrase from here, so neither can
+ * name a filesystem the other would not.
  */
 export function foldingFilesystems(a: string, b: string): string {
-  return a.toLowerCase() === b.toLowerCase()
+  return a.toLowerCase() === b.toLowerCase() && a.toUpperCase() === b.toUpperCase()
     ? "filesystems that fold case (macOS APFS, Windows NTFS)"
     : "filesystems that fold Unicode normalization form (macOS APFS)";
 }

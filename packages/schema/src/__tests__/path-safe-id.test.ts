@@ -214,6 +214,27 @@ test("both records name every pair the gap is known to leave open (#317)", () =>
   }
 });
 
+// --- Where the format doc says an episode id lives ---------------------------
+
+// `webtoon.json` holds the character registry and no episode field, so a reader
+// who follows the doc there to find the ids this guard protects finds nothing.
+// The sentence that states the guarantee is read back and checked against the
+// place the ids are actually written.
+test("the format doc names the file that holds an episode id (#320)", () => {
+  const paragraph = FORMAT_DOC.split("\n\n").find((text) =>
+    text.includes("carry the same guarantee"),
+  );
+  assert.ok(paragraph, "docs/PROJECT_FORMAT.md no longer states the episode-id guarantee");
+  assert.ok(
+    paragraph.includes("`episodes/<id>/episode.yaml`"),
+    `the episode-id guarantee does not name the real location: ${paragraph}`,
+  );
+  assert.ok(
+    !paragraph.includes("webtoon.json"),
+    `the episode-id guarantee still sends a reader to webtoon.json: ${paragraph}`,
+  );
+});
+
 // --- Which filesystems a collision message may name -------------------------
 
 test("a pair that differs only by case names both filesystems (#317)", () => {
@@ -221,6 +242,68 @@ test("a pair that differs only by case names both filesystems (#317)", () => {
     foldingFilesystems("ep-A", "ep-a"),
     "filesystems that fold case (macOS APFS, Windows NTFS)",
   );
+});
+
+// Pairs the fold merges whose two members agree lowercased but not uppercased.
+// The discriminator read `toLowerCase()` alone, on the rule that a pair equal
+// once lowercased differs by case alone, and these are the pairs that rule is
+// wrong about: NTFS upcases each one to two strings and holds two entries.
+//
+// Every pair was checked the way MISSED_PAIRS was, directly against a
+// case-insensitive APFS volume: both members created, the listing read back,
+// one entry returned and the first member's contents replaced by the second's.
+// So the refusal is right on APFS and only the phrase was ever at stake.
+const LOWERCASE_ONLY_PAIRS = [
+  // LATIN CAPITAL LETTER I WITH DOT ABOVE lowercases to TWO codepoints, which
+  // is the id the second member already is. An expanding lowercase mapping, so
+  // what lowercasing hides here is a difference in normalization form.
+  { label: "dotted capital I", a: "ep-\u0130", b: "ep-i\u0307" },
+  { label: "dotted capital I against NFD", a: "ep-\u0130", b: "ep-I\u0307" },
+  // KELVIN SIGN, ANGSTROM SIGN and OHM SIGN are NFC singletons: each lowercases
+  // onto the ordinary letter, so lowercasing hides the normalization difference
+  // that NTFS preserves.
+  { label: "kelvin sign", a: "ep-\u212a", b: "ep-K" },
+  { label: "angstrom sign", a: "ep-\u212b", b: "ep-\u00c5" },
+  { label: "ohm sign", a: "ep-\u2126", b: "ep-\u03a9" },
+  // Two capitals that share one lowercase and keep their own uppercase:
+  // LATIN CAPITAL LETTER SHARP S, and GREEK CAPITAL THETA SYMBOL.
+  { label: "capital sharp s", a: "ep-\u1e9e", b: "ep-\u00df" },
+  { label: "capital theta symbol", a: "ep-\u03f4", b: "ep-\u0398" },
+  // Each of those again against the lowercase letter. A case difference on top
+  // does not bring NTFS back, because the upcase table still disagrees.
+  { label: "kelvin sign against lowercase k", a: "ep-\u212a", b: "ep-k" },
+  { label: "angstrom sign against lowercase a-ring", a: "ep-\u212b", b: "ep-\u00e5" },
+  { label: "ohm sign against lowercase omega", a: "ep-\u2126", b: "ep-\u03c9" },
+  { label: "theta symbol against lowercase theta", a: "ep-\u03f4", b: "ep-\u03b8" },
+] as const;
+
+test("a pair equal only once lowercased does not name NTFS (#320)", () => {
+  for (const pair of LOWERCASE_ONLY_PAIRS) {
+    // The premise: this is a pair the guards refuse, and it is a pair the old
+    // discriminator sent down the branch that names NTFS.
+    assert.equal(
+      foldPathSafeId(pair.a),
+      foldPathSafeId(pair.b),
+      `${pair.label}: expected the fold to merge these`,
+    );
+    assert.equal(
+      pair.a.toLowerCase(),
+      pair.b.toLowerCase(),
+      `${pair.label}: expected lowercasing to make these equal`,
+    );
+    // NTFS folds case by an upcase table, and the table sends these two to two
+    // different strings, so it holds them as two entries.
+    assert.notEqual(
+      pair.a.toUpperCase(),
+      pair.b.toUpperCase(),
+      `${pair.label}: expected uppercasing to keep these apart`,
+    );
+    assert.equal(
+      foldingFilesystems(pair.a, pair.b),
+      "filesystems that fold Unicode normalization form (macOS APFS)",
+      pair.label,
+    );
+  }
 });
 
 test("a pair that differs by normalization form does not name NTFS (#317)", () => {
