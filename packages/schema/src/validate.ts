@@ -17,7 +17,7 @@ import {
   isPlainObject,
   isString,
 } from "./guards.js";
-import { foldPathSafeId, isPathSafeId } from "./path-safe-id.js";
+import { foldingFilesystems, foldPathSafeId, isPathSafeId } from "./path-safe-id.js";
 import { validateGutterBandWidth } from "./presets.js";
 import {
   BUBBLE_KINDS,
@@ -1133,7 +1133,9 @@ export function validateProject(value: unknown): ValidationResult {
   // catch that collision before it reaches disk, and keep the id it folds onto
   // so the report can name both. `foldPathSafeId` is the same fold the script
   // writer in `@toony/project-io` compares, so the two guards cannot answer
-  // this question differently.
+  // this question differently, and `foldingFilesystems` names the filesystems
+  // that fold THIS pair, so the report never tells a reader on NTFS that a pair
+  // it keeps apart would overwrite itself.
   const episodeIdsByFold = new Map<string, string>();
   for (let i = 0; i < episodes.length; i++) {
     const bundle = episodes[i];
@@ -1156,7 +1158,7 @@ export function validateProject(value: unknown): ValidationResult {
         c.add(
           idPath,
           "episode.id-collision",
-          `episode id "${episode.id}" collides with episode id "${collision}" once case and Unicode normalization are folded; on filesystems that fold either one (macOS APFS, Windows NTFS) both map to the same folder and would overwrite each other.`,
+          `episode id "${episode.id}" collides with episode id "${collision}" once case and Unicode normalization are folded; on ${foldingFilesystems(episode.id, collision)} both map to the same folder and would overwrite each other.`,
         );
       }
       episodeIds.add(episode.id);

@@ -43,15 +43,44 @@ export function isPathSafeId(id: unknown): id is string {
  *
  * Known to be narrower than the filesystem's own table, deliberately.
  * `toLowerCase()` is simple lowercasing, not Unicode case folding, and a
- * case-insensitive APFS volume folds by the full case-folding table: `ep-ſ`
- * (U+017F) and `ep-s` are one file there, as are `ep-ß`/`ep-ss` and `ep-ﬁ`
- * (U+FB01)/`ep-fi`, and this fold keeps each pair distinct. Closing that gap
- * needs a full case-folding table, which the language does not expose; the
- * nearest built-in, `Intl.Collator` at accent sensitivity, both misses `ep-ſ`
- * and folds `ep-²` onto `ep-2`, so it trades this narrow gap for the worse
+ * case-insensitive APFS volume folds by the full case-folding table. Pairs that
+ * volume merges onto one name and this fold keeps distinct: `ep-ſ` (U+017F)
+ * against `ep-s`, `ep-ß` against `ep-ss`, `ep-ﬁ` (U+FB01) against `ep-fi`,
+ * `ep-ς` (U+03C2) against `ep-σ` (U+03C3), and `ep-Σ` (U+03A3) against
+ * `ep-ς`. That is the extent of the accepted risk that has been CHECKED, pair
+ * by pair on such a volume, not the extent of the table; `path-safe-id.test.ts`
+ * holds the same list and re-checks every claim made about it here.
+ *
+ * Closing the gap needs the full case-folding table, which the language does
+ * not expose, and neither rule near enough to reach for is that table. NFKC
+ * merges `ep-ſ`/`ep-s` and `ep-ﬁ`/`ep-fi` and leaves the other three apart.
+ * `Intl.Collator` at accent sensitivity merges `ep-ﬁ`/`ep-fi` and both sigma
+ * pairs and leaves the other two apart. Each also merges `ep-²` onto `ep-2`,
+ * which the filesystem keeps apart, so adopting either would close part of this
+ * gap by refusing work an author has no way to rephrase, which is the worse
  * failure. The gap refuses nothing an author can write and see; it leaves a
  * pair that only a full-folding filesystem merges unreported.
  */
 export function foldPathSafeId(id: string): string {
   return id.normalize("NFC").toLowerCase();
+}
+
+/**
+ * The filesystems that fold `a` and `b` onto one name, as the phrase a
+ * collision message names them by. The two ids are expected to share
+ * `foldPathSafeId` already; nothing here decides whether they collide.
+ *
+ * A message that names a filesystem has to be true of that filesystem. APFS
+ * folds case and normalization form, so it merges every pair `foldPathSafeId`
+ * merges. NTFS folds case and preserves normalization form, so it merges only a
+ * pair that is already one string once case alone is folded; naming it for a
+ * pair it keeps apart as two entries tells the reader something untrue about
+ * the filesystem under the reader's own feet. Both guards over ids that become
+ * a path segment take the phrase from here, so neither can name a filesystem
+ * the other would not.
+ */
+export function foldingFilesystems(a: string, b: string): string {
+  return a.toLowerCase() === b.toLowerCase()
+    ? "filesystems that fold case (macOS APFS, Windows NTFS)"
+    : "filesystems that fold Unicode normalization form (macOS APFS)";
 }

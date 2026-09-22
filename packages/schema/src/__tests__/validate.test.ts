@@ -165,6 +165,16 @@ test("episode ids colliding only by Unicode normalization are rejected, naming b
   assert.ok(issue, JSON.stringify(result.issues));
   assert.ok(issue.message.includes(ID_NFD), issue.message);
   assert.ok(issue.message.includes(ID_NFC), issue.message);
+  // And it names only the filesystems this pair actually folds on. NTFS folds
+  // case and preserves normalization form, so it holds these as two directory
+  // entries; a message naming it here would be untrue of a filesystem it names.
+  assert.ok(
+    issue.message.includes(
+      "on filesystems that fold Unicode normalization form (macOS APFS) both map to the same folder",
+    ),
+    issue.message,
+  );
+  assert.equal(issue.message.includes("NTFS"), false, issue.message);
 });
 
 test("the case collision report names both episode ids too (#317)", () => {
@@ -179,6 +189,13 @@ test("the case collision report names both episode ids too (#317)", () => {
   assert.ok(issue, JSON.stringify(result.issues));
   assert.ok(issue.message.includes(collide.episode.id), issue.message);
   assert.ok(issue.message.includes(first.episode.id), issue.message);
+  // A case-only pair is one entry on both filesystems, so both may be named.
+  assert.ok(
+    issue.message.includes(
+      "on filesystems that fold case (macOS APFS, Windows NTFS) both map to the same folder",
+    ),
+    issue.message,
+  );
 });
 
 test("duplicate lettering overlay ids are reported", () => {

@@ -27,6 +27,7 @@ import {
   asProductionBrief,
   type Character,
   type EpisodeScript,
+  foldingFilesystems,
   foldPathSafeId,
   IssueCollector,
   joinPath,
@@ -380,7 +381,7 @@ export async function writeEpisodeScript(root: string, script: EpisodeScript): P
   const collision = await findIdCollision(dir, script.episodeId);
   if (collision !== null) {
     throw new ProjectIoError(
-      `refusing to write episode script "${script.episodeId}": once case and Unicode normalization are folded it collides with the existing script "${collision}"; on filesystems that fold either one (macOS APFS, Windows NTFS) both map to the same file and would overwrite each other.`,
+      `refusing to write episode script "${script.episodeId}": once case and Unicode normalization are folded it collides with the existing script "${collision}"; on ${foldingFilesystems(script.episodeId, collision)} both map to the same file and would overwrite each other.`,
       dir,
     );
   }

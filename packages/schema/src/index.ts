@@ -27,7 +27,7 @@ export {
   isPlainObject,
   isString,
 } from "./guards.js";
-export { foldPathSafeId, isPathSafeId } from "./path-safe-id.js";
+export { foldingFilesystems, foldPathSafeId, isPathSafeId } from "./path-safe-id.js";
 export {
   GUTTER_BAND_WIDTH_DEFAULT,
   GUTTER_BAND_WIDTH_MAX,
