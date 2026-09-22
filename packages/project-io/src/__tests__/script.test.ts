@@ -368,7 +368,11 @@ test("a script id that differs only by case is refused, naming both ids", async 
     (error: Error) =>
       error.name === "ProjectIoError" &&
       error.message.includes('"ep-a"') &&
-      error.message.includes('"ep-A"'),
+      error.message.includes('"ep-A"') &&
+      // A case-only pair is one entry on both filesystems the refusal names.
+      error.message.includes(
+        "on filesystems that fold case (macOS APFS, Windows NTFS) both map to the same file",
+      ),
   );
 
   // The refusal is decided here, not by the filesystem: on a case-insensitive
@@ -396,7 +400,13 @@ test("a script id that differs only by Unicode normalization is refused, naming 
     (error: Error) =>
       error.name === "ProjectIoError" &&
       error.message.includes(ID_NFD) &&
-      error.message.includes(ID_NFC),
+      error.message.includes(ID_NFC) &&
+      // NTFS folds case and preserves normalization form, so it keeps these as
+      // two files. The refusal names only the filesystem the pair folds on.
+      error.message.includes(
+        "on filesystems that fold Unicode normalization form (macOS APFS) both map to the same file",
+      ) &&
+      !error.message.includes("NTFS"),
   );
 
   // macOS APFS folds these two onto one filename, so without the check here the

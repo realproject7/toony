@@ -260,16 +260,30 @@ The same holds when the brief is removed, and when it is left in a state nothing
 can read: the script still reads, and the unusable input is reported against the
 field that records it.
 
-Two script ids that differ only by case, or only by Unicode normalization form,
-fold to one filename on a filesystem that folds either one. A script whose id
-collides that way with a script already on disk is refused before anything is
-written, and the writer compares the fold itself rather than leaving it to the
-filesystem, so the answer is the same on a filesystem that folds and on one that
-does not. `webtoon.json`'s episode ids carry a narrower guarantee: validation
-refuses two episode ids that differ only by case, and folds no normalization
-form, so two that differ only by normalization pass it and their
-`episodes/<id>/` folders can still fold onto one another where the filesystem
-folds that.
+Two ids that differ only by case, or only by Unicode normalization form, fold to
+one name on a filesystem that folds either one. A script whose id collides that
+way with a script already on disk is refused before anything is written, and
+`webtoon.json`'s episode ids carry the same guarantee: validation reports two
+episode ids that fold together, naming both. Both guards compare one fold, and
+each compares it itself rather than leaving it to the filesystem, so the answer
+is the same on a filesystem that folds and on one that does not, and an id pair
+one of them refuses is an id pair the other refuses.
+
+That fold is normalization to NFC followed by lowercasing, and it is narrower
+than the table a case-insensitive filesystem folds by. Lowercasing is not
+Unicode case folding: an APFS volume folds `ep-ſ` onto `ep-s`, `ep-ß` onto
+`ep-ss`, `ep-ﬁ` onto `ep-fi`, `ep-ς` onto `ep-σ` and `ep-Σ` onto `ep-ς`, and
+these guards hold every one of those pairs distinct. Those are the pairs that
+have been checked against such a volume, not the whole of its table, so the gap
+is at least that wide.
+
+The gap is left open deliberately: it refuses nothing, and no rule the platform
+offers closes it. Compatibility normalization merges `ep-ſ` with `ep-s` and
+`ep-ﬁ` with `ep-fi` and leaves the other three apart. A locale collator at
+accent sensitivity merges `ep-ﬁ` with `ep-fi` and both sigma pairs and leaves
+the other two apart. Each also merges ids the filesystem keeps apart, `ep-²`
+with `ep-2`, so adopting either would close part of this gap by refusing work
+an author has no way to rephrase.
 
 ### The read rule this format depends on
 

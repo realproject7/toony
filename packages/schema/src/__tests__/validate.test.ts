@@ -110,6 +110,94 @@ test("two episodes with genuinely distinct ids validate (no false collision, #14
   assert.equal(codes(result).includes("episode.id-collision"), false);
 });
 
+// Widening the fold to normalization form can only be judged against the
+// direction that is worse. An id pair the fold merges is work the author cannot
+// get accepted by any spelling; an id pair it misses leaves the hazard as it
+// was. So the over-aggressive control comes first: every pair here is two
+// directory entries on a case-insensitive APFS volume, and each one would be
+// merged by a wider rule someone might reach for (NFKC, or a locale collator).
+test("episode ids that are distinct on disk are still accepted (#317 fold is not over-aggressive)", () => {
+  for (const [a, b] of [
+    ["ep-caf\u00e9", "ep-cafe"],
+    ["ep-\u00b2", "ep-2"],
+    ["ep-\u2160", "ep-I"],
+    ["ep-\u0131", "ep-i"],
+  ]) {
+    assert.ok(a !== undefined && b !== undefined);
+    const project = cloneValidProject();
+    const first = project.episodes[0];
+    assert.ok(first);
+    first.episode.id = a;
+    const second = structuredClone(first);
+    second.episode.id = b;
+    project.episodes.push(second);
+    const result = validateProject(project);
+    assert.equal(
+      result.valid,
+      true,
+      `${JSON.stringify(a)} vs ${JSON.stringify(b)}: ${JSON.stringify(result.issues)}`,
+    );
+  }
+});
+
+// The same text in two Unicode normalization forms: composed e-acute, then `e`
+// followed by a combining acute accent. Written as escapes so the test does not
+// depend on how this source file is normalized on disk.
+const ID_NFC = "ep-caf\u00e9";
+const ID_NFD = "ep-cafe\u0301";
+
+test("episode ids colliding only by Unicode normalization are rejected, naming both (#317)", () => {
+  const project = cloneValidProject();
+  const first = project.episodes[0];
+  assert.ok(first);
+  first.episode.id = ID_NFC;
+  const collide = structuredClone(first);
+  collide.episode.id = ID_NFD;
+  project.episodes.push(collide);
+  assert.notEqual(ID_NFC, ID_NFD);
+
+  const result = validateProject(project);
+  assert.equal(result.valid, false);
+  const issue = result.issues.find((candidate) => candidate.code === "episode.id-collision");
+  // macOS APFS folds these two onto one `episodes/<id>/` folder, so without the
+  // check the second episode's files would destroy the first's. The report has
+  // to name both ids: the one being rejected is not the one at risk.
+  assert.ok(issue, JSON.stringify(result.issues));
+  assert.ok(issue.message.includes(ID_NFD), issue.message);
+  assert.ok(issue.message.includes(ID_NFC), issue.message);
+  // And it names only the filesystems this pair actually folds on. NTFS folds
+  // case and preserves normalization form, so it holds these as two directory
+  // entries; a message naming it here would be untrue of a filesystem it names.
+  assert.ok(
+    issue.message.includes(
+      "on filesystems that fold Unicode normalization form (macOS APFS) both map to the same folder",
+    ),
+    issue.message,
+  );
+  assert.equal(issue.message.includes("NTFS"), false, issue.message);
+});
+
+test("the case collision report names both episode ids too (#317)", () => {
+  const project = cloneValidProject();
+  const first = project.episodes[0];
+  assert.ok(first);
+  const collide = structuredClone(first);
+  collide.episode.id = first.episode.id.toUpperCase();
+  project.episodes.push(collide);
+  const result = validateProject(project);
+  const issue = result.issues.find((candidate) => candidate.code === "episode.id-collision");
+  assert.ok(issue, JSON.stringify(result.issues));
+  assert.ok(issue.message.includes(collide.episode.id), issue.message);
+  assert.ok(issue.message.includes(first.episode.id), issue.message);
+  // A case-only pair is one entry on both filesystems, so both may be named.
+  assert.ok(
+    issue.message.includes(
+      "on filesystems that fold case (macOS APFS, Windows NTFS) both map to the same folder",
+    ),
+    issue.message,
+  );
+});
+
 test("duplicate lettering overlay ids are reported", () => {
   const project = cloneValidProject();
   const bundle = project.episodes[0];

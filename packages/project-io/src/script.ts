@@ -27,6 +27,8 @@ import {
   asProductionBrief,
   type Character,
   type EpisodeScript,
+  foldingFilesystems,
+  foldPathSafeId,
   IssueCollector,
   joinPath,
   type ProductionBrief,
@@ -329,24 +331,13 @@ export async function writeBrief(root: string, brief: ProductionBrief): Promise<
 }
 
 /**
- * The fold two script ids share when a filesystem treats them as one filename.
- *
- * `isPathSafeId` accepts `ep-A` and `ep-a` alike, and it accepts the same text
- * written in two Unicode normalization forms. macOS APFS folds case and
- * normalization both, so either pair is one file there. Normalizing before
- * lowercasing folds both the same way.
- */
-function foldScriptId(id: string): string {
-  return id.normalize("NFC").toLowerCase();
-}
-
-/**
  * The persisted script id that `episodeId` folds onto, or null when none does.
  *
  * Writing a script whose id folds onto one already on disk would destroy that
  * one. The fold is compared HERE rather than left to the filesystem, so the
  * answer is the same on a filesystem that folds the two and on one that does
- * not.
+ * not. It is `@toony/schema`'s fold, the one the project validator compares
+ * over episode ids, so an id pair one guard refuses the other refuses too.
  */
 async function findIdCollision(dir: string, episodeId: string): Promise<string | null> {
   let entries: Dirent[];
@@ -357,11 +348,11 @@ async function findIdCollision(dir: string, episodeId: string): Promise<string |
     const reason = cause instanceof Error ? cause.message : String(cause);
     throw new ProjectIoError(`could not read ${dir}: ${reason}`, dir);
   }
-  const fold = foldScriptId(episodeId);
+  const fold = foldPathSafeId(episodeId);
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(SCRIPT_FILE_SUFFIX)) continue;
     const existing = entry.name.slice(0, -SCRIPT_FILE_SUFFIX.length);
-    if (existing !== episodeId && foldScriptId(existing) === fold) return existing;
+    if (existing !== episodeId && foldPathSafeId(existing) === fold) return existing;
   }
   return null;
 }
@@ -390,7 +381,7 @@ export async function writeEpisodeScript(root: string, script: EpisodeScript): P
   const collision = await findIdCollision(dir, script.episodeId);
   if (collision !== null) {
     throw new ProjectIoError(
-      `refusing to write episode script "${script.episodeId}": once case and Unicode normalization are folded it collides with the existing script "${collision}"; on filesystems that fold either one (macOS APFS, Windows NTFS) both map to the same file and would overwrite each other.`,
+      `refusing to write episode script "${script.episodeId}": once case and Unicode normalization are folded it collides with the existing script "${collision}"; on ${foldingFilesystems(script.episodeId, collision)} both map to the same file and would overwrite each other.`,
       dir,
     );
   }
