@@ -13,7 +13,10 @@
 //   which `.gitignore` already keeps out of the repository. A fresh clone has
 //   no such file, so a run without one says out loud that it did not check for
 //   names rather than reporting a pass it did not earn. A finding names the
-//   entry by its position in the list and never prints the name itself.
+//   entry by its position in that file, counted the way the operator counts
+//   entries when they open it, and never prints the name itself. Entries the
+//   list cannot use are reported too, so a list read shorter than the file is
+//   never mistaken for a list fully checked.
 //
 // Coverage:
 //   Tracked files in this checkout, and nothing else. Issue and pull request
@@ -152,7 +155,7 @@ function fail(message) {
  * continuation line carries: a `//`, a ` * `, a `> `, a `- ` or a `| ` between
  * the two halves collapses to the same single space as the break itself.
  */
-export function normaliseText(value) {
+export function normalizeText(value) {
   return value
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
@@ -163,6 +166,12 @@ export function normaliseText(value) {
  * Read the studied-work name list from untracked local configuration.
  * Returns null when there is no source, so the caller can report that names
  * were not checked instead of passing as if they had been.
+ *
+ * Each usable name carries `entry`, its 1-based position in the operator's
+ * file. Blank entries are unusable, and their positions come back in `blank`:
+ * numbering the survivors instead would send a finding to the wrong line of
+ * the one list that can resolve it, and a list silently read shorter than the
+ * file reads as a list that was checked in full.
  */
 export function loadNames(path, trackedFiles) {
   let raw;
@@ -184,25 +193,64 @@ export function loadNames(path, trackedFiles) {
   if (!Array.isArray(parsed) || parsed.some((name) => typeof name !== "string")) {
     return fail(`name source ${path} must be a JSON array of names.`);
   }
-  const names = parsed.map(normaliseText).filter((name) => name.length > 0);
+  const names = [];
+  const blank = [];
+  parsed.forEach((value, index) => {
+    const name = normalizeText(value);
+    if (name.length === 0) blank.push(index + 1);
+    else names.push({ name, entry: index + 1 });
+  });
   if (names.length === 0) return fail(`name source ${path} lists no names.`);
-  return names;
+  return { names, blank };
 }
+
+/** Name the blank source entries, so a list read shorter than the file says so. */
+function blankNote(blank) {
+  if (blank.length === 0) return "";
+  const which = blank.join(", ");
+  return blank.length === 1
+    ? `, blank source entry ${which} skipped`
+    : `, blank source entries ${which} skipped`;
+}
+
+/**
+ * A line whose last visible character is a single hyphen holding one word
+ * together across the break: `North-` then `wind`. The character before the
+ * hyphen must be a letter or digit, so a dash written as `--`, a list marker,
+ * and every other punctuation boundary are left alone.
+ */
+const HYPHEN_WRAP = /[\p{L}\p{N}]-[ \t]*$/u;
 
 /**
  * Flatten lines into one lowercase string with single-space gaps, recording
  * where each line starts. A name split across a line break then matches, and
  * the finding still reports the line the name starts on.
+ *
+ * With `fuseHyphenWrap`, a line ending in a word-joining hyphen is appended to
+ * the next one with no gap at all, which is the only way `North-` then `wind`
+ * reads back as `northwind`. Nothing else is fused: not a plain break, not a
+ * comma or any other punctuation, not a blank line, and not a line the ignore
+ * marker dropped. Both flattenings are scanned, so a hyphen that belongs to
+ * the name itself still matches through the gap the other pass leaves.
  */
-function flattenLines(lines) {
+function flattenLines(lines, fuseHyphenWrap) {
   const spans = [];
   let text = "";
+  let fused = false;
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].includes(IGNORE_MARKER)) continue;
-    const collapsed = normaliseText(lines[i]);
-    if (collapsed.length === 0) continue;
-    spans.push({ start: text.length === 0 ? 0 : text.length + 1, line: i + 1 });
-    text = text.length === 0 ? collapsed : `${text} ${collapsed}`;
+    if (lines[i].includes(IGNORE_MARKER)) {
+      fused = false;
+      continue;
+    }
+    const collapsed = normalizeText(lines[i]);
+    if (collapsed.length === 0) {
+      fused = false;
+      continue;
+    }
+    const gap = text.length === 0 || fused ? "" : " ";
+    spans.push({ start: text.length + gap.length, line: i + 1 });
+    text = `${text}${gap}${collapsed}`;
+    fused = fuseHyphenWrap && HYPHEN_WRAP.test(lines[i]);
   }
   return { text, spans };
 }
@@ -218,19 +266,23 @@ function lineAt(spans, index) {
 
 /** Scan flattened text for studied-work names, returning an array of findings. */
 export function scanNames(file, lines, names) {
-  const { text, spans } = flattenLines(lines);
+  const passes = [flattenLines(lines, false), flattenLines(lines, true)];
   const findings = [];
-  for (let i = 0; i < names.length; i++) {
-    const at = text.indexOf(names[i]);
-    if (at < 0) continue;
-    // The name is never printed. Its position in the untracked list is enough
-    // to look it up locally.
-    findings.push({
-      file,
-      line: lineAt(spans, at),
-      rule: "studied-work-name",
-      excerpt: `name source entry ${i + 1}`,
-    });
+  for (const { name, entry } of names) {
+    for (const { text, spans } of passes) {
+      const at = text.indexOf(name);
+      if (at < 0) continue;
+      // The name is never printed. Its position in the operator's untracked
+      // file is enough to look it up locally, which is only true while that
+      // position is the one they would count in the file itself.
+      findings.push({
+        file,
+        line: lineAt(spans, at),
+        rule: "studied-work-name",
+        excerpt: `name source entry ${entry}`,
+      });
+      break;
+    }
   }
   return findings;
 }
@@ -331,7 +383,8 @@ function hasJpegApp1(buf) {
 
 function main() {
   const files = listTrackedFiles();
-  const names = loadNames(NAME_SOURCE_DEFAULT, files);
+  const source = loadNames(NAME_SOURCE_DEFAULT, files);
+  const names = source ? source.names : null;
   const findings = [];
   // A file is counted as inspected only once a read of it returned, so the
   // coverage line can never claim a file was checked when nothing read it.
@@ -372,7 +425,9 @@ function main() {
 
   const ok = findings.length === 0;
   const say = (line) => (ok ? console.log(line) : console.error(line));
-  const nameState = names ? `${names.length} name(s) checked` : "names NOT CHECKED";
+  const nameState = names
+    ? `${names.length} name(s) checked${blankNote(source.blank)}`
+    : "names NOT CHECKED";
   const coverage = `${inspected} of ${files.length} tracked files inspected; ${nameState}`;
 
   if (ok) {

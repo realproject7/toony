@@ -104,6 +104,69 @@ test("a wrapped name survives whatever prefix the continuation line carries", ()
   }
 });
 
+test("a name hyphenated across a line break is still found", () => {
+  // The most common way a long name wraps. Joining the halves with a gap makes
+  // it "north wind parable", which is not the name, so the wrap walks past a
+  // matcher that already handles the unhyphenated break.
+  const [head, tail] = [SYNTHETIC_NAME.slice(0, 5), SYNTHETIC_NAME.slice(5)];
+  const cases = [
+    ["docs/hyphen.md", `# H\n\nThe study drew on ${head}-\n${tail} for its turns.\n`, 3],
+    ["src/hyphen.ts", `/**\n * Drew on ${head}-\n * ${tail}.\n */\nexport const c = 3;\n`, 2],
+  ];
+  for (const [path, content, line] of cases) {
+    control({ ...local, [path]: content }, (root) => {
+      const result = scan(root);
+      assert.equal(result.status, 1, `${path}: ${result.output}`);
+      assert.match(result.output, new RegExp(`\\[studied-work-name\\] ${path}:${line}`));
+    });
+  }
+});
+
+test("only a word-joining hyphen is fused, so ordinary prose is not flagged", () => {
+  // Buying the hyphenated wrap by closing every punctuation gap would turn any
+  // sentence carrying the same words into a finding. These three would each be
+  // flagged by that rule and must not be by this one.
+  const [head, tail] = [
+    SYNTHETIC_NAME.slice(0, 5).toLowerCase(),
+    SYNTHETIC_NAME.slice(5).toLowerCase(),
+  ];
+  const cases = [
+    // A plain wrap. The break is a gap, and the gap is not part of the name.
+    ["docs/plain.md", `# P\n\nA cold ${head}\n${tail} was told at dusk.\n`],
+    // One line, same letters, same order, separated by an ordinary space.
+    ["docs/prose.md", `# S\n\nA cold ${head} ${tail} was told at dusk.\n`],
+    // A dash written as two hyphens ends a line without joining two words.
+    ["docs/dash.md", `# D\n\nA cold ${head}--\n${tail} was told at dusk.\n`],
+  ];
+  for (const [path, content] of cases) {
+    control({ ...local, [path]: content }, (root) => {
+      const result = scan(root);
+      assert.equal(result.status, 0, `${path}: ${result.output}`);
+    });
+  }
+});
+
+test("the reported entry is the one the operator would count in their own file", () => {
+  // Blank entries never reach the matcher. Numbering the names that survive
+  // points the operator at a different line of the only list that can resolve
+  // the finding, and the scan deliberately never prints the name to correct
+  // them. The count has to say entries were dropped for the same reason.
+  control(
+    {
+      ".gitignore": ".toony/\n",
+      [NAME_SOURCE_DEFAULT]: JSON.stringify(["", "   ", SYNTHETIC_NAME]),
+      "docs/notes.md": `# Notes\n\nTechnique abstracted from ${SYNTHETIC_NAME}, 2026.\n`,
+    },
+    (root) => {
+      const result = scan(root);
+      assert.equal(result.status, 1, result.output);
+      assert.match(result.output, /name source entry 3\b/);
+      assert.equal(/name source entry [12]\b/.test(result.output), false, result.output);
+      assert.match(result.output, /1 name\(s\) checked, blank source entries 1, 2 skipped/);
+    },
+  );
+});
+
 test("research index formats are inspected", () => {
   control(
     {
