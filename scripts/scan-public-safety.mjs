@@ -28,7 +28,7 @@
 //   - Add a precise entry to ALLOWLIST below for legitimate, documented matches.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { extname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -145,9 +145,18 @@ function fail(message) {
   process.exit(1);
 }
 
-/** Collapse every whitespace run to one space, so a line break cannot hide a name. */
+/**
+ * Reduce text to lowercase words separated by single spaces, dropping every
+ * character a name cannot contain. The names and the scanned text go through
+ * this together, so a name split across a line break matches whatever the
+ * continuation line carries: a `//`, a ` * `, a `> `, a `- ` or a `| ` between
+ * the two halves collapses to the same single space as the break itself.
+ */
 export function normaliseText(value) {
-  return value.replace(/\s+/g, " ").trim().toLowerCase();
+  return value
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .toLowerCase();
 }
 
 /**
@@ -226,15 +235,19 @@ export function scanNames(file, lines, names) {
   return findings;
 }
 
-/** Scan a single text file, returning an array of finding objects. */
+/**
+ * Scan a single text file, returning an array of finding objects, or null when
+ * the file could not be read. A swallowed read failure would let the caller
+ * count a file it never opened as inspected.
+ */
 function scanTextFile(file, names) {
-  const findings = [];
   let content;
   try {
     content = readFileSync(file, "utf8");
   } catch {
-    return findings;
+    return null;
   }
+  const findings = [];
 
   const lines = content.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
@@ -265,18 +278,19 @@ function redact(value) {
 }
 
 /**
- * Scan an image file for embedded metadata markers.
+ * Scan an image file for embedded metadata markers, returning null when the
+ * file could not be read, for the same reason scanTextFile does.
  * - JPEG: APP1 "Exif" marker.
  * - PNG: textual chunks tEXt / iTXt / zTXt and eXIf.
  */
 function scanImageFile(file) {
-  const findings = [];
   let buf;
   try {
     buf = readFileSync(file);
   } catch {
-    return findings;
+    return null;
   }
+  const findings = [];
   const ext = extname(file).toLowerCase();
 
   if (ext === ".jpg" || ext === ".jpeg") {
@@ -319,8 +333,10 @@ function main() {
   const files = listTrackedFiles();
   const names = loadNames(NAME_SOURCE_DEFAULT, files);
   const findings = [];
-  // Every tracked file lands in exactly one of these three, so the report can
-  // never claim a file was checked when nothing read it.
+  // A file is counted as inspected only once a read of it returned, so the
+  // coverage line can never claim a file was checked when nothing read it.
+  // Every other tracked file is accounted for out loud: under an excluded
+  // directory, in a format this scanner does not read, or opened and failed.
   const unreadFormats = new Map();
   let excludedByDirectory = 0;
   let inspected = 0;
@@ -331,20 +347,27 @@ function main() {
       continue;
     }
     const ext = extname(file).toLowerCase();
-    const base = file.split("/").pop() ?? file;
+    const base = (file.split("/").pop() ?? file).toLowerCase();
+    const isImage = IMAGE_EXTENSIONS.has(ext);
 
-    if (IMAGE_EXTENSIONS.has(ext)) {
-      findings.push(...scanImageFile(file));
-      inspected++;
+    if (!isImage && !TEXT_EXTENSIONS.has(ext) && !TEXT_EXTENSIONS.has(base)) {
+      const format = ext || base;
+      unreadFormats.set(format, (unreadFormats.get(format) ?? 0) + 1);
       continue;
     }
-    if (TEXT_EXTENSIONS.has(ext) || TEXT_EXTENSIONS.has(base.toLowerCase())) {
-      findings.push(...scanTextFile(file, names));
-      inspected++;
+
+    const scanned = isImage ? scanImageFile(file) : scanTextFile(file, names);
+    if (scanned === null) {
+      findings.push({
+        file,
+        line: 0,
+        rule: "unreadable-tracked-file",
+        excerpt: "git tracks it and this scan could not open it",
+      });
       continue;
     }
-    const format = ext || base.toLowerCase();
-    unreadFormats.set(format, (unreadFormats.get(format) ?? 0) + 1);
+    findings.push(...scanned);
+    inspected++;
   }
 
   const ok = findings.length === 0;
@@ -386,8 +409,33 @@ function main() {
     console.error(
       "\nFix the leak, or add `public-safe-ignore: <reason>` to the line if it is a documented false positive.",
     );
+    if (findings.some((f) => f.rule === "unreadable-tracked-file")) {
+      console.error(
+        "A tracked file this scan could not open is not a file it checked. Restore it,\n" +
+          "or stage its deletion so git stops tracking it.",
+      );
+    }
     process.exit(1);
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+/**
+ * True when this file is the process entry point. `process.argv[1]` is the path
+ * as it was typed, while `import.meta.url` has already been resolved through
+ * symlinks, so both sides are resolved here before they are compared. Comparing
+ * them unresolved makes the scan skip its own run, print nothing and exit 0
+ * whenever any part of the invocation path is a symlink, which is exactly the
+ * silent pass this scan exists to prevent.
+ */
+function isEntryPoint() {
+  const self = realpathSync(fileURLToPath(import.meta.url));
+  try {
+    return process.argv[1] ? realpathSync(process.argv[1]) === self : false;
+  } catch {
+    // argv[1] resolves to no file on disk, and this file does exist, so the
+    // entry point is not this one.
+    return false;
+  }
+}
+
+if (isEntryPoint()) main();

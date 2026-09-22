@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -77,6 +77,31 @@ test("a name split across a line break is still found", () => {
       assert.match(result.output, /\[studied-work-name\] docs\/wrapped\.md:3/);
     },
   );
+});
+
+test("a wrapped name survives whatever prefix the continuation line carries", () => {
+  // The unprefixed wrap above is the one shape where a plain line join already
+  // puts the two halves next to each other. Every format this scanner reads
+  // wraps with a prefix instead, and the prefix lands between the halves.
+  const [first, second] = SYNTHETIC_NAME.split(" ");
+  const cases = [
+    ["src/comment.ts", `// Technique from ${first}\n// ${second}, 2026.\nexport const a = 1;\n`, 1],
+    [
+      "src/jsdoc.ts",
+      `/**\n * Technique from ${first}\n * ${second}, 2026.\n */\nexport const b = 2;\n`,
+      2,
+    ],
+    ["docs/quote.md", `# Q\n\n> Drew on ${first}\n> ${second} for turns.\n`, 3],
+    ["docs/bullet.md", `# B\n\n- ${first}\n- ${second}\n`, 3],
+    ["docs/table.md", `# T\n\n| ${first} |\n| ${second} |\n`, 3],
+  ];
+  for (const [path, content, line] of cases) {
+    control({ ...local, [path]: content }, (root) => {
+      const result = scan(root);
+      assert.equal(result.status, 1, `${path}: ${result.output}`);
+      assert.match(result.output, new RegExp(`\\[studied-work-name\\] ${path}:${line}`));
+    });
+  }
 });
 
 test("research index formats are inspected", () => {
@@ -167,6 +192,40 @@ test("tracked formats the scanner cannot read are reported, not counted as check
         result.stdout,
         /not inspected: formats this scanner does not read: \.woff2 \(1\)/,
       );
+    },
+  );
+});
+
+test("the scan still runs when it is reached through a symlinked path", () => {
+  // `process.argv[1]` is the path as typed while `import.meta.url` is already
+  // resolved through symlinks. An entry point guard that compares them
+  // unresolved skips the whole scan here: no output, exit 0, and nothing
+  // downstream able to tell that apart from a clean sweep.
+  control({ ...local, "docs/notes.md": `# Notes\n\nDrew on ${SYNTHETIC_NAME}.\n` }, (root) => {
+    const link = join(root, "scripts-link");
+    symlinkSync(scripts, link);
+    const result = spawnSync(process.execPath, [join(link, "scan-public-safety.mjs")], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stderr, /\[studied-work-name\] docs\/notes\.md:3/);
+  });
+});
+
+test("a tracked file this scan cannot open is reported, not counted as inspected", () => {
+  control(
+    { ...local, "docs/a.md": `# A\n\nDrew on ${SYNTHETIC_NAME}.\n`, "docs/b.md": "# B\n" },
+    (root) => {
+      // Git still tracks the file, so the run has to account for it. Counting it
+      // as inspected reports a sweep one file wider than the one that happened,
+      // and here that file is the one carrying the name.
+      rmSync(join(root, "docs/a.md"));
+      const result = scan(root);
+      assert.equal(result.status, 1, result.output);
+      assert.match(result.stderr, /\[unreadable-tracked-file\] docs\/a\.md/);
+      assert.match(result.stderr, /2 of 3 tracked files inspected/);
     },
   );
 });
