@@ -262,12 +262,13 @@ field that records it.
 
 Two ids that differ only by case, or only by Unicode normalization form, fold to
 one name on a filesystem that folds either one. A script whose id collides that
-way with a script already on disk is refused before anything is written, and
-`webtoon.json`'s episode ids carry the same guarantee: validation reports two
-episode ids that fold together, naming both. Both guards compare one fold, and
-each compares it itself rather than leaving it to the filesystem, so the answer
-is the same on a filesystem that folds and on one that does not, and an id pair
-one of them refuses is an id pair the other refuses.
+way with a script already on disk is refused before anything is written, and the
+episode ids in `episodes/<id>/episode.yaml`, which are the directory names as
+well, carry the same guarantee: validation reports two episode ids that fold
+together, naming both. Both guards compare one fold, and each compares it itself
+rather than leaving it to the filesystem, so the answer is the same on a
+filesystem that folds and on one that does not, and an id pair one of them
+refuses is an id pair the other refuses.
 
 That fold is normalization to NFC followed by lowercasing, and it is narrower
 than the table a case-insensitive filesystem folds by. Lowercasing is not
