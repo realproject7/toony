@@ -213,7 +213,7 @@ What one episode does, beat by beat and cut by cut.
 {
   "scriptFormat": 1,
   "episodeId": "ep-001",
-  "briefRevision": "5b1e…",
+  "briefRevision": "8fd7b10ccd557752983acfdf4d50a56d0688e35dcbc1905af1befeb8d4da9b89",
   "beats": [
     {
       "id": "beat-001",
@@ -263,7 +263,13 @@ field that records it.
 Two script ids that differ only by case, or only by Unicode normalization form,
 fold to one filename on a filesystem that folds either one. A script whose id
 collides that way with a script already on disk is refused before anything is
-written, the way `webtoon.json`'s episode ids are checked for the same hazard.
+written, and the writer compares the fold itself rather than leaving it to the
+filesystem, so the answer is the same on a filesystem that folds and on one that
+does not. `webtoon.json`'s episode ids carry a narrower guarantee: validation
+refuses two episode ids that differ only by case, and folds no normalization
+form, so two that differ only by normalization pass it and their
+`episodes/<id>/` folders can still fold onto one another where the filesystem
+folds that.
 
 ### The read rule this format depends on
 
