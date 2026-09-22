@@ -260,16 +260,23 @@ The same holds when the brief is removed, and when it is left in a state nothing
 can read: the script still reads, and the unusable input is reported against the
 field that records it.
 
-Two script ids that differ only by case, or only by Unicode normalization form,
-fold to one filename on a filesystem that folds either one. A script whose id
-collides that way with a script already on disk is refused before anything is
-written, and the writer compares the fold itself rather than leaving it to the
-filesystem, so the answer is the same on a filesystem that folds and on one that
-does not. `webtoon.json`'s episode ids carry a narrower guarantee: validation
-refuses two episode ids that differ only by case, and folds no normalization
-form, so two that differ only by normalization pass it and their
-`episodes/<id>/` folders can still fold onto one another where the filesystem
-folds that.
+Two ids that differ only by case, or only by Unicode normalization form, fold to
+one name on a filesystem that folds either one. A script whose id collides that
+way with a script already on disk is refused before anything is written, and
+`webtoon.json`'s episode ids carry the same guarantee: validation reports two
+episode ids that fold together, naming both. Both guards compare one fold, and
+each compares it itself rather than leaving it to the filesystem, so the answer
+is the same on a filesystem that folds and on one that does not, and an id pair
+one of them refuses is an id pair the other refuses.
+
+That fold is normalization to NFC followed by lowercasing, and it is narrower
+than the table a case-insensitive filesystem folds by. Lowercasing is not
+Unicode case folding: an APFS volume folds `ep-ſ` onto `ep-s`, `ep-ß` onto
+`ep-ss` and `ep-ﬁ` onto `ep-fi`, and these guards hold each pair distinct. The
+gap is left open deliberately. It refuses nothing, and the rules wide enough to
+close it — compatibility normalization, or a locale collator — also fold ids the
+filesystem keeps apart, such as `ep-²` against `ep-2`, which would refuse work
+an author has no way to rephrase.
 
 ### The read rule this format depends on
 

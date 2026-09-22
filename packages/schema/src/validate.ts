@@ -17,7 +17,7 @@ import {
   isPlainObject,
   isString,
 } from "./guards.js";
-import { isPathSafeId } from "./path-safe-id.js";
+import { foldPathSafeId, isPathSafeId } from "./path-safe-id.js";
 import { validateGutterBandWidth } from "./presets.js";
 import {
   BUBBLE_KINDS,
@@ -1125,12 +1125,16 @@ export function validateProject(value: unknown): ValidationResult {
   }
 
   const episodeIds = new Set<string>();
-  // Episode ids become filesystem directory segments (`episodes/<id>/`), so an
-  // id that only differs from another by case still maps to the SAME folder on
-  // case-insensitive filesystems (macOS APFS, Windows NTFS are so by default),
-  // silently overwriting one episode's files. Track a case-folded set alongside
-  // the exact-match set to catch that collision before it reaches disk.
-  const episodeIdsCaseFold = new Set<string>();
+  // Episode ids become filesystem directory segments (`episodes/<id>/`), so two
+  // ids that differ only by case, or only by Unicode normalization form, still
+  // map to the SAME folder on a filesystem that folds either one (macOS APFS
+  // folds both, Windows NTFS folds case), silently overwriting one episode's
+  // files. Track the fold of every id seen alongside the exact-match set to
+  // catch that collision before it reaches disk, and keep the id it folds onto
+  // so the report can name both. `foldPathSafeId` is the same fold the script
+  // writer in `@toony/project-io` compares, so the two guards cannot answer
+  // this question differently.
+  const episodeIdsByFold = new Map<string, string>();
   for (let i = 0; i < episodes.length; i++) {
     const bundle = episodes[i];
     const bundlePath = joinPath("episodes", i);
@@ -1144,18 +1148,19 @@ export function validateProject(value: unknown): ValidationResult {
     const episode = bundle.episode;
     if (isPlainObject(episode) && isNonEmptyString(episode.id)) {
       const idPath = joinPath(joinPath(bundlePath, "episode"), "id");
-      const caseFold = episode.id.toLowerCase();
+      const fold = foldPathSafeId(episode.id);
+      const collision = episodeIdsByFold.get(fold);
       if (episodeIds.has(episode.id)) {
         c.add(idPath, "episode.duplicate-id", `duplicate episode id "${episode.id}".`);
-      } else if (episodeIdsCaseFold.has(caseFold)) {
+      } else if (collision !== undefined) {
         c.add(
           idPath,
           "episode.id-collision",
-          `episode id "${episode.id}" collides case-insensitively with another episode id; on case-insensitive filesystems (macOS APFS, Windows NTFS) both map to the same folder and would overwrite each other.`,
+          `episode id "${episode.id}" collides with episode id "${collision}" once case and Unicode normalization are folded; on filesystems that fold either one (macOS APFS, Windows NTFS) both map to the same folder and would overwrite each other.`,
         );
       }
       episodeIds.add(episode.id);
-      episodeIdsCaseFold.add(caseFold);
+      if (collision === undefined) episodeIdsByFold.set(fold, episode.id);
     }
 
     validateEpisodeBundleRecords(bundle, bundlePath, c);
