@@ -53,6 +53,26 @@ export {
   spacingPx,
   validateGutterBandWidth,
 } from "./presets.js";
+export type {
+  BriefCastNote,
+  BriefPlanningProfile,
+  EpisodeScript,
+  ProductionBrief,
+  ScriptBeat,
+  ScriptCut,
+  ScriptGoal,
+  ScriptLine,
+} from "./script.js";
+export {
+  asEpisodeScript,
+  asProductionBrief,
+  EPISODE_SCRIPT_FORMAT_VERSION,
+  isRevisionId,
+  PRODUCTION_BRIEF_FORMAT_VERSION,
+  SCRIPT_CUTS_MAX,
+  validateEpisodeScriptValue,
+  validateProductionBriefValue,
+} from "./script.js";
 export { parseProject, serializeProject } from "./serialize.js";
 export type {
   BubbleBorder,

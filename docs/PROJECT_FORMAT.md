@@ -146,3 +146,141 @@ sequence:
   - type: cut
     id: cut-002
 ```
+
+## Planning artifacts
+
+A project may carry two authored files: one production brief for the project and
+one script per episode. Both are optional. A project without them loads,
+validates, scaffolds, exports and round-trips exactly as it always did, and
+`toony init` does not create them — the folder appears only when one of them is
+written.
+
+```txt
+my-webtoon/
+  script/
+    brief.json
+    episodes/
+      ep-001.json
+```
+
+Nothing applies a script on its own. No command reads these files, and writing
+one changes no existing project file. They are input for a later phase to read,
+not state anything here acts on.
+
+**They are not the episode plan.** `toony plan --spec <file>` grades an episode
+plan, which decides how tall a page is. These files decide nothing about the
+page: they carry no panel aspect and no gutter height. A cut's shape stays on
+its own `panelAspect`, and `toony plan --episode <id>` grades the real cuts once
+they exist.
+
+### `script/brief.json`
+
+What the work is and what it is for.
+
+```json
+{
+  "briefFormat": 1,
+  "intent": "A quiet harbour story about a debt nobody wrote down.",
+  "audience": "Adult readers who want a slow burn.",
+  "world": "A working harbour town, late autumn.",
+  "storyGoals": ["Make the debt feel physical."],
+  "contentConstraints": ["No on-page violence."],
+  "cast": [
+    { "characterId": "mira", "role": "The one who owes.", "continuity": "Never removes her coat." }
+  ],
+  "revisionPolicy": "Revise a goal only with a named reason.",
+  "planningProfile": {
+    "geometry": "Tall cuts at the harbour, square cuts indoors.",
+    "transitions": "Gutters between beats, one scene break at the turn.",
+    "lettering": "Narration in the gutter, dialogue in panel."
+  }
+}
+```
+
+`briefFormat`, `intent`, `audience`, `world` and `storyGoals` are required; the
+rest are optional. `cast` keys story-level notes to characters that are already
+in `webtoon.json`'s registry. It mints no second identity and carries no
+lockstring: the registry says who a character is, and the brief says what the
+character is for.
+
+The brief carries no episode length. Length belongs to the episode that has it.
+
+### `script/episodes/<episode-id>.json`
+
+What one episode does, beat by beat and cut by cut.
+
+```json
+{
+  "scriptFormat": 1,
+  "episodeId": "ep-001",
+  "briefRevision": "8fd7b10ccd557752983acfdf4d50a56d0688e35dcbc1905af1befeb8d4da9b89",
+  "beats": [
+    {
+      "id": "beat-001",
+      "purpose": "Establish the harbour and the debt.",
+      "goals": [{ "characterId": "mira", "goal": "Get through the morning unseen." }],
+      "cuts": [
+        {
+          "id": "sc-001",
+          "intent": "Open on the thing the episode is about.",
+          "scene": "The harbour before dawn, nets still wet.",
+          "characters": ["mira"],
+          "dialogue": [{ "speaker": null, "text": "The tide keeps its own books." }],
+          "letteringIntent": "One narration box, low in the frame."
+        }
+      ]
+    }
+  ]
+}
+```
+
+The filename and `episodeId` must name the same episode, so a copied or renamed
+file cannot silently describe a different one. The id need not name an episode
+that exists yet. Beats and cuts read in array order; there is no separate order
+field. A cut id is unique within its script and is not required to match a real
+cut id. `speaker` is a character id, or `null` for narration. A character id
+that resolves in neither `webtoon.json`'s registry nor the brief cast is
+reported when the script is read, the way an unresolved cut character ref is
+reported rather than refused.
+
+Two episodes of one project are independent. They may run to different lengths
+and name different casts, and writing one never reads or rewrites another.
+
+### Revisions
+
+A revision's durable name is the sha256 of the bytes the file is persisted as,
+written as 64 lowercase hex characters.
+A byte-identical rewrite keeps the name; any change of content changes it. A
+script records the brief revision it was written against.
+
+The brief can be revised at any time, including once scripts exist. Editing it
+never rewrites a script and never makes one unreadable: every script still
+reads, and each one reports that its recorded brief revision no longer matches.
+The same holds when the brief is removed, and when it is left in a state nothing
+can read: the script still reads, and the unusable input is reported against the
+field that records it.
+
+Two script ids that differ only by case, or only by Unicode normalization form,
+fold to one filename on a filesystem that folds either one. A script whose id
+collides that way with a script already on disk is refused before anything is
+written, and the writer compares the fold itself rather than leaving it to the
+filesystem, so the answer is the same on a filesystem that folds and on one that
+does not. `webtoon.json`'s episode ids carry a narrower guarantee: validation
+refuses two episode ids that differ only by case, and folds no normalization
+form, so two that differ only by normalization pass it and their
+`episodes/<id>/` folders can still fold onto one another where the filesystem
+folds that.
+
+### The read rule this format depends on
+
+Nothing else in a project reads this folder, and that is a property of how the
+project is read rather than a coincidence. The project loader reads named paths
+only — `webtoon.json` and each file under `episodes/<id>/` — and the only walk of
+a project directory walks `episodes/`. One level up, the project validator reads
+exactly two fields of the object it is handed, `webtoon` and `episodes`; it does
+not enumerate keys and does not reject unknown ones. That is what lets the
+on-disk format grow without touching either.
+
+If the project loader is ever made to walk the project root, or the project
+validator is ever made strict about unknown keys, that is a breaking change to
+this contract and has to be handled as one.
