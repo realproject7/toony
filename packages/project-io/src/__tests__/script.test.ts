@@ -245,6 +245,42 @@ test("a script whose brief is gone still reads, and says the brief is missing", 
   assert.equal(issue.path, "script.briefRevision");
 });
 
+test("a script whose brief no longer validates still reads, and says so", async () => {
+  const root = await newProject();
+  const revision = await writeBrief(root, brief());
+  await writeEpisodeScript(root, script("ep-001", revision));
+  await writeFile(briefPath(root), encodeJson({ briefFormat: 1 }));
+
+  const loaded = await readEpisodeScript(root, "ep-001", CAST);
+  assert.ok(loaded.script, "a script must not become unreadable when the brief stops validating");
+  const issue = loaded.validation.issues.find(
+    (candidate) => candidate.code === "script.brief-invalid",
+  );
+  assert.ok(issue, JSON.stringify(loaded.validation.issues));
+  assert.equal(issue.path, "script.briefRevision");
+});
+
+test("a script whose brief is unparsable still reads, and does not throw", async () => {
+  const root = await newProject();
+  const revision = await writeBrief(root, brief());
+  await writeEpisodeScript(root, script("ep-001", revision));
+  await writeFile(briefPath(root), "{ this is not json");
+
+  // Reading the brief itself is the one case that throws: there the unreadable
+  // file is the subject. Reading a script that merely records a revision of it
+  // is not, because the script parsed and validated on its own.
+  await assert.rejects(readBrief(root), (error: Error) => error.name === "ProjectIoError");
+
+  const loaded = await readEpisodeScript(root, "ep-001", CAST);
+  assert.ok(loaded.script, "a script must not become unreadable when the brief cannot be parsed");
+  assert.equal(loaded.script.episodeId, "ep-001");
+  const issue = loaded.validation.issues.find(
+    (candidate) => candidate.code === "script.brief-invalid",
+  );
+  assert.ok(issue, JSON.stringify(loaded.validation.issues));
+  assert.equal(issue.path, "script.briefRevision");
+});
+
 // --- Round trip and revision identity ---------------------------------------
 
 test("a written artifact reads back equal and a second write is byte-identical", async () => {
@@ -339,6 +375,34 @@ test("a script id that differs only by case is refused, naming both ids", async 
   // filesystem nothing was overwritten, and on a case-sensitive one nothing was
   // added.
   assert.equal(await readFile(episodeScriptFile(root, "ep-A"), "utf8"), before);
+  assert.deepEqual((await readdir(scriptEpisodesDir(root))).sort(), listedBefore);
+});
+
+// The same text in two Unicode normalization forms: composed e-acute, then `e`
+// followed by a combining acute accent. Written as escapes so the test does not
+// depend on how this source file is normalized on disk.
+const ID_NFC = "ep-caf\u00e9";
+const ID_NFD = "ep-cafe\u0301";
+
+test("a script id that differs only by Unicode normalization is refused, naming both ids", async () => {
+  const root = await newProject();
+  const revision = await writeBrief(root, brief());
+  await writeEpisodeScript(root, script(ID_NFC, revision));
+  const before = await readFile(episodeScriptFile(root, ID_NFC), "utf8");
+  const listedBefore = (await readdir(scriptEpisodesDir(root))).sort();
+
+  await assert.rejects(
+    writeEpisodeScript(root, script(ID_NFD, revision)),
+    (error: Error) =>
+      error.name === "ProjectIoError" &&
+      error.message.includes(ID_NFD) &&
+      error.message.includes(ID_NFC),
+  );
+
+  // macOS APFS folds these two onto one filename, so without the check here the
+  // second write would destroy the first. Nothing was overwritten and nothing
+  // was added, on a filesystem that folds them and on one that does not.
+  assert.equal(await readFile(episodeScriptFile(root, ID_NFC), "utf8"), before);
   assert.deepEqual((await readdir(scriptEpisodesDir(root))).sort(), listedBefore);
 });
 

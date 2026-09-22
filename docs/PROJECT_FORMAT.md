@@ -256,13 +256,14 @@ script records the brief revision it was written against.
 The brief can be revised at any time, including once scripts exist. Editing it
 never rewrites a script and never makes one unreadable: every script still
 reads, and each one reports that its recorded brief revision no longer matches.
-The same holds when the brief is removed — the script reads and the missing
-input is reported.
+The same holds when the brief is removed, and when it is left in a state nothing
+can read: the script still reads, and the unusable input is reported against the
+field that records it.
 
-Two episode ids that differ only by case fold to one file on a case-insensitive
-filesystem, so a script whose id collides that way with a script already on disk
-is refused before anything is written, exactly as `webtoon.json`'s episode ids
-are.
+Two script ids that differ only by case, or only by Unicode normalization form,
+fold to one filename on a filesystem that folds either one. A script whose id
+collides that way with a script already on disk is refused before anything is
+written, the way `webtoon.json`'s episode ids are checked for the same hazard.
 
 ### The read rule this format depends on
 

@@ -10,10 +10,10 @@
 // `ValidationResult`. A missing file is neither — it is reported as absent, so a
 // caller can tell "there is no brief" from "the brief is empty or malformed".
 //
-// A stale script still reads. When the brief has been edited, or is gone, the
-// read says so against the field that records it and hands the script back
-// anyway. Deciding what to do about it is a later phase's job, and it cannot
-// decide anything about a file it cannot open.
+// A stale script still reads. When the brief has been edited, is gone, or
+// cannot be used at all, the read says so against the field that records it and
+// hands the script back anyway. Deciding what to do about it is a later phase's
+// job, and it cannot decide anything about a file it cannot open.
 //
 // Cross-file resolution is NOT a write-time hard error here, the way
 // `writer.ts` already states for a cut's character refs: an unresolved
@@ -229,7 +229,7 @@ function reportBriefRevision(script: EpisodeScript, brief: LoadedBrief, c: Issue
     c.add(
       path,
       "script.brief-invalid",
-      `the script was written against brief revision "${script.briefRevision}" and the current ${SCRIPT_DIR}/${BRIEF_FILE} does not validate, so the two cannot be compared.`,
+      `the script was written against brief revision "${script.briefRevision}" and the current ${SCRIPT_DIR}/${BRIEF_FILE} cannot be read or does not validate, so the two cannot be compared.`,
     );
     return;
   }
@@ -239,6 +239,25 @@ function reportBriefRevision(script: EpisodeScript, brief: LoadedBrief, c: Issue
       "script.brief-stale",
       `the script was written against brief revision "${script.briefRevision}" and the current brief is "${brief.revision}"; the script still reads, and what to do about the difference is not decided here.`,
     );
+  }
+}
+
+/**
+ * Read the brief the way an episode-script read needs it.
+ *
+ * By the time this runs the script has parsed and validated on its own, and an
+ * edit somewhere else must not make it unreadable. A brief that cannot be
+ * parsed is therefore not a throw here: it comes back in the shape an invalid
+ * brief comes back in, present with no revision to compare against, and
+ * `reportBriefRevision` says so against the field that records it. A direct
+ * `readBrief` still throws, because there the unreadable file is the subject.
+ */
+async function readBriefForScript(root: string): Promise<LoadedBrief> {
+  try {
+    return await readBrief(root);
+  } catch (cause) {
+    if (!(cause instanceof ProjectIoError)) throw cause;
+    return { brief: null, revision: null, absent: false, validation: emptyResult() };
   }
 }
 
@@ -279,7 +298,7 @@ export async function readEpisodeScript(
     );
   }
 
-  const brief = await readBrief(root);
+  const brief = await readBriefForScript(root);
   reportBriefRevision(script, brief, c);
   reportUnknownCharacterRefs(script, knownCharacterIds(characters, brief.brief), c);
 
@@ -310,12 +329,24 @@ export async function writeBrief(root: string, brief: ProductionBrief): Promise<
 }
 
 /**
+ * The fold two script ids share when a filesystem treats them as one filename.
+ *
+ * `isPathSafeId` accepts `ep-A` and `ep-a` alike, and it accepts the same text
+ * written in two Unicode normalization forms. macOS APFS folds case and
+ * normalization both, so either pair is one file there. Normalizing before
+ * lowercasing folds both the same way.
+ */
+function foldScriptId(id: string): string {
+  return id.normalize("NFC").toLowerCase();
+}
+
+/**
  * The persisted script id that `episodeId` folds onto, or null when none does.
  *
- * `isPathSafeId` accepts `ep-A` and `ep-a` alike, and on a case-insensitive
- * filesystem those are one file: writing the second would destroy the first.
- * The fold is compared HERE rather than left to the filesystem, so the answer is
- * the same on a case-sensitive filesystem and on a case-insensitive one.
+ * Writing a script whose id folds onto one already on disk would destroy that
+ * one. The fold is compared HERE rather than left to the filesystem, so the
+ * answer is the same on a filesystem that folds the two and on one that does
+ * not.
  */
 async function findIdCollision(dir: string, episodeId: string): Promise<string | null> {
   let entries: Dirent[];
@@ -326,11 +357,11 @@ async function findIdCollision(dir: string, episodeId: string): Promise<string |
     const reason = cause instanceof Error ? cause.message : String(cause);
     throw new ProjectIoError(`could not read ${dir}: ${reason}`, dir);
   }
-  const fold = episodeId.toLowerCase();
+  const fold = foldScriptId(episodeId);
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(SCRIPT_FILE_SUFFIX)) continue;
     const existing = entry.name.slice(0, -SCRIPT_FILE_SUFFIX.length);
-    if (existing !== episodeId && existing.toLowerCase() === fold) return existing;
+    if (existing !== episodeId && foldScriptId(existing) === fold) return existing;
   }
   return null;
 }
@@ -347,7 +378,7 @@ async function findIdCollision(dir: string, episodeId: string): Promise<string |
  * exist yet.
  *
  * Refused before any byte is written: a script that does not validate, and one
- * whose id collides case-insensitively with a script already on disk.
+ * whose id folds onto a script already on disk.
  */
 export async function writeEpisodeScript(root: string, script: EpisodeScript): Promise<string> {
   const c = new IssueCollector();
@@ -359,7 +390,7 @@ export async function writeEpisodeScript(root: string, script: EpisodeScript): P
   const collision = await findIdCollision(dir, script.episodeId);
   if (collision !== null) {
     throw new ProjectIoError(
-      `refusing to write episode script "${script.episodeId}": it collides case-insensitively with the existing script "${collision}"; on case-insensitive filesystems (macOS APFS, Windows NTFS) both map to the same file and would overwrite each other.`,
+      `refusing to write episode script "${script.episodeId}": once case and Unicode normalization are folded it collides with the existing script "${collision}"; on filesystems that fold either one (macOS APFS, Windows NTFS) both map to the same file and would overwrite each other.`,
       dir,
     );
   }
