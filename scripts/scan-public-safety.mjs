@@ -2,18 +2,43 @@
 // Public-safety scanner for the Toony public repository.
 //
 // Scans tracked text files for credentials, private absolute paths, provider
-// account identifiers, and tracked images for embedded EXIF/metadata markers.
-// Exits 1 with actionable findings when anything unsafe is detected.
+// account identifiers and studied-work names, and tracked images for embedded
+// EXIF/metadata markers. Exits 1 with actionable findings when anything unsafe
+// is detected.
+//
+// Studied-work names:
+//   The list of names cannot live in this repository, because a tracked list is
+//   the leak it exists to prevent. It is read from untracked local
+//   configuration: a JSON array of names at `.toony/public-safety-names.json`,
+//   which `.gitignore` already keeps out of the repository. A fresh clone has
+//   no such file, so a run without one says out loud that it did not check for
+//   names rather than reporting a pass it did not earn. A finding names the
+//   entry by its position in that file, counted the way the operator counts
+//   entries when they open it, and never prints the name itself. Entries the
+//   list cannot use are reported too, so a list read shorter than the file is
+//   never mistaken for a list fully checked.
+//
+// Coverage:
+//   Tracked files in this checkout, and nothing else. Issue and pull request
+//   bodies are out of reach here: this runs offline inside `pnpm check` with no
+//   credentials, and GitHub keeps edited bodies in revision history where no
+//   scan can reach them. Sweeping those stays a manual review step.
 //
 // Escape hatches:
 //   - Append `public-safe-ignore: <reason>` to a line to skip that single line.
+//     Name matching honours it too: the line is dropped before the file is
+//     flattened.
 //   - Add a precise entry to ALLOWLIST below for legitimate, documented matches.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { extname } from "node:path";
+import { readFileSync, realpathSync } from "node:fs";
+import { extname, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const IGNORE_MARKER = "public-safe-ignore:";
+
+/** Untracked local configuration holding the studied-work name list. */
+export const NAME_SOURCE_DEFAULT = ".toony/public-safety-names.json";
 
 // Directories never scanned (also excluded by git tracking, kept for safety).
 const SKIP_DIR_PATTERN = /(^|\/)(node_modules|\.git|dist|build|\.next|\.turbo)(\/|$)/;
@@ -30,6 +55,8 @@ const TEXT_EXTENSIONS = new Set([
   ".md",
   ".mdx",
   ".txt",
+  ".csv",
+  ".tsv",
   ".yaml",
   ".yml",
   ".toml",
@@ -115,15 +142,164 @@ function isAllowed(file, lineText) {
   return ALLOWLIST.some((entry) => entry.file === file && lineText.includes(entry.substring));
 }
 
-/** Scan a single text file, returning an array of finding objects. */
-function scanTextFile(file) {
+/** Report a configuration fault that stops the scan from meaning anything. */
+function fail(message) {
+  console.error(`public-safety scan: FAILED — ${message}`);
+  process.exit(1);
+}
+
+/**
+ * Reduce text to lowercase words separated by single spaces, dropping every
+ * character a name cannot contain. The names and the scanned text go through
+ * this together, so a name split across a line break matches whatever the
+ * continuation line carries: a `//`, a ` * `, a `> `, a `- ` or a `| ` between
+ * the two halves collapses to the same single space as the break itself.
+ */
+export function normalizeText(value) {
+  return value
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Read the studied-work name list from untracked local configuration.
+ * Returns null when there is no source, so the caller can report that names
+ * were not checked instead of passing as if they had been.
+ *
+ * Each usable name carries `entry`, its 1-based position in the operator's
+ * file. Blank entries are unusable, and their positions come back in `blank`:
+ * numbering the survivors instead would send a finding to the wrong line of
+ * the one list that can resolve it, and a list silently read shorter than the
+ * file reads as a list that was checked in full.
+ */
+export function loadNames(path, trackedFiles) {
+  let raw;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    return fail(`name source ${path} could not be read: ${error.message}`);
+  }
+  if (trackedFiles.includes(relative(".", resolve(path)))) {
+    return fail(`name source ${path} is tracked by git. The list must never enter the repository.`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return fail(`name source ${path} is not valid JSON. It must be an array of names.`);
+  }
+  if (!Array.isArray(parsed) || parsed.some((name) => typeof name !== "string")) {
+    return fail(`name source ${path} must be a JSON array of names.`);
+  }
+  const names = [];
+  const blank = [];
+  parsed.forEach((value, index) => {
+    const name = normalizeText(value);
+    if (name.length === 0) blank.push(index + 1);
+    else names.push({ name, entry: index + 1 });
+  });
+  if (names.length === 0) return fail(`name source ${path} lists no names.`);
+  return { names, blank };
+}
+
+/** Name the blank source entries, so a list read shorter than the file says so. */
+function blankNote(blank) {
+  if (blank.length === 0) return "";
+  const which = blank.join(", ");
+  return blank.length === 1
+    ? `, blank source entry ${which} skipped`
+    : `, blank source entries ${which} skipped`;
+}
+
+/**
+ * A line whose last visible character is a single hyphen holding one word
+ * together across the break: `North-` then `wind`. The character before the
+ * hyphen must be a letter or digit, so a dash written as `--`, a list marker,
+ * and every other punctuation boundary are left alone.
+ */
+const HYPHEN_WRAP = /[\p{L}\p{N}]-[ \t]*$/u;
+
+/**
+ * Flatten lines into one lowercase string with single-space gaps, recording
+ * where each line starts. A name split across a line break then matches, and
+ * the finding still reports the line the name starts on.
+ *
+ * With `fuseHyphenWrap`, a line ending in a word-joining hyphen is appended to
+ * the next one with no gap at all, which is the only way `North-` then `wind`
+ * reads back as `northwind`. Nothing else is fused: not a plain break, not a
+ * comma or any other punctuation, not a blank line, and not a line the ignore
+ * marker dropped. Both flattenings are scanned, so a hyphen that belongs to
+ * the name itself still matches through the gap the other pass leaves.
+ */
+function flattenLines(lines, fuseHyphenWrap) {
+  const spans = [];
+  let text = "";
+  let fused = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes(IGNORE_MARKER)) {
+      fused = false;
+      continue;
+    }
+    const collapsed = normalizeText(lines[i]);
+    if (collapsed.length === 0) {
+      fused = false;
+      continue;
+    }
+    const gap = text.length === 0 || fused ? "" : " ";
+    spans.push({ start: text.length + gap.length, line: i + 1 });
+    text = `${text}${gap}${collapsed}`;
+    fused = fuseHyphenWrap && HYPHEN_WRAP.test(lines[i]);
+  }
+  return { text, spans };
+}
+
+function lineAt(spans, index) {
+  let line = 0;
+  for (const span of spans) {
+    if (span.start > index) break;
+    line = span.line;
+  }
+  return line;
+}
+
+/** Scan flattened text for studied-work names, returning an array of findings. */
+export function scanNames(file, lines, names) {
+  const passes = [flattenLines(lines, false), flattenLines(lines, true)];
   const findings = [];
+  for (const { name, entry } of names) {
+    for (const { text, spans } of passes) {
+      const at = text.indexOf(name);
+      if (at < 0) continue;
+      // The name is never printed. Its position in the operator's untracked
+      // file is enough to look it up locally, which is only true while that
+      // position is the one they would count in the file itself.
+      findings.push({
+        file,
+        line: lineAt(spans, at),
+        rule: "studied-work-name",
+        excerpt: `name source entry ${entry}`,
+      });
+      break;
+    }
+  }
+  return findings;
+}
+
+/**
+ * Scan a single text file, returning an array of finding objects, or null when
+ * the file could not be read. A swallowed read failure would let the caller
+ * count a file it never opened as inspected.
+ */
+function scanTextFile(file, names) {
   let content;
   try {
     content = readFileSync(file, "utf8");
   } catch {
-    return findings;
+    return null;
   }
+  const findings = [];
 
   const lines = content.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
@@ -143,6 +319,7 @@ function scanTextFile(file) {
       }
     }
   }
+  if (names) findings.push(...scanNames(file, lines, names));
   return findings;
 }
 
@@ -153,18 +330,19 @@ function redact(value) {
 }
 
 /**
- * Scan an image file for embedded metadata markers.
+ * Scan an image file for embedded metadata markers, returning null when the
+ * file could not be read, for the same reason scanTextFile does.
  * - JPEG: APP1 "Exif" marker.
  * - PNG: textual chunks tEXt / iTXt / zTXt and eXIf.
  */
 function scanImageFile(file) {
-  const findings = [];
   let buf;
   try {
     buf = readFileSync(file);
   } catch {
-    return findings;
+    return null;
   }
+  const findings = [];
   const ext = extname(file).toLowerCase();
 
   if (ext === ".jpg" || ext === ".jpeg") {
@@ -205,37 +383,114 @@ function hasJpegApp1(buf) {
 
 function main() {
   const files = listTrackedFiles();
+  const source = loadNames(NAME_SOURCE_DEFAULT, files);
+  const names = source ? source.names : null;
   const findings = [];
+  // A file is counted as inspected only once a read of it returned, so the
+  // coverage line can never claim a file was checked when nothing read it.
+  // Every other tracked file is accounted for out loud: under an excluded
+  // directory, in a format this scanner does not read, or opened and failed.
+  const unreadFormats = new Map();
+  let excludedByDirectory = 0;
+  let inspected = 0;
 
   for (const file of files) {
-    if (SKIP_DIR_PATTERN.test(file)) continue;
-    const ext = extname(file).toLowerCase();
-    const base = file.split("/").pop() ?? file;
-
-    if (IMAGE_EXTENSIONS.has(ext)) {
-      findings.push(...scanImageFile(file));
+    if (SKIP_DIR_PATTERN.test(file)) {
+      excludedByDirectory++;
       continue;
     }
-    if (TEXT_EXTENSIONS.has(ext) || TEXT_EXTENSIONS.has(base.toLowerCase())) {
-      findings.push(...scanTextFile(file));
+    const ext = extname(file).toLowerCase();
+    const base = (file.split("/").pop() ?? file).toLowerCase();
+    const isImage = IMAGE_EXTENSIONS.has(ext);
+
+    if (!isImage && !TEXT_EXTENSIONS.has(ext) && !TEXT_EXTENSIONS.has(base)) {
+      const format = ext || base;
+      unreadFormats.set(format, (unreadFormats.get(format) ?? 0) + 1);
+      continue;
+    }
+
+    const scanned = isImage ? scanImageFile(file) : scanTextFile(file, names);
+    if (scanned === null) {
+      findings.push({
+        file,
+        line: 0,
+        rule: "unreadable-tracked-file",
+        excerpt: "git tracks it and this scan could not open it",
+      });
+      continue;
+    }
+    findings.push(...scanned);
+    inspected++;
+  }
+
+  const ok = findings.length === 0;
+  const say = (line) => (ok ? console.log(line) : console.error(line));
+  const nameState = names
+    ? `${names.length} name(s) checked${blankNote(source.blank)}`
+    : "names NOT CHECKED";
+  const coverage = `${inspected} of ${files.length} tracked files inspected; ${nameState}`;
+
+  if (ok) {
+    console.log(`public-safety scan: OK (${coverage})`);
+  } else {
+    console.error(`public-safety scan: FAILED — ${findings.length} finding(s) (${coverage}):\n`);
+    for (const f of findings) {
+      const loc = f.line > 0 ? `${f.file}:${f.line}` : f.file;
+      console.error(`  [${f.rule}] ${loc}`);
+      console.error(`      match: ${f.excerpt}`);
     }
   }
 
-  if (findings.length === 0) {
-    console.log(`public-safety scan: OK (${files.length} tracked files checked)`);
-    return;
+  if (unreadFormats.size > 0) {
+    const breakdown = [...unreadFormats]
+      .sort()
+      .map(([format, count]) => `${format} (${count})`)
+      .join(", ");
+    say(`  not inspected: formats this scanner does not read: ${breakdown}`);
+  }
+  if (excludedByDirectory > 0) {
+    say(`  not inspected: ${excludedByDirectory} file(s) under an excluded directory`);
   }
 
-  console.error(`public-safety scan: FAILED — ${findings.length} finding(s):\n`);
-  for (const f of findings) {
-    const loc = f.line > 0 ? `${f.file}:${f.line}` : f.file;
-    console.error(`  [${f.rule}] ${loc}`);
-    console.error(`      match: ${f.excerpt}`);
+  if (names === null) {
+    console.error(
+      "\npublic-safety scan: studied-work names were NOT checked. There is no name source at\n" +
+        `${NAME_SOURCE_DEFAULT}. That list must stay out of this repository, so put it at that\n` +
+        "path, where git already ignores it, and run the scan again.",
+    );
   }
-  console.error(
-    "\nFix the leak, or add `public-safe-ignore: <reason>` to the line if it is a documented false positive.",
-  );
-  process.exit(1);
+
+  if (!ok) {
+    console.error(
+      "\nFix the leak, or add `public-safe-ignore: <reason>` to the line if it is a documented false positive.",
+    );
+    if (findings.some((f) => f.rule === "unreadable-tracked-file")) {
+      console.error(
+        "A tracked file this scan could not open is not a file it checked. Restore it,\n" +
+          "or stage its deletion so git stops tracking it.",
+      );
+    }
+    process.exit(1);
+  }
 }
 
-main();
+/**
+ * True when this file is the process entry point. `process.argv[1]` is the path
+ * as it was typed, while `import.meta.url` has already been resolved through
+ * symlinks, so both sides are resolved here before they are compared. Comparing
+ * them unresolved makes the scan skip its own run, print nothing and exit 0
+ * whenever any part of the invocation path is a symlink, which is exactly the
+ * silent pass this scan exists to prevent.
+ */
+function isEntryPoint() {
+  const self = realpathSync(fileURLToPath(import.meta.url));
+  try {
+    return process.argv[1] ? realpathSync(process.argv[1]) === self : false;
+  } catch {
+    // argv[1] resolves to no file on disk, and this file does exist, so the
+    // entry point is not this one.
+    return false;
+  }
+}
+
+if (isEntryPoint()) main();
