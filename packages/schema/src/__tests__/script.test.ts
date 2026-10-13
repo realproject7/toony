@@ -390,3 +390,30 @@ test("the new script fields are held to the record vocabulary they compile into 
     );
   }
 });
+
+test("a script may say what it continues from, and the hand-off is held to its shape (#329)", () => {
+  const value = validScript();
+  value.continuity = { previousEpisodeId: "ep-000", startsFrom: "Mira has not paid." };
+  const c = new IssueCollector();
+  validateEpisodeScriptValue(value, "script", c);
+  assert.deepEqual(c.result().issues, []);
+
+  const cases: Array<[unknown, string]> = [
+    ["ep-000", "script.continuity"],
+    [{ previousEpisodeId: "ep-000" }, "field.required"],
+    [{ previousEpisodeId: "", startsFrom: "x" }, "field.required"],
+    [{ previousEpisodeId: "../x", startsFrom: "x" }, "script.continuity.unsafe"],
+    [{ previousEpisodeId: value.episodeId, startsFrom: "x" }, "script.continuity.self"],
+    [{ previousEpisodeId: "ep-000", startsFrom: "x", mood: "dark" }, "script.unknown-key"],
+  ];
+  for (const [continuity, code] of cases) {
+    const bad = validScript() as unknown as Record<string, unknown>;
+    bad.continuity = continuity;
+    const collector = new IssueCollector();
+    validateEpisodeScriptValue(bad, "script", collector);
+    assert.ok(
+      collector.result().issues.some((issue) => issue.code === code),
+      `${code}: ${JSON.stringify(collector.result().issues)}`,
+    );
+  }
+});

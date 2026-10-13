@@ -112,7 +112,9 @@ export default async function WorkDashboardPage({
             <b>{totalBubbles}</b>
           </div>
           <div className="stat-row" data-testid="character-count">
-            <span>Characters</span>
+            <Link href={`/w/${encodeURIComponent(work.id)}/characters`} className="inspector-back">
+              Characters &rarr;
+            </Link>
             <b>{characters.length}</b>
           </div>
           <div className="stat-row" data-testid="character-references">

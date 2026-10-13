@@ -107,6 +107,14 @@ export interface ProjectFingerprint {
 }
 
 /** One `.toony/drafts/<episode-id>.json`. */
+/** The script's continuity hand-off, carried on the draft so a report shows it (#329). */
+export interface DraftContinuity {
+  previousEpisodeId: string;
+  startsFrom: string;
+  /** Whether the project holds the previous episode now. */
+  previousExists: boolean;
+}
+
 export interface EpisodeDraft {
   draftFormat: number;
   episodeId: string;
@@ -116,6 +124,8 @@ export interface EpisodeDraft {
   briefRevision: string | null;
   bundle: EpisodeBundle;
   defaults: DraftDefault[];
+  /** What the episode continues from, when the script states it. */
+  continuity?: DraftContinuity;
   /** The project state the last report compared against. Null until reported. */
   reviewedAgainst: ProjectFingerprint | null;
 }
@@ -125,6 +135,8 @@ export interface EpisodeDraft {
 export interface CompiledDraft {
   bundle: EpisodeBundle;
   defaults: DraftDefault[];
+  /** The script's continuity hand-off, with whether the previous episode exists. */
+  continuity?: DraftContinuity;
 }
 
 function box(line: number): LetteringOverlay["geometry"] {
@@ -258,7 +270,21 @@ export function compileEpisodeScript(script: EpisodeScript, project: Project): C
   }
   const episode: Episode = { schemaVersion: SCHEMA_VERSION, id: episodeId, title, sequence };
 
-  return { bundle: { episode, cuts, transitions, lettering }, defaults };
+  const continuity: DraftContinuity | undefined =
+    script.continuity === undefined
+      ? undefined
+      : {
+          previousEpisodeId: script.continuity.previousEpisodeId,
+          startsFrom: script.continuity.startsFrom,
+          previousExists: project.episodes.some(
+            (bundle) => bundle.episode.id === script.continuity?.previousEpisodeId,
+          ),
+        };
+  return {
+    bundle: { episode, cuts, transitions, lettering },
+    defaults,
+    ...(continuity === undefined ? {} : { continuity }),
+  };
 }
 
 /** The project as it would be with `bundle` applied, for validation and grading. */
@@ -308,6 +334,7 @@ function validateDraftValue(value: unknown, episodeId: string, c: IssueCollector
     "briefRevision",
     "bundle",
     "defaults",
+    "continuity",
     "reviewedAgainst",
   ];
   for (const key of Object.keys(record)) {
@@ -353,6 +380,22 @@ function validateDraftValue(value: unknown, episodeId: string, c: IssueCollector
   }
   if (!Array.isArray(record.defaults)) {
     c.add("draft.defaults", "draft.defaults", "defaults must be an array.");
+  }
+  if (record.continuity !== undefined) {
+    const k = record.continuity as Record<string, unknown> | null;
+    if (
+      typeof k !== "object" ||
+      k === null ||
+      typeof k.previousEpisodeId !== "string" ||
+      typeof k.startsFrom !== "string" ||
+      typeof k.previousExists !== "boolean"
+    ) {
+      c.add(
+        "draft.continuity",
+        "draft.continuity",
+        "continuity must carry previousEpisodeId, startsFrom and previousExists.",
+      );
+    }
   }
   validateFingerprint(record.reviewedAgainst, "draft.reviewedAgainst", c);
 }

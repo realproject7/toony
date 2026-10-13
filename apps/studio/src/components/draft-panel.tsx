@@ -5,7 +5,13 @@
 // action posts to `/api/draft`, which runs the shipped apply. Nothing here
 // recomputes a diff or decides a conflict: the panel shows and asks.
 
-import type { DraftConflict, DraftDefault, DraftDiff, ProjectFingerprint } from "@toony/project-io";
+import type {
+  DraftConflict,
+  DraftContinuity,
+  DraftDefault,
+  DraftDiff,
+  ProjectFingerprint,
+} from "@toony/project-io";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 
@@ -18,6 +24,7 @@ export interface DraftPanelProps {
     briefRevision: string | null;
     records: { cuts: number; transitions: number; overlays: number };
     defaults: DraftDefault[];
+    continuity: DraftContinuity | null;
   } | null;
   /** Issues when a draft file exists but does not validate. */
   draftIssues: string[];
@@ -173,6 +180,13 @@ export function DraftPanel({
           {draft.briefRevision ? ` · brief ${draft.briefRevision.slice(0, 12)}` : ""}
         </span>
       </div>
+      {draft.continuity && (
+        <p className="draft-continuity" data-testid="draft-continuity">
+          Continues from <code>{draft.continuity.previousEpisodeId}</code>
+          {draft.continuity.previousExists ? "" : " (not in the project yet)"}: “
+          {draft.continuity.startsFrom}”
+        </p>
+      )}
       <p className="draft-summary">
         {draft.records.cuts} cut(s), {draft.records.transitions} transition(s),{" "}
         {draft.records.overlays} bubble(s).{" "}

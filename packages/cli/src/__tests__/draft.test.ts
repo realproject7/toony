@@ -374,3 +374,27 @@ test("a script that names an unknown character compiles, and the warning is in t
     "the same answer the real cut gets",
   );
 });
+
+test("the report says what the episode continues from (#329)", async () => {
+  const dir = await scaffold();
+  await writeScript(dir, "ep-002", {
+    continuity: { previousEpisodeId: "ep-001", startsFrom: "Mira has not paid." },
+  });
+  const c = capture();
+  assert.equal(await runDraft(["compile", dir, "--episode", "ep-002"], c.io), EXIT_OK);
+  assert.match(c.out.join("\n"), /continues from ep-001: "Mira has not paid\."/);
+  const json = capture();
+  assert.equal(await runDraft(["show", dir, "--episode", "ep-002", "--json"], json.io), EXIT_OK);
+  assert.deepEqual(JSON.parse(json.out.join("\n")).continuity, {
+    previousEpisodeId: "ep-001",
+    startsFrom: "Mira has not paid.",
+    previousExists: true,
+  });
+  await writeScript(dir, "ep-003", {
+    continuity: { previousEpisodeId: "ep-009", startsFrom: "Later." },
+  });
+  const later = capture();
+  assert.equal(await runDraft(["compile", dir, "--episode", "ep-003"], later.io), EXIT_OK);
+  assert.match(later.out.join("\n"), /continues from ep-009 \(not in the project yet\)/);
+  assert.match(later.out.join("\n"), /script\.previous-episode-missing/);
+});

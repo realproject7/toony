@@ -282,6 +282,25 @@ test("compiling is deterministic and writes nothing into the project", async () 
   assert.deepEqual(await snapshot(root, ["script"]), before);
 });
 
+test("the compiler carries the continuity hand-off onto the draft with whether the previous episode exists (#329)", async () => {
+  const root = await newProject();
+  const loaded = await loadProject(root);
+  const existing = loaded.project.episodes[0]?.episode.id ?? "";
+  const value = script("ep-002", "b".repeat(64));
+  assert.equal(compileEpisodeScript(value, loaded.project).continuity, undefined);
+  value.continuity = { previousEpisodeId: existing, startsFrom: "After the opening." };
+  assert.deepEqual(compileEpisodeScript(value, loaded.project).continuity, {
+    previousEpisodeId: existing,
+    startsFrom: "After the opening.",
+    previousExists: true,
+  });
+  value.continuity = { previousEpisodeId: "ep-009", startsFrom: "Later." };
+  assert.equal(compileEpisodeScript(value, loaded.project).continuity?.previousExists, false);
+  // The record is the script's, not a derived one: nothing else on the bundle changes.
+  const withOut = compileEpisodeScript(script("ep-002", "b".repeat(64)), loaded.project);
+  assert.deepEqual(compileEpisodeScript(value, loaded.project).bundle, withOut.bundle);
+});
+
 // --- Draft file -------------------------------------------------------------
 
 test("a draft lives under .toony and is invisible to the project loader, malformed or not", async () => {

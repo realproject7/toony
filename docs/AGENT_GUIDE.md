@@ -20,7 +20,9 @@ choice of its own.
    Format: `docs/PROJECT_FORMAT.md`, "Planning artifacts".
 2. **Write the episode.** One `script/episodes/<id>.json` per episode: beats,
    each with cuts, each cut with its intent, its scene text, its characters, its
-   dialogue, its shot type, and the gap after it. Read it back with
+   dialogue, its shot type, and the gap after it. From the second episode on,
+   state `continuity`: the episode it follows and where the story stands as it
+   opens, so the hand-off is written down rather than remembered. Read it back with
    `toony validate` for the project and check the script's own warnings when you
    compile. A character id that resolves nowhere is a warning, not an error.
    Craft guidance for pacing and hooks: `docs/TOONY-PLANNING-HEURISTICS.md`.

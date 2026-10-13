@@ -23,6 +23,7 @@ export {
   DRAFT_DEFAULT_GUTTER_HEIGHT,
   DRAFT_FORMAT_VERSION,
   type DraftConflict,
+  type DraftContinuity,
   type DraftDefault,
   type DraftDiff,
   diffDraft,

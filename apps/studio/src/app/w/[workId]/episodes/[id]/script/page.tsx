@@ -200,6 +200,12 @@ export default async function EpisodeScriptPage({
               ))}
             </ul>
           )}
+          {scriptBody?.continuity && (
+            <p className="notice script-continuity" data-testid="script-continuity">
+              Continues from <code>{scriptBody.continuity.previousEpisodeId}</code>: “
+              {scriptBody.continuity.startsFrom}”
+            </p>
+          )}
           {scriptBody && (
             <div className="script-beats">
               {scriptBody.beats.map((beat) => (
@@ -246,6 +252,7 @@ export default async function EpisodeScriptPage({
                       overlays: draft.bundle.lettering.length,
                     },
                     defaults: draft.defaults,
+                    continuity: draft.continuity ?? null,
                   }
             }
             draftIssues={

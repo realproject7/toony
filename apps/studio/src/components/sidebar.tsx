@@ -85,6 +85,14 @@ export function Sidebar() {
             >
               Episodes
             </Link>
+            <Link
+              href={`${workBase}/characters`}
+              className="nav-link"
+              aria-current={isActive(pathname, `${workBase}/characters`) ? "page" : undefined}
+              data-testid="nav-characters"
+            >
+              Characters
+            </Link>
           </>
         )}
       </nav>
