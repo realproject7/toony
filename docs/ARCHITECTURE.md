@@ -178,6 +178,13 @@ Three choices in that are worth knowing:
   neither writes the record nor reads it; its inputs are in the ingest log,
   whose entries are per asset path.
 
+A style lexicon (#335) is read off `webtoon.json`'s selection and composed into
+every prompt after the palette clause, with its negative base before the cut's
+own negative prompt. The log records the lexicon's id and both strings as
+submitted; the cut's own prompt and negative prompt stay its own. A changed
+selection or changed words are named in the repeat instruction as an input no
+flag can restore.
+
 A character reference sheet (#327) is the one input that is neither on the cut
 nor in a flag: it is read off the registry. The ingest log records which
 character's sheet the run conditioned on and the sha256 of the bytes uploaded,
@@ -359,7 +366,10 @@ the merged registry. Extending Toony's content therefore never requires a fork.
 
 A pack is DATA — a JSON manifest plus the JSON files it names. It cannot carry
 code, reach the network, add an export engine, or redefine a built-in. With no
-packs installed the core behaves exactly as it does without the seam.
+packs installed the core behaves exactly as it does without the seam. Besides
+workflows, scaffolds, presets and bands, a pack may ship a lettering theme,
+applied where a bubble is created, and a style lexicon, composed into prompts at
+generation; neither is read during planning.
 
 `toony packs` is the operator surface over that seam: it lists what is installed
 and which root each pack came from, copies a local pack directory into the right

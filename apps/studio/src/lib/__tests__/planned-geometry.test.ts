@@ -18,6 +18,8 @@ import {
 const EMPTY_CONTENT: PackContent = {
   workflows: new Map(),
   workflowReferences: new Map(),
+  letteringThemes: [],
+  styleLexicons: [],
   genres: [],
   exportPresets: [],
   craftBands: new Map(),

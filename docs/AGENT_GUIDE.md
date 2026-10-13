@@ -109,8 +109,11 @@ them breaks replay.
   target set the person did not accept.
 - A rendered cut is repeatable from its record; a size the run does not pin is
   checked against the log before anything is sent.
-- Packs are data. They add workflows, genre scaffolds, export presets and craft
-  bands, and they never supply story or character facts during planning.
+- Packs are data. They add workflows, genre scaffolds, export presets, craft
+  bands, lettering themes and style lexicons, and they never supply story or
+  character facts during planning. Select a theme or a lexicon for the project
+  in `webtoon.json` (`letteringTheme`, `styleLexicon`); `toony packs list`
+  names what is installed.
 
 ## When to ask the person
 

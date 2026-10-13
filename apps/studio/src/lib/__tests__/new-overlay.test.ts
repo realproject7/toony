@@ -55,3 +55,19 @@ test("a new bubble renders in its kind's default face, not a stamped one", () =>
   const plan = layoutBubble(newOverlay("cut-001", 0), 800, 1200);
   assert.equal(plan.fontFamily, defaultFontFamilyForKind("speech"));
 });
+
+test("a project theme seeds a new bubble, and no theme leaves it exactly as before (#334)", () => {
+  const bare = newOverlay("cut-001", 0);
+  const themed = newOverlay("cut-001", 0, {
+    themeFormat: 1,
+    kinds: {
+      speech: { fontFamily: "bangers", fill: "#fff7e6", border: { width: 3, color: "#2a1a05" } },
+    },
+  });
+  assert.equal(themed.fontFamily, "bangers");
+  assert.equal(themed.fill, "#fff7e6");
+  assert.deepEqual(themed.border, { width: 3, color: "#2a1a05" });
+  assert.equal(bare.fontFamily, undefined);
+  assert.equal(themed.kind, bare.kind);
+  assert.deepEqual(themed.geometry, bare.geometry);
+});

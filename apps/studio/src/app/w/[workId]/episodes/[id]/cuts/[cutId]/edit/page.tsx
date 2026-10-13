@@ -11,6 +11,7 @@ import { notFound } from "next/navigation";
 import { CutEditor } from "@/components/cut-editor";
 import { LoadError } from "@/components/load-error";
 import { cutFieldsOf } from "@/lib/cut-fields";
+import { discoverStudioPacks } from "@/lib/packs";
 import {
   findEpisodeBundle,
   loadWork,
@@ -48,6 +49,11 @@ export default async function CutEditorPage({
 
   const { art, artworkRevision } = await resolveCutReviewArtwork(work.id, work.root, cut);
   const bubbles = bundle.lettering.filter((overlay) => overlay.cutId === cut.id);
+  // The project's lettering theme (#334), resolved server-side from installed
+  // packs; null when none is selected or the selected one is not installed.
+  const packs = await discoverStudioPacks(work.root);
+  const theme = packs.letteringTheme(loaded.project.webtoon.letteringTheme);
+  const themeId = loaded.project.webtoon.letteringTheme ?? null;
 
   // Cut review and cut fields are narrow, independent writes beside lettering.
   return (
@@ -69,6 +75,8 @@ export default async function CutEditorPage({
         ...(cut.imageSeed === undefined ? {} : { imageSeed: cut.imageSeed }),
         ...(cut.imageWorkflow === undefined ? {} : { imageWorkflow: cut.imageWorkflow }),
       }}
+      theme={theme}
+      themeId={themeId}
     />
   );
 }
