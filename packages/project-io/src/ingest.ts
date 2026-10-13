@@ -94,6 +94,11 @@ export interface RenderInputs {
    * and the sha256 of the bytes uploaded. Absent when the run sent none.
    */
   reference?: { characterId: string; sha256: string };
+  /**
+   * The style lexicon composed into the prompt (#335): the pack entry's id and
+   * the two strings as submitted. Absent when the project selects none.
+   */
+  styleLexicon?: { id: string; styleClause: string; negativeBase: string };
 }
 
 interface ProvenanceEntry {

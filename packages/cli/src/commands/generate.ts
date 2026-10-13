@@ -84,7 +84,14 @@ import {
   resolveComfyUIConfig,
   type ToonyWorkspaceComfyConfig,
 } from "@toony/providers";
-import { type Character, type Cut, type EpisodeBundle, REVIEW_STATUSES } from "@toony/schema";
+import {
+  type Character,
+  type Cut,
+  composeNegativePrompt,
+  type EpisodeBundle,
+  REVIEW_STATUSES,
+  type StyleLexicon,
+} from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 import { passesAuthoringGate } from "../generate-gate.js";
 import { discoverPackContent } from "../packs.js";
@@ -420,6 +427,8 @@ async function attachReferences(
 
 interface PlanInput {
   storyBible: string;
+  /** The project's style lexicon (#335), resolved from installed packs, when selected. */
+  lexicon?: { id: string; lexicon: StyleLexicon };
   episodeId: string;
   cutIds: readonly string[];
   transitionId?: string;
@@ -452,12 +461,22 @@ function resolveInputs(
   shared: Readonly<Record<string, string | number>>,
   workflow: string | undefined,
   record: Cut | undefined,
+  lexicon?: { id: string; lexicon: StyleLexicon },
 ): RenderInputs {
   const resolvedWorkflow = workflow ?? record?.imageWorkflow;
   return {
     prompt: prompt.trim(),
     basePrompt,
     negativePrompt,
+    ...(lexicon === undefined
+      ? {}
+      : {
+          styleLexicon: {
+            id: lexicon.id,
+            styleClause: lexicon.lexicon.styleClause,
+            negativeBase: lexicon.lexicon.negativeBase,
+          },
+        }),
     seed:
       shared.seed === FRESH_SEED
         ? randomSeed()
@@ -482,7 +501,10 @@ function requestFor(inputs: RenderInputs): ImageRequest {
   return {
     prompt: inputs.prompt,
     options: {
-      negativePrompt: inputs.negativePrompt,
+      negativePrompt: composeNegativePrompt(
+        inputs.negativePrompt,
+        inputs.styleLexicon?.negativeBase,
+      ),
       seed: inputs.seed,
       ...(inputs.width === undefined ? {} : { width: inputs.width }),
       ...(inputs.height === undefined ? {} : { height: inputs.height }),
@@ -496,11 +518,19 @@ function composePrompt(
   cut: Cut | undefined,
   registry: readonly Character[],
   storyBible: string,
+  styleClause?: string,
 ): string {
-  const scene = appendPaletteClause(
+  const palette = appendPaletteClause(
     injectCharacterLockstrings(basePrompt, cut?.characters, registry),
     cut?.palette,
   );
+  // The pack's style words (#335) go last, after the palette, so they qualify
+  // the whole scene the way the palette does and never read as part of a
+  // character's description.
+  const scene =
+    styleClause === undefined || styleClause.trim() === ""
+      ? palette
+      : `${palette}, ${styleClause.trim()}`;
   return storyBible === "" ? scene : `Story context:\n${storyBible}\n\nScene:\n${scene}`;
 }
 
@@ -521,8 +551,18 @@ function planJobs(
   loaded: LoadedProject,
   input: PlanInput,
 ): { jobs: Job[] } | { error: string; usage: boolean } {
-  const { episodeId, cutIds, transitionId, slot, prompt, negative, workflow, shared, storyBible } =
-    input;
+  const {
+    episodeId,
+    cutIds,
+    transitionId,
+    slot,
+    prompt,
+    negative,
+    workflow,
+    shared,
+    storyBible,
+    lexicon,
+  } = input;
   const NO_PROMPT = "generation requires --prompt <text> (or a non-empty cut imagePrompt)";
   if (transitionId !== undefined) {
     if (prompt === undefined || prompt.trim().length === 0)
@@ -530,12 +570,13 @@ function planJobs(
     // A transition record has no prompt or seed fields, so nothing is written
     // back for it; its inputs are recorded in the ingest log like a cut's.
     const inputs = resolveInputs(
-      composePrompt(prompt, undefined, [], storyBible),
+      composePrompt(prompt, undefined, [], storyBible, lexicon?.lexicon.styleClause),
       prompt,
       negative ?? "",
       shared,
       workflow,
       undefined,
+      lexicon,
     );
     return {
       jobs: [
@@ -574,7 +615,13 @@ function planJobs(
     }
     // Lockstrings prepend (#92), then the palette clause appends (#207), so the
     // colour qualifies the whole scene rather than one character's description.
-    const composed = composePrompt(cutPrompt, cut, registry, storyBible);
+    const composed = composePrompt(
+      cutPrompt,
+      cut,
+      registry,
+      storyBible,
+      lexicon?.lexicon.styleClause,
+    );
     // The cut's recorded inputs describe its clean plate, so only a clean run
     // replays them. The PROMPT still falls back for either slot, as it has since
     // #38: `imagePrompt` is authored text a cut has always shared between its
@@ -586,6 +633,7 @@ function planJobs(
       shared,
       workflow,
       slot === "clean" ? cut : undefined,
+      lexicon,
     );
     const reference = referenceCandidate(cut, registry);
     jobs.push({
@@ -920,6 +968,21 @@ const REPEAT_INPUTS: Record<keyof RenderInputs, RepeatInput> = {
     refuses: () => false,
     instruct: () => null,
   },
+  // The style lexicon (#335) is selected in webtoon.json, never by a flag. A
+  // changed selection, or changed words in the same pack entry, is named as an
+  // input nothing can ask for; absence is an answer, as for the workflow.
+  styleLexicon: {
+    recorded: (record) =>
+      record.styleLexicon === undefined
+        ? undefined
+        : `${record.styleLexicon.id}\n${record.styleLexicon.styleClause}\n${record.styleLexicon.negativeBase}`,
+    submitted: ({ job }) =>
+      job.inputs.styleLexicon === undefined
+        ? undefined
+        : `${job.inputs.styleLexicon.id}\n${job.inputs.styleLexicon.styleClause}\n${job.inputs.styleLexicon.negativeBase}`,
+    refuses: () => false,
+    instruct: () => null,
+  },
 };
 
 /** The project-relative image a record currently points at, for either kind. */
@@ -958,6 +1021,7 @@ async function assertRepeatable(
   bundle: EpisodeBundle | undefined,
   registry: readonly Character[],
   storyBible: string,
+  styleClause?: string,
 ): Promise<{ error: string; exit: number } | null> {
   for (const { job, latent } of ready) {
     const target = job.target;
@@ -973,7 +1037,8 @@ async function assertRepeatable(
     const ctx: RepeatContext = {
       job,
       latent,
-      recompose: (basePrompt) => composePrompt(basePrompt, cut, registry, storyBible).trim(),
+      recompose: (basePrompt) =>
+        composePrompt(basePrompt, cut, registry, storyBible, styleClause).trim(),
     };
     const differences: string[] = [];
     const instructions: string[] = [];
@@ -1165,8 +1230,29 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   // name of spaces is a name the provider will fail to find, and inventing a
   // second rule here is how the two drift.
   const workflowFlag = parsed.values.get("--workflow") || undefined;
+
+  // Packs are discovered before planning (#335): the project's style lexicon
+  // is composed into every prompt, so it has to be in hand when the prompts
+  // are. A selected lexicon no installed pack provides is refused, not skipped:
+  // a prompt that silently lost its style words would read as a repeat.
+  const packs = await discoverPackContent(root, io);
+  const lexiconId = loaded.project.webtoon.styleLexicon;
+  const lexiconEntry =
+    lexiconId === undefined
+      ? undefined
+      : packs.styleLexicons.find((entry) => entry.id === lexiconId);
+  if (lexiconId !== undefined && lexiconEntry === undefined) {
+    io.err(
+      `webtoon.json selects style lexicon "${lexiconId}", which no installed pack provides; install the pack or clear the selection`,
+    );
+    return EXIT_USAGE;
+  }
+  const lexicon =
+    lexiconEntry === undefined ? undefined : { id: lexiconEntry.id, lexicon: lexiconEntry.lexicon };
+
   const jobs = planJobs(loaded, {
     storyBible,
+    ...(lexicon === undefined ? {} : { lexicon }),
     episodeId,
     cutIds,
     ...(transitionId === undefined ? {} : { transitionId }),
@@ -1181,8 +1267,6 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     if (jobs.usage) io.err(USAGE);
     return EXIT_USAGE;
   }
-
-  const packs = await discoverPackContent(root, io);
 
   // One provider per DISTINCT workflow the run needs, all built before the first
   // request so an unknown workflow name costs no GPU minutes. A run needs one
@@ -1259,6 +1343,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     bundle,
     loaded.project.webtoon.characters ?? [],
     storyBible,
+    lexicon?.lexicon.styleClause,
   );
   if (repeatable !== null) {
     io.err(repeatable.error);

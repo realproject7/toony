@@ -49,7 +49,14 @@ const USAGE = `usage:
 const FLAGS = ["--json", "--workspace", "--force"];
 
 /** The contribution kinds, named exactly as `toony-pack.json` names them. */
-const KINDS = ["workflows", "genres", "exportPresets", "craftBands"] as const;
+const KINDS = [
+  "workflows",
+  "genres",
+  "exportPresets",
+  "craftBands",
+  "letteringThemes",
+  "styleLexicons",
+] as const;
 
 interface Parsed {
   positional: string[];
@@ -183,6 +190,8 @@ function packJson(pack: PackSummary, projectRoot: string): Record<string, unknow
       genres: [...pack.contributes.genres],
       exportPresets: [...pack.contributes.exportPresets],
       craftBands: [...pack.contributes.craftBands],
+      letteringThemes: [...pack.contributes.letteringThemes],
+      styleLexicons: [...pack.contributes.styleLexicons],
     },
   };
 }

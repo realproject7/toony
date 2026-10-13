@@ -325,10 +325,10 @@ async function runCompile(parsed: Parsed, io: DraftIo): Promise<number> {
   if (loaded === null) return EXIT_USAGE;
   const registry = loaded.project.webtoon.characters ?? [];
 
+  const packs = await discoverPackContent(root, io);
   let band: CraftBand | null = null;
   const against = parsed.values.get("--against");
   if (against !== undefined) {
-    const packs = await discoverPackContent(root, io);
     const file = packs.craftBands.get(against) ?? resolve(io.cwd, against);
     const read = await readBand(file);
     if ("error" in read) {
@@ -378,9 +378,25 @@ async function runCompile(parsed: Parsed, io: DraftIo): Promise<number> {
     brief = null;
   }
 
+  // The project's lettering theme (#334), from installed packs. A selected id
+  // no pack provides is said on stderr and the defaults stand, so a draft is
+  // never refused for a pack that is not installed yet.
+  const themeId = loaded.project.webtoon.letteringTheme;
+  const theme =
+    themeId === undefined
+      ? undefined
+      : packs.letteringThemes.find((entry) => entry.id === themeId)?.theme;
+  if (themeId !== undefined && theme === undefined) {
+    io.err(
+      `note: webtoon.json selects lettering theme "${themeId}", which no installed pack provides; the draft letters with the defaults`,
+    );
+  }
+
   let compiled: ReturnType<typeof compileEpisodeScript>;
   try {
-    compiled = compileEpisodeScript(script.script, loaded.project);
+    compiled = compileEpisodeScript(script.script, loaded.project, {
+      ...(theme === undefined ? {} : { theme }),
+    });
   } catch (cause) {
     if (cause instanceof ProjectIoError) {
       io.err(`compile refused: ${cause.message}`);
@@ -457,6 +473,8 @@ async function runCompile(parsed: Parsed, io: DraftIo): Promise<number> {
           },
           defaults,
           continuity: continuity ?? null,
+          letteringTheme:
+            themeId === undefined ? null : { id: themeId, applied: theme !== undefined },
           lint: { findings, notRun: LINTS_NOT_RUN },
           geometry: { ...measurement, band: bandReport },
           diff,

@@ -301,6 +301,34 @@ test("the compiler carries the continuity hand-off onto the draft with whether t
   assert.deepEqual(compileEpisodeScript(value, loaded.project).bundle, withOut.bundle);
 });
 
+test("a theme letters compiled overlays and is named in the defaults (#334)", async () => {
+  const root = await newProject();
+  const loaded = await loadProject(root);
+  const value = script("ep-002", "b".repeat(64));
+  const theme = {
+    themeFormat: 1,
+    kinds: {
+      narration: { fill: "#1b1b1b", textColor: "#f3f3f3" },
+      whisper: { fontFamily: "patrick-hand" },
+    },
+  } as const;
+  const { bundle, defaults } = compileEpisodeScript(value, loaded.project, { theme });
+  const narration = bundle.lettering.find((o) => o.kind === "narration");
+  const whisper = bundle.lettering.find((o) => o.kind === "whisper");
+  assert.equal(narration?.fill, "#1b1b1b");
+  assert.equal(narration?.textColor, "#f3f3f3");
+  assert.equal(whisper?.fontFamily, "patrick-hand");
+  assert.ok(
+    defaults.some(
+      (d) => d.id === narration?.id && d.field === "textColor" && d.value === "#f3f3f3",
+    ),
+  );
+  assert.ok(defaults.some((d) => d.id === whisper?.id && d.field === "fontFamily"));
+  const plain = compileEpisodeScript(value, loaded.project);
+  assert.equal(plain.bundle.lettering.find((o) => o.kind === "narration")?.fill, "#ffffff");
+  assert.deepEqual(plain.bundle.cuts, bundle.cuts, "a theme touches overlays only");
+});
+
 // --- Draft file -------------------------------------------------------------
 
 test("a draft lives under .toony and is invisible to the project loader, malformed or not", async () => {

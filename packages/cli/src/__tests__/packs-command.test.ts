@@ -57,6 +57,8 @@ interface ListJson {
       genres: string[];
       exportPresets: string[];
       craftBands: string[];
+      letteringThemes: string[];
+      styleLexicons: string[];
     };
   }[];
   issues: number;
@@ -159,6 +161,8 @@ test("list names each pack, the root it came from, and exactly what it contribut
     genres: ["alpha"],
     exportPresets: ["alpha-preset"],
     craftBands: ["alpha-band"],
+    letteringThemes: [],
+    styleLexicons: [],
   });
   assert.equal(report.issues, 0);
 });
