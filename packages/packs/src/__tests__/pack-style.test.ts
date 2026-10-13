@@ -129,3 +129,79 @@ test("a pack that ships neither contributes empty lists, and an empty workspace 
   assert.deepEqual(none.content.letteringThemes, []);
   assert.deepEqual(none.content.styleLexicons, []);
 });
+
+test("a genre's theme and lexicon selections are carried, and one no pack provides drops the genre", async () => {
+  // The manifest holds the two selections to non-empty ids.
+  const codes = (genre: Record<string, unknown>) =>
+    validatePackManifest({
+      packFormat: 1,
+      id: "style",
+      name: "Style",
+      genres: [{ id: "g", title: "G", file: "genres/g.json", ...genre }],
+    }).issues.map((i) => i.code);
+  assert.deepEqual(codes({ letteringTheme: "cold", styleLexicon: "cold" }), []);
+  assert.deepEqual(codes({ letteringTheme: "" }), ["pack.genre.lettering-theme"]);
+  assert.deepEqual(codes({ styleLexicon: 3 }), ["pack.genre.style-lexicon"]);
+
+  // Discovery carries a selection an installed pack provides, and drops a genre
+  // whose selection nothing provides, so `toony init` never writes it.
+  const dir = join(root, PROJECT_PACKS_DIR, "style");
+  await mkdir(join(dir, "themes"), { recursive: true });
+  await mkdir(join(dir, "lexicons"), { recursive: true });
+  await mkdir(join(dir, "genres"), { recursive: true });
+  await writeFile(join(dir, "themes", "cold.json"), JSON.stringify(THEME));
+  await writeFile(join(dir, "lexicons", "cold.json"), JSON.stringify(LEXICON));
+  const bundle = {
+    episode: {
+      schemaVersion: 1,
+      id: "ep-001",
+      title: "Opener",
+      sequence: [{ type: "cut", id: "cut-001" }],
+    },
+    cuts: [{ id: "cut-001", image: null, imagePrompt: "a pier", negativePrompt: "" }],
+    transitions: [],
+    lettering: [],
+  };
+  await writeFile(join(dir, "genres", "cold.json"), JSON.stringify(bundle));
+  await writeFile(join(dir, "genres", "warm.json"), JSON.stringify(bundle));
+  await writeFile(
+    join(dir, PACK_MANIFEST_FILE),
+    JSON.stringify({
+      packFormat: 1,
+      id: "style",
+      name: "Style",
+      genres: [
+        {
+          id: "cold",
+          title: "Cold",
+          file: "genres/cold.json",
+          letteringTheme: "cold",
+          styleLexicon: "cold",
+        },
+        {
+          id: "warm",
+          title: "Warm",
+          file: "genres/warm.json",
+          letteringTheme: "cold",
+          styleLexicon: "warm",
+        },
+      ],
+      letteringThemes: [{ id: "cold", file: "themes/cold.json" }],
+      styleLexicons: [{ id: "cold", file: "lexicons/cold.json" }],
+    }),
+  );
+  const loaded = await loadPacks(root, {});
+  assert.deepEqual(
+    loaded.content.genres.map((g) => [g.id, g.letteringTheme, g.styleLexicon]),
+    [["cold", "cold", "cold"]],
+  );
+  assert.deepEqual(loaded.packs[0]?.contributes.genres, ["cold"]);
+  assert.deepEqual(
+    loaded.issues.map((i) => [i.code, i.path]),
+    [["pack.genre.style-lexicon-missing", "genres.warm.styleLexicon"]],
+  );
+  assert.match(
+    loaded.issues[0]?.message ?? "",
+    /style lexicon "warm", which no installed pack provides/,
+  );
+});

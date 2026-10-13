@@ -56,6 +56,10 @@ export interface PackGenre {
    * writes it into the new project's `webtoon.json`.
    */
   gutterBandWidth?: number;
+  /** The lettering theme id this genre selects (#346), or absent for none. */
+  letteringTheme?: string;
+  /** The style lexicon id this genre selects (#346), or absent for none. */
+  styleLexicon?: string;
 }
 
 /** The names one pack put into the merged content. */
@@ -417,6 +421,8 @@ export async function loadPacks(
           ...(genre.gutterBandWidth === undefined
             ? {}
             : { gutterBandWidth: genre.gutterBandWidth }),
+          ...(genre.letteringTheme === undefined ? {} : { letteringTheme: genre.letteringTheme }),
+          ...(genre.styleLexicon === undefined ? {} : { styleLexicon: genre.styleLexicon }),
         });
       }
 
@@ -557,12 +563,47 @@ export async function loadPacks(
     }
   }
 
+  // A genre's theme and lexicon selections (#346) are checked once every pack
+  // is in, so a genre may select what a later pack ships. One that selects an
+  // id no pack provides is dropped, like a genre with an unusable gutter strip:
+  // `toony init` must never write a selection `toony generate` would refuse.
+  const providedGenres = genres.filter((genre) => {
+    const wanted: [string | undefined, Set<string>, string, string][] = [
+      [genre.letteringTheme, themeIds, "letteringTheme", "lettering theme"],
+      [genre.styleLexicon, lexiconIds, "styleLexicon", "style lexicon"],
+    ];
+    let kept = true;
+    for (const [id, provided, field, label] of wanted) {
+      if (id === undefined || provided.has(id)) continue;
+      const owner = packs.find((pack) => pack.contributes.genres.includes(genre.id));
+      issues.push({
+        pack: owner?.dir ?? "",
+        path: `genres.${genre.id}.${field}`,
+        code: `pack.genre.${field === "letteringTheme" ? "lettering-theme" : "style-lexicon"}-missing`,
+        message: `genre "${genre.id}" selects ${label} "${id}", which no installed pack provides; install that pack or drop the selection.`,
+      });
+      kept = false;
+    }
+    return kept;
+  });
+  for (const pack of packs) {
+    const dropped = pack.contributes.genres.filter(
+      (id) => !providedGenres.some((genre) => genre.id === id),
+    );
+    if (dropped.length > 0) {
+      pack.contributes = {
+        ...pack.contributes,
+        genres: pack.contributes.genres.filter((id) => !dropped.includes(id)),
+      };
+    }
+  }
+
   return {
     packs,
     content: {
       workflows,
       workflowReferences,
-      genres,
+      genres: providedGenres,
       exportPresets,
       craftBands,
       letteringThemes,

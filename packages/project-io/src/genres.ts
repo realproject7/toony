@@ -384,6 +384,10 @@ export interface GenreScaffold {
    * then on.
    */
   gutterBandWidth?: number;
+  /** The lettering theme id this genre selects (#346); init writes it into the project. */
+  letteringTheme?: string;
+  /** The style lexicon id this genre selects (#346); init writes it into the project. */
+  styleLexicon?: string;
 }
 
 /**
@@ -395,6 +399,10 @@ export interface GenreSeed {
   bundle: EpisodeBundle;
   /** See {@link GenreScaffold.gutterBandWidth}. */
   gutterBandWidth?: number;
+  /** See {@link GenreScaffold.letteringTheme}. */
+  letteringTheme?: string;
+  /** See {@link GenreScaffold.styleLexicon}. */
+  styleLexicon?: string;
 }
 
 /**
@@ -430,5 +438,7 @@ export async function resolveGenreSeed(
     ...(scaffold.gutterBandWidth === undefined
       ? {}
       : { gutterBandWidth: scaffold.gutterBandWidth }),
+    ...(scaffold.letteringTheme === undefined ? {} : { letteringTheme: scaffold.letteringTheme }),
+    ...(scaffold.styleLexicon === undefined ? {} : { styleLexicon: scaffold.styleLexicon }),
   };
 }

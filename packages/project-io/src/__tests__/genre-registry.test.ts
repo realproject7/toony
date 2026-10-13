@@ -95,6 +95,38 @@ test("a contributed genre's gutter strip reaches the seed and the new project", 
   assert.equal(validateProject(project).valid, true);
 });
 
+test("a contributed genre's theme and lexicon reach the seed and the new project", async () => {
+  // Same path as the strip (#346): the genre names the theme and lexicon it
+  // selects, the seed carries them, and the new project holds the selection,
+  // so a bubble added on the first day letters in the genre's face and a cut
+  // renders under its style words without anyone editing `webtoon.json`.
+  const cold = { ...scaffold("cold", "Cold"), letteringTheme: "cold", styleLexicon: "cold-words" };
+  const seed = await resolveGenreSeed("cold", [cold]);
+  assert.deepEqual(seed, {
+    bundle: cold.bundle,
+    letteringTheme: "cold",
+    styleLexicon: "cold-words",
+  });
+
+  const project = buildInitialProject("demo", seed?.bundle, {
+    letteringTheme: seed?.letteringTheme,
+    styleLexicon: seed?.styleLexicon,
+  });
+  assert.equal(project.webtoon.letteringTheme, "cold");
+  assert.equal(project.webtoon.styleLexicon, "cold-words");
+  assert.equal(validateProject(project).valid, true);
+
+  // A genre that selects neither leaves both fields off, byte for byte.
+  const plain = await resolveGenreSeed("noir", [scaffold("noir")]);
+  const bare = buildInitialProject("demo", plain?.bundle, {
+    letteringTheme: plain?.letteringTheme,
+    styleLexicon: plain?.styleLexicon,
+  });
+  assert.equal("letteringTheme" in bare.webtoon, false);
+  assert.equal("styleLexicon" in bare.webtoon, false);
+  assert.deepEqual(bare.webtoon, buildInitialProject("demo", plain?.bundle).webtoon);
+});
+
 test("a genre that declares no strip leaves the field off the new project", async () => {
   // Absent must stay absent: a defaulted number written into the file would be
   // an explicit choice the author never made, and would pin the project to
