@@ -10,6 +10,7 @@ import { resolveGutterBandWidth } from "@toony/schema";
 import { notFound } from "next/navigation";
 import { CutEditor } from "@/components/cut-editor";
 import { LoadError } from "@/components/load-error";
+import { cutFieldsOf } from "@/lib/cut-fields";
 import {
   findEpisodeBundle,
   loadWork,
@@ -48,8 +49,7 @@ export default async function CutEditorPage({
   const { art, artworkRevision } = await resolveCutReviewArtwork(work.id, work.root, cut);
   const bubbles = bundle.lettering.filter((overlay) => overlay.cutId === cut.id);
 
-  // Cut review is a narrow, independent write. Prompts, craft metadata, and
-  // characters remain in the agent/CLI domain.
+  // Cut review and cut fields are narrow, independent writes beside lettering.
   return (
     <CutEditor
       workId={work.id}
@@ -63,6 +63,12 @@ export default async function CutEditorPage({
       artworkRevision={artworkRevision}
       dialogueLanguage={loaded.project.webtoon.languages.dialogueLanguage}
       gutterBandWidth={resolveGutterBandWidth(loaded.project.webtoon.gutterBandWidth)}
+      cutFields={cutFieldsOf(cut)}
+      characters={loaded.project.webtoon.characters ?? []}
+      renderRecord={{
+        ...(cut.imageSeed === undefined ? {} : { imageSeed: cut.imageSeed }),
+        ...(cut.imageWorkflow === undefined ? {} : { imageWorkflow: cut.imageWorkflow }),
+      }}
     />
   );
 }

@@ -39,12 +39,13 @@ import {
   type VerticalAlign,
 } from "@toony/schema";
 import Link from "next/link";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clamp } from "@/lib/clamp";
 import { persistWithGuard } from "@/lib/editor-save";
 import { planTransitionInsert } from "@/lib/transition-insert";
 import { ColorPicker } from "./color-picker";
 import { TransitionBlock } from "./transition-block";
+import { keyboardOwnedByField, useEditHistory } from "./use-edit-history";
 
 /**
  * Transition kinds whose treatment reuses `Transition.color` as the band fill
@@ -128,6 +129,12 @@ export function TransitionEditor({
   const [transitions, setTransitions] = useState<Transition[]>(initialTransitions);
   const [sequence, setSequence] = useState<SequenceItem[]>(initialSequence);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Undo and redo over the transition set and the sequence together (#333):
+  // an insert or a delete changes both, so one snapshot holds both.
+  const history = useEditHistory<{ transitions: Transition[]; sequence: SequenceItem[] }>({
+    transitions,
+    sequence,
+  });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
@@ -153,11 +160,34 @@ export function TransitionEditor({
 
   const update = useCallback(
     (id: string, patch: Partial<Transition>) => {
+      history.record({ coalesce: true });
       setTransitions((prev) => prev.map((tr) => (tr.id === id ? { ...tr, ...patch } : tr)));
       markDirty();
     },
-    [markDirty],
+    [markDirty, history],
   );
+
+  const undo = useCallback(() => {
+    const state = history.undo();
+    if (state === null) return;
+    setTransitions(state.transitions);
+    setSequence(state.sequence);
+    setSelectedId((id) =>
+      id !== null && state.transitions.some((tr) => tr.id === id) ? id : null,
+    );
+    markDirty();
+  }, [history, markDirty]);
+
+  const redo = useCallback(() => {
+    const state = history.redo();
+    if (state === null) return;
+    setTransitions(state.transitions);
+    setSequence(state.sequence);
+    setSelectedId((id) =>
+      id !== null && state.transitions.some((tr) => tr.id === id) ? id : null,
+    );
+    markDirty();
+  }, [history, markDirty]);
 
   // Insert a transition into the sequence at `sequenceIndex` (between the cut
   // before it and the cut at it), and create its record. The record is minted
@@ -166,21 +196,50 @@ export function TransitionEditor({
   const insertAt = useCallback(
     (sequenceIndex: number) => {
       const plan = planTransitionInsert(transitions, sequence, sequenceIndex, newTransition);
+      history.record();
       setTransitions(plan.transitions);
       setSelectedId(plan.created.id);
       setSequence(plan.sequence);
       markDirty();
     },
-    [transitions, sequence, markDirty],
+    [transitions, sequence, markDirty, history],
   );
 
   const deleteSelected = useCallback(() => {
     if (!selectedId) return;
+    history.record();
     setSequence((prev) => prev.filter((item) => item.id !== selectedId));
     setTransitions((prev) => prev.filter((tr) => tr.id !== selectedId));
     setSelectedId(null);
     markDirty();
-  }, [selectedId, markDirty]);
+  }, [selectedId, markDirty, history]);
+
+  // Keyboard (#333): Cmd/Ctrl+Z undoes, Shift+Cmd/Ctrl+Z or Cmd/Ctrl+Y redoes,
+  // Delete removes the selected transition. A focused field keeps its keys.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (keyboardOwnedByField(event)) return;
+      const mod = event.metaKey || event.ctrlKey;
+      const key = event.key.toLowerCase();
+      if (mod && key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (mod && key === "y") {
+        event.preventDefault();
+        redo();
+        return;
+      }
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedId) {
+        event.preventDefault();
+        deleteSelected();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedId, undo, redo, deleteSelected]);
 
   const save = useCallback(async () => {
     setSaving(true);
@@ -225,6 +284,26 @@ export function TransitionEditor({
           </div>
         </div>
         <div className="editor-actions">
+          <button
+            type="button"
+            className="btn"
+            onClick={undo}
+            disabled={!history.canUndo}
+            title="Undo (Cmd/Ctrl+Z)"
+            data-testid="transition-undo"
+          >
+            Undo
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={redo}
+            disabled={!history.canRedo}
+            title="Redo (Shift+Cmd/Ctrl+Z)"
+            data-testid="transition-redo"
+          >
+            Redo
+          </button>
           <Link
             href={`/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}`}
             className="btn btn-ghost"

@@ -24,19 +24,27 @@ import {
   kindSupportsTail,
   layoutCut,
 } from "@toony/render";
-import { LETTERING_STYLE_DEFAULTS, type LetteringOverlay, type ReviewStatus } from "@toony/schema";
+import {
+  type Character,
+  LETTERING_STYLE_DEFAULTS,
+  type LetteringOverlay,
+  type ReviewStatus,
+} from "@toony/schema";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBrowserMeasure } from "@/lib/browser-measure";
 import { clamp } from "@/lib/clamp";
+import type { CutFields } from "@/lib/cut-fields";
 import { resolveCutStage } from "@/lib/cut-stage";
 import { persistWithGuard } from "@/lib/editor-save";
 import { newOverlay } from "@/lib/new-overlay";
 import { bubbleTextStyle } from "@/lib/overlay-text-style";
 import type { CutArt } from "@/lib/project";
 import { svgLetterSpacing, svgTextAnchor } from "@/lib/text-anchor";
+import { CutFieldsEditor } from "./cut-fields-editor";
 import { CutReviewControl } from "./cut-review-control";
+import { keyboardOwnedByField, useEditHistory } from "./use-edit-history";
 
 // The pro-lettering inspector (typography/color/styling/arrangement) and its
 // lightweight color picker are editor-only. Lazy-load them as a separate chunk
@@ -73,6 +81,12 @@ export interface CutEditorProps {
    * `layoutCut`, so the editor edits bubbles in the band the export letters in.
    */
   gutterBandWidth: number;
+  /** The cut's own editable fields (#332), shown beside the bubble inspector. */
+  cutFields: CutFields;
+  /** The project character registry, for the cut's character picker. */
+  characters: readonly Character[];
+  /** What produced the art on disk, shown read-only. */
+  renderRecord: { imageSeed?: number; imageWorkflow?: string };
 }
 
 type DragMode =
@@ -92,8 +106,14 @@ export function CutEditor({
   artworkRevision,
   dialogueLanguage,
   gutterBandWidth,
+  cutFields,
+  characters,
+  renderRecord,
 }: CutEditorProps) {
   const [bubbles, setBubbles] = useState<LetteringOverlay[]>(initialBubbles);
+  // Undo and redo over the bubble set (#333). Every mutation records the state
+  // it is about to replace; a drag records once at its start.
+  const history = useEditHistory<LetteringOverlay[]>(bubbles);
   const [selectedId, setSelectedId] = useState<string | null>(initialBubbles[0]?.id ?? null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -147,11 +167,32 @@ export function CutEditor({
 
   const update = useCallback(
     (id: string, patch: Partial<LetteringOverlay>) => {
+      history.record({ coalesce: true });
       setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
       markDirty();
     },
-    [markDirty],
+    [markDirty, history],
   );
+
+  const undo = useCallback(() => {
+    const state = history.undo();
+    if (state === null) return;
+    setBubbles(state);
+    setSelectedId((id) =>
+      id !== null && state.some((b) => b.id === id) ? id : (state[0]?.id ?? null),
+    );
+    markDirty();
+  }, [history, markDirty]);
+
+  const redo = useCallback(() => {
+    const state = history.redo();
+    if (state === null) return;
+    setBubbles(state);
+    setSelectedId((id) =>
+      id !== null && state.some((b) => b.id === id) ? id : (state[0]?.id ?? null),
+    );
+    markDirty();
+  }, [history, markDirty]);
 
   // Convert a pointer event to normalized 0..1 image coordinates.
   const pointerToNorm = useCallback((event: { clientX: number; clientY: number }) => {
@@ -225,6 +266,7 @@ export function CutEditor({
       setSelectedId(b.id);
       const pt = pointerToNorm(event);
       if (!pt) return;
+      history.record();
       dragRef.current = {
         kind: "move",
         id: b.id,
@@ -233,7 +275,7 @@ export function CutEditor({
       };
       capture(event.pointerId);
     },
-    [pointerToNorm, capture],
+    [pointerToNorm, capture, history],
   );
 
   // Resize from any corner: the FIXED point is the opposite corner of the one
@@ -245,33 +287,37 @@ export function CutEditor({
       const { x, y, width: w, height: h } = b.geometry;
       const fx = corner === "nw" || corner === "sw" ? x + w : x;
       const fy = corner === "nw" || corner === "ne" ? y + h : y;
+      history.record();
       dragRef.current = { kind: "resize", id: b.id, fx, fy };
       capture(event.pointerId);
     },
-    [capture],
+    [capture, history],
   );
 
   const startTail = useCallback(
     (event: React.PointerEvent, b: LetteringOverlay) => {
       event.stopPropagation();
       setSelectedId(b.id);
+      history.record();
       dragRef.current = { kind: "tail", id: b.id };
       capture(event.pointerId);
     },
-    [capture],
+    [capture, history],
   );
 
   const addBubble = useCallback(() => {
+    history.record();
     setBubbles((prev) => {
       const created = newOverlay(cutId, prev.length);
       setSelectedId(created.id);
       return [...prev, created];
     });
     markDirty();
-  }, [cutId, markDirty]);
+  }, [cutId, markDirty, history]);
 
   const duplicateSelected = useCallback(() => {
     if (!selected) return;
+    history.record();
     setBubbles((prev) => {
       const copy: LetteringOverlay = {
         ...selected,
@@ -286,17 +332,18 @@ export function CutEditor({
       return [...prev, copy];
     });
     markDirty();
-  }, [selected, cutId, markDirty]);
+  }, [selected, cutId, markDirty, history]);
 
   const deleteSelected = useCallback(() => {
     if (!selectedId) return;
+    history.record();
     setBubbles((prev) => {
       const next = prev.filter((b) => b.id !== selectedId);
       setSelectedId(next[0]?.id ?? null);
       return next;
     });
     markDirty();
-  }, [selectedId, markDirty]);
+  }, [selectedId, markDirty, history]);
 
   // --- Arrangement: z-order + nudge ---------------------------------------
   //
@@ -351,6 +398,7 @@ export function CutEditor({
       updateZ(0);
       return;
     }
+    history.record();
     setBubbles((prev) =>
       prev.map((b) =>
         b.id === selected.id
@@ -359,7 +407,7 @@ export function CutEditor({
       ),
     );
     markDirty();
-  }, [selected, bubbles, zOf, updateZ, markDirty]);
+  }, [selected, bubbles, zOf, updateZ, markDirty, history]);
 
   const nudgeSelected = useCallback(
     (dx: number, dy: number) => {
@@ -387,6 +435,61 @@ export function CutEditor({
     }
     return [...set];
   }, [bubbles]);
+
+  // Keyboard (#333): arrows nudge the selected bubble (Shift for a larger
+  // step), Delete removes it, Cmd/Ctrl+D duplicates it, Cmd/Ctrl+Z undoes and
+  // Shift+Cmd/Ctrl+Z or Cmd/Ctrl+Y redoes. A field that has focus keeps its own
+  // keys, so typing in the inspector never moves or deletes a bubble.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (keyboardOwnedByField(event)) return;
+      const mod = event.metaKey || event.ctrlKey;
+      const key = event.key.toLowerCase();
+      if (mod && key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (mod && key === "y") {
+        event.preventDefault();
+        redo();
+        return;
+      }
+      if (mod && key === "d") {
+        event.preventDefault();
+        duplicateSelected();
+        return;
+      }
+      if (!selected) return;
+      const step = event.shiftKey ? 0.05 : 0.01;
+      switch (event.key) {
+        case "ArrowUp":
+          event.preventDefault();
+          nudgeSelected(0, -step);
+          break;
+        case "ArrowDown":
+          event.preventDefault();
+          nudgeSelected(0, step);
+          break;
+        case "ArrowLeft":
+          event.preventDefault();
+          nudgeSelected(-step, 0);
+          break;
+        case "ArrowRight":
+          event.preventDefault();
+          nudgeSelected(step, 0);
+          break;
+        case "Delete":
+        case "Backspace":
+          event.preventDefault();
+          deleteSelected();
+          break;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected, undo, redo, duplicateSelected, nudgeSelected, deleteSelected]);
 
   const save = useCallback(async () => {
     setSaving(true);
@@ -484,6 +587,26 @@ export function CutEditor({
             artworkRevision={artworkRevision}
           />
           <div className="editor-toolbar">
+            <button
+              type="button"
+              className="btn"
+              onClick={undo}
+              disabled={!history.canUndo}
+              title="Undo (Cmd/Ctrl+Z)"
+              data-testid="editor-undo"
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={redo}
+              disabled={!history.canRedo}
+              title="Redo (Shift+Cmd/Ctrl+Z)"
+              data-testid="editor-redo"
+            >
+              Redo
+            </button>
             <button type="button" className="btn" onClick={addBubble} data-testid="editor-add">
               + Add bubble
             </button>
@@ -492,6 +615,7 @@ export function CutEditor({
               className="btn"
               onClick={duplicateSelected}
               disabled={!selected}
+              title="Duplicate (Cmd/Ctrl+D)"
               data-testid="editor-duplicate"
             >
               Duplicate
@@ -501,6 +625,7 @@ export function CutEditor({
               className="btn btn-danger"
               onClick={deleteSelected}
               disabled={!selected}
+              title="Delete (Delete key)"
               data-testid="editor-delete"
             >
               Delete
@@ -780,10 +905,17 @@ export function CutEditor({
         </div>
 
         <aside className="editor-inspector" data-testid="editor-inspector">
-          {/* v4 scope reset (#121): the human editor surfaces only bubble editing.
-              Cut prompts, craft fields (shot/palette/layer/style tag), the
-              character registry, and lint are the agent/CLI's domain — they stay
-              on disk (this editor never writes them) and are not re-shown here. */}
+          {/* The cut's own fields (#332): prompt, cast, shot, palette, shape.
+              Collapsed by default so the bubble stays the inspector's subject;
+              saves on its own path and never touches the render record. */}
+          <CutFieldsEditor
+            workId={workId}
+            episodeId={episodeId}
+            cutId={cutId}
+            initial={cutFields}
+            characters={characters}
+            renderRecord={renderRecord}
+          />
           {selected ? (
             <BubbleInspector
               overlay={selected}
