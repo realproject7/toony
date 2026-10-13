@@ -241,7 +241,13 @@ field. A cut id is unique within its script and is not required to match a real
 cut id. `speaker` is a character id, or `null` for narration. A character id
 that resolves in neither `webtoon.json`'s registry nor the brief cast is
 reported when the script is read, the way an unresolved cut character ref is
-reported rather than refused.
+reported rather than refused: it is a warning, and the script stays valid, exactly
+as a project whose cut names an unresolved character stays valid and gets a
+`character/unknown-ref` lint warning. A reader tells three states apart. A
+malformed file, or one whose filename and recorded id disagree, reads with
+`validation.valid` false and no script. A sound file with an unresolved reference
+reads valid, with the reference in `warnings`. A sound file written against a
+brief that has since changed reads valid, with the brief's state in `warnings`.
 
 Two episodes of one project are independent. They may run to different lengths
 and name different casts, and writing one never reads or rewrites another.

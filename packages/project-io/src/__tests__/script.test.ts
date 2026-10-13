@@ -166,6 +166,8 @@ test("a script whose filename disagrees with its recorded episodeId is reported"
 
   const loaded = await readEpisodeScript(root, "ep-002", CAST);
   assert.ok(loaded.script, "a disagreeing script must still read");
+  assert.equal(loaded.validation.valid, false, "but it is not a sound file for this episode");
+  assert.deepEqual(loaded.warnings, [], "nothing was compared, so nothing is warned about");
   const issue = loaded.validation.issues.find(
     (candidate) => candidate.code === "script.episode-id-mismatch",
   );
@@ -185,11 +187,13 @@ test("an unresolved character id surfaces the id and the cut that names it", asy
   await writeEpisodeScript(root, value);
 
   const loaded = await readEpisodeScript(root, "ep-001", CAST);
+
+  assert.equal(loaded.validation.valid, true, "a warning must not invalidate the script");
+
+  assert.deepEqual(loaded.validation.issues, []);
   assert.ok(loaded.script, "an unresolved ref must not stop the script reading");
-  const unknown = loaded.validation.issues.filter(
-    (issue) => issue.code === "script.character.unknown-ref",
-  );
-  assert.equal(unknown.length, 2, JSON.stringify(loaded.validation.issues));
+  const unknown = loaded.warnings.filter((issue) => issue.code === "script.character.unknown-ref");
+  assert.equal(unknown.length, 2, JSON.stringify(loaded.warnings));
   for (const issue of unknown) assert.match(issue.message, /sc-001/);
   assert.ok(unknown.some((issue) => issue.message.includes("nell")));
   assert.ok(unknown.some((issue) => issue.message.includes("kestrel")));
@@ -222,10 +226,14 @@ test("an unresolved beat goal is reported against the beat", async () => {
   await writeEpisodeScript(root, value);
 
   const loaded = await readEpisodeScript(root, "ep-001", CAST);
-  const issue = loaded.validation.issues.find(
+
+  assert.equal(loaded.validation.valid, true, "a warning must not invalidate the script");
+
+  assert.deepEqual(loaded.validation.issues, []);
+  const issue = loaded.warnings.find(
     (candidate) => candidate.code === "script.character.unknown-ref",
   );
-  assert.ok(issue, JSON.stringify(loaded.validation.issues));
+  assert.ok(issue, JSON.stringify(loaded.warnings));
   assert.equal(issue.path, "script.beats[0].goals[0].characterId");
   assert.match(issue.message, /beat-001/);
 });
@@ -237,11 +245,13 @@ test("a script whose brief is gone still reads, and says the brief is missing", 
   await rm(briefPath(root));
 
   const loaded = await readEpisodeScript(root, "ep-001", CAST);
+
+  assert.equal(loaded.validation.valid, true, "a warning must not invalidate the script");
+
+  assert.deepEqual(loaded.validation.issues, []);
   assert.ok(loaded.script, "a script must not become unreadable when the brief goes");
-  const issue = loaded.validation.issues.find(
-    (candidate) => candidate.code === "script.brief-missing",
-  );
-  assert.ok(issue, JSON.stringify(loaded.validation.issues));
+  const issue = loaded.warnings.find((candidate) => candidate.code === "script.brief-missing");
+  assert.ok(issue, JSON.stringify(loaded.warnings));
   assert.equal(issue.path, "script.briefRevision");
 });
 
@@ -252,11 +262,13 @@ test("a script whose brief no longer validates still reads, and says so", async 
   await writeFile(briefPath(root), encodeJson({ briefFormat: 1 }));
 
   const loaded = await readEpisodeScript(root, "ep-001", CAST);
+
+  assert.equal(loaded.validation.valid, true, "a warning must not invalidate the script");
+
+  assert.deepEqual(loaded.validation.issues, []);
   assert.ok(loaded.script, "a script must not become unreadable when the brief stops validating");
-  const issue = loaded.validation.issues.find(
-    (candidate) => candidate.code === "script.brief-invalid",
-  );
-  assert.ok(issue, JSON.stringify(loaded.validation.issues));
+  const issue = loaded.warnings.find((candidate) => candidate.code === "script.brief-invalid");
+  assert.ok(issue, JSON.stringify(loaded.warnings));
   assert.equal(issue.path, "script.briefRevision");
 });
 
@@ -272,13 +284,95 @@ test("a script whose brief is unparsable still reads, and does not throw", async
   await assert.rejects(readBrief(root), (error: Error) => error.name === "ProjectIoError");
 
   const loaded = await readEpisodeScript(root, "ep-001", CAST);
+
+  assert.equal(loaded.validation.valid, true, "a warning must not invalidate the script");
+
+  assert.deepEqual(loaded.validation.issues, []);
   assert.ok(loaded.script, "a script must not become unreadable when the brief cannot be parsed");
   assert.equal(loaded.script.episodeId, "ep-001");
-  const issue = loaded.validation.issues.find(
-    (candidate) => candidate.code === "script.brief-invalid",
-  );
-  assert.ok(issue, JSON.stringify(loaded.validation.issues));
+  const issue = loaded.warnings.find((candidate) => candidate.code === "script.brief-invalid");
+  assert.ok(issue, JSON.stringify(loaded.warnings));
   assert.equal(issue.path, "script.briefRevision");
+});
+
+test("a malformed script reads with valid false, no script and no warnings", async () => {
+  const root = await newProject();
+  await writeBrief(root, brief());
+  await mkdir(scriptEpisodesDir(root), { recursive: true });
+  await writeFile(episodeScriptFile(root, "ep-001"), encodeJson({ scriptFormat: 1 }));
+
+  const loaded = await readEpisodeScript(root, "ep-001", CAST);
+  assert.equal(loaded.absent, false);
+  assert.equal(loaded.script, null);
+  assert.equal(loaded.validation.valid, false);
+  assert.ok(loaded.validation.issues.length > 0);
+  assert.deepEqual(loaded.warnings, [], "nothing was compared, so nothing is warned about");
+});
+
+test("a real cut and a script cut answer the unresolved-character question the same way (#321)", async () => {
+  const root = await newProject();
+  const project = (await loadProject(root)).project;
+  const bundle = project.episodes[0];
+  assert.ok(bundle);
+  const cut = bundle.cuts[0];
+  assert.ok(cut);
+  cut.characters = ["ghost"];
+  // The real cut: validation keeps the project valid and leaves the ref to lint.
+  assert.equal(validateProject(project).valid, true);
+  await writeCuts(root, bundle.episode.id, bundle.cuts);
+  assert.equal((await loadProject(root)).validation.valid, true);
+
+  // The script cut, naming the same id: valid, and warned about.
+  const revision = await writeBrief(root, brief());
+  const value = script(bundle.episode.id, revision);
+  const scriptCut = value.beats[0]?.cuts[0];
+  assert.ok(scriptCut);
+  scriptCut.characters = ["ghost"];
+  await writeEpisodeScript(root, value);
+  const loaded = await readEpisodeScript(root, bundle.episode.id, CAST);
+  assert.equal(loaded.validation.valid, true);
+  assert.deepEqual(loaded.validation.issues, []);
+  assert.deepEqual(
+    loaded.warnings.map((issue) => issue.code),
+    ["script.character.unknown-ref"],
+  );
+  assert.match(loaded.warnings[0]?.message ?? "", /ghost/);
+});
+
+test("malformed, unresolved and stale are three states a caller can tell apart (#321)", async () => {
+  const root = await newProject();
+  const first = await writeBrief(root, brief());
+  await writeEpisodeScript(root, script("ep-003", first));
+  const second = await writeBrief(root, brief({ audience: "Readers who want it faster." }));
+  const unresolved = script("ep-002", second);
+  const cut = unresolved.beats[0]?.cuts[0];
+  assert.ok(cut);
+  cut.characters = ["ghost"];
+  await writeEpisodeScript(root, unresolved);
+  await writeFile(episodeScriptFile(root, "ep-001"), encodeJson({ scriptFormat: 1, beats: "no" }));
+
+  const malformed = await readEpisodeScript(root, "ep-001", CAST);
+  assert.equal(malformed.validation.valid, false);
+  assert.equal(malformed.script, null);
+  assert.deepEqual(malformed.warnings, []);
+
+  const referencing = await readEpisodeScript(root, "ep-002", CAST);
+  assert.equal(referencing.validation.valid, true);
+  assert.ok(referencing.script);
+  assert.deepEqual(
+    referencing.warnings.map((issue) => issue.code),
+    ["script.character.unknown-ref"],
+    "written against the current brief, so it is not stale",
+  );
+
+  const stale = await readEpisodeScript(root, "ep-003", CAST);
+  assert.equal(stale.validation.valid, true);
+  assert.ok(stale.script);
+  assert.deepEqual(
+    stale.warnings.map((issue) => issue.code),
+    ["script.brief-stale"],
+    "every id resolves, so the only finding is the brief",
+  );
 });
 
 // --- Round trip and revision identity ---------------------------------------
@@ -429,11 +523,11 @@ test("the brief is editable while scripts exist, and each script says it is stal
 
   for (const id of ["ep-001", "ep-002"]) {
     const loaded = await readEpisodeScript(root, id, CAST);
+    assert.equal(loaded.validation.valid, true, "a warning must not invalidate the script");
+    assert.deepEqual(loaded.validation.issues, []);
     assert.ok(loaded.script, `${id} stopped reading after the brief was edited`);
-    const issue = loaded.validation.issues.find(
-      (candidate) => candidate.code === "script.brief-stale",
-    );
-    assert.ok(issue, `${id}: ${JSON.stringify(loaded.validation.issues)}`);
+    const issue = loaded.warnings.find((candidate) => candidate.code === "script.brief-stale");
+    assert.ok(issue, `${id}: ${JSON.stringify(loaded.warnings)}`);
     assert.equal(issue.path, "script.briefRevision");
     assert.match(issue.message, new RegExp(second));
   }

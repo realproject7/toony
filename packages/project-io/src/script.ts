@@ -18,6 +18,15 @@
 // Cross-file resolution is NOT a write-time hard error here, the way
 // `writer.ts` already states for a cut's character refs: an unresolved
 // character id is reported to whoever reads, and the write still lands.
+//
+// A read therefore answers in two parts, and a caller can tell three states
+// apart. `validation` holds what makes the FILE wrong: a schema issue, or a
+// filename that names a different episode than the file records. Its `valid`
+// is false only then. `warnings` holds what is wrong AROUND a sound file: a
+// character id that resolves nowhere yet, and a brief that was edited, removed
+// or broken since the script was written. A real `Cut` with an unresolved
+// character ref stays valid and gets a `character/unknown-ref` lint warning,
+// and a script cut gets the same answer here (#321).
 
 import { createHash } from "node:crypto";
 import type { Dirent } from "node:fs";
@@ -32,6 +41,7 @@ import {
   IssueCollector,
   joinPath,
   type ProductionBrief,
+  type ValidationIssue,
   type ValidationResult,
   validateEpisodeScriptValue,
   validateProductionBriefValue,
@@ -134,14 +144,31 @@ export async function readBrief(root: string): Promise<LoadedBrief> {
 export interface LoadedEpisodeScript {
   /** The episode id the file was read for, taken from the filename. */
   episodeId: string;
-  /** The script, or null when there is no file or the file does not validate. */
+  /**
+   * The script, or null when there is no file or the file does not validate on
+   * its own. A file that validates but names a different episode than its
+   * filename is handed back with `validation.valid` false, so a caller can see
+   * what it says without acting on it.
+   */
   script: EpisodeScript | null;
-  /** The script's own revision identity, or null when there is no valid script. */
+  /** The script's own revision identity, or null when there is no script. */
   revision: string | null;
   /** True only when no file exists. */
   absent: boolean;
-  /** Schema issues plus every cross-artifact disagreement this read found. */
+  /**
+   * What makes the file itself unusable: schema issues, and a filename that
+   * disagrees with the recorded episode id. `valid` is false only for those.
+   */
   validation: ValidationResult;
+  /**
+   * Cross-artifact findings on a sound file, none of which makes it invalid:
+   * `script.character.unknown-ref` for a character id that resolves in neither
+   * the registry nor the brief cast, and `script.brief-stale`,
+   * `script.brief-missing` or `script.brief-invalid` for how the brief stands
+   * against the revision the script records. Empty when the file is absent or
+   * does not validate, because nothing was compared.
+   */
+  warnings: ValidationIssue[];
 }
 
 /** Collect the character ids a script cut may name: the registry plus the brief cast. */
@@ -273,8 +300,10 @@ async function readBriefForScript(root: string): Promise<LoadedBrief> {
  * `webtoon.json`; the brief is read from its own named path because the script
  * records which revision of it the script was written against.
  *
- * Nothing here throws for a disagreement. An absent file, a stale brief, a
- * missing brief and an unresolved character id all come back in `validation`.
+ * Nothing here throws for a disagreement. An absent file is `absent`; a
+ * malformed file or a filename/id mismatch is in `validation`; a stale,
+ * missing or unusable brief and an unresolved character id are `warnings` on
+ * a script that stays valid.
  */
 export async function readEpisodeScript(
   root: string,
@@ -283,12 +312,26 @@ export async function readEpisodeScript(
 ): Promise<LoadedEpisodeScript> {
   const file = await readJsonFile(episodeScriptFile(root, episodeId));
   if (!file.found) {
-    return { episodeId, script: null, revision: null, absent: true, validation: emptyResult() };
+    return {
+      episodeId,
+      script: null,
+      revision: null,
+      absent: true,
+      validation: emptyResult(),
+      warnings: [],
+    };
   }
   const c = new IssueCollector();
   validateEpisodeScriptValue(file.value, SCRIPT_PATH, c);
   if (c.length > 0) {
-    return { episodeId, script: null, revision: null, absent: false, validation: c.result() };
+    return {
+      episodeId,
+      script: null,
+      revision: null,
+      absent: false,
+      validation: c.result(),
+      warnings: [],
+    };
   }
 
   const script = asEpisodeScript(file.value as Record<string, unknown>);
@@ -300,11 +343,23 @@ export async function readEpisodeScript(
     );
   }
 
+  // Everything from here is about the project around the file, not the file.
+  // It goes to a second collector so `validation.valid` keeps meaning "the
+  // file is sound", the way `validateProject` stays valid for a cut whose
+  // character ref the lint will warn about.
+  const w = new IssueCollector();
   const brief = await readBriefForScript(root);
-  reportBriefRevision(script, brief, c);
-  reportUnknownCharacterRefs(script, knownCharacterIds(characters, brief.brief), c);
+  reportBriefRevision(script, brief, w);
+  reportUnknownCharacterRefs(script, knownCharacterIds(characters, brief.brief), w);
 
-  return { episodeId, script, revision: revisionId(script), absent: false, validation: c.result() };
+  return {
+    episodeId,
+    script,
+    revision: revisionId(script),
+    absent: false,
+    validation: c.result(),
+    warnings: w.result().issues,
+  };
 }
 
 function refuse(kind: string, result: ValidationResult, file: string): never {

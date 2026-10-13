@@ -6,8 +6,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { deflateSync } from "node:zlib";
-import { GENRES, loadProject, writeCuts, writeTransitions } from "@toony/project-io";
-import type { Cut } from "@toony/schema";
+import {
+  GENRES,
+  loadProject,
+  readEpisodeScript,
+  writeBrief,
+  writeCuts,
+  writeEpisodeScript,
+  writeTransitions,
+} from "@toony/project-io";
+import {
+  type Cut,
+  EPISODE_SCRIPT_FORMAT_VERSION,
+  PRODUCTION_BRIEF_FORMAT_VERSION,
+} from "@toony/schema";
 import { runExport } from "../commands/export.js";
 import { runInit } from "../commands/init.js";
 import { runLint, runLintEpisode } from "../commands/lint.js";
@@ -385,4 +397,54 @@ test("art generated AT the declared shape is not reported (#260)", async () => {
   const dir = await scaffold();
   await cutWithArt(dir, [200, 280], 1.4);
   assert.ok(!(await lintCodes(dir)).includes("cut/panel-aspect-mismatch"));
+});
+
+test("a script cut and a real cut answer the unresolved-character question the same way (#321)", async () => {
+  const dir = await scaffold();
+  const loaded = await loadProject(dir);
+  const bundle = loaded.project.episodes[0];
+  assert.ok(bundle);
+  const cuts = bundle.cuts.map((c, i) => (i === 0 ? { ...c, characters: ["ghost"] } : c));
+  await writeCuts(dir, bundle.episode.id, cuts);
+
+  // The real cut: the project stays valid and lint warns.
+  const reloaded = await loadProject(dir);
+  assert.equal(reloaded.validation.valid, true);
+  const c = capture();
+  assert.equal(await runLint([dir, "--json"], c.io), EXIT_VALIDATION);
+  const report = JSON.parse(c.out.join("\n"));
+  const finding = report.findings.find((f: { code: string }) => f.code === "character/unknown-ref");
+  assert.ok(finding, JSON.stringify(report.findings));
+  assert.equal(finding.severity, "warning");
+
+  // The script cut, naming the same id: the script stays valid and the read warns.
+  const revision = await writeBrief(dir, {
+    briefFormat: PRODUCTION_BRIEF_FORMAT_VERSION,
+    intent: "A short about a name nobody recognises.",
+    audience: "Anyone.",
+    world: "A quiet town.",
+    storyGoals: ["Keep it short."],
+  });
+  await writeEpisodeScript(dir, {
+    scriptFormat: EPISODE_SCRIPT_FORMAT_VERSION,
+    episodeId: bundle.episode.id,
+    briefRevision: revision,
+    beats: [
+      {
+        id: "beat-001",
+        purpose: "Open.",
+        cuts: [{ id: "sc-001", intent: "Open.", scene: "A street.", characters: ["ghost"] }],
+      },
+    ],
+  });
+  const script = await readEpisodeScript(
+    dir,
+    bundle.episode.id,
+    reloaded.project.webtoon.characters ?? [],
+  );
+  assert.equal(script.validation.valid, true);
+  assert.deepEqual(
+    script.warnings.map((w) => w.code),
+    ["script.character.unknown-ref"],
+  );
 });
