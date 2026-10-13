@@ -244,6 +244,52 @@ export function validateWebtoonValue(value: unknown, path: string, c: IssueColle
 }
 
 /**
+ * Validate a character's reference sheets (#327): project-relative image paths
+ * under `characters/<id>/`, unique. Whether a file is there and decodes is a
+ * lint check, like a cut's image, so a registry can name a sheet before the
+ * sheet is drawn.
+ */
+function validateCharacterReferences(
+  value: unknown,
+  characterId: string,
+  path: string,
+  c: IssueCollector,
+): void {
+  if (!isArray(value)) {
+    c.add(path, "character.references", "references must be an array of project-relative paths.");
+    return;
+  }
+  const seen = new Set<string>();
+  const prefix = `characters/${characterId}/`;
+  value.forEach((ref, i) => {
+    const refPath = joinPath(path, i);
+    if (!isNonEmptyString(ref)) {
+      c.add(refPath, "character.reference", "a reference must be a non-empty string.");
+      return;
+    }
+    if (!isProjectRelativePath(ref)) {
+      c.add(
+        refPath,
+        "character.reference-path",
+        "a reference must be a project-relative path (no absolute or parent-escaping paths).",
+      );
+      return;
+    }
+    if (characterId !== "" && !ref.startsWith(prefix)) {
+      c.add(
+        refPath,
+        "character.reference-folder",
+        `a reference for character "${characterId}" must live under ${prefix}.`,
+      );
+    }
+    if (seen.has(ref)) {
+      c.add(refPath, "character.reference-duplicate", `duplicate reference "${ref}".`);
+    }
+    seen.add(ref);
+  });
+}
+
+/**
  * Validate the project character registry (#92): an array of `{id, name,
  * lockstring}` with non-empty fields and unique ids. Only called when present.
  */
@@ -281,6 +327,14 @@ function validateCharactersValue(value: unknown, path: string, c: IssueCollector
         joinPath(characterPath, "name"),
         "field.required",
         "character name must be a non-empty string.",
+      );
+    }
+    if (character.references !== undefined) {
+      validateCharacterReferences(
+        character.references,
+        typeof character.id === "string" ? character.id : "",
+        joinPath(characterPath, "references"),
+        c,
       );
     }
     if (!isNonEmptyString(character.lockstring)) {

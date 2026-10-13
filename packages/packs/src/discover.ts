@@ -31,6 +31,7 @@ import {
   PACKS_ENV_VAR,
   type PackExportPreset,
   type PackManifest,
+  type PackWorkflowReference,
   PROJECT_PACKS_DIR,
 } from "./manifest.js";
 import { asPackManifest, validateGenreScaffold, validatePackManifest } from "./validate.js";
@@ -86,6 +87,8 @@ export interface PackIssue extends ValidationIssue {
 export interface PackContent {
   /** Named ComfyUI workflow graphs: workflow name → absolute JSON file path. */
   workflows: ReadonlyMap<string, string>;
+  /** Workflows that take a reference sheet (#327): workflow name → the node input. */
+  workflowReferences: ReadonlyMap<string, PackWorkflowReference>;
   genres: readonly PackGenre[];
   exportPresets: readonly PackExportPreset[];
   /** Craft bands (#196): band id → absolute JSON file path. */
@@ -102,6 +105,7 @@ export interface LoadedPacks {
 /** The empty content used when no packs are installed. */
 export const EMPTY_PACK_CONTENT: PackContent = {
   workflows: new Map(),
+  workflowReferences: new Map(),
   genres: [],
   exportPresets: [],
   craftBands: new Map(),
@@ -251,6 +255,7 @@ export async function loadPacks(
   const packs: PackSummary[] = [];
   const issues: PackIssue[] = [];
   const workflows = new Map<string, string>();
+  const workflowReferences = new Map<string, PackWorkflowReference>();
   const genres: PackGenre[] = [];
   const exportPresets: PackExportPreset[] = [];
   const craftBands = new Map<string, string>();
@@ -276,7 +281,7 @@ export async function loadPacks(
       }
 
       const claimed: PackIssue[] = [];
-      const contributedWorkflows: [string, string][] = [];
+      const contributedWorkflows: [string, string, PackWorkflowReference | undefined][] = [];
       for (const workflow of manifest.workflows) {
         const abs = resolve(dir, workflow.file);
         if (workflows.has(workflow.name)) {
@@ -299,7 +304,7 @@ export async function loadPacks(
           });
           continue;
         }
-        contributedWorkflows.push([workflow.name, abs]);
+        contributedWorkflows.push([workflow.name, abs, workflow.reference]);
       }
 
       const contributedGenres: PackGenre[] = [];
@@ -373,7 +378,10 @@ export async function loadPacks(
 
       issues.push(...claimed);
       for (const [id, abs] of contributedBands) craftBands.set(id, abs);
-      for (const [name, abs] of contributedWorkflows) workflows.set(name, abs);
+      for (const [name, abs, reference] of contributedWorkflows) {
+        workflows.set(name, abs);
+        if (reference !== undefined) workflowReferences.set(name, reference);
+      }
       for (const genre of contributedGenres) {
         genreIds.add(genre.id);
         genres.push(genre);
@@ -398,5 +406,9 @@ export async function loadPacks(
     }
   }
 
-  return { packs, content: { workflows, genres, exportPresets, craftBands }, issues };
+  return {
+    packs,
+    content: { workflows, workflowReferences, genres, exportPresets, craftBands },
+    issues,
+  };
 }

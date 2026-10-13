@@ -155,6 +155,17 @@ export class ComfyUIProvider implements ImageProvider {
       checkpoint: this.config.checkpoint,
     };
 
+    if (request.reference !== undefined) {
+      const map = this.config.injectionMap;
+      if (map.referenceNode === undefined || map.referenceInput === undefined) {
+        throw new ProviderError(
+          "comfyui.no-reference-input",
+          "a reference image was supplied but the workflow declares no reference input; select a workflow that does, or generate without one.",
+        );
+      }
+      params.referenceImage = await this.upload(request.reference);
+    }
+
     const graph = buildWorkflow(this.config.workflow, params, this.config.injectionMap);
     const clientId = randomUUID();
 
@@ -179,6 +190,48 @@ export class ComfyUIProvider implements ImageProvider {
         contentType: contentTypeFor(format),
       },
     };
+  }
+
+  /**
+   * Upload a reference image to ComfyUI's input folder (#327) and return the
+   * name the graph refers to it by. `/upload/image` takes a multipart form with
+   * the file under `image`; the response names the stored file and its
+   * subfolder, which together are what a LoadImage node reads.
+   */
+  private async upload(reference: { bytes: Uint8Array; name: string }): Promise<string> {
+    const form = new FormData();
+    form.append("image", new Blob([reference.bytes]), reference.name);
+    form.append("overwrite", "true");
+    let response: Response;
+    try {
+      response = await this.fetch(`${this.config.url}/upload/image`, {
+        method: "POST",
+        body: form,
+      });
+    } catch {
+      throw new ProviderError(
+        "comfyui.connect",
+        "could not reach the ComfyUI server to upload the reference image.",
+      );
+    }
+    if (!response.ok) {
+      throw new ProviderError(
+        "comfyui.upload-http",
+        `ComfyUI /upload/image failed with HTTP ${response.status}.`,
+      );
+    }
+    const parsed = (await safeJson(response)) as
+      | { name?: unknown; subfolder?: unknown }
+      | undefined;
+    if (parsed === undefined || typeof parsed.name !== "string" || parsed.name.length === 0) {
+      throw new ProviderError(
+        "comfyui.upload-shape",
+        "ComfyUI /upload/image returned no file name for the reference image.",
+      );
+    }
+    return typeof parsed.subfolder === "string" && parsed.subfolder.length > 0
+      ? `${parsed.subfolder}/${parsed.name}`
+      : parsed.name;
   }
 
   private async submit(graph: unknown, clientId: string): Promise<string> {

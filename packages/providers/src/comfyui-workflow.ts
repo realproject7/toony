@@ -42,6 +42,12 @@ export interface WorkflowInjectionMap {
   seedInput: string;
   checkpointNode?: string;
   checkpointInput?: string;
+  /**
+   * Where an uploaded reference image is named (#327): a LoadImage-style node
+   * and its input. Absent means the graph takes no reference and none is sent.
+   */
+  referenceNode?: string;
+  referenceInput?: string;
 }
 
 /**
@@ -79,6 +85,12 @@ export interface WorkflowParams {
   seed: number;
   /** Optional checkpoint filename, applied only when the map names a node. */
   checkpoint?: string;
+  /**
+   * The server-side name of an uploaded reference image, applied only when the
+   * map names a reference node (#327). The caller uploads first and passes the
+   * name ComfyUI returned.
+   */
+  referenceImage?: string;
 }
 
 function setInput(
@@ -174,6 +186,19 @@ export function buildWorkflow(
     map.checkpointInput !== undefined
   ) {
     setInput(graph, map.checkpointNode, map.checkpointInput, params.checkpoint, "the checkpoint");
+  }
+  if (
+    params.referenceImage !== undefined &&
+    map.referenceNode !== undefined &&
+    map.referenceInput !== undefined
+  ) {
+    setInput(
+      graph,
+      map.referenceNode,
+      map.referenceInput,
+      params.referenceImage,
+      "the reference image",
+    );
   }
 
   return graph;

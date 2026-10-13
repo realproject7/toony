@@ -34,6 +34,7 @@ export {
   type PackManifest,
   type PackPresetFormat,
   type PackWorkflowRef,
+  type PackWorkflowReference,
   PROJECT_PACKS_DIR,
 } from "./manifest.js";
 export { asPackManifest, validateGenreScaffold, validatePackManifest } from "./validate.js";

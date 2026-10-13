@@ -89,6 +89,11 @@ export interface RenderInputs {
   /** The latent size submitted, when the run resolved one. */
   width?: number;
   height?: number;
+  /**
+   * The character reference sheet the run conditioned on (#327): the character
+   * and the sha256 of the bytes uploaded. Absent when the run sent none.
+   */
+  reference?: { characterId: string; sha256: string };
 }
 
 interface ProvenanceEntry {
