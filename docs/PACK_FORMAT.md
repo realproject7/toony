@@ -131,6 +131,8 @@ already claimed is missing from that list rather than quietly counted.
 | `genres` | no | Genre scaffolds. Absent means none. |
 | `exportPresets` | no | Export presets. Absent means none. |
 | `craftBands` | no | Craft bands. Absent means none. |
+| `letteringThemes` | no | Lettering themes (#334). Absent means none. |
+| `styleLexicons` | no | Style lexicons (#335). Absent means none. |
 
 Every `file` is a path **inside the pack folder** and must end in `.json`.
 
@@ -443,6 +445,64 @@ reference, and what the comparison can and cannot see, are in
 Discovery checks the file is there and carries its path, exactly as it does for a
 workflow graph; the band itself is parsed and validated by the command that
 measures, so `@toony/packs` stays free of the measurement.
+
+### `letteringThemes[]`
+
+| Field | Rule |
+|---|---|
+| `id` | The id `webtoon.json`'s `letteringTheme` selects. Unique within the pack. |
+| `file` | A **theme file**: per bubble kind, the defaults a new bubble takes. |
+
+```json
+{
+  "themeFormat": 1,
+  "name": "Cold ledger",
+  "kinds": {
+    "speech": { "fontFamily": "nunito", "fontWeight": 700, "fill": "#f2f6fa", "textColor": "#102030", "border": { "width": 2, "color": "#102030" }, "cornerRadius": 18 },
+    "narration": { "fill": "#0b1420", "textColor": "#dbe6f3", "border": null, "opacity": 0.92 }
+  },
+  "sfxMode": "impact_band"
+}
+```
+
+A theme is applied where an overlay is CREATED: a bubble added in Studio and an
+overlay the draft compiler writes take the theme's values for their kind, and a
+person can apply it to an existing bubble on request. It is never applied on
+read: rendering and export read the overlay exactly as they always did, so a
+project that selects no theme, or an overlay saved before the theme existed, is
+unchanged to the byte. A kind the theme does not state keeps the renderer's own
+defaults. The fields are the overlay's own style fields, held to the same
+vocabulary (`fontFamily` from the bundled faces, `fontWeight` 400 to 700,
+`cornerRadius` in px, `opacity` 0 to 1).
+
+### `styleLexicons[]`
+
+| Field | Rule |
+|---|---|
+| `id` | The id `webtoon.json`'s `styleLexicon` selects. Unique within the pack. |
+| `file` | A **lexicon file**: the style words the pack's workflow was tuned with. |
+
+```json
+{
+  "lexiconFormat": 1,
+  "name": "Cold ledger",
+  "styleClause": "flat cel shading, clean ink line, cool mid-brightness tones",
+  "negativeBase": "lowres, watermark, text"
+}
+```
+
+`toony generate` appends `styleClause` after the palette clause, so it qualifies
+the whole scene the way the palette does, and puts `negativeBase` before the
+cut's own negative prompt. Both reach the ingest log as submitted, with the
+lexicon's id, and the cut's own prompt and negative prompt stay its own, so a
+bare re-run repeats the render. A project that selects no lexicon submits
+exactly what it submitted before. A selected lexicon no installed pack provides
+refuses the run, because a prompt that silently lost its style words would read
+as a repeat.
+
+A lexicon is read at generation only. Planning, the draft compiler and the
+script reader never read it: pack text supplies no story, character or semantic
+fact during planning.
 
 ## When something is wrong
 

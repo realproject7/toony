@@ -25,7 +25,16 @@
 
 import { readdir, readFile, stat } from "node:fs/promises";
 import { delimiter, dirname, isAbsolute, resolve } from "node:path";
-import type { EpisodeBundle, ValidationIssue } from "@toony/schema";
+import {
+  asLetteringTheme,
+  asStyleLexicon,
+  type EpisodeBundle,
+  type LetteringTheme,
+  type StyleLexicon,
+  type ValidationIssue,
+  validateLetteringThemeValue,
+  validateStyleLexiconValue,
+} from "@toony/schema";
 import {
   PACK_MANIFEST_FILE,
   PACKS_ENV_VAR,
@@ -59,6 +68,10 @@ export interface PackContributions {
   exportPresets: readonly string[];
   /** Craft band ids. */
   craftBands: readonly string[];
+  /** Lettering theme ids (#334). */
+  letteringThemes: readonly string[];
+  /** Style lexicon ids (#335). */
+  styleLexicons: readonly string[];
 }
 
 /** One discovered, valid pack. */
@@ -84,6 +97,18 @@ export interface PackIssue extends ValidationIssue {
 }
 
 /** Everything packs contribute, merged across all discovered packs. */
+/** A lettering theme a pack contributed (#334), parsed and validated at discovery. */
+export interface PackLetteringTheme {
+  id: string;
+  theme: LetteringTheme;
+}
+
+/** A style lexicon a pack contributed (#335), parsed and validated at discovery. */
+export interface PackStyleLexicon {
+  id: string;
+  lexicon: StyleLexicon;
+}
+
 export interface PackContent {
   /** Named ComfyUI workflow graphs: workflow name → absolute JSON file path. */
   workflows: ReadonlyMap<string, string>;
@@ -93,6 +118,8 @@ export interface PackContent {
   exportPresets: readonly PackExportPreset[];
   /** Craft bands (#196): band id → absolute JSON file path. */
   craftBands: ReadonlyMap<string, string>;
+  letteringThemes: readonly PackLetteringTheme[];
+  styleLexicons: readonly PackStyleLexicon[];
 }
 
 /** Discovery result: the valid packs, their merged content, and any problems. */
@@ -106,6 +133,8 @@ export interface LoadedPacks {
 export const EMPTY_PACK_CONTENT: PackContent = {
   workflows: new Map(),
   workflowReferences: new Map(),
+  letteringThemes: [],
+  styleLexicons: [],
   genres: [],
   exportPresets: [],
   craftBands: new Map(),
@@ -192,6 +221,60 @@ export async function readPackManifest(dir: string): Promise<PackManifest | Pack
 }
 
 /** Read + validate one genre scaffold file. Returns the bundle or its issues. */
+interface PackIssueLike {
+  path: string;
+  code: string;
+  message: string;
+}
+
+/**
+ * Read and validate a pack's `{ id, file }` contribution (#334, #335), the way
+ * a genre scaffold is read: the file is parsed here because its format belongs
+ * to `@toony/schema`, which this package already depends on.
+ */
+async function readJsonContribution<T>(
+  dir: string,
+  file: string,
+  path: string,
+  what: string,
+  code: string,
+  validate: (value: unknown) => { valid: boolean; issues: readonly PackIssueLike[] },
+  narrow: (value: Record<string, unknown>) => T,
+): Promise<T | PackIssue[]> {
+  const abs = resolve(dir, file);
+  let text: string;
+  try {
+    text = await readFile(abs, "utf8");
+  } catch {
+    return [
+      {
+        pack: dir,
+        path,
+        code: `${code}.file-missing`,
+        message: `${what} file "${file}" could not be read.`,
+      },
+    ];
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return [
+      {
+        pack: dir,
+        path,
+        code: `${code}.file-parse`,
+        message: `${what} file "${file}" is not valid JSON.`,
+      },
+    ];
+  }
+  const result = validate(parsed);
+  if (!result.valid) {
+    return result.issues.map((issue) => ({ ...issue, pack: dir, path: `${path}: ${issue.path}` }));
+  }
+  return narrow(parsed as Record<string, unknown>);
+}
+
 async function readScaffold(
   dir: string,
   file: string,
@@ -259,6 +342,10 @@ export async function loadPacks(
   const genres: PackGenre[] = [];
   const exportPresets: PackExportPreset[] = [];
   const craftBands = new Map<string, string>();
+  const letteringThemes: PackLetteringTheme[] = [];
+  const styleLexicons: PackStyleLexicon[] = [];
+  const themeIds = new Set<string>();
+  const lexiconIds = new Set<string>();
   const presetIds = new Set<string>();
   const genreIds = new Set<string>();
   const packIds = new Set<string>();
@@ -376,8 +463,70 @@ export async function loadPacks(
         contributedBands.push([band.id, abs]);
       }
 
+      const contributedThemes: PackLetteringTheme[] = [];
+      for (const entry of manifest.letteringThemes) {
+        if (themeIds.has(entry.id)) {
+          claimed.push({
+            pack: dir,
+            path: `letteringThemes.${entry.id}`,
+            code: "pack.lettering-theme.claimed",
+            message: `lettering theme id "${entry.id}" is already provided by an earlier pack; rename it in this pack.`,
+          });
+          continue;
+        }
+        const theme = await readJsonContribution(
+          dir,
+          entry.file,
+          `letteringThemes.${entry.id}`,
+          "lettering theme",
+          "pack.lettering-theme",
+          validateLetteringThemeValue,
+          asLetteringTheme,
+        );
+        if (Array.isArray(theme)) {
+          claimed.push(...theme);
+          continue;
+        }
+        contributedThemes.push({ id: entry.id, theme });
+      }
+
+      const contributedLexicons: PackStyleLexicon[] = [];
+      for (const entry of manifest.styleLexicons) {
+        if (lexiconIds.has(entry.id)) {
+          claimed.push({
+            pack: dir,
+            path: `styleLexicons.${entry.id}`,
+            code: "pack.style-lexicon.claimed",
+            message: `style lexicon id "${entry.id}" is already provided by an earlier pack; rename it in this pack.`,
+          });
+          continue;
+        }
+        const lexicon = await readJsonContribution(
+          dir,
+          entry.file,
+          `styleLexicons.${entry.id}`,
+          "style lexicon",
+          "pack.style-lexicon",
+          validateStyleLexiconValue,
+          asStyleLexicon,
+        );
+        if (Array.isArray(lexicon)) {
+          claimed.push(...lexicon);
+          continue;
+        }
+        contributedLexicons.push({ id: entry.id, lexicon });
+      }
+
       issues.push(...claimed);
       for (const [id, abs] of contributedBands) craftBands.set(id, abs);
+      for (const theme of contributedThemes) {
+        themeIds.add(theme.id);
+        letteringThemes.push(theme);
+      }
+      for (const lexicon of contributedLexicons) {
+        lexiconIds.add(lexicon.id);
+        styleLexicons.push(lexicon);
+      }
       for (const [name, abs, reference] of contributedWorkflows) {
         workflows.set(name, abs);
         if (reference !== undefined) workflowReferences.set(name, reference);
@@ -401,6 +550,8 @@ export async function loadPacks(
           genres: contributedGenres.map((genre) => genre.id),
           exportPresets: contributedPresets.map((preset) => preset.id),
           craftBands: contributedBands.map(([id]) => id),
+          letteringThemes: contributedThemes.map((theme) => theme.id),
+          styleLexicons: contributedLexicons.map((lexicon) => lexicon.id),
         },
       });
     }
@@ -408,7 +559,15 @@ export async function loadPacks(
 
   return {
     packs,
-    content: { workflows, workflowReferences, genres, exportPresets, craftBands },
+    content: {
+      workflows,
+      workflowReferences,
+      genres,
+      exportPresets,
+      craftBands,
+      letteringThemes,
+      styleLexicons,
+    },
     issues,
   };
 }

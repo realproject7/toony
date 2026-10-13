@@ -169,7 +169,8 @@ drafts (docs/PROJECT_FORMAT.md):
 
 packs (docs/PACK_FORMAT.md):
   a pack is a local folder of DATA that adds named workflows, genre scaffolds,
-  export presets, and craft bands without editing Toony. Packs are read from
+  export presets, craft bands, lettering themes and style lexicons without
+  editing Toony. A project selects a theme or a lexicon by id in webtoon.json. Packs are read from
   <project>/.toony/packs, the workspace folder above it, and every directory
   named by TOONY_PACKS. Nothing in a pack can run code, and nothing about a pack
   is downloaded: \`toony packs install\` copies a local folder.

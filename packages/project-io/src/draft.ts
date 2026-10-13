@@ -24,6 +24,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  applyLetteringTheme,
   type Character,
   type Cut,
   type Episode,
@@ -33,6 +34,7 @@ import {
   isPathSafeId,
   joinPath,
   type LetteringOverlay,
+  type LetteringTheme,
   type Project,
   SCHEMA_VERSION,
   type ScriptCut,
@@ -165,7 +167,20 @@ function box(line: number): LetteringOverlay["geometry"] {
  * can hold: a transition after its last cut. The sequence rule keeps a
  * transition between two cuts, and the message names the script field.
  */
-export function compileEpisodeScript(script: EpisodeScript, project: Project): CompiledDraft {
+export interface CompileOptions {
+  /**
+   * The lettering theme the project selected (#334), resolved by the caller
+   * from installed packs. Applied to every compiled overlay after its defaults,
+   * so a themed draft letters the way a bubble added in Studio would.
+   */
+  theme?: LetteringTheme;
+}
+
+export function compileEpisodeScript(
+  script: EpisodeScript,
+  project: Project,
+  options: CompileOptions = {},
+): CompiledDraft {
   const episodeId = script.episodeId;
   const existing = project.episodes.find((bundle) => bundle.episode.id === episodeId);
   const names = new Map<string, string>(
@@ -206,7 +221,7 @@ export function compileEpisodeScript(script: EpisodeScript, project: Project): C
       const kind = line.kind ?? (line.speaker === null ? "narration" : "speech");
       const speaker = line.speaker === null ? "" : (names.get(line.speaker) ?? line.speaker);
       const geometry = box(n);
-      lettering.push({
+      const bare: LetteringOverlay = {
         id,
         cutId: sc.id,
         speaker,
@@ -219,15 +234,24 @@ export function compileEpisodeScript(script: EpisodeScript, project: Project): C
         geometry,
         overflow: false,
         reviewStatus: "draft",
-      });
-      for (const [field, value] of [
-        ["fill", "#ffffff"],
-        ["opacity", 1],
-        ["border", null],
-        ["tail", null],
-        ["geometry", geometry],
+      };
+      const overlay = options.theme === undefined ? bare : applyLetteringTheme(bare, options.theme);
+      lettering.push(overlay);
+      for (const field of ["fill", "opacity", "border", "tail", "geometry"] as const) {
+        defaults.push({ kind: "overlay", id, field, value: overlay[field] });
+      }
+      // Fields the theme set beyond the required ones are defaults too: the
+      // script stated none of them, the theme did.
+      for (const field of [
+        "fontFamily",
+        "fontWeight",
+        "textColor",
+        "cornerRadius",
+        "sfxMode",
       ] as const) {
-        defaults.push({ kind: "overlay", id, field, value });
+        if (overlay[field] !== undefined) {
+          defaults.push({ kind: "overlay", id, field, value: overlay[field] });
+        }
       }
     });
 

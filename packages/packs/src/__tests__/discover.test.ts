@@ -96,6 +96,8 @@ test("a pack in <root>/.toony/packs contributes every kind", async () => {
         genres: ["alpha-genre"],
         exportPresets: ["alpha-preset"],
         craftBands: ["alpha-band"],
+        letteringThemes: [],
+        styleLexicons: [],
       },
     },
   ]);
@@ -242,6 +244,8 @@ test("the first pack to claim a name keeps it and the loser is told why", async 
     genres: [],
     exportPresets: [],
     craftBands: [],
+    letteringThemes: [],
+    styleLexicons: [],
   });
   assert.deepEqual(loaded.packs[0]?.contributes.genres, ["first-genre"]);
 });

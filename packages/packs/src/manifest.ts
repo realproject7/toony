@@ -113,6 +113,22 @@ export interface PackExportPreset {
   options: PackExportOptions;
 }
 
+/** A lettering theme (#334): the per-kind bubble defaults a project selects by id. */
+export interface PackLetteringThemeRef {
+  /** The id `webtoon.json`'s `letteringTheme` selects. */
+  id: string;
+  /** Pack-relative path to the theme JSON file. */
+  file: string;
+}
+
+/** A style lexicon (#335): the prompt words a project selects by id. */
+export interface PackStyleLexiconRef {
+  /** The id `webtoon.json`'s `styleLexicon` selects. */
+  id: string;
+  /** Pack-relative path to the lexicon JSON file. */
+  file: string;
+}
+
 /** A validated `toony-pack.json`. Absent contribution lists normalize to empty. */
 export interface PackManifest {
   packFormat: number;
@@ -124,4 +140,6 @@ export interface PackManifest {
   genres: PackGenreRef[];
   exportPresets: PackExportPreset[];
   craftBands: PackCraftBandRef[];
+  letteringThemes: PackLetteringThemeRef[];
+  styleLexicons: PackStyleLexiconRef[];
 }

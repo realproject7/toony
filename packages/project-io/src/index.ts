@@ -19,6 +19,7 @@ export {
   applyDraft,
   type ChangedRecord,
   type CompiledDraft,
+  type CompileOptions,
   compileEpisodeScript,
   DRAFT_DEFAULT_GUTTER_HEIGHT,
   DRAFT_FORMAT_VERSION,

@@ -18,6 +18,11 @@ export async function discoverStudioPacks(
         : (loaded.content.genres.find((genre) => genre.id === id)?.title ?? id),
     })),
     craftBandOptions: [...loaded.content.craftBands.keys()].map((id) => ({ id, title: id })),
+    /** The project's selected lettering theme (#334), when an installed pack provides it. */
+    letteringTheme: (id: string | undefined) =>
+      id === undefined
+        ? null
+        : (loaded.content.letteringThemes.find((entry) => entry.id === id)?.theme ?? null),
     // `PackIssue.pack` is an absolute local path. The Studio can explain what
     // went wrong without exposing its user's filesystem layout in the browser.
     warnings: loaded.issues.map(

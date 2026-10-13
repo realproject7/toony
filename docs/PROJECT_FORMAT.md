@@ -89,6 +89,13 @@ unaffected, since it is still mapped over the whole canvas.
 describes what a gutter bubble renders as differently than it did before this
 field existed.
 
+Two optional fields select an installed pack's style data by id (#334, #335):
+`letteringTheme` names a pack lettering theme, applied where a bubble is created
+and on request in Studio; `styleLexicon` names a pack style lexicon, composed
+into every prompt at generation. Whether an installed pack provides the id is
+the consumer's question: a missing theme is said and the defaults stand, a
+missing lexicon refuses generation. See `PACK_FORMAT.md`.
+
 ## Recorded render inputs
 
 A cut records what produced its current image, so the render can be repeated:

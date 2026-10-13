@@ -25,9 +25,11 @@ import {
   layoutCut,
 } from "@toony/render";
 import {
+  applyLetteringTheme,
   type Character,
   LETTERING_STYLE_DEFAULTS,
   type LetteringOverlay,
+  type LetteringTheme,
   type ReviewStatus,
 } from "@toony/schema";
 import dynamic from "next/dynamic";
@@ -87,6 +89,10 @@ export interface CutEditorProps {
   characters: readonly Character[];
   /** What produced the art on disk, shown read-only. */
   renderRecord: { imageSeed?: number; imageWorkflow?: string };
+  /** The project's lettering theme (#334), or null when none applies. */
+  theme: LetteringTheme | null;
+  /** The selected theme id, shown when the pack providing it is not installed. */
+  themeId: string | null;
 }
 
 type DragMode =
@@ -109,6 +115,8 @@ export function CutEditor({
   cutFields,
   characters,
   renderRecord,
+  theme,
+  themeId,
 }: CutEditorProps) {
   const [bubbles, setBubbles] = useState<LetteringOverlay[]>(initialBubbles);
   // Undo and redo over the bubble set (#333). Every mutation records the state
@@ -308,12 +316,36 @@ export function CutEditor({
   const addBubble = useCallback(() => {
     history.record();
     setBubbles((prev) => {
-      const created = newOverlay(cutId, prev.length);
+      const created = newOverlay(cutId, prev.length, theme ?? undefined);
       setSelectedId(created.id);
       return [...prev, created];
     });
     markDirty();
-  }, [cutId, markDirty, history]);
+  }, [cutId, markDirty, history, theme]);
+
+  // Apply the project's theme to the selected bubble on request (#336): every
+  // field the theme states for its kind is written; the rest stays.
+  const applyThemeToSelected = useCallback(() => {
+    if (!selected || theme === null) return;
+    const themed = applyLetteringTheme(selected, theme);
+    const patch: Partial<LetteringOverlay> = {};
+    for (const key of [
+      "fontFamily",
+      "fontWeight",
+      "fill",
+      "textColor",
+      "border",
+      "cornerRadius",
+      "opacity",
+      "sfxMode",
+    ] as const) {
+      if (themed[key] !== selected[key]) Object.assign(patch, { [key]: themed[key] });
+    }
+    if (Object.keys(patch).length === 0) return;
+    history.record();
+    setBubbles((prev) => prev.map((b) => (b.id === selected.id ? { ...b, ...patch } : b)));
+    markDirty();
+  }, [selected, theme, history, markDirty]);
 
   const duplicateSelected = useCallback(() => {
     if (!selected) return;
@@ -630,6 +662,22 @@ export function CutEditor({
             >
               Delete
             </button>
+            {themeId !== null && (
+              <button
+                type="button"
+                className="btn"
+                onClick={applyThemeToSelected}
+                disabled={!selected || theme === null}
+                title={
+                  theme === null
+                    ? `Theme "${themeId}" is selected in webtoon.json but no installed pack provides it`
+                    : `Apply the "${themeId}" theme's defaults to this bubble`
+                }
+                data-testid="editor-apply-theme"
+              >
+                Apply theme{theme === null ? " (not installed)" : ""}
+              </button>
+            )}
           </div>
 
           {hasArt ? (
