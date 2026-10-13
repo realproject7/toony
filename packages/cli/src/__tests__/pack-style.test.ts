@@ -359,3 +359,80 @@ test("init --genre writes the genre's theme and lexicon into the project, and re
   assert.equal(await runInit(["other", "--genre", "warm-genre"], refused.io), EXIT_USAGE);
   assert.match(refused.err.join("\n"), /unknown genre "warm-genre"/);
 });
+
+test("a lexicon's prefix opens the prompt before the lockstrings, and storyContext none drops the bible wrapper", async () => {
+  // Two projects, one story bible each, the same cut. The first selects a
+  // lexicon with a prefix and storyContext none (#351); the second selects the
+  // plain lexicon. The second composes exactly what it composed before the
+  // fields existed: wrapper first, lockstring, scene, palette, clause.
+  const prefixed = await scaffold("prefixed", { lexicon: "cold" });
+  await installStylePack(prefixed);
+  await writeFile(
+    join(prefixed, ".toony", "packs", "style", "lexicons", "cold.json"),
+    JSON.stringify({
+      ...LEXICON,
+      stylePrefix: "masterpiece, best quality",
+      storyContext: "none",
+    }),
+  );
+  await writeFile(
+    join(prefixed, "story-bible.md"),
+    "# Story Bible\n\nA pier at dawn, and a debt.\n",
+  );
+  const plain = await scaffold("plain", { lexicon: "cold" });
+  await installStylePack(plain);
+  await writeFile(join(plain, "story-bible.md"), "# Story Bible\n\nA pier at dawn, and a debt.\n");
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    for (const dir of [prefixed, plain]) {
+      const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+      assert.equal(
+        await runGenerate(
+          [dir, "--episode", "ep-001", "--cut", "cut-001", "--seed", "3", "--allow-remote"],
+          c.io,
+        ),
+        EXIT_OK,
+        c.err.join("\n"),
+      );
+    }
+    const [withPrefix, withoutPrefix] = comfy.prompts();
+    assert.ok(
+      withPrefix?.startsWith("masterpiece, best quality, teal coat, a pier at dawn"),
+      withPrefix,
+    );
+    assert.doesNotMatch(withPrefix ?? "", /Story context:/);
+    assert.ok(withPrefix?.endsWith("flat cel shading, clean ink line"));
+    assert.ok(withoutPrefix?.startsWith("Story context:\n# Story Bible"), withoutPrefix);
+    assert.ok(withoutPrefix?.includes("Scene:\nteal coat, a pier at dawn"), withoutPrefix);
+    const log = JSON.parse(
+      await readFile(join(prefixed, "episodes", "ep-001", "logs", "ingest.json"), "utf8"),
+    );
+    assert.deepEqual(log[0].renderInputs.styleLexicon, {
+      id: "cold",
+      styleClause: LEXICON.styleClause,
+      negativeBase: LEXICON.negativeBase,
+      stylePrefix: "masterpiece, best quality",
+      storyContext: "none",
+    });
+    const plainLog = JSON.parse(
+      await readFile(join(plain, "episodes", "ep-001", "logs", "ingest.json"), "utf8"),
+    );
+    assert.deepEqual(Object.keys(plainLog[0].renderInputs.styleLexicon).sort(), [
+      "id",
+      "negativeBase",
+      "styleClause",
+    ]);
+    // A bare re-run under the prefixed lexicon repeats the same request.
+    assert.equal(
+      await runGenerate(
+        [prefixed, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+        capture({ TOONY_COMFYUI_URL: comfy.url }).io,
+      ),
+      EXIT_OK,
+    );
+    const bodies = comfy.bodies().map(normalizeClientId);
+    assert.equal(bodies[2], bodies[0]);
+  } finally {
+    comfy.close();
+  }
+});

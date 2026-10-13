@@ -475,6 +475,12 @@ function resolveInputs(
             id: lexicon.id,
             styleClause: lexicon.lexicon.styleClause,
             negativeBase: lexicon.lexicon.negativeBase,
+            ...(lexicon.lexicon.stylePrefix === undefined
+              ? {}
+              : { stylePrefix: lexicon.lexicon.stylePrefix }),
+            ...(lexicon.lexicon.storyContext === undefined
+              ? {}
+              : { storyContext: lexicon.lexicon.storyContext }),
           },
         }),
     seed:
@@ -518,7 +524,7 @@ function composePrompt(
   cut: Cut | undefined,
   registry: readonly Character[],
   storyBible: string,
-  styleClause?: string,
+  lexicon?: StyleLexicon,
 ): string {
   const palette = appendPaletteClause(
     injectCharacterLockstrings(basePrompt, cut?.characters, registry),
@@ -527,11 +533,22 @@ function composePrompt(
   // The pack's style words (#335) go last, after the palette, so they qualify
   // the whole scene the way the palette does and never read as part of a
   // character's description.
-  const scene =
+  const styleClause = lexicon?.styleClause;
+  const styled =
     styleClause === undefined || styleClause.trim() === ""
       ? palette
       : `${palette}, ${styleClause.trim()}`;
-  return storyBible === "" ? scene : `Story context:\n${storyBible}\n\nScene:\n${scene}`;
+  // The prefix (#351) goes first, before the lockstrings: a tag-style checkpoint
+  // reads its quality and register from the opening tokens.
+  const stylePrefix = lexicon?.stylePrefix;
+  const scene =
+    stylePrefix === undefined || stylePrefix.trim() === ""
+      ? styled
+      : `${stylePrefix.trim()}, ${styled}`;
+  // The story bible wraps the scene unless the lexicon says the workflow was
+  // tuned without prose (#351). A lexicon that says nothing wraps as always.
+  const wrap = storyBible !== "" && lexicon?.storyContext !== "none";
+  return wrap ? `Story context:\n${storyBible}\n\nScene:\n${scene}` : scene;
 }
 
 /**
@@ -570,7 +587,7 @@ function planJobs(
     // A transition record has no prompt or seed fields, so nothing is written
     // back for it; its inputs are recorded in the ingest log like a cut's.
     const inputs = resolveInputs(
-      composePrompt(prompt, undefined, [], storyBible, lexicon?.lexicon.styleClause),
+      composePrompt(prompt, undefined, [], storyBible, lexicon?.lexicon),
       prompt,
       negative ?? "",
       shared,
@@ -615,13 +632,7 @@ function planJobs(
     }
     // Lockstrings prepend (#92), then the palette clause appends (#207), so the
     // colour qualifies the whole scene rather than one character's description.
-    const composed = composePrompt(
-      cutPrompt,
-      cut,
-      registry,
-      storyBible,
-      lexicon?.lexicon.styleClause,
-    );
+    const composed = composePrompt(cutPrompt, cut, registry, storyBible, lexicon?.lexicon);
     // The cut's recorded inputs describe its clean plate, so only a clean run
     // replays them. The PROMPT still falls back for either slot, as it has since
     // #38: `imagePrompt` is authored text a cut has always shared between its
@@ -972,18 +983,23 @@ const REPEAT_INPUTS: Record<keyof RenderInputs, RepeatInput> = {
   // changed selection, or changed words in the same pack entry, is named as an
   // input nothing can ask for; absence is an answer, as for the workflow.
   styleLexicon: {
-    recorded: (record) =>
-      record.styleLexicon === undefined
-        ? undefined
-        : `${record.styleLexicon.id}\n${record.styleLexicon.styleClause}\n${record.styleLexicon.negativeBase}`,
-    submitted: ({ job }) =>
-      job.inputs.styleLexicon === undefined
-        ? undefined
-        : `${job.inputs.styleLexicon.id}\n${job.inputs.styleLexicon.styleClause}\n${job.inputs.styleLexicon.negativeBase}`,
+    recorded: (record) => lexiconKey(record.styleLexicon),
+    submitted: ({ job }) => lexiconKey(job.inputs.styleLexicon),
     refuses: () => false,
     instruct: () => null,
   },
 };
+
+/**
+ * One string for a lexicon as recorded or as submitted (#335, #351). The two
+ * later fields join as empty when absent, so a record written before they
+ * existed still reads as the same lexicon as a run that states neither.
+ */
+function lexiconKey(lexicon: RenderInputs["styleLexicon"]): string | undefined {
+  return lexicon === undefined
+    ? undefined
+    : `${lexicon.id}\n${lexicon.styleClause}\n${lexicon.negativeBase}\n${lexicon.stylePrefix ?? ""}\n${lexicon.storyContext ?? ""}`;
+}
 
 /** The project-relative image a record currently points at, for either kind. */
 function associatedAsset(bundle: EpisodeBundle | undefined, target: AssetTarget): string | null {
@@ -1021,7 +1037,7 @@ async function assertRepeatable(
   bundle: EpisodeBundle | undefined,
   registry: readonly Character[],
   storyBible: string,
-  styleClause?: string,
+  lexicon?: StyleLexicon,
 ): Promise<{ error: string; exit: number } | null> {
   for (const { job, latent } of ready) {
     const target = job.target;
@@ -1038,7 +1054,7 @@ async function assertRepeatable(
       job,
       latent,
       recompose: (basePrompt) =>
-        composePrompt(basePrompt, cut, registry, storyBible, styleClause).trim(),
+        composePrompt(basePrompt, cut, registry, storyBible, lexicon).trim(),
     };
     const differences: string[] = [];
     const instructions: string[] = [];
@@ -1343,7 +1359,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     bundle,
     loaded.project.webtoon.characters ?? [],
     storyBible,
-    lexicon?.lexicon.styleClause,
+    lexicon?.lexicon,
   );
   if (repeatable !== null) {
     io.err(repeatable.error);

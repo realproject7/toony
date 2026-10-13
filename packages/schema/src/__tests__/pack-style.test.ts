@@ -110,6 +110,25 @@ test("a lexicon validates, and the negative prompt composes base then own, leavi
   assert.deepEqual(codes({ lexiconFormat: 1, styleClause: "x", negativeBase: "", mood: "y" }), [
     "lexicon.unknown-key",
   ]);
+  // The prefix and the story context setting (#351): optional, held to their vocabulary.
+  assert.deepEqual(
+    validateStyleLexiconValue({
+      lexiconFormat: 1,
+      styleClause: "x",
+      negativeBase: "",
+      stylePrefix: "masterpiece, best quality",
+      storyContext: "none",
+    }).issues,
+    [],
+  );
+  assert.deepEqual(
+    codes({ lexiconFormat: 1, styleClause: "x", negativeBase: "", stylePrefix: "" }),
+    ["lexicon.style-prefix"],
+  );
+  assert.deepEqual(
+    codes({ lexiconFormat: 1, styleClause: "x", negativeBase: "", storyContext: "prefix" }),
+    ["lexicon.story-context"],
+  );
 
   assert.equal(composeNegativePrompt("", undefined), "");
   assert.equal(composeNegativePrompt("", ""), "");
