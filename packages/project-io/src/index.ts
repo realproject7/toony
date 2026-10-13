@@ -36,6 +36,8 @@ export {
   type ProjectFingerprint,
   projectWithDraft,
   readDraft,
+  removeDraft,
+  sameFingerprint,
   writeDraft,
 } from "./draft.js";
 export { ProjectIoError } from "./errors.js";

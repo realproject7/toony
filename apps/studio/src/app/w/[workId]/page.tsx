@@ -7,9 +7,11 @@
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { BriefCard } from "@/components/brief-card";
 import { EpisodeList } from "@/components/episode-list";
 import { LoadError } from "@/components/load-error";
 import { loadWork, overviewEpisodes, ProjectIoError } from "@/lib/project";
+import { loadBriefView } from "@/lib/script-view";
 import { resolveWork } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +37,7 @@ export default async function WorkDashboardPage({
   const { webtoon } = project;
   const { languages, imageProviders } = webtoon;
   const episodes = overviewEpisodes(loaded);
+  const briefView = await loadBriefView(work.root);
 
   const totalCuts = episodes.reduce((sum, ep) => sum + ep.cutCount, 0);
   const totalTransitions = episodes.reduce((sum, ep) => sum + ep.transitionCount, 0);
@@ -124,6 +127,14 @@ export default async function WorkDashboardPage({
             <b>{webtoon.schemaVersion}</b>
           </div>
         </article>
+      </section>
+
+      <section className="card-grid" data-testid="brief-section">
+        <BriefCard
+          brief={briefView.brief}
+          unreadable={briefView.unreadable}
+          characters={webtoon.characters ?? []}
+        />
       </section>
 
       <section>

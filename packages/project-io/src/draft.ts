@@ -21,7 +21,7 @@
 //   disk resolves, and the worst window is an orphan the next apply clears.
 
 import { createHash } from "node:crypto";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type Character,
@@ -402,6 +402,22 @@ export async function writeDraft(root: string, draft: EpisodeDraft): Promise<voi
   await atomicWrite(draftPath(root, draft.episodeId), encodeJson(draft));
 }
 
+/**
+ * Remove an episode's draft. Returns false when there was none. Touches only
+ * the draft file; the project is never read or written.
+ */
+export async function removeDraft(root: string, episodeId: string): Promise<boolean> {
+  const file = draftPath(root, episodeId);
+  try {
+    await rm(file);
+    return true;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException)?.code === "ENOENT") return false;
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    throw new ProjectIoError(`could not remove ${file}: ${reason}`, file);
+  }
+}
+
 // --- Fingerprint ------------------------------------------------------------
 
 async function digestFile(file: string): Promise<string | null> {
@@ -436,7 +452,8 @@ export async function fingerprintEpisode(
   };
 }
 
-function sameFingerprint(a: ProjectFingerprint, b: ProjectFingerprint): boolean {
+/** True when two fingerprints describe the same bytes for every file. */
+export function sameFingerprint(a: ProjectFingerprint, b: ProjectFingerprint): boolean {
   return (
     a.webtoon === b.webtoon &&
     a.episode === b.episode &&

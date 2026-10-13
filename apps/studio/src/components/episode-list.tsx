@@ -55,6 +55,13 @@ export function EpisodeList({ workId, episodes }: { workId: string; episodes: Ep
           >
             Read
           </Link>
+          <Link
+            href={`${base}/episodes/${encodeURIComponent(episode.id)}/script`}
+            className="episode-row-read"
+            data-testid={`episode-script-${episode.id}`}
+          >
+            Script
+          </Link>
         </li>
       ))}
     </ul>
