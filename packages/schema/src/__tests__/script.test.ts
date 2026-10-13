@@ -309,3 +309,84 @@ test("the validators hold no episode length and no fixed roster", () => {
   assert.deepEqual(scriptIssues(short), []);
   assert.deepEqual(scriptIssues(long), []);
 });
+
+test("a script may state a title, a shot type, a palette, a gap after a cut and a line kind (#312)", () => {
+  const value = validScript();
+  value.title = "The Ledger";
+  const cut = value.beats[0]?.cuts[0];
+  assert.ok(cut);
+  cut.shotType = "establishing_wide";
+  cut.palette = "#9fb4c7";
+  cut.transitionAfter = { type: "scene-break", gutterHeight: 120, text: "Noon" };
+  cut.dialogue = [{ speaker: "mira", text: "Early.", kind: "whisper" }];
+  const c = new IssueCollector();
+  validateEpisodeScriptValue(value, "script", c);
+  assert.deepEqual(c.result().issues, []);
+});
+
+test("the new script fields are held to the record vocabulary they compile into (#312)", () => {
+  type Mutate = (cut: Record<string, unknown>, script: Record<string, unknown>) => void;
+  const cases: Array<[Mutate, string]> = [
+    [
+      (cut) => {
+        cut.shotType = "wide";
+      },
+      "script.cut-shot-type",
+    ],
+    [
+      (cut) => {
+        cut.palette = "";
+      },
+      "field.type",
+    ],
+    [
+      (cut) => {
+        cut.transitionAfter = { type: "jump" };
+      },
+      "script.transition-type",
+    ],
+    [
+      (cut) => {
+        cut.transitionAfter = { type: "gutter", gutterHeight: 1.5 };
+      },
+      "script.transition-gutter",
+    ],
+    [
+      (cut) => {
+        cut.transitionAfter = { type: "gutter", gutterHeight: 99999 };
+      },
+      "script.transition-gutter",
+    ],
+    [
+      (cut) => {
+        cut.transitionAfter = { type: "gutter", colour: "#fff" };
+      },
+      "script.unknown-key",
+    ],
+    [
+      (cut) => {
+        cut.dialogue = [{ speaker: null, text: "x", kind: "yell" }];
+      },
+      "script.line-kind",
+    ],
+    [
+      (_cut, script) => {
+        script.title = "";
+      },
+      "field.type",
+    ],
+  ];
+  for (const [mutate, code] of cases) {
+    const value = validScript() as unknown as Record<string, unknown>;
+    const beats = value.beats as Array<{ cuts: Array<Record<string, unknown>> }>;
+    const cut = beats[0]?.cuts[0];
+    assert.ok(cut);
+    mutate(cut, value);
+    const c = new IssueCollector();
+    validateEpisodeScriptValue(value, "script", c);
+    assert.ok(
+      c.result().issues.some((issue) => issue.code === code),
+      `${code}: ${JSON.stringify(c.result().issues)}`,
+    );
+  }
+});

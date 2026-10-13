@@ -14,6 +14,7 @@ import {
   isInteger,
   isNonEmptyString,
   isNormalizedUnit,
+  isOneOf,
   isPlainObject,
   isString,
 } from "./guards.js";
@@ -49,10 +50,6 @@ import {
   TRANSITION_TYPES,
   VERTICAL_ALIGNS,
 } from "./types.js";
-
-function isOneOf(value: unknown, allowed: readonly string[]): value is string {
-  return typeof value === "string" && allowed.includes(value);
-}
 
 /** Reject absolute or parent-escaping paths so asset references stay project-relative. */
 export function isProjectRelativePath(value: string): boolean {

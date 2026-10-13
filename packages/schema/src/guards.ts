@@ -33,3 +33,8 @@ export function isArray(value: unknown): value is unknown[] {
 export function isNormalizedUnit(value: unknown): value is number {
   return isFiniteNumber(value) && value >= 0 && value <= 1;
 }
+
+/** True when `value` is one of the `allowed` literals. */
+export function isOneOf(value: unknown, allowed: readonly string[]): value is string {
+  return typeof value === "string" && allowed.includes(value);
+}

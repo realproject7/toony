@@ -559,12 +559,31 @@ export async function measureEpisodePlan(
   if (!bundle) {
     throw new ExportError("episode-not-found", `episode not found: ${episodeId}`);
   }
+  return measureEpisodeBundle(loaded.project, bundle, options);
+}
+
+/**
+ * Measure an episode bundle that is already in memory, against the project it
+ * belongs to (for its reference width).
+ *
+ * This is the seam the draft compiler (#312) grades through: a draft is an
+ * `EpisodeBundle` that is not on disk as an episode yet, and the project it
+ * targets may not validate, so `measureEpisodePlan` cannot serve it. It is the
+ * SAME page walk and the same run rule, so a draft's numbers before apply are
+ * the numbers `toony plan --episode` reports after apply. No second height rule
+ * exists for a bundle that happens to be in memory.
+ */
+export function measureEpisodeBundle(
+  project: Project,
+  bundle: EpisodeBundle,
+  options: MeasureOptions = {},
+): PlanMeasurement {
   const width = Math.max(1, Math.round(options.width ?? STITCHED_DEFAULT_WIDTH));
   return {
-    episodeId,
+    episodeId: bundle.episode.id,
     planName: null,
     ...measurePage(
-      episodePage(loaded.project, bundle, width),
+      episodePage(project, bundle, width),
       width,
       options.screenAspect ?? DEFAULT_SCREEN_ASPECT,
     ),
