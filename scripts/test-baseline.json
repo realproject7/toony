@@ -1,6 +1,6 @@
 {
   "sourceCommit": "3fff337c07bb96f96e874dec1317f664dddecab5",
-  "evidence": "Full Node 20 and 24 gate of main at 3fff337 (PR #338) on 2026-10-13: 1130 passed in these 10 packages and 42 verification controls. Later PRs on the same day raised floors with their tests: #339 (schema 136, project-io 143, cli 241), #340 (cli 255), #341 (studio 78), #342 (studio 88). The #327 PR adds schema +3, packs +2, providers +5 and cli +5 (139, 34, 82, 260). The #328/#329 PR adds schema +1, project-io +2, cli +1 and studio +6 (140, 145, 261, 94). The #334-#336 PR adds schema +3, packs +3, project-io +1, studio +1 and cli +5, so those floors are 143, 37, 146, 95 and 266. Floors are raised in the PR that adds tests and are never lowered from the candidate run. The #346 PR adds packs +1, project-io +1 and cli +1, so those floors are 38, 147 and 267.",
+  "evidence": "Full Node 20 and 24 gate of main at 3fff337 (PR #338) on 2026-10-13: 1130 passed in these 10 packages and 42 verification controls. Later PRs on the same day raised floors with their tests: #339 (schema 136, project-io 143, cli 241), #340 (cli 255), #341 (studio 78), #342 (studio 88). The #327 PR adds schema +3, packs +2, providers +5 and cli +5 (139, 34, 82, 260). The #328/#329 PR adds schema +1, project-io +2, cli +1 and studio +6 (140, 145, 261, 94). The #334-#336 PR adds schema +3, packs +3, project-io +1, studio +1 and cli +5, so those floors are 143, 37, 146, 95 and 266. Floors are raised in the PR that adds tests and are never lowered from the candidate run. The #346 PR adds packs +1, project-io +1 and cli +1, so those floors are 38, 147 and 267. The #314 PR adds cli +1, the sixty-cut scale fixture, so that floor is 268.",
   "packages": {
     "@toony/schema": 143,
     "@toony/providers": 82,
@@ -11,7 +11,7 @@
     "@toony/studio": 95,
     "@toony/export": 176,
     "@toony/lint": 94,
-    "toony-cli": 267
+    "toony-cli": 268
   },
   "verification": 42,
   "reductions": {}

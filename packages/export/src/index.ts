@@ -98,6 +98,15 @@ export {
   listExportPresetIds,
   resolveExportPreset,
 } from "./presets.js";
+// The raster caps (#277), exported so a record of a composed page can state its
+// size beside the limits that admitted it (#314).
+export {
+  CANVAS_PIXELS_MAX,
+  EPISODE_RASTER_BYTES_MAX,
+  IMAGE_FILE_BYTES_MAX,
+  IMAGE_PIXELS_MAX,
+  RASTER_DIMENSION_MAX,
+} from "./raster-safety.js";
 export {
   type ExportOptions,
   type ExportOutput,

@@ -9,7 +9,10 @@ failures. Until that run is completed, generation time, review, lint, and export
 behavior at that scale remain unverified by this capstone. PlotLink export now
 packs consecutive rendered cuts and transitions into at most 20 image strips
 for one episode; the image-file limit is not a source-cut limit. Each strip must
-meet the byte and WebP dimension limits at the requested width and quality.
+meet the byte and WebP dimension limits at the requested width and quality. A synthetic sixty-cut fixture (#314, `docs/SCALE_FIXTURE.md`) now drives
+validate, plan, import, lint, measure and all three exports at sixty cuts
+mechanically only, with drawn structure in place of art and no model run, so
+generation time at that scale is still unmeasured and #243 remains open.
 
 Status: PASSED (2026-06-17)
 
