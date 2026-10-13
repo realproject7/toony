@@ -1,17 +1,17 @@
 {
-  "sourceCommit": "9d20afde9b514ba3bea2d1f1946b4e669ffee206",
-  "evidence": "Full Node 24 run of main at 9d20afd on 2026-10-13: 1126 passed in these 10 packages and 40 verification controls. The floors below are those counts plus the tests the #321/#322 PR adds on top of that commit (project-io +3, toony-cli +1, verification +2), so the gate holds the tree within FLOOR_SLACK of what exists. Floors are raised in the PR that adds tests and are never lowered from the candidate run.",
+  "sourceCommit": "3fff337c07bb96f96e874dec1317f664dddecab5",
+  "evidence": "Full Node 20 and 24 gate of main at 3fff337 (PR #338) on 2026-10-13: 1130 passed in these 10 packages and 42 verification controls. The floors below are those counts plus the tests the #312 PR adds on top of that commit (schema +2, project-io +14, toony-cli +9). Floors are raised in the PR that adds tests and are never lowered from the candidate run.",
   "packages": {
-    "@toony/schema": 134,
+    "@toony/schema": 136,
     "@toony/providers": 77,
     "@toony/fonts": 16,
     "@toony/packs": 32,
-    "@toony/project-io": 129,
+    "@toony/project-io": 143,
     "@toony/render": 168,
     "@toony/studio": 72,
     "@toony/export": 176,
     "@toony/lint": 94,
-    "toony-cli": 232
+    "toony-cli": 241
   },
   "verification": 42,
   "reductions": {}

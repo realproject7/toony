@@ -6,6 +6,12 @@ The product is designed for agents and human creators to collaborate on story
 planning, cut planning, transition rhythm, image asset ingestion, lettering,
 review, and export.
 
+## For agents
+
+An agent driving Toony reads [docs/AGENT_GUIDE.md](./docs/AGENT_GUIDE.md) first.
+It states the loop from brief to export, the command that answers each question,
+and what the tool refuses so the agent does not have to remember it.
+
 ## Product Boundaries
 
 Toony includes:
@@ -62,5 +68,5 @@ what counts as commercial use and how to ask for a license.
 
 ## Status
 
-Founding repository. Implementation tickets must be created and reviewed before
-feature implementation begins.
+Active. The roadmap is Epic #1 on the issue tracker; the delivery flow is
+[docs/PO_WORKFLOW.md](./docs/PO_WORKFLOW.md).

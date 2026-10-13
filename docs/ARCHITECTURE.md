@@ -228,6 +228,48 @@ states differ in what is on disk — one has no image, the other has the image a
 its reference — and reporting the second as the first sends an operator to redo
 a render that succeeded, which a re-run would draw differently.
 
+## Compile, show, apply
+
+An authored episode script (`script/episodes/<id>.json`) says what an episode
+does. The project stores episodes as cuts, transitions, lettering and a reading
+sequence. `toony draft` is the path between the two, and it is three separate
+steps on purpose.
+
+| command | writes | refuses when |
+|---|---|---|
+| `toony draft compile --episode <id>` | `.toony/drafts/<id>.json` | the script does not validate, or the compiled episode would not validate with its project |
+| `toony draft show --episode <id>` | the draft's `reviewedAgainst` | there is no valid draft |
+| `toony draft apply --episode <id>` | the episode's four files | any conflict, a project that changed since the last report, a project that does not validate, a result that would not validate |
+
+Compile and show never write project data. They report, together: every
+required field the compiler filled from a default, the craft and overflow
+findings a draft can carry before any art exists, the page geometry the shipped
+plan measurement gives it, and the diff against the episode the project holds
+now, as per-kind counts and per-record changed fields. The geometry is measured
+through the same function `toony plan --episode` uses after apply, so the two
+numbers agree by construction.
+
+**The conflict rule is keyed on presence.** Apply writes a record the project
+does not hold, and reports as a conflict every field it would change on a record
+the project already holds, and every record it would drop. Any conflict refuses
+the whole apply, with all of them listed. The review marks and the recorded
+render inputs are in that report as the reason a conflict cannot be cleared by
+redrafting; they are not the detection rule, because a hand-written prompt on a
+cut nobody has generated carries neither a mark nor a seed, and that is the
+record this rule exists to protect. An existing sequence may be extended; a
+sequence whose entries the draft drops or reorders is a conflict too.
+
+Because apply only ever adds records, its four writes go cuts, transitions,
+lettering, sequence. After any single interrupted rename every reference on disk
+resolves: overlays and the sequence name cuts already written, the sequence
+names transitions already written. The worst window is an orphan record, which
+validation reports non-fatally and the next apply clears. There is no force
+flag, for the reason the authoring commands have none.
+
+A compiled cut's `imagePrompt` is the script's scene text and nothing else. The
+story bible, the character lockstrings and the palette clause compose on top of
+it at generate time, exactly as they do for a hand-authored cut.
+
 ## Export Targets
 
 Platform export:
