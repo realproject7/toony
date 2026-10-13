@@ -59,8 +59,8 @@
 // when any cut failed. Nothing is rolled back, so cuts that did generate stay.
 
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { readFile, realpath } from "node:fs/promises";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import {
   type AssetTarget,
   type ComfyUiConfig,
@@ -378,9 +378,21 @@ async function attachReferences(
       skipped.set(key, [...(skipped.get(key) ?? []), entry.job.id]);
       continue;
     }
+    // The registry path is lexically inside the project (the validator refuses
+    // `..` and absolute paths), but a symlink under characters/<id>/ could still
+    // point anywhere, and these bytes leave the machine when the endpoint is
+    // remote. Resolve the real file and require it to stay inside the real
+    // project root, as the Studio asset route does, before a byte is read.
     let bytes: Uint8Array;
     try {
-      bytes = new Uint8Array(await readFile(join(root, candidate.path)));
+      const realRoot = await realpath(root);
+      const real = await realpath(join(root, candidate.path));
+      if (real !== realRoot && !real.startsWith(realRoot + sep)) {
+        return {
+          error: `character "${candidate.characterId}" reference "${candidate.path}" resolves outside the project and is not sent; keep reference sheets inside characters/${candidate.characterId}/`,
+        };
+      }
+      bytes = new Uint8Array(await readFile(real));
     } catch {
       return {
         error: `character "${candidate.characterId}" reference "${candidate.path}" could not be read; fix the registry or the file before generating ${entry.job.id}`,

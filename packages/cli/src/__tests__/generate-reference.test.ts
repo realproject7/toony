@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
@@ -243,6 +243,34 @@ test("a sheet that cannot be read refuses the run before any request", async () 
     );
     assert.equal(code, EXIT_USAGE);
     assert.match(c.err.join("\n"), /reference "characters\/mira\/sheet.png" could not be read/);
+    assert.equal(comfy.calls(), 0);
+    assert.equal(comfy.uploads().length, 0);
+  } finally {
+    comfy.close();
+  }
+});
+
+test("a sheet that is a symlink out of the project is refused before any byte is read", async () => {
+  const dir = await scaffold();
+  await installReferencePack(dir);
+  const outside = join(workdir, "outside.png");
+  await writeFile(outside, SHEET);
+  await rm(join(dir, "characters", "mira", "sheet.png"));
+  await symlink(outside, join(dir, "characters", "mira", "sheet.png"));
+  const comfy = await startFakeComfy(pngWithText());
+  try {
+    const c = capture({ TOONY_COMFYUI_URL: comfy.url });
+    const code = await runGenerate(
+      [dir, "--episode", "ep-001", "--cut", "cut-001", "--workflow", "ref", "--allow-remote"],
+      c.io,
+    );
+    assert.equal(code, EXIT_USAGE);
+    assert.match(c.err.join("\n"), /resolves outside the project and is not sent/);
+    assert.doesNotMatch(
+      c.err.join("\n"),
+      /outside\.png/,
+      "the message names no path outside the project",
+    );
     assert.equal(comfy.calls(), 0);
     assert.equal(comfy.uploads().length, 0);
   } finally {

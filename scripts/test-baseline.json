@@ -1,6 +1,6 @@
 {
   "sourceCommit": "3fff337c07bb96f96e874dec1317f664dddecab5",
-  "evidence": "Full Node 20 and 24 gate of main at 3fff337 (PR #338) on 2026-10-13: 1130 passed in these 10 packages and 42 verification controls. Later PRs on the same day raised floors with their tests: #339 (schema 136, project-io 143, cli 241), #340 (cli 255), #341 (studio 78), #342 (studio 88). The #327 PR adds schema +3, packs +2, providers +5 and cli +4, so those floors are 139, 34, 82 and 259. Floors are raised in the PR that adds tests and are never lowered from the candidate run.",
+  "evidence": "Full Node 20 and 24 gate of main at 3fff337 (PR #338) on 2026-10-13: 1130 passed in these 10 packages and 42 verification controls. Later PRs on the same day raised floors with their tests: #339 (schema 136, project-io 143, cli 241), #340 (cli 255), #341 (studio 78), #342 (studio 88). The #327 PR adds schema +3, packs +2, providers +5 and cli +5, so those floors are 139, 34, 82 and 260. Floors are raised in the PR that adds tests and are never lowered from the candidate run.",
   "packages": {
     "@toony/schema": 139,
     "@toony/providers": 82,
@@ -11,7 +11,7 @@
     "@toony/studio": 88,
     "@toony/export": 176,
     "@toony/lint": 94,
-    "toony-cli": 259
+    "toony-cli": 260
   },
   "verification": 42,
   "reductions": {}
