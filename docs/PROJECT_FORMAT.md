@@ -314,6 +314,41 @@ its transition `tr-sc-001`, its lines `ov-sc-001-1` and so on. Recompiling the
 same script gives the same records, so a draft applied once and compiled again
 reads as unchanged.
 
+### `episodes/<episode-id>/logs/produce.json`
+
+What `toony produce run` records about its own runs, beside the ingest log. One
+array, one entry per run, each entry replaced by its finished form when the run
+ends:
+
+```json
+[
+  {
+    "run": 1,
+    "state": "finished",
+    "kind": "revision",
+    "episodeId": "ep-001",
+    "targetSet": "9f3a1c0e5b7d2a44",
+    "targets": ["cut-003", "cut-004"],
+    "selectors": { "cuts": ["cut-003", "cut-004"], "reviewStatus": null },
+    "changed": ["--seed fresh"],
+    "reason": "the first take cropped the face",
+    "draft": { "scriptRevision": "3c5e...", "briefRevision": "8fd7..." },
+    "disclosure": { "withImage": 2, "withRecordedInputs": 2, "willResetReview": ["cut-003 (final)"] },
+    "outcomes": { "cut-003": "generated", "cut-004": "failed" },
+    "rewrotePrompt": [],
+    "exit": 1,
+    "stopped": null
+  }
+]
+```
+
+It is a record of the controller's decisions, not of what produced an image:
+the four cut render fields and the ingest log stay the single source for that,
+and this file never duplicates them. `targetSet` is the first sixteen hex
+characters of the sha256 over the episode id and the sorted target ids, and is
+what `--accept` names. `draft` is the revision pair of the episode's draft when
+one is present. The log carries no path, endpoint, account or model identifier.
+
 ### Revisions
 
 A revision's durable name is the sha256 of the bytes the file is persisted as,
