@@ -30,7 +30,7 @@
 
 import { createHash } from "node:crypto";
 import type { Dirent } from "node:fs";
-import { mkdir, readdir, readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import {
   asEpisodeScript,
   asProductionBrief,
@@ -52,6 +52,7 @@ import { decodeJson, encodeJson } from "./format.js";
 import {
   BRIEF_FILE,
   briefPath,
+  episodeDir,
   episodeScriptFile,
   SCRIPT_DIR,
   SCRIPT_FILE_SUFFIX,
@@ -242,6 +243,41 @@ function reportUnknownCharacterRefs(
   }
 }
 
+/** True when `path` names an existing directory or file. */
+async function present(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Report a continuity hand-off (#329) whose previous episode has neither an
+ * episode directory nor a script yet. A warning: the previous episode may be
+ * written later, and the script still reads.
+ */
+async function reportContinuity(
+  root: string,
+  script: EpisodeScript,
+  c: IssueCollector,
+): Promise<void> {
+  const previous = script.continuity?.previousEpisodeId;
+  if (previous === undefined) return;
+  if (
+    (await present(episodeDir(root, previous))) ||
+    (await present(episodeScriptFile(root, previous)))
+  ) {
+    return;
+  }
+  c.add(
+    joinPath(joinPath(SCRIPT_PATH, "continuity"), "previousEpisodeId"),
+    "script.previous-episode-missing",
+    `the script continues from episode "${previous}", which has neither an episode nor a script in this project yet.`,
+  );
+}
+
 /** Report how the script's recorded brief revision stands against the current brief. */
 function reportBriefRevision(script: EpisodeScript, brief: LoadedBrief, c: IssueCollector): void {
   const path = joinPath(SCRIPT_PATH, "briefRevision");
@@ -365,6 +401,7 @@ export async function readEpisodeScriptFrom(
   const brief = await readBriefForScript(root);
   reportBriefRevision(script, brief, w);
   reportUnknownCharacterRefs(script, knownCharacterIds(characters, brief.brief), w);
+  await reportContinuity(root, script, w);
 
   return {
     episodeId,

@@ -42,6 +42,7 @@ import {
   compileEpisodeScript,
   DRAFT_FORMAT_VERSION,
   type DraftConflict,
+  type DraftContinuity,
   type DraftDefault,
   type DraftDiff,
   diffDraft,
@@ -186,6 +187,13 @@ function diffLines(diff: DraftDiff, conflicts: readonly DraftConflict[]): string
     lines.push(`  conflicts: ${conflicts.length}; apply refuses while any remain`);
   }
   return lines;
+}
+
+function continuityLines(continuity: DraftContinuity | undefined): string[] {
+  if (continuity === undefined) return [];
+  return [
+    `continues from ${continuity.previousEpisodeId}${continuity.previousExists ? "" : " (not in the project yet)"}: ${JSON.stringify(continuity.startsFrom)}`,
+  ];
 }
 
 function defaultsLines(defaults: readonly DraftDefault[]): string[] {
@@ -380,7 +388,7 @@ async function runCompile(parsed: Parsed, io: DraftIo): Promise<number> {
     }
     throw cause;
   }
-  const { bundle, defaults } = compiled;
+  const { bundle, defaults, continuity } = compiled;
 
   // A draft that does not validate with its project is never written.
   const combined: Project = projectWithDraft(loaded.project, bundle);
@@ -425,6 +433,7 @@ async function runCompile(parsed: Parsed, io: DraftIo): Promise<number> {
     briefRevision: brief?.revision ?? null,
     bundle,
     defaults,
+    ...(continuity === undefined ? {} : { continuity }),
     reviewedAgainst: await fingerprintEpisode(root, episodeId),
   };
   await writeDraft(root, draft);
@@ -447,6 +456,7 @@ async function runCompile(parsed: Parsed, io: DraftIo): Promise<number> {
             overlays: bundle.lettering.length,
           },
           defaults,
+          continuity: continuity ?? null,
           lint: { findings, notRun: LINTS_NOT_RUN },
           geometry: { ...measurement, band: bandReport },
           diff,
@@ -461,6 +471,7 @@ async function runCompile(parsed: Parsed, io: DraftIo): Promise<number> {
       `draft written: ${file} (not applied). ${bundle.cuts.length} cut(s), ${bundle.transitions.length} transition(s), ${bundle.lettering.length} overlay(s) from script revision ${draft.scriptRevision.slice(0, 12)}`,
     );
     for (const w of script.warnings) io.out(`script warning: [${w.code}] ${w.path}: ${w.message}`);
+    for (const line of continuityLines(continuity)) io.out(line);
     for (const line of defaultsLines(defaults)) io.out(line);
     for (const line of findingLines(findings)) io.out(line);
     for (const line of geometryLines(measurement, bandReport)) io.out(line);
@@ -532,13 +543,22 @@ async function runShow(parsed: Parsed, io: DraftIo): Promise<number> {
   if (parsed.json) {
     io.out(
       JSON.stringify(
-        { root, episodeId, applied: false, defaults: draft.defaults, diff, conflicts },
+        {
+          root,
+          episodeId,
+          applied: false,
+          defaults: draft.defaults,
+          continuity: draft.continuity ?? null,
+          diff,
+          conflicts,
+        },
         null,
         2,
       ),
     );
   } else {
     io.out(`draft for episode ${episodeId} (not applied):`);
+    for (const line of continuityLines(draft.continuity)) io.out(line);
     for (const line of diffLines(diff, conflicts)) io.out(line);
     for (const conflict of conflicts) {
       io.out(

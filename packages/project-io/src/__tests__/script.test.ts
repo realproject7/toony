@@ -375,6 +375,34 @@ test("malformed, unresolved and stale are three states a caller can tell apart (
   );
 });
 
+test("a continuity hand-off warns when the previous episode is nowhere yet, and not once it exists (#329)", async () => {
+  const root = await newProject();
+  const revision = await writeBrief(root, brief());
+  const value = script("ep-003", revision);
+  value.continuity = { previousEpisodeId: "ep-002", startsFrom: "The ledger is open." };
+  await writeEpisodeScript(root, value);
+
+  const missing = await readEpisodeScript(root, "ep-003", CAST);
+  assert.equal(missing.validation.valid, true, "a missing previous episode is a warning");
+  assert.deepEqual(
+    missing.warnings.map((w) => w.code),
+    ["script.previous-episode-missing"],
+  );
+  assert.equal(missing.warnings[0]?.path, "script.continuity.previousEpisodeId");
+
+  // A script for the previous episode is enough: it may be compiled later.
+  await writeEpisodeScript(root, script("ep-002", revision));
+  const scripted = await readEpisodeScript(root, "ep-003", CAST);
+  assert.deepEqual(scripted.warnings, []);
+
+  // And so is the episode itself, with no script.
+  const existing = (await loadProject(root)).project.episodes[0]?.episode.id ?? "";
+  const follows = script("ep-004", revision);
+  follows.continuity = { previousEpisodeId: existing, startsFrom: "After the opening." };
+  await writeEpisodeScript(root, follows);
+  assert.deepEqual((await readEpisodeScript(root, "ep-004", CAST)).warnings, []);
+});
+
 // --- Round trip and revision identity ---------------------------------------
 
 test("a written artifact reads back equal and a second write is byte-identical", async () => {

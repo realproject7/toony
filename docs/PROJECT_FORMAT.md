@@ -251,7 +251,13 @@ What one episode does, beat by beat and cut by cut.
 ```
 
 `title`, `shotType`, `palette`, `transitionAfter` and a line's `kind` are
-optional and were added for the compiler (#312). `shotType` and `palette` take
+optional and were added for the compiler (#312). `continuity` is optional too
+(#329): `{ "previousEpisodeId": "ep-001", "startsFrom": "Mira has not paid." }`
+says what the episode continues from, in the author's words. The read reports
+`script.previous-episode-missing`, a warning, when the named episode has neither
+an episode directory nor a script yet. The compiler carries the hand-off onto
+the draft, with whether the previous episode exists, so the report and Studio
+show it; it changes no record. `shotType` and `palette` take
 the values a `Cut` takes. `transitionAfter` is the one place a script states a
 transition: which device separates two moments is a storytelling decision, so
 it belongs here. Its `type` is a `Transition` type, its `gutterHeight` is

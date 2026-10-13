@@ -59,6 +59,7 @@ export type {
   EpisodeScript,
   ProductionBrief,
   ScriptBeat,
+  ScriptContinuity,
   ScriptCut,
   ScriptGoal,
   ScriptLine,

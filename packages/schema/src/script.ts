@@ -216,12 +216,27 @@ export interface ScriptBeat {
  * `cuts.yaml` already carry it: there is no separate order field to disagree
  * with the array, and so no contiguity rule to check.
  */
+/**
+ * What an episode continues from (#329). Episodes stay independent in length
+ * and cast; this is the authored hand-off between them, so an agent writing
+ * episode 3 has a field to read for where episode 2 left the cast, and a
+ * person can see it. Toony derives nothing from it.
+ */
+export interface ScriptContinuity {
+  /** The episode this one follows. Must be path safe and not this episode. */
+  previousEpisodeId: string;
+  /** Where the story stands as this episode opens, in the author's words. */
+  startsFrom: string;
+}
+
 export interface EpisodeScript {
   scriptFormat: number;
   episodeId: string;
   briefRevision: string;
   /** The episode's title. Absent means the compiler keeps or defaults one (#312). */
   title?: string;
+  /** What this episode continues from. Absent for a first episode or a standalone. */
+  continuity?: ScriptContinuity;
   beats: ScriptBeat[];
 }
 
@@ -376,7 +391,53 @@ export function validateProductionBriefValue(
   }
 }
 
-const SCRIPT_KEYS = ["scriptFormat", "episodeId", "briefRevision", "title", "beats"] as const;
+const SCRIPT_KEYS = [
+  "scriptFormat",
+  "episodeId",
+  "briefRevision",
+  "title",
+  "continuity",
+  "beats",
+] as const;
+const SCRIPT_CONTINUITY_KEYS = ["previousEpisodeId", "startsFrom"] as const;
+
+function validateScriptContinuity(
+  value: unknown,
+  episodeId: unknown,
+  path: string,
+  c: IssueCollector,
+): void {
+  if (!isPlainObject(value)) {
+    c.add(
+      path,
+      "script.continuity",
+      "continuity must be an object { previousEpisodeId, startsFrom }.",
+    );
+    return;
+  }
+  allowlistKeys(value, SCRIPT_CONTINUITY_KEYS, path, "script.unknown-key", c);
+  requireText(value, "startsFrom", path, c);
+  const previous = value.previousEpisodeId;
+  if (!isNonEmptyString(previous)) {
+    c.add(
+      joinPath(path, "previousEpisodeId"),
+      "field.required",
+      "previousEpisodeId must be a non-empty string.",
+    );
+  } else if (!isPathSafeId(previous)) {
+    c.add(
+      joinPath(path, "previousEpisodeId"),
+      "script.continuity.unsafe",
+      "previousEpisodeId must be a path-safe episode id.",
+    );
+  } else if (previous === episodeId) {
+    c.add(
+      joinPath(path, "previousEpisodeId"),
+      "script.continuity.self",
+      "an episode cannot continue from itself.",
+    );
+  }
+}
 const SCRIPT_BEAT_KEYS = ["id", "purpose", "goals", "cuts"] as const;
 const SCRIPT_GOAL_KEYS = ["characterId", "goal"] as const;
 const SCRIPT_CUT_KEYS = [
@@ -571,6 +632,9 @@ export function validateEpisodeScriptValue(value: unknown, path: string, c: Issu
     );
   }
   optionalText(value, "title", path, c);
+  if (value.continuity !== undefined) {
+    validateScriptContinuity(value.continuity, value.episodeId, joinPath(path, "continuity"), c);
+  }
   if (!isRevisionId(value.briefRevision)) {
     c.add(
       joinPath(path, "briefRevision"),
