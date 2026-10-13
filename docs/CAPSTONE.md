@@ -26,8 +26,8 @@ per-cut image prompts and lettering, then taken through the full pipeline:
 
 1. **Authoring** — `episode.yaml` (sequence), `cuts.yaml` (prompts), `transitions.yaml`, `lettering.json`.
 2. **Generation** — each cut image generated from its `imagePrompt` via a local
-   ComfyUI provider (Animagine XL 3.1, Apple Silicon / MPS), ingested with a
-   project-relative path.
+   ComfyUI provider (a widely available open anime-style checkpoint on a local
+   GPU), ingested with a project-relative path.
 3. **Validation & lint** — `toony validate` and `toony lint` (schema, sequence,
    image decode/dimension/blank/darkness/contrast, bubble overflow) both clean.
 4. **Export** — platform (7× JPG), stitched (1× 800×8735 PNG), and PlotLink-ready
@@ -132,7 +132,7 @@ The capstone is an **original** thriller short, **"Dead Air"** (a lone late-nigh
 radio host is hijacked on air by an unknown caller who is describing her own
 booth in real time). It was scaffolded with `toony init dead-air --genre thriller`,
 authored against the craft skills, generated through the running local ComfyUI
-(Animagine XL 3.1), and taken through `validate` / `lint` / all three exports. No
+(the same open checkpoint as the MVP capstone), and taken through `validate` / `lint` / all three exports. No
 studied work was copied — only the craft process.
 
 ## What was produced
@@ -175,7 +175,7 @@ Caller reads as one consistent silhouette.
 | Export validity | platform (7× JPG + manifest), stitched (1× 800×8945 PNG preserving cuts + transition bands + lettering), plotlink (7× WebP + generated markdown + manifest) — all real composited rasters. |
 | PlotLink constraints | WebP; 7 images (≤ 20); largest 102 KB (≤ 1 MB); generated markdown 732 chars (500–10,000); manifest with project-relative paths + sha256 checksums. |
 | Validate / lint | `toony validate` ok; `toony lint` **clean** (no findings). |
-| Generation | Real local ComfyUI (Animagine XL 3.1); seven cuts generated from their prompts with lockstrings prepended; artwork lands project-relative. |
+| Generation | Real local ComfyUI, same open checkpoint as the MVP capstone; seven cuts generated from their prompts with lockstrings prepended; artwork lands project-relative. |
 
 ## Generated PlotLink script (excerpt)
 
@@ -235,7 +235,7 @@ configured provider, overwriting what is committed:
 ```bash
 cd examples/dead-air
 export TOONY_COMFYUI_URL=http://127.0.0.1:8188
-export TOONY_COMFYUI_CHECKPOINT=animagine-xl-3.1.safetensors
+export TOONY_COMFYUI_CHECKPOINT=<your-checkpoint>.safetensors
 for n in 001 002 003 004 005 006 007; do
   toony generate --episode ep-001 --cut cut-$n --slot clean \
     --width 832 --height 1216 --allow-remote
@@ -329,7 +329,10 @@ run once per `<id>` in `cut-001`…`cut-007`, each with its own `--seed`, agains
 - **Provider:** local ComfyUI (`TOONY_COMFYUI_URL` pointed at a local endpoint; `--allow-remote`
   is required because the ComfyUI provider always transmits prompt content to its configured
   server, local or not).
-- **Checkpoint:** `animagine-xl-3.1` — the same checkpoint the v2/v3 capstones used.
+- **Checkpoint:** the same widely available open checkpoint the v2/v3 capstones
+  used. It is not named here: Epic #1's public-safety list keeps model and
+  checkpoint identifiers out of tracked files, and the run is repeatable with any
+  checkpoint set through `TOONY_COMFYUI_CHECKPOINT`.
 - **Output:** one 832×1216 PNG per cut, ingested to `episodes/ep-001/assets/clean/cut-NNN.png`
   and associated via `cut.image.clean` in `cuts.yaml`.
 
@@ -406,7 +409,7 @@ part that is repeatable in principle and was verified twice here.
 
 Two renders of the **same** episode, from the same private style pack, the same
 genre scaffold, the same prompts, the same lettering, the same named workflow and
-the same seed (2371) against a local ComfyUI on `animagine-xl-3.1`. The ONLY
+the same seed (2371) against a local ComfyUI on the same open checkpoint. The ONLY
 difference is that one project's cuts declare a shape and the other's do not.
 
 - **Control** — nine cuts, no `panelAspect` on any of them. Every cut generated at
