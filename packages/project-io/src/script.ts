@@ -54,7 +54,6 @@ import {
   briefPath,
   episodeScriptFile,
   SCRIPT_DIR,
-  SCRIPT_EPISODES_DIR,
   SCRIPT_FILE_SUFFIX,
   scriptDir,
   scriptEpisodesDir,
@@ -310,7 +309,22 @@ export async function readEpisodeScript(
   episodeId: string,
   characters: readonly Character[],
 ): Promise<LoadedEpisodeScript> {
-  const file = await readJsonFile(episodeScriptFile(root, episodeId));
+  return readEpisodeScriptFrom(root, episodeScriptFile(root, episodeId), episodeId, characters);
+}
+
+/**
+ * Read an episode script from a file that is not at its project location, for
+ * `toony draft compile --from` (#312). Everything else is the same read: the
+ * recorded `episodeId` must still name `episodeId`, the brief is still the
+ * project's own, and the warnings are the same warnings.
+ */
+export async function readEpisodeScriptFrom(
+  root: string,
+  path: string,
+  episodeId: string,
+  characters: readonly Character[],
+): Promise<LoadedEpisodeScript> {
+  const file = await readJsonFile(path);
   if (!file.found) {
     return {
       episodeId,
@@ -339,7 +353,7 @@ export async function readEpisodeScript(
     c.add(
       joinPath(SCRIPT_PATH, "episodeId"),
       "script.episode-id-mismatch",
-      `the file is ${SCRIPT_DIR}/${SCRIPT_EPISODES_DIR}/${episodeId}${SCRIPT_FILE_SUFFIX} and it records episodeId "${script.episodeId}"; the filename and the recorded id must name the same episode.`,
+      `the file was read for episode "${episodeId}" and it records episodeId "${script.episodeId}"; the filename and the recorded id must name the same episode.`,
     );
   }
 
