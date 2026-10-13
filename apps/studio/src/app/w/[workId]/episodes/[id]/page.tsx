@@ -95,6 +95,13 @@ export default async function EpisodePreviewPage({
         </div>
         <div className="editor-actions">
           <Link
+            href={`${base}/episodes/${encodeURIComponent(episode.id)}/script`}
+            className="btn"
+            data-testid="open-script-link"
+          >
+            Script &amp; draft
+          </Link>
+          <Link
             href={`${base}/episodes/${encodeURIComponent(episode.id)}/transitions/edit`}
             className="btn"
             data-testid="edit-transitions-link"
