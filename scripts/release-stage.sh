@@ -25,7 +25,7 @@ run_stage() {
   fi
   echo "  $stage: PASS ($((SECONDS - started))s; log: $log)"
   # Keep shrinking inspection counts and coverage decisions visible on green.
-  if [ "$stage" = check ] || [ "$stage" = coverage ] || [ "$stage" = runtime ] || [ "$stage" = test-tasks ]; then
+  if [ "$stage" = check ] || [ "$stage" = coverage ] || [ "$stage" = verification-coverage ] || [ "$stage" = runtime ] || [ "$stage" = test-tasks ]; then
     tail -20 "$log"
   fi
 }

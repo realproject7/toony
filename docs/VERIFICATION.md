@@ -23,11 +23,20 @@ concurrent runs are not a reason to delete another run's scratch directories.
 ## What must have run
 
 `scripts/test-baseline.json` pins package identities and per-package passed-test
-floors from an independent reviewed tree. It is not generated from the candidate
-being judged. The source commit and evidence describe where those floors came
-from. Additions can exceed a floor. A missing test script, omitted test task,
-incomplete summary, duplicate summary, failed/cancelled test, or reduced passed
-count fails the gate. New test packages must also report complete nonzero runs.
+floors, plus one floor for the `pnpm test:verification` controls under
+`verification`. A floor is never lowered from the candidate being judged; the
+source commit and evidence describe where the floors came from. A missing test
+script, omitted test task, incomplete summary, duplicate summary,
+failed/cancelled test, or reduced passed count fails the gate. New test packages
+must also report complete nonzero runs.
+
+A floor may trail the real count by at most `FLOOR_SLACK` tests (3, in
+`scripts/check-test-results.mjs`). Beyond that the gate fails and names the
+number to set. So raising a floor is part of adding tests: the PR that adds them
+raises the floor to the count it produces, and a floor can never again fall so
+far behind that a whole test file disappears unnoticed (#322). Raising is always
+safe. Lowering is the case the independence rule guards, and it goes through a
+declared reduction.
 
 For a legitimate reduction, add an entry to `reductions` in the same PR:
 
@@ -78,9 +87,13 @@ credential rules run whether or not there is a name source.
 These controls run once per Node major in the release gate. They are
 deliberately outside `pnpm check`, keeping the frequent editing loop fast. The
 gate reports stage duration, and each PR's verification receipt records measured
-cost. No second baseline test run is required by the coverage guard.
+cost. No second baseline test run is required by the coverage guard. Their count
+is read back from the retained stage log by
+`check-test-results.mjs --verification` and held to the `verification` floor,
+because the package coverage stage keys on turbo package prefixes and these
+controls have none.
 
-`pnpm test:verification` reports 40 controls. They measured 2.5 seconds on Node
+`pnpm test:verification` reported 40 controls on 2026-09-22 and 42 on 2026-10-13. They measured 2.5 seconds on Node
 20 and 2.3 seconds on Node 24 in a warm working tree on the development Mac on
 2026-09-22. The gate runs them from a fresh clone, where a cold start costs
 more, and prints that stage's own duration on every run. Read the run, not this

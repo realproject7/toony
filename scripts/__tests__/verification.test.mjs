@@ -5,13 +5,21 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { checkTestResults, checkTestTasks, testPackages } from "../check-test-results.mjs";
+import {
+  baselineFloors,
+  checkTestResults,
+  checkTestTasks,
+  checkVerificationResults,
+  FLOOR_SLACK,
+  testPackages,
+} from "../check-test-results.mjs";
 
 const scripts = dirname(dirname(fileURLToPath(import.meta.url)));
 const baseline = {
   sourceCommit: "1234567890123456789012345678901234567890",
   evidence: "independent reviewed baseline",
   packages: { "@fixture/a": 3, "fixture-b": 2 },
+  verification: 5,
   reductions: {},
 };
 function summary(name, pass, marker = "#", changes = {}) {
@@ -180,4 +188,55 @@ test("stage logs survive failure and deleted scratch directories without rerunni
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("a floor that trails the real count fails closed and names the number to set (#322)", () => {
+  const within = `${summary(names[0], 3 + FLOOR_SLACK)}\n${summary(names[1], 2)}`;
+  assert.match(checkTestResults(within, names, baseline)[0], /PASS/);
+  const beyond = `${summary(names[0], 3 + FLOOR_SLACK + 1)}\n${summary(names[1], 2)}`;
+  assert.throws(
+    () => checkTestResults(beyond, names, baseline),
+    new RegExp(
+      `floor trails: @fixture/a passed ${3 + FLOOR_SLACK + 1}.*raise it to ${3 + FLOOR_SLACK + 1}`,
+    ),
+  );
+  // A reduction elsewhere is still the first thing named.
+  assert.throws(
+    () =>
+      checkTestResults(
+        `${beyond.split("\n").slice(0, 6).join("\n")}\n${summary(names[1], 1)}`,
+        names,
+        baseline,
+      ),
+    /test reduction: fixture-b/,
+  );
+});
+
+test("the scripts/__tests__ controls are held to a floor of their own (#322)", () => {
+  const plain = (pass, marker = "#", changes = {}) =>
+    Object.entries({ tests: pass, pass, fail: 0, cancelled: 0, skipped: 0, todo: 0, ...changes })
+      .map(([key, value]) => `${marker} ${key} ${value}`)
+      .join("\n");
+  const log = `> toony@0.0.0 test:verification\n> node --test scripts/__tests__/*.test.mjs\n\n${plain(5)}`;
+  assert.match(
+    checkVerificationResults(log, baseline),
+    /verification coverage: PASS \(5 passed, floor 5\)/,
+  );
+  assert.match(checkVerificationResults(plain(5, "ℹ"), baseline), /PASS/);
+  assert.match(checkVerificationResults(plain(5 + FLOOR_SLACK), baseline), /PASS/);
+  // A package summary is not the controls' summary, however many it passed.
+  assert.throws(() => checkVerificationResults(summary(names[0], 5), baseline), /unverifiable/);
+  assert.throws(() => checkVerificationResults(plain(4), baseline), /test reduction: verification/);
+  assert.throws(
+    () => checkVerificationResults(plain(5, "#", { tests: 6, fail: 1 }), baseline),
+    /unsuccessful/,
+  );
+  assert.throws(
+    () => checkVerificationResults(plain(5 + FLOOR_SLACK + 1), baseline),
+    /floor trails: verification controls/,
+  );
+  // A baseline with no floor for the controls is refused everywhere it is read.
+  const { verification: _dropped, ...unfloored } = baseline;
+  assert.throws(() => checkVerificationResults(plain(5), unfloored), /no verification floor/);
+  assert.throws(() => baselineFloors(unfloored), /no verification floor/);
 });

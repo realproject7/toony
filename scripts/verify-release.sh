@@ -159,7 +159,13 @@ for V in "${NODE_VERSIONS[@]}"; do
   run_stage check pnpm check || FAILED=1
   run_stage build pnpm build || FAILED=1
   # Real-compiler controls are intentionally separate from the fast check loop.
-  run_stage verification-contracts pnpm test:verification || FAILED=1
+  # Their count is held to a floor of its own (#322): they carry no package
+  # identity, so the package coverage stage below never sees them.
+  if run_stage verification-contracts pnpm test:verification; then
+    run_stage verification-coverage "$NODE" scripts/check-test-results.mjs --verification "$LOGS/node-$V-verification-contracts.log" || FAILED=1
+  else
+    FAILED=1
+  fi
   if run_stage test pnpm test --force; then
     run_stage coverage "$NODE" scripts/check-test-results.mjs "$LOGS/node-$V-test.log" || FAILED=1
   else
