@@ -100,3 +100,16 @@ more, and prints that stage's own duration on every run. Read the run, not this
 line. The runtime probes took 2.7 and 3.4 seconds on 2026-09-21. Host load
 changes wall time. The coverage check only reads manifests and the existing test
 log.
+
+## Scale fixture
+
+`pnpm scale-fixture` runs the synthetic sixty-cut fixture (#314) on its own: it
+builds a sixty-cut episode into a scratch directory, drives validate, both
+`toony plan` forms, sixty imports, both lint commands, measure and the three
+exports over it, and prints one record of exit code, whole-second wall-clock
+and output volume per stage, with the fixture's limits clause. The same test
+runs inside `toony-cli`'s test task, so the release gate runs it once per Node
+major and its record lives in the retained `test` stage log, on the lines
+prefixed `scale-fixture:`. Timings are recorded and never gated; the verdict
+turns on control flow and output volume only. `docs/SCALE_FIXTURE.md` holds the
+record from one run and states what the fixture cannot prove.

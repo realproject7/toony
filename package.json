@@ -20,7 +20,8 @@
     "task-outputs": "node scripts/check-task-outputs.mjs",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run scan && pnpm run no-stub && pnpm run render-inputs && pnpm run task-outputs",
     "verify-release": "./scripts/verify-release.sh",
-    "test:verification": "node --test scripts/__tests__/*.test.mjs"
+    "test:verification": "node --test scripts/__tests__/*.test.mjs",
+    "scale-fixture": "pnpm --filter toony-cli test:scale"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.0",

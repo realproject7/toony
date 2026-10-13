@@ -2,7 +2,7 @@
   "name": "toony-cli",
   "version": "0.0.0",
   "private": true,
-  "description": "Toony — agent CLI with a bundled Studio web app. `toony` runs headless commands; `toony studio` launches the local web studio from a single install.",
+  "description": "Toony \u2014 agent CLI with a bundled Studio web app. `toony` runs headless commands; `toony studio` launches the local web studio from a single install.",
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "bin": {
@@ -27,7 +27,8 @@
     "bundle:cli": "node scripts/build.mjs",
     "bundle:studio": "node scripts/bundle-studio.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsc -p tsconfig.test.json && node ../../scripts/run-tests.mjs dist-test"
+    "test": "tsc -p tsconfig.test.json && node ../../scripts/run-tests.mjs dist-test",
+    "test:scale": "tsc -p tsconfig.test.json && node ../../scripts/run-tests.mjs dist-test/__tests__/scale"
   },
   "dependencies": {
     "@napi-rs/canvas": "1.0.0"
