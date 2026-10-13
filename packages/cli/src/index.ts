@@ -5,6 +5,7 @@
 // the format/paths) lives in `@toony/project-io`; consumers import it from there
 // directly rather than through the CLI.
 
+export { runDraft } from "./commands/draft.js";
 export { runExport } from "./commands/export.js";
 export { runGenerate } from "./commands/generate.js";
 export { runImportImage } from "./commands/import-image.js";
@@ -20,6 +21,7 @@ export { HELP_TEXT } from "./help.js";
 export { discoverPackContent, type PackIo } from "./packs.js";
 export { jsonReport, textReport, type ValidateJsonReport } from "./report.js";
 
+import { runDraft } from "./commands/draft.js";
 import { runExport } from "./commands/export.js";
 import { runGenerate } from "./commands/generate.js";
 import { runImportImage } from "./commands/import-image.js";
@@ -73,6 +75,8 @@ export async function run(argv: string[], io: RunIo): Promise<number> {
       return runPlan(rest, io);
     case "packs":
       return runPacks(rest, io);
+    case "draft":
+      return runDraft(rest, io);
     default:
       io.err(`unknown command: ${command}`);
       io.err(HELP_TEXT);

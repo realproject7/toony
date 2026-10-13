@@ -20,6 +20,9 @@ usage:
                            them against a target band
   toony packs <list|doctor|install|remove> ...
                            see, install, remove, and diagnose installed packs
+  toony draft <compile|show|apply> --episode <id> ...
+                           compile an authored episode script into a draft,
+                           show what applying it would change, apply it
   toony --help             show this help
 
 options:
@@ -102,6 +105,33 @@ options:
                            --workspace; nothing is fetched
   packs remove <id> [path] delete an installed pack; a TOONY_PACKS collection is
                            never touched
+
+  draft compile [path] --episode <id> [--from <script.json>]
+        [--against <band-id|band.json>] [--width <px>] [--screen-aspect <n>] [--json]
+                           read script/episodes/<id>.json (or --from) and the
+                           project, write .toony/drafts/<id>.json, and report
+                           every field the compiler defaulted, the craft and
+                           overflow findings a draft can carry, the page
+                           geometry \`toony plan --episode\` would give it, and
+                           the diff against the episode the project holds now.
+                           Nothing in the project changes. Exit 1 when the diff
+                           has a conflict or a named band is out of band
+  draft show [path] --episode <id> [--json]
+                           the diff and every conflict against the project as
+                           it is now; records that state so apply knows what
+                           was reviewed
+  draft apply [path] --episode <id> [--json]
+                           write the draft into the project. Refuses, writing
+                           nothing, on any conflict with a record the project
+                           already holds, on a project that changed since the
+                           last show or compile, or on a project that does not
+                           validate. Creates the episode when it does not
+                           exist. There is no force flag
+
+drafts (docs/PROJECT_FORMAT.md):
+  a draft is one complete episode, compiled from the authored episode script,
+  kept under <project>/.toony/drafts until applied. Compile and show never write
+  project data; apply is the only step that does, and it only ever adds records.
 
 packs (docs/PACK_FORMAT.md):
   a pack is a local folder of DATA that adds named workflows, genre scaffolds,

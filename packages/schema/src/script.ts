@@ -23,8 +23,18 @@
 
 import type { IssueCollector } from "./errors.js";
 import { joinPath } from "./errors.js";
-import { isArray, isNonEmptyString, isPlainObject } from "./guards.js";
+import { isArray, isInteger, isNonEmptyString, isOneOf, isPlainObject } from "./guards.js";
 import { isPathSafeId } from "./path-safe-id.js";
+import {
+  BUBBLE_KINDS,
+  type BubbleKind,
+  GUTTER_HEIGHT_MAX_PX,
+  GUTTER_HEIGHT_MIN_PX,
+  SHOT_TYPES,
+  type ShotType,
+  TRANSITION_TYPES,
+  type TransitionType,
+} from "./types.js";
 
 /** The format version a `script/brief.json` must declare. */
 export const PRODUCTION_BRIEF_FORMAT_VERSION = 1;
@@ -122,6 +132,26 @@ export interface ScriptLine {
   speaker: string | null;
   /** What is said. */
   text: string;
+  /**
+   * How the line is lettered, when the author wants more than the default: a
+   * spoken line letters as `speech` and an unattributed one as `narration`
+   * unless this says otherwise (#312).
+   */
+  kind?: BubbleKind;
+}
+
+/**
+ * The gap an author puts after a cut (#312). This is the one place a script
+ * states a transition, because which device separates two moments (a gutter, a
+ * beat, a scene break, a time skip) is a storytelling decision. It still states
+ * no page geometry beyond the gap's own height, and that height is optional.
+ */
+export interface ScriptTransition {
+  type: TransitionType;
+  /** Gap height in px on the reference column. Absent means the compiler's default. */
+  gutterHeight?: number;
+  /** Text the gap carries, for the kinds that draw one. */
+  text?: string;
 }
 
 /** What one character wants in a beat. */
@@ -150,6 +180,12 @@ export interface ScriptCut {
   dialogue?: ScriptLine[];
   /** How the lettering should read, in the author's words. */
   letteringIntent?: string;
+  /** The shot this cut is framed as, for rhythm and planning (#312). Metadata. */
+  shotType?: ShotType;
+  /** The cut's colour mood, composed into its prompt at generation (#312). */
+  palette?: string;
+  /** The gap after this cut. Absent means the next cut follows directly. */
+  transitionAfter?: ScriptTransition;
 }
 
 /** One narrative beat: what it is for, what its characters want, and its cuts. */
@@ -184,6 +220,8 @@ export interface EpisodeScript {
   scriptFormat: number;
   episodeId: string;
   briefRevision: string;
+  /** The episode's title. Absent means the compiler keeps or defaults one (#312). */
+  title?: string;
   beats: ScriptBeat[];
 }
 
@@ -338,7 +376,7 @@ export function validateProductionBriefValue(
   }
 }
 
-const SCRIPT_KEYS = ["scriptFormat", "episodeId", "briefRevision", "beats"] as const;
+const SCRIPT_KEYS = ["scriptFormat", "episodeId", "briefRevision", "title", "beats"] as const;
 const SCRIPT_BEAT_KEYS = ["id", "purpose", "goals", "cuts"] as const;
 const SCRIPT_GOAL_KEYS = ["characterId", "goal"] as const;
 const SCRIPT_CUT_KEYS = [
@@ -348,8 +386,41 @@ const SCRIPT_CUT_KEYS = [
   "characters",
   "dialogue",
   "letteringIntent",
+  "shotType",
+  "palette",
+  "transitionAfter",
 ] as const;
-const SCRIPT_LINE_KEYS = ["speaker", "text"] as const;
+const SCRIPT_LINE_KEYS = ["speaker", "text", "kind"] as const;
+const SCRIPT_TRANSITION_KEYS = ["type", "gutterHeight", "text"] as const;
+
+function validateScriptTransition(value: unknown, path: string, c: IssueCollector): void {
+  if (!isPlainObject(value)) {
+    c.add(path, "script.transition", "transitionAfter must be an object.");
+    return;
+  }
+  allowlistKeys(value, SCRIPT_TRANSITION_KEYS, path, "script.unknown-key", c);
+  // The same vocabulary and the same height range a Transition record is held
+  // to, so a compiled transition cannot fail the record validator.
+  if (!isOneOf(value.type, TRANSITION_TYPES)) {
+    c.add(
+      joinPath(path, "type"),
+      "script.transition-type",
+      `type must be one of: ${TRANSITION_TYPES.join(", ")}.`,
+    );
+  }
+  const gutter = value.gutterHeight;
+  if (
+    gutter !== undefined &&
+    (!isInteger(gutter) || gutter < GUTTER_HEIGHT_MIN_PX || gutter > GUTTER_HEIGHT_MAX_PX)
+  ) {
+    c.add(
+      joinPath(path, "gutterHeight"),
+      "script.transition-gutter",
+      `gutterHeight must be an integer in px between ${GUTTER_HEIGHT_MIN_PX} and ${GUTTER_HEIGHT_MAX_PX}.`,
+    );
+  }
+  optionalText(value, "text", path, c);
+}
 
 function validateScriptGoal(value: unknown, path: string, c: IssueCollector): void {
   if (!isPlainObject(value)) {
@@ -377,6 +448,13 @@ function validateScriptLine(value: unknown, path: string, c: IssueCollector): vo
     );
   }
   requireText(value, "text", path, c);
+  if (value.kind !== undefined && !isOneOf(value.kind, BUBBLE_KINDS)) {
+    c.add(
+      joinPath(path, "kind"),
+      "script.line-kind",
+      `kind must be one of: ${BUBBLE_KINDS.join(", ")}.`,
+    );
+  }
 }
 
 function validateScriptCut(value: unknown, path: string, c: IssueCollector): void {
@@ -389,6 +467,17 @@ function validateScriptCut(value: unknown, path: string, c: IssueCollector): voi
   requireText(value, "intent", path, c);
   requireText(value, "scene", path, c);
   optionalText(value, "letteringIntent", path, c);
+  optionalText(value, "palette", path, c);
+  if (value.shotType !== undefined && !isOneOf(value.shotType, SHOT_TYPES)) {
+    c.add(
+      joinPath(path, "shotType"),
+      "script.cut-shot-type",
+      `shotType must be one of: ${SHOT_TYPES.join(", ")}.`,
+    );
+  }
+  if (value.transitionAfter !== undefined) {
+    validateScriptTransition(value.transitionAfter, joinPath(path, "transitionAfter"), c);
+  }
   if (value.characters !== undefined) {
     validateTextArray(value, "characters", path, "script.cut-characters", false, c);
   }
@@ -481,6 +570,7 @@ export function validateEpisodeScriptValue(value: unknown, path: string, c: Issu
       "episodeId must be a path-safe segment (no /, \\, NUL, or . / .. traversal).",
     );
   }
+  optionalText(value, "title", path, c);
   if (!isRevisionId(value.briefRevision)) {
     c.add(
       joinPath(path, "briefRevision"),

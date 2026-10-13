@@ -62,6 +62,7 @@ export type {
   ScriptCut,
   ScriptGoal,
   ScriptLine,
+  ScriptTransition,
 } from "./script.js";
 export {
   asEpisodeScript,

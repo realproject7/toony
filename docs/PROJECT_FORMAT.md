@@ -163,9 +163,10 @@ my-webtoon/
       ep-001.json
 ```
 
-Nothing applies a script on its own. No command reads these files, and writing
-one changes no existing project file. They are input for a later phase to read,
-not state anything here acts on.
+Nothing applies a script on its own. `toony draft compile` reads a script and
+writes a draft under `.toony/drafts/`; `toony draft apply` is the separate step
+that writes project data, and it refuses on any conflict. Writing a script
+changes no existing project file.
 
 **They are not the episode plan.** `toony plan --spec <file>` grades an episode
 plan, which decides how tall a page is. These files decide nothing about the
@@ -225,14 +226,30 @@ What one episode does, beat by beat and cut by cut.
           "intent": "Open on the thing the episode is about.",
           "scene": "The harbour before dawn, nets still wet.",
           "characters": ["mira"],
-          "dialogue": [{ "speaker": null, "text": "The tide keeps its own books." }],
-          "letteringIntent": "One narration box, low in the frame."
+          "shotType": "establishing_wide",
+          "palette": "#9fb4c7",
+          "dialogue": [
+            { "speaker": null, "text": "The tide keeps its own books." },
+            { "speaker": "mira", "text": "Not today.", "kind": "whisper" }
+          ],
+          "letteringIntent": "One narration box, low in the frame.",
+          "transitionAfter": { "type": "scene-break", "gutterHeight": 120, "text": "Noon" }
         }
       ]
     }
   ]
 }
 ```
+
+`title`, `shotType`, `palette`, `transitionAfter` and a line's `kind` are
+optional and were added for the compiler (#312). `shotType` and `palette` take
+the values a `Cut` takes. `transitionAfter` is the one place a script states a
+transition: which device separates two moments is a storytelling decision, so
+it belongs here. Its `type` is a `Transition` type, its `gutterHeight` is
+optional and in px on the reference column, and its `text` is for the kinds that
+draw one. The last cut of an episode cannot carry one. A line's `kind` is a
+bubble kind; absent, a spoken line letters as `speech` and an unattributed one
+as `narration`.
 
 The filename and `episodeId` must name the same episode, so a copied or renamed
 file cannot silently describe a different one. The id need not name an episode
@@ -251,6 +268,51 @@ brief that has since changed reads valid, with the brief's state in `warnings`.
 
 Two episodes of one project are independent. They may run to different lengths
 and name different casts, and writing one never reads or rewrites another.
+
+### `.toony/drafts/<episode-id>.json`
+
+What `toony draft compile` writes, and `toony draft apply` reads: one complete
+episode compiled from the episode script, kept outside the project data until it
+is applied.
+
+```json
+{
+  "draftFormat": 1,
+  "episodeId": "ep-001",
+  "scriptRevision": "3c5e...",
+  "briefRevision": "8fd7...",
+  "bundle": { "episode": {}, "cuts": [], "transitions": [], "lettering": [] },
+  "defaults": [
+    { "kind": "transition", "id": "tr-sc-001", "field": "gutterHeight", "value": 48 }
+  ],
+  "reviewedAgainst": {
+    "webtoon": "9b1c...",
+    "episode": null,
+    "cuts": null,
+    "transitions": null,
+    "lettering": null
+  }
+}
+```
+
+`bundle` is a schema-valid episode bundle. `defaults` names every required field
+the compiler filled from a default rather than from the script, with the record
+it was written on; the compiler invents nothing silently. `reviewedAgainst` is
+the sha256 of each project file an apply would read or replace, as they were when
+the draft was last reported by `compile` or `show`. Apply refuses when they no
+longer match, so a draft reviewed against one project state never lands on
+another.
+
+The folder is `.toony/`, which is project local and gitignored, and not
+`episodes/`: the project loader walks only `episodes/`, so a draft is invisible
+to every read path until it is applied. A project with a draft, or with a
+malformed draft, loads, validates, lints, plans, measures, generates and exports
+exactly as the same project without one. Nothing applies a draft on its own.
+
+Compiled ids are the script's own: a script cut `sc-001` becomes cut `sc-001`,
+its transition `tr-sc-001`, its lines `ov-sc-001-1` and so on. Recompiling the
+same script gives the same records, so a draft applied once and compiled again
+reads as unchanged.
 
 ### Revisions
 

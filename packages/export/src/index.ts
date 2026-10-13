@@ -77,6 +77,7 @@ export {
   comparePlanToCraftBand,
   EPISODE_PLAN_FORMAT_VERSION,
   type EpisodePlan,
+  measureEpisodeBundle,
   measureEpisodePlan,
   measurePlan,
   PLAN_PAGE_ROWS_MAX,
