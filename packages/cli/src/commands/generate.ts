@@ -95,7 +95,20 @@ export interface GenerateIo {
   out: (line: string) => void;
   err: (line: string) => void;
   env?: Record<string, string | undefined>;
+  /**
+   * Per-target outcomes as they happen, for a caller that drives this command
+   * in-process (#313). Optional, and nothing printed or exited changes when it
+   * is absent, so a shell caller sees exactly what it always saw.
+   */
+  report?: (event: GenerateEvent) => void;
 }
+
+/** One thing a run did to one target. The text lines say the same in prose. */
+export type GenerateEvent =
+  | { kind: "generated"; id: string; assetPath: string }
+  | { kind: "failed"; id: string; message: string }
+  | { kind: "unrecorded"; id: string; assetPath: string }
+  | { kind: "rewrote-prompt"; id: string };
 
 interface Flags {
   positional: string[];
@@ -149,7 +162,10 @@ function parseFlags(args: string[]): Flags | { error: string } {
 }
 
 const USAGE =
-  "usage: toony generate [path] --episode <id> ([--cut <id> ...] --review-status draft|human-edited|final | --cut <id> [--cut <id> ...] | --transition <id>) [--slot clean|final] --prompt <text> [--negative <text>] [--width <px>] [--height <px>] [--seed <n>] [--workflow <name>] [--provider comfyui] [--allow-remote]";
+  "usage: toony generate [path] --episode <id> ([--cut <id> ...] --review-status draft|human-edited|final | --cut <id> [--cut <id> ...] | --transition <id>) [--slot clean|final] --prompt <text> [--negative <text>] [--width <px>] [--height <px>] [--seed <n>|fresh] [--workflow <name>] [--provider comfyui] [--allow-remote]";
+
+/** The `--seed` value that asks for a new roll rather than a number (#286). */
+export const FRESH_SEED = "fresh";
 
 function parsePositiveInt(raw: string, name: string): number | { error: string } {
   const n = Number(raw);
@@ -347,7 +363,12 @@ function resolveInputs(
     prompt: prompt.trim(),
     basePrompt,
     negativePrompt,
-    seed: typeof shared.seed === "number" ? shared.seed : (record?.imageSeed ?? randomSeed()),
+    seed:
+      shared.seed === FRESH_SEED
+        ? randomSeed()
+        : typeof shared.seed === "number"
+          ? shared.seed
+          : (record?.imageSeed ?? randomSeed()),
     ...(resolvedWorkflow === undefined ? {} : { workflow: resolvedWorkflow }),
     ...(typeof shared.width === "number" ? { width: shared.width } : {}),
     ...(typeof shared.height === "number" ? { height: shared.height } : {}),
@@ -573,13 +594,21 @@ async function recordRenderInputs(
   root: string,
   target: CutAssetTarget,
   job: Job,
-): Promise<string | null> {
+): Promise<{ failure: string | null; rewrotePrompt: boolean }> {
   try {
     const loaded = await loadProject(root);
     // The ingest a moment ago located this episode and refused without it, so a
     // miss here means it was removed mid-run: write nothing rather than guess.
     const bundle = loaded.project.episodes.find((b) => b.episode.id === target.episodeId);
-    if (bundle === undefined) return null;
+    if (bundle === undefined) return { failure: null, rewrotePrompt: false };
+    // An authored prompt is a non-empty one the cut carried before this run. A
+    // first render onto an empty prompt writes, it does not rewrite (#286).
+    const before = bundle.cuts.find((cut) => cut.id === target.cutId);
+    const rewrotePrompt =
+      before !== undefined &&
+      ((before.imagePrompt.trim() !== "" && before.imagePrompt !== job.inputs.basePrompt) ||
+        (before.negativePrompt.trim() !== "" &&
+          before.negativePrompt !== job.inputs.negativePrompt));
     const cuts = bundle.cuts.map((cut) =>
       cut.id === target.cutId
         ? {
@@ -592,11 +621,11 @@ async function recordRenderInputs(
         : cut,
     );
     await writeCuts(root, target.episodeId, cuts);
-    return null;
+    return { failure: null, rewrotePrompt };
   } catch (cause) {
     // A project-level IO or validation problem is the recordable failure this
     // reports. Anything else is a bug here and must not be disguised as one.
-    if (cause instanceof ProjectIoError) return cause.message;
+    if (cause instanceof ProjectIoError) return { failure: cause.message, rewrotePrompt: false };
     throw cause;
   }
 }
@@ -924,9 +953,15 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     const raw = parsed.values.get(flag);
     if (raw === undefined) continue;
     if (flag === "--seed") {
+      // `fresh` asks for a different take without inventing a number (#286):
+      // each job rolls its own seed and records it like any other.
+      if (raw === FRESH_SEED) {
+        shared.seed = FRESH_SEED;
+        continue;
+      }
       const n = Number(raw);
       if (!Number.isInteger(n) || n < 0) {
-        io.err("--seed must be a non-negative integer");
+        io.err(`--seed must be a non-negative integer, or "${FRESH_SEED}" for a new roll`);
         return EXIT_USAGE;
       }
       shared.seed = n;
@@ -1106,6 +1141,8 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   const failed: string[] = [];
   /** Cuts whose image is on disk but whose inputs could not be recorded (#240). */
   const unrecorded: string[] = [];
+  /** Cuts whose authored prompt this run replaced through the write-back (#286). */
+  const rewritten: string[] = [];
   // The run reports the code the FIRST failed job would have returned alone, so
   // a single-job run keeps exactly the exit code it has always had.
   let failureCode: number | null = null;
@@ -1121,23 +1158,29 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
       // from a failed generation, and reporting it as one sends the operator to
       // redo a render that succeeded.
       if (target.kind === "cut" && target.slot === "clean") {
-        const failure = await recordRenderInputs(root, target, job);
-        if (failure !== null) {
+        const record = await recordRenderInputs(root, target, job);
+        if (record.failure !== null) {
           io.err(
-            `generated ${ingested.assetPath} for ${job.label}, but recording what produced it failed: ${failure}`,
+            `generated ${ingested.assetPath} for ${job.label}, but recording what produced it failed: ${record.failure}`,
           );
           io.err(
             `${job.id}: the image and its reference are on disk — do NOT re-render it, a re-run would draw a different one. Fix the problem above and re-record with --seed ${shellQuote(job.inputs.seed)}.`,
           );
           failureCode ??= EXIT_USAGE;
           unrecorded.push(job.id);
+          io.report?.({ kind: "unrecorded", id: job.id, assetPath: ingested.assetPath });
           continue;
+        }
+        if (record.rewrotePrompt) {
+          rewritten.push(job.id);
+          io.report?.({ kind: "rewrote-prompt", id: job.id });
         }
       }
       io.out(
         `generated ${ingested.assetPath} for ${job.label} in ${episodeId} — ${ingested.bytesWritten} bytes, sha256 ${ingested.sha256.slice(0, 12)}`,
       );
       generated.push(job.id);
+      io.report?.({ kind: "generated", id: job.id, assetPath: ingested.assetPath });
     } catch (cause) {
       // Generation/connection problems are domain errors, not CLI misuse.
       if (cause instanceof ProviderError) failureCode ??= EXIT_VALIDATION;
@@ -1145,7 +1188,13 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
       else throw cause;
       io.err(`generation failed for ${job.id}: ${cause.message}`);
       failed.push(job.id);
+      io.report?.({ kind: "failed", id: job.id, message: cause.message });
     }
+  }
+  // One line, however many cuts (#286): the count and the ids, so a run that
+  // replaced authored prompts says so without a line per cut.
+  if (rewritten.length > 0) {
+    io.out(`rewrote the authored prompt on ${rewritten.length} cut(s): ${rewritten.join(", ")}`);
   }
 
   // Nothing already written is undone: a partial run leaves its finished cuts in
