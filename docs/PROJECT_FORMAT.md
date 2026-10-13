@@ -33,8 +33,17 @@ and palette. `--prompt` overrides the base scene text; the bible remains context
 Stored cut prompts stay as authored so repeated generation never accumulates
 context. Other bible read errors stop the run before a provider is called.
 
-The character registry is `webtoon.json`'s `characters` array, edited by agents or
-CLI workflows. New scaffolds do not create an unused `characters/` folder; old
+The character registry is `webtoon.json`'s `characters` array, edited by agents,
+CLI workflows or Studio. Each entry is `{ id, name, lockstring }` and may carry
+`references`: project-relative image paths under `characters/<id>/`, in
+preference order (#327). A reference sheet is a file the person put there or
+accepted from a render; Toony never sources one. `toony generate` hands the first
+sheet of the first character a cut names to a workflow that declares a reference
+input, and records the sheet's sha256 with the render in the episode's ingest
+log. A workflow that declares none ignores the sheets, and the request it sends
+is unchanged. Whether a sheet is on disk and decodes is a lint check
+(`character/reference-unreadable`), so a registry may name a sheet before it is
+drawn. New scaffolds do not create an unused `characters/` folder; old
 folders remain untouched. `style-guide.md` is unchanged by this composition path.
 
 ## `webtoon.json`

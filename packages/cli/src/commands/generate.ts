@@ -58,7 +58,9 @@
 // scroll past unnoticed: the run reports a per-cut summary and exits non-zero
 // when any cut failed. Nothing is rolled back, so cuts that did generate stay.
 
-import { dirname, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   type AssetTarget,
   type ComfyUiConfig,
@@ -263,6 +265,8 @@ function workflowLatentSize(config: {
 interface BuiltProvider {
   provider: ImageProvider;
   latent: { width?: number; height?: number };
+  /** Whether the resolved workflow declares a reference input (#327). */
+  acceptsReference: boolean;
 }
 
 async function buildProvider(
@@ -270,6 +274,7 @@ async function buildProvider(
   root: string,
   io: GenerateIo,
   workflows: ReadonlyMap<string, string>,
+  workflowReferences: ReadonlyMap<string, { node: string; input: string }>,
   workflowName: string | undefined,
 ): Promise<BuiltProvider | { error: string }> {
   if (id === "comfyui") {
@@ -278,13 +283,22 @@ async function buildProvider(
       // `workflows` is the named-workflow registry contributed by installed
       // packs (#192), injected as plain data so `@toony/providers` resolves a
       // workflow by name without depending on the pack loader.
+      const reference =
+        workflowName === undefined ? undefined : workflowReferences.get(workflowName);
       const config = await resolveComfyUIConfig({
         env: io.env ?? {},
         toonyConfig,
         workflows,
         ...(workflowName === undefined ? {} : { workflowName }),
+        ...(reference === undefined ? {} : { workflowReference: reference }),
       });
-      return { provider: new ComfyUIProvider(config), latent: workflowLatentSize(config) };
+      return {
+        provider: new ComfyUIProvider(config),
+        latent: workflowLatentSize(config),
+        acceptsReference:
+          config.injectionMap.referenceNode !== undefined &&
+          config.injectionMap.referenceInput !== undefined,
+      };
     } catch (cause) {
       if (cause instanceof ProviderError) return { error: cause.message };
       throw cause;
@@ -308,6 +322,12 @@ interface Job {
    */
   inputs: RenderInputs;
   /**
+   * The reference sheet this cut would condition on (#327): the first reference
+   * of the first character the cut names that has one. Attached to the request
+   * only when the resolved workflow declares a reference input.
+   */
+  reference?: { characterId: string; path: string };
+  /**
    * The cut's declared panel shape (#237), when it declared one. Carried rather
    * than resolved here because it needs the column the workflow draws at, and
    * the workflow is not resolved until after planning — planning exists to
@@ -321,6 +341,69 @@ interface ReadyJob {
   job: Job;
   provider: ImageProvider;
   latent: { width?: number; height?: number };
+  acceptsReference: boolean;
+}
+
+/** The first reference sheet among the characters a cut names, in cut order. */
+function referenceCandidate(
+  cut: Cut | undefined,
+  registry: readonly Character[],
+): { characterId: string; path: string } | undefined {
+  for (const id of cut?.characters ?? []) {
+    const character = registry.find((c) => c.id === id);
+    const path = character?.references?.[0];
+    if (character !== undefined && path !== undefined) return { characterId: character.id, path };
+  }
+  return undefined;
+}
+
+/**
+ * Attach each job's reference sheet (#327) where the job's workflow takes one,
+ * before any request and before the repeat check, so the digest the run will
+ * submit is the digest it compares and records. A sheet that cannot be read is
+ * refused here, where it costs nothing. Jobs whose workflow takes no reference
+ * are noted once per workflow and run without it, exactly as before.
+ */
+async function attachReferences(
+  root: string,
+  ready: ReadyJob[],
+  io: GenerateIo,
+): Promise<{ error: string } | null> {
+  const skipped = new Map<string, string[]>();
+  for (const entry of ready) {
+    const candidate = entry.job.reference;
+    if (candidate === undefined) continue;
+    if (!entry.acceptsReference) {
+      const key = entry.job.inputs.workflow ?? "";
+      skipped.set(key, [...(skipped.get(key) ?? []), entry.job.id]);
+      continue;
+    }
+    let bytes: Uint8Array;
+    try {
+      bytes = new Uint8Array(await readFile(join(root, candidate.path)));
+    } catch {
+      return {
+        error: `character "${candidate.characterId}" reference "${candidate.path}" could not be read; fix the registry or the file before generating ${entry.job.id}`,
+      };
+    }
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    entry.job.inputs = {
+      ...entry.job.inputs,
+      reference: { characterId: candidate.characterId, sha256 },
+    };
+    entry.job.request = {
+      ...entry.job.request,
+      reference: { bytes, name: basename(candidate.path) },
+    };
+  }
+  for (const [workflow, ids] of skipped) {
+    io.err(
+      `note: ${ids.length} cut(s) name a character with a reference sheet (${ids.join(", ")}), but ${
+        workflow === "" ? "the resolved workflow" : `workflow "${workflow}"`
+      } declares no reference input; generating without it`,
+    );
+  }
+  return null;
 }
 
 interface PlanInput {
@@ -492,6 +575,7 @@ function planJobs(
       workflow,
       slot === "clean" ? cut : undefined,
     );
+    const reference = referenceCandidate(cut, registry);
     jobs.push({
       id: cutId,
       label: `cut ${cutId} (${slot})`,
@@ -499,6 +583,7 @@ function planJobs(
       request: requestFor(inputs),
       inputs,
       ...(cut?.panelAspect === undefined ? {} : { panelAspect: cut.panelAspect }),
+      ...(reference === undefined ? {} : { reference }),
     });
   }
   return { jobs };
@@ -813,6 +898,16 @@ const REPEAT_INPUTS: Record<keyof RenderInputs, RepeatInput> = {
     refuses: () => false,
     instruct: (value) => (typeof value === "string" ? `--negative ${shellQuote(value)}` : null),
   },
+  // A reference sheet (#327) is read off the registry, never off a flag, so a
+  // changed or newly attached sheet is named as an input nothing can ask for.
+  // Absence is an answer here, as it is for the workflow: a record with none
+  // was rendered without one, and a run that now attaches one differs from it.
+  reference: {
+    recorded: (record) => record.reference?.sha256,
+    submitted: ({ job }) => job.inputs.reference?.sha256,
+    refuses: () => false,
+    instruct: () => null,
+  },
 };
 
 /** The project-relative image a record currently points at, for either kind. */
@@ -1088,7 +1183,14 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     const workflow = job.inputs.workflow;
     let built = providers.get(workflow ?? "");
     if (built === undefined) {
-      const result = await buildProvider(providerId, root, io, packs.workflows, workflow);
+      const result = await buildProvider(
+        providerId,
+        root,
+        io,
+        packs.workflows,
+        packs.workflowReferences,
+        workflow,
+      );
       if ("error" in result) {
         // Say WHOSE workflow failed when the name came off a cut rather than the
         // command line, or the operator reads it as a complaint about a flag
@@ -1109,7 +1211,21 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
       }
       providers.set(workflow ?? "", built);
     }
-    ready.push({ job, provider: built.provider, latent: built.latent });
+    ready.push({
+      job,
+      provider: built.provider,
+      latent: built.latent,
+      acceptsReference: built.acceptsReference,
+    });
+  }
+
+  // Reference sheets (#327) attach before the shapes and the repeat check, so
+  // the digest recorded is the digest compared, and an unreadable sheet costs
+  // nothing.
+  const attached = await attachReferences(root, ready, io);
+  if (attached !== null) {
+    io.err(attached.error);
+    return EXIT_USAGE;
   }
 
   // The declared shapes need the resolved workflow's column, so this is the

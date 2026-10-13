@@ -140,6 +140,7 @@ Every `file` is a path **inside the pack folder** and must end in `.json`.
 |---|---|
 | `name` | The name `--workflow` selects. Unique within the pack. |
 | `file` | A ComfyUI **API-format** workflow graph: a JSON object keyed by node id, each node `{ "class_type": …, "inputs": … }`. |
+| `reference` | Optional. `{ "node": "<id>", "input": "<key>" }`: the LoadImage-style node and input that receives a character's reference sheet (#327). Absent means the graph takes none and sheets are never sent to it. |
 
 Toony writes the prompt, negative prompt, and seed into the graph per request,
 using the injection map (node ids `6`, `7`, `5`, `5`, `3` by default — see
@@ -147,6 +148,14 @@ using the injection map (node ids `6`, `7`, `5`, `5`, `3` by default — see
 has nothing to write to. Whatever those inputs hold in your file is overwritten
 on every generation; everything else — checkpoint, sampler, steps, CFG,
 scheduler, LoRAs, extra nodes — is yours and is what the pack is really for.
+
+**A reference sheet is sent only where you say.** When a cut names a character
+whose registry entry carries `references`, `toony generate` uploads the first
+sheet to ComfyUI and writes the returned name into the node and input the
+`reference` entry names. The graph decides what to do with it (an IP-Adapter,
+a ControlNet, an image prompt node). A workflow without a `reference` entry
+receives no upload and no changed input, so a pack that never declares one is
+unaffected.
 
 **Size is different: your latent is the default.** Toony writes width and height
 only when something asks for a size — a `--width`/`--height` flag, or a cut that

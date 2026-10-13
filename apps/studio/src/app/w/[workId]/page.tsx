@@ -38,6 +38,7 @@ export default async function WorkDashboardPage({
   const { languages, imageProviders } = webtoon;
   const episodes = overviewEpisodes(loaded);
   const briefView = await loadBriefView(work.root);
+  const characters = webtoon.characters ?? [];
 
   const totalCuts = episodes.reduce((sum, ep) => sum + ep.cutCount, 0);
   const totalTransitions = episodes.reduce((sum, ep) => sum + ep.transitionCount, 0);
@@ -109,6 +110,14 @@ export default async function WorkDashboardPage({
           <div className="stat-row">
             <span>Bubbles</span>
             <b>{totalBubbles}</b>
+          </div>
+          <div className="stat-row" data-testid="character-count">
+            <span>Characters</span>
+            <b>{characters.length}</b>
+          </div>
+          <div className="stat-row" data-testid="character-references">
+            <span>With reference sheet</span>
+            <b>{characters.filter((c) => (c.references?.length ?? 0) > 0).length}</b>
           </div>
         </article>
 

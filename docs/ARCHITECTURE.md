@@ -178,6 +178,12 @@ Three choices in that are worth knowing:
   neither writes the record nor reads it; its inputs are in the ingest log,
   whose entries are per asset path.
 
+A character reference sheet (#327) is the one input that is neither on the cut
+nor in a flag: it is read off the registry. The ingest log records which
+character's sheet the run conditioned on and the sha256 of the bytes uploaded,
+and the repeat instruction names a changed or newly attached sheet as an input
+nothing can ask for, the way a changed palette is named.
+
 Size is deliberately not recorded on the cut. A cut's shape already has a home in
 `panelAspect`, and re-rendering a batch at export resolution is a thing to do,
 not a thing to prevent; the size a run submitted is in the ingest log.
