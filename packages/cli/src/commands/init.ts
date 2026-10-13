@@ -107,14 +107,15 @@ export async function runInit(args: string[], io: InitIo): Promise<number> {
 
   // `genre` was checked against the merged list above, so this always resolves.
   // A contributed genre may also declare the gutter strip its dialogue needs
-  // (#215); `buildInitialProject` writes it into `webtoon.json`, so the project
-  // carries the width from here on and nothing consults the pack to render.
+  // (#215) and the theme and lexicon it selects (#346); `buildInitialProject`
+  // writes them into `webtoon.json`, so the project carries them from here on
+  // and nothing consults the pack to render.
   const seed = genre === undefined ? undefined : await resolveGenreSeed(genre, packs.genres);
-  const project = buildInitialProject(
-    name,
-    seed?.bundle,
-    seed?.gutterBandWidth === undefined ? {} : { gutterBandWidth: seed.gutterBandWidth },
-  );
+  const project = buildInitialProject(name, seed?.bundle, {
+    ...(seed?.gutterBandWidth === undefined ? {} : { gutterBandWidth: seed.gutterBandWidth }),
+    ...(seed?.letteringTheme === undefined ? {} : { letteringTheme: seed.letteringTheme }),
+    ...(seed?.styleLexicon === undefined ? {} : { styleLexicon: seed.styleLexicon }),
+  });
   try {
     await writeProject(target, project);
   } catch (cause) {

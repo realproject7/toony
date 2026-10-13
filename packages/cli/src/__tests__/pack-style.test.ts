@@ -23,6 +23,7 @@ import { runDraft } from "../commands/draft.js";
 import { runGenerate } from "../commands/generate.js";
 import { runInit } from "../commands/init.js";
 import { runPacks } from "../commands/packs.js";
+import { runValidate } from "../commands/validate.js";
 import { EXIT_OK, EXIT_USAGE } from "../exit.js";
 
 let workdir: string;
@@ -63,23 +64,43 @@ const LEXICON = {
   negativeBase: "lowres, watermark",
 };
 
-async function installStylePack(dir: string): Promise<void> {
+async function installStylePack(
+  dir: string,
+  genres: Array<Record<string, unknown>> = [],
+): Promise<void> {
   const pack = join(dir, ".toony", "packs", "style");
   await mkdir(join(pack, "themes"), { recursive: true });
   await mkdir(join(pack, "lexicons"), { recursive: true });
+  await mkdir(join(pack, "genres"), { recursive: true });
   await writeFile(join(pack, "themes", "cold.json"), JSON.stringify(THEME));
   await writeFile(join(pack, "lexicons", "cold.json"), JSON.stringify(LEXICON));
+  for (const genre of genres) {
+    await writeFile(join(pack, "genres", `${genre.id}.json`), JSON.stringify(GENRE_BUNDLE));
+  }
   await writeFile(
     join(pack, "toony-pack.json"),
     JSON.stringify({
       packFormat: 1,
       id: "style",
       name: "Style pack",
+      genres: genres.map((genre) => ({ ...genre, file: `genres/${genre.id}.json` })),
       letteringThemes: [{ id: "cold", file: "themes/cold.json" }],
       styleLexicons: [{ id: "cold", file: "lexicons/cold.json" }],
     }),
   );
 }
+
+const GENRE_BUNDLE = {
+  episode: {
+    schemaVersion: 1,
+    id: "ep-001",
+    title: "Opener",
+    sequence: [{ type: "cut", id: "cut-001" }],
+  },
+  cuts: [{ id: "cut-001", image: null, imagePrompt: "a pier at dawn", negativePrompt: "" }],
+  transitions: [],
+  lettering: [],
+};
 
 async function scaffold(
   name: string,
@@ -300,4 +321,41 @@ test("packs list names themes and lexicons, as text and as JSON", async () => {
   };
   assert.deepEqual(report.packs[0]?.contributes.letteringThemes, ["cold"]);
   assert.deepEqual(report.packs[0]?.contributes.styleLexicons, ["cold"]);
+});
+
+test("init --genre writes the genre's theme and lexicon into the project, and refuses a genre whose selection nothing provides", async () => {
+  // The buyer's path (#346): install the pack, init from its genre, and the
+  // project already selects the pack's theme and lexicon, so the first drafted
+  // episode letters in the theme without anyone editing `webtoon.json`.
+  await installStylePack(workdir, [
+    { id: "cold-genre", title: "Cold", letteringTheme: "cold", styleLexicon: "cold" },
+    { id: "warm-genre", title: "Warm", letteringTheme: "warm" },
+  ]);
+  const init = capture();
+  assert.equal(
+    await runInit(["buyer", "--genre", "cold-genre"], init.io),
+    EXIT_OK,
+    init.err.join("\n"),
+  );
+  const dir = join(workdir, "buyer");
+  const webtoon = JSON.parse(await readFile(join(dir, "webtoon.json"), "utf8"));
+  assert.equal(webtoon.letteringTheme, "cold");
+  assert.equal(webtoon.styleLexicon, "cold");
+  const validate = capture();
+  assert.equal(await runValidate([dir], validate.io), EXIT_OK, validate.err.join("\n"));
+
+  await writeScript(dir);
+  const draft = capture();
+  assert.equal(
+    await runDraft(["compile", dir, "--episode", "ep-002", "--json"], draft.io),
+    EXIT_OK,
+    draft.err.join("\n"),
+  );
+  assert.deepEqual(JSON.parse(draft.out.join("\n")).letteringTheme, { id: "cold", applied: true });
+
+  // The genre whose theme nothing provides was reported and is not offered.
+  assert.match(init.err.join("\n"), /pack\.genre\.lettering-theme-missing/);
+  const refused = capture();
+  assert.equal(await runInit(["other", "--genre", "warm-genre"], refused.io), EXIT_USAGE);
+  assert.match(refused.err.join("\n"), /unknown genre "warm-genre"/);
 });

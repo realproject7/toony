@@ -173,6 +173,13 @@ your pack draws at are the pack's decision, not Toony's.
 | `title` | Human-readable genre name. |
 | `file` | A complete **episode bundle**. |
 | `gutterBandWidth` | Optional. The gutter strip this genre letters in, as a fraction of the cut width, between `0.05` and `0.5`. Absent means the default `0.18`. |
+| `letteringTheme` | Optional. The id of a lettering theme an installed pack provides (#346). `toony init --genre <id>` writes it into the new project's `webtoon.json`. Absent means the project selects none. |
+| `styleLexicon` | Optional. The id of a style lexicon an installed pack provides (#346). Written into the new project the same way. Absent means the project selects none. |
+
+A genre that selects a theme or lexicon no installed pack provides is reported
+by `toony packs doctor` and skipped, like a genre with an unusable gutter strip,
+so `init` never writes a selection `toony generate` would then refuse. The
+selection may name what another installed pack ships.
 
 #### The gutter strip a genre letters in
 

@@ -75,6 +75,20 @@ export interface PackGenreRef {
    * strip.
    */
   gutterBandWidth?: number;
+  /**
+   * The lettering theme this genre letters with (#346): the id of a theme an
+   * installed pack provides. `toony init --genre <id>` writes it into the new
+   * project's `webtoon.json` as `letteringTheme`, so a bubble added to the
+   * project takes the genre's face from the start. Absent means the project
+   * selects none.
+   */
+  letteringTheme?: string;
+  /**
+   * The style lexicon this genre renders under (#346): the id of a lexicon an
+   * installed pack provides, written into `webtoon.json` as `styleLexicon`.
+   * Absent means the project selects none.
+   */
+  styleLexicon?: string;
 }
 
 /**

@@ -57,7 +57,14 @@ const MANIFEST_KEYS = [
 ] as const;
 const WORKFLOW_KEYS = ["name", "file", "reference"] as const;
 const WORKFLOW_REFERENCE_KEYS = ["node", "input"] as const;
-const GENRE_KEYS = ["id", "title", "file", "gutterBandWidth"] as const;
+const GENRE_KEYS = [
+  "id",
+  "title",
+  "file",
+  "gutterBandWidth",
+  "letteringTheme",
+  "styleLexicon",
+] as const;
 const CRAFT_BAND_KEYS = ["id", "file"] as const;
 const FILE_ENTRY_KEYS = ["id", "file"] as const;
 const PRESET_KEYS = ["id", "target", "options"] as const;
@@ -230,6 +237,23 @@ function validateGenres(value: unknown, path: string, c: IssueCollector): void {
         joinPath(entryPath, "gutterBandWidth"),
         "pack.genre.gutter-band-width",
         `${bandError}.`,
+      );
+    }
+    // The theme and lexicon a genre selects (#346) are ids; whether an installed
+    // pack provides them is a discovery question, answered once every pack is
+    // loaded, so a genre may select a theme another pack ships.
+    if (entry.letteringTheme !== undefined && !isNonEmptyString(entry.letteringTheme)) {
+      c.add(
+        joinPath(entryPath, "letteringTheme"),
+        "pack.genre.lettering-theme",
+        "letteringTheme must be a non-empty string, the id of a lettering theme.",
+      );
+    }
+    if (entry.styleLexicon !== undefined && !isNonEmptyString(entry.styleLexicon)) {
+      c.add(
+        joinPath(entryPath, "styleLexicon"),
+        "pack.genre.style-lexicon",
+        "styleLexicon must be a non-empty string, the id of a style lexicon.",
       );
     }
     validateFileRef(entry.file, joinPath(entryPath, "file"), "genre", c);

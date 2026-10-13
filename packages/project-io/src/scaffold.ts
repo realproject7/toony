@@ -82,6 +82,13 @@ export interface InitialCraftOptions {
    * and removing the pack cannot change how the episode reads.
    */
   gutterBandWidth?: number;
+  /**
+   * The lettering theme the genre selects (#346), written as the project's
+   * `letteringTheme` so a bubble added from the first day takes the genre's face.
+   */
+  letteringTheme?: string;
+  /** The style lexicon the genre selects (#346), written as the project's `styleLexicon`. */
+  styleLexicon?: string;
 }
 
 /**
@@ -114,6 +121,10 @@ export function buildInitialProject(
     // Only a genre that declares a gutter strip writes one; every other project
     // omits the field and renders on the default strip (#215).
     ...(craft.gutterBandWidth === undefined ? {} : { gutterBandWidth: craft.gutterBandWidth }),
+    // The theme and lexicon the genre selects (#346) are written the same way:
+    // a selection the project then owns, and nothing consults the pack for.
+    ...(craft.letteringTheme === undefined ? {} : { letteringTheme: craft.letteringTheme }),
+    ...(craft.styleLexicon === undefined ? {} : { styleLexicon: craft.styleLexicon }),
     languages: {
       defaultLanguage: "en",
       supportedLanguages: ["en"],
