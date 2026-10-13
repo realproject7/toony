@@ -2152,3 +2152,73 @@ button.transition-block {
 .brief-fields p {
   margin: 0 0 var(--space-1);
 }
+
+/* ---- Cut fields editor beside the bubble inspector (#332) ---- */
+.cut-fields {
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-line);
+  padding-bottom: var(--space-3);
+}
+
+.cut-fields-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  list-style: none;
+}
+
+.cut-fields-summary::-webkit-details-marker {
+  display: none;
+}
+
+.cut-fields-summary::before {
+  content: "▸";
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.cut-fields[open] > .cut-fields-summary::before {
+  content: "▾";
+}
+
+.cut-fields-summary .card-title {
+  margin: 0;
+}
+
+.cut-fields-preview {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cut-fields textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+.cut-fields-character {
+  gap: var(--space-1);
+}
+
+.cut-fields-palette {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.cut-fields-palette input {
+  flex: 1;
+  min-width: 0;
+}
