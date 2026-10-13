@@ -96,9 +96,16 @@ export interface RenderInputs {
   reference?: { characterId: string; sha256: string };
   /**
    * The style lexicon composed into the prompt (#335): the pack entry's id and
-   * the two strings as submitted. Absent when the project selects none.
+   * the strings as submitted, with the prefix and the story context setting
+   * when the lexicon states them (#351). Absent when the project selects none.
    */
-  styleLexicon?: { id: string; styleClause: string; negativeBase: string };
+  styleLexicon?: {
+    id: string;
+    styleClause: string;
+    negativeBase: string;
+    stylePrefix?: string;
+    storyContext?: "wrap" | "none";
+  };
 }
 
 interface ProvenanceEntry {

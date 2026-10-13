@@ -87,7 +87,9 @@ export { parseProject, serializeProject } from "./serialize.js";
 export {
   asStyleLexicon,
   composeNegativePrompt,
+  STORY_CONTEXTS,
   STYLE_LEXICON_FORMAT_VERSION,
+  type StoryContext,
   type StyleLexicon,
   validateStyleLexiconValue,
 } from "./style-lexicon.js";

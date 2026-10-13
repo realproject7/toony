@@ -500,7 +500,15 @@ vocabulary (`fontFamily` from the bundled faces, `fontWeight` 400 to 700,
 
 `toony generate` appends `styleClause` after the palette clause, so it qualifies
 the whole scene the way the palette does, and puts `negativeBase` before the
-cut's own negative prompt. Both reach the ingest log as submitted, with the
+cut's own negative prompt. Two optional fields serve a workflow tuned on a
+tag-style checkpoint (#351): `stylePrefix` is put at the very start of the
+composed prompt, before the character lockstrings, where such a checkpoint reads
+its quality and register words; `storyContext` is `"wrap"` (the default, the
+scene wrapped in the project's story bible as every run did before) or `"none"`,
+which sends the scene alone under this lexicon and leaves the bible file as it
+is. Both are recorded in the ingest log as submitted and both are repeat
+inputs: a changed prefix or wrapper setting is a revision like a changed clause.
+A lexicon that states neither composes byte for byte what it did before. Both reach the ingest log as submitted, with the
 lexicon's id, and the cut's own prompt and negative prompt stay its own, so a
 bare re-run repeats the render. A project that selects no lexicon submits
 exactly what it submitted before. A selected lexicon no installed pack provides
