@@ -27,6 +27,14 @@ export {
   isPlainObject,
   isString,
 } from "./guards.js";
+export {
+  applyLetteringTheme,
+  asLetteringTheme,
+  LETTERING_THEME_FORMAT_VERSION,
+  type LetteringTheme,
+  type LetteringThemeKind,
+  validateLetteringThemeValue,
+} from "./lettering-theme.js";
 export { foldingFilesystems, foldPathSafeId, isPathSafeId } from "./path-safe-id.js";
 export {
   GUTTER_BAND_WIDTH_DEFAULT,
@@ -76,6 +84,13 @@ export {
   validateProductionBriefValue,
 } from "./script.js";
 export { parseProject, serializeProject } from "./serialize.js";
+export {
+  asStyleLexicon,
+  composeNegativePrompt,
+  STYLE_LEXICON_FORMAT_VERSION,
+  type StyleLexicon,
+  validateStyleLexiconValue,
+} from "./style-lexicon.js";
 export type {
   BubbleBorder,
   BubbleGeometry,

@@ -35,7 +35,9 @@ import {
   type PackCraftBandRef,
   type PackExportPreset,
   type PackGenreRef,
+  type PackLetteringThemeRef,
   type PackManifest,
+  type PackStyleLexiconRef,
   type PackWorkflowRef,
 } from "./manifest.js";
 
@@ -50,11 +52,14 @@ const MANIFEST_KEYS = [
   "genres",
   "exportPresets",
   "craftBands",
+  "letteringThemes",
+  "styleLexicons",
 ] as const;
 const WORKFLOW_KEYS = ["name", "file", "reference"] as const;
 const WORKFLOW_REFERENCE_KEYS = ["node", "input"] as const;
 const GENRE_KEYS = ["id", "title", "file", "gutterBandWidth"] as const;
 const CRAFT_BAND_KEYS = ["id", "file"] as const;
+const FILE_ENTRY_KEYS = ["id", "file"] as const;
 const PRESET_KEYS = ["id", "target", "options"] as const;
 const PRESET_OPTION_KEYS = ["width", "format", "quality"] as const;
 
@@ -231,6 +236,43 @@ function validateGenres(value: unknown, path: string, c: IssueCollector): void {
   }
 }
 
+/** An `{ id, file }` contribution list (#334, #335): unique ids, JSON files. */
+function validateFileEntries(
+  value: unknown,
+  path: string,
+  what: string,
+  code: string,
+  c: IssueCollector,
+): void {
+  if (!isArray(value)) {
+    c.add(path, `${code}.type`, `${what}s must be an array.`);
+    return;
+  }
+  const ids = new Set<string>();
+  for (let i = 0; i < value.length; i++) {
+    const entry = value[i];
+    const entryPath = joinPath(path, i);
+    if (!isPlainObject(entry)) {
+      c.add(entryPath, `${code}.entry`, `${what} entry must be an object.`);
+      continue;
+    }
+    allowlistKeys(entry, FILE_ENTRY_KEYS, entryPath, `a ${what} entry`, c);
+    if (!isNonEmptyString(entry.id)) {
+      c.add(joinPath(entryPath, "id"), `${code}.id`, `${what} id must be a non-empty string.`);
+    } else {
+      checkDuplicate(
+        ids,
+        entry.id,
+        joinPath(entryPath, "id"),
+        `${code}.duplicate`,
+        `${what} id`,
+        c,
+      );
+    }
+    validateFileRef(entry.file, joinPath(entryPath, "file"), what, c);
+  }
+}
+
 function validateCraftBands(value: unknown, path: string, c: IssueCollector): void {
   if (!isArray(value)) {
     c.add(path, "pack.craft-bands.type", "craftBands must be an array.");
@@ -367,6 +409,24 @@ export function validatePackManifest(value: unknown): ValidationResult {
 
   // Each contribution list is optional; absent means "contributes none".
   if (value.workflows !== undefined) validateWorkflows(value.workflows, "pack.workflows", c);
+  if (value.letteringThemes !== undefined) {
+    validateFileEntries(
+      value.letteringThemes,
+      "pack.letteringThemes",
+      "lettering theme",
+      "pack.lettering-theme",
+      c,
+    );
+  }
+  if (value.styleLexicons !== undefined) {
+    validateFileEntries(
+      value.styleLexicons,
+      "pack.styleLexicons",
+      "style lexicon",
+      "pack.style-lexicon",
+      c,
+    );
+  }
   if (value.genres !== undefined) validateGenres(value.genres, "pack.genres", c);
   if (value.exportPresets !== undefined) {
     validateExportPresets(value.exportPresets, "pack.exportPresets", c);
@@ -390,6 +450,8 @@ export function asPackManifest(value: Record<string, unknown>): PackManifest {
     name: value.name as string,
     ...(typeof value.description === "string" ? { description: value.description } : {}),
     workflows: (value.workflows as PackWorkflowRef[] | undefined) ?? [],
+    letteringThemes: (value.letteringThemes as PackLetteringThemeRef[] | undefined) ?? [],
+    styleLexicons: (value.styleLexicons as PackStyleLexiconRef[] | undefined) ?? [],
     genres: (value.genres as PackGenreRef[] | undefined) ?? [],
     exportPresets: presets.map((preset) => ({ ...preset, options: preset.options ?? {} })),
     craftBands: (value.craftBands as PackCraftBandRef[] | undefined) ?? [],

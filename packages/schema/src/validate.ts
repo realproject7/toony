@@ -221,6 +221,17 @@ export function validateWebtoonValue(value: unknown, path: string, c: IssueColle
   if (value.characters !== undefined) {
     validateCharactersValue(value.characters, joinPath(path, "characters"), c);
   }
+  // A selected pack theme or lexicon (#334, #335) is an id; whether an installed
+  // pack provides it is the consumer's question, the way a workflow name is.
+  for (const key of ["letteringTheme", "styleLexicon"] as const) {
+    if (value[key] !== undefined && !isNonEmptyString(value[key])) {
+      c.add(
+        joinPath(path, key),
+        "webtoon.pack-selection",
+        `${key} must be a non-empty pack entry id.`,
+      );
+    }
+  }
   // Reference column (#217) is OPTIONAL + back-compat: absent → the standard
   // canvas. It is a column width, so it obeys the bounds an export width does.
   const reference = value.referenceWidth;

@@ -591,6 +591,16 @@ export interface Webtoon {
   languages: LanguageConfig;
   imageProviders: ImageProvidersConfig;
   /**
+   * The id of an installed pack's lettering theme (#334), applied where an
+   * overlay is created or on request. Absent means the renderer's own defaults.
+   */
+  letteringTheme?: string;
+  /**
+   * The id of an installed pack's style lexicon (#335), composed into every
+   * prompt at generation. Absent means prompts go out as authored.
+   */
+  styleLexicon?: string;
+  /**
    * Project character registry (#92). OPTIONAL and back-compatible: projects
    * written before it existed simply omit it (treated as no characters).
    */
