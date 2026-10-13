@@ -270,6 +270,55 @@ A compiled cut's `imagePrompt` is the script's scene text and nothing else. The
 story bible, the character lockstrings and the palette clause compose on top of
 it at generate time, exactly as they do for a hand-authored cut.
 
+## Controlled production
+
+`toony produce` is how an agent spends provider time without starting anything
+a person has not seen. It adds no planning model, no provider and no second
+store: it resolves targets with the selectors `toony generate` already accepts,
+reads review state through the project loader and craft results through the
+shipped `--json` reports, and drives `generate` or `import-image` in-process
+with explicit `--cut` ids.
+
+| command | provider call | writes |
+|---|---|---|
+| `toony produce inspect --episode <id> --cut ...` | none | nothing |
+| `toony produce run --episode <id> --cut ... --accept <set>` | after the disclosure | `episodes/<id>/logs/produce.json`, then whatever `generate` writes |
+
+**The disclosure comes first.** Both subcommands print the resolved ids, how
+many already carry an image, how many carry recorded render inputs, and how many
+carry a non-draft review the run would reset, plus every reason the run would
+stop. `run` also needs `--accept` to name the exact target set `inspect`
+printed; a set that resolves differently stops, so a `--review-status` selector
+that moved under the operator never runs on cuts they did not see.
+
+**Revision, repeat, render.** A run that changes an input (`--prompt`,
+`--negative`, `--seed`, `--workflow`, `--width`, `--height`) on cuts that
+recorded a render is a revision and must state `--reason`, once, for the whole
+run. A run that changes nothing is a repeat and is reported as one. A run onto
+cuts that recorded nothing is a first render. The controller never invents a
+reason, a prompt, a character or a seed.
+
+**Stops.** A target with no usable prompt, a target naming a character the
+registry does not define, and a repeat refusal from `generate` each stop the
+run with a non-zero exit, naming the target and what could not be determined. A
+refusal is surfaced as `generate` printed it and never re-issued with the flags
+it listed. An empty selector match is a successful no-op, as it is for
+`generate`.
+
+**One writer per record.** The controller writes no cut field, no review state
+and no ingest entry. Ingest still resets a regenerated cut to `draft`; Studio is
+still the only writer that marks one reviewed. The controller's own log records
+what it resolved and from which selectors, the run's kind and reason, what each
+target came back as (`generated`, `failed`, `unrecorded`, `imported`,
+`not-reached`), which cuts had an authored prompt replaced, and the refusal
+text when the run stopped before its first call. The planned entry is written
+before the first provider call and replaced by the finished one.
+
+Two `generate` behaviours decided under #286 land here as well. `--seed fresh`
+rolls a new seed per cut and records it, so a different take needs no invented
+number. A run whose write-back replaces an authored prompt prints one line with
+the count and the ids, however many cuts it touched.
+
 ## Export Targets
 
 Platform export:

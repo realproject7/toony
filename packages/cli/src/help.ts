@@ -23,6 +23,9 @@ usage:
   toony draft <compile|show|apply> --episode <id> ...
                            compile an authored episode script into a draft,
                            show what applying it would change, apply it
+  toony produce <inspect|run> --episode <id> ...
+                           show what a generation run would touch, then run
+                           the accepted target set through generate or import
   toony --help             show this help
 
 options:
@@ -39,7 +42,7 @@ options:
   generate --episode <id> (--cut <id> [--cut <id> ...] [--slot clean|final]
                            | --transition <id>)
            --prompt <text> [--negative <text>] [--width <px>] [--height <px>]
-           [--seed <n>] [--workflow <name>] [--provider comfyui] [--allow-remote]
+           [--seed <n>|fresh] [--workflow <name>] [--provider comfyui] [--allow-remote]
                            generates and ingests an image; the provider endpoint
                            and workflow come from local runtime config/env
                            (e.g. TOONY_COMFYUI_URL), never from webtoon.json;
@@ -55,7 +58,11 @@ options:
                            WIRED — a record not yet in the episode sequence, a
                            sequence entry whose record is not written yet, or an
                            episode nothing has been sequenced into — warns on
-                           stderr and generates anyway
+                           stderr and generates anyway. A bare re-run repeats the
+                           recorded seed; --seed fresh rolls a new one per cut
+                           and records it. A run that replaces authored prompts
+                           through the write-back says so on one line, with the
+                           cut ids
   export <platform|stitched|plotlink|preset> [path] --episode <id>
          [--width <px>] [--format png|jpg] [--quality <0-100>]
                            writes into the project's exports/ folder + manifest;
@@ -127,6 +134,29 @@ options:
                            last show or compile, or on a project that does not
                            validate. Creates the episode when it does not
                            exist. There is no force flag
+
+  produce inspect [path] --episode <id> ([--cut <id> ...] [--review-status <s>]) [--json]
+                           resolve the target set exactly as generate would and
+                           show what a run would touch: the ids, how many carry
+                           an image, how many carry recorded render inputs, how
+                           many carry a non-draft review the run would reset,
+                           and every reason it would stop. No provider call
+  produce run [path] --episode <id> ([--cut <id> ...] [--review-status <s>])
+          --accept <target-set> [--reason <text>] [--from <file>]
+          [--prompt <text>] [--negative <text>] [--seed <n>|fresh]
+          [--workflow <name>] [--width <px>] [--height <px>]
+          [--slot clean|final] [--provider <id>] [--allow-remote] [--json]
+                           the same disclosure, then the run. --accept names
+                           the exact target set inspect printed; a set that
+                           resolves differently stops. A run that changes an
+                           input on cuts that recorded a render is a revision
+                           and needs --reason; one that changes nothing is a
+                           repeat. Drives generate (or import-image with
+                           --from) in-process with explicit --cut ids; writes
+                           no cut field, no review state and no ingest entry
+                           itself; records what it resolved and what each
+                           target came back as in episodes/<id>/logs/produce.json.
+                           Never re-issues a run the repeat refusal stopped
 
 drafts (docs/PROJECT_FORMAT.md):
   a draft is one complete episode, compiled from the authored episode script,

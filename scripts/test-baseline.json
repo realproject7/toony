@@ -1,6 +1,6 @@
 {
   "sourceCommit": "3fff337c07bb96f96e874dec1317f664dddecab5",
-  "evidence": "Full Node 20 and 24 gate of main at 3fff337 (PR #338) on 2026-10-13: 1130 passed in these 10 packages and 42 verification controls. The floors below are those counts plus the tests the #312 PR adds on top of that commit (schema +2, project-io +14, toony-cli +9). Floors are raised in the PR that adds tests and are never lowered from the candidate run.",
+  "evidence": "Full Node 20 and 24 gate of main at 3fff337 (PR #338) on 2026-10-13: 1130 passed in these 10 packages and 42 verification controls. PR #339 raised schema to 136, project-io to 143 and toony-cli to 241 with its tests. The #313 PR adds 14 CLI tests on top, so toony-cli is 255. Floors are raised in the PR that adds tests and are never lowered from the candidate run.",
   "packages": {
     "@toony/schema": 136,
     "@toony/providers": 77,
@@ -11,7 +11,7 @@
     "@toony/studio": 72,
     "@toony/export": 176,
     "@toony/lint": 94,
-    "toony-cli": 241
+    "toony-cli": 255
   },
   "verification": 42,
   "reductions": {}

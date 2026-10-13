@@ -48,19 +48,27 @@ choice of its own.
    when the project changed since the last report, or when the project does not
    validate. There is no force flag. A conflict means a person or a previous run
    authored that record; ask before you redraft around it.
-5. **Generate the cuts the person selected.**
+5. **Generate the cuts the person selected, through the controller.**
 
    ```sh
-   toony generate --episode <id> --cut <cut> [--cut <cut> ...] --provider comfyui --allow-remote
+   toony produce inspect --episode <id> --cut <cut> [--cut <cut> ...] --json
+   toony produce run --episode <id> --cut <cut> [--cut <cut> ...] --accept <target-set> --provider comfyui --allow-remote
    ```
 
-   The cut's own `imagePrompt` is the script's scene text. The story bible, the
-   character lockstrings and the palette clause compose on top of it on every
-   run; never write them into the cut. A finished render records its prompt,
-   seed and workflow on the cut and in the episode's ingest log, so a bare re-run
-   repeats the accepted image. Ask for a different take with `--seed fresh`.
-   A run that rewrites authored prompts says so on one line, with the ids.
-   Import a person's own art with `toony import-image`.
+   Inspect shows what the run would touch and every reason it would stop, with
+   no provider call. Show that to the person. Run needs `--accept` with the
+   target set inspect printed; it stops if the set resolves differently. A run
+   that changes a prompt, seed, workflow or size on cuts that recorded a render
+   is a revision and needs `--reason`. The cut's own `imagePrompt` is the
+   script's scene text; the story bible, the character lockstrings and the
+   palette clause compose on top of it on every run, so never write them into
+   the cut. A finished render records its prompt, seed and workflow on the cut
+   and in the episode's ingest log, so a bare re-run repeats the accepted image.
+   Ask for a different take with `--seed fresh`. A run that rewrites authored
+   prompts says so on one line, with the ids. Import a person's own art with
+   `toony produce run ... --from <file>`. `toony generate` and
+   `toony import-image` remain available for a single cut when the person has
+   already said yes.
 6. **Read review and craft results.** `toony validate --json`,
    `toony lint-episode <id> --json`, `toony plan --episode <id> --json`, and
    after art exists `toony measure --episode <id> --json`. Each cut carries a
@@ -86,7 +94,8 @@ Write only through commands: everything under `episodes/<id>/`. Cuts,
 transitions, lettering and the sequence come from `toony draft apply` and the
 Studio editors. Render records (`imagePrompt` after a run, `imageSeed`,
 `imageWorkflow`), ingest logs and assets are written by `toony generate` and
-`toony import-image`. Hand-editing them breaks replay.
+`toony import-image`; the controller's own log by `toony produce`. Hand-editing
+them breaks replay.
 
 ## What the tool enforces
 
@@ -94,6 +103,8 @@ Studio editors. Render records (`imagePrompt` after a run, `imageSeed`,
   with `toony validate` first.
 - A draft never calls a provider and never writes an image.
 - Apply never silently replaces an authored record.
+- No provider is reached before the run's disclosure exists, and never on a
+  target set the person did not accept.
 - A rendered cut is repeatable from its record; a size the run does not pin is
   checked against the log before anything is sent.
 - Packs are data. They add workflows, genre scaffolds, export presets and craft
