@@ -51,7 +51,8 @@ const MANIFEST_KEYS = [
   "exportPresets",
   "craftBands",
 ] as const;
-const WORKFLOW_KEYS = ["name", "file"] as const;
+const WORKFLOW_KEYS = ["name", "file", "reference"] as const;
+const WORKFLOW_REFERENCE_KEYS = ["node", "input"] as const;
 const GENRE_KEYS = ["id", "title", "file", "gutterBandWidth"] as const;
 const CRAFT_BAND_KEYS = ["id", "file"] as const;
 const PRESET_KEYS = ["id", "target", "options"] as const;
@@ -161,6 +162,23 @@ function validateWorkflows(value: unknown, path: string, c: IssueCollector): voi
       );
     }
     validateFileRef(entry.file, joinPath(entryPath, "file"), "workflow", c);
+    if (entry.reference !== undefined) {
+      const refPath = joinPath(entryPath, "reference");
+      if (!isPlainObject(entry.reference)) {
+        c.add(refPath, "pack.workflow.reference", "reference must be an object { node, input }.");
+      } else {
+        allowlistKeys(entry.reference, WORKFLOW_REFERENCE_KEYS, refPath, "a workflow reference", c);
+        for (const key of WORKFLOW_REFERENCE_KEYS) {
+          if (!isNonEmptyString(entry.reference[key])) {
+            c.add(
+              joinPath(refPath, key),
+              "pack.workflow.reference",
+              `reference ${key} must be a non-empty string.`,
+            );
+          }
+        }
+      }
+    }
   }
 }
 

@@ -38,6 +38,13 @@ export interface ImageRequest {
   prompt?: string;
   /** Neutral generation/import options. Never carries credentials. */
   options?: Readonly<Record<string, string | number | boolean>>;
+  /**
+   * A character's reference sheet to condition the render on (#327): the image
+   * bytes and a file name for the upload. Attached only when the resolved
+   * workflow declares a reference input; a provider that receives one for a
+   * workflow without such an input refuses rather than dropping it silently.
+   */
+  reference?: { bytes: Uint8Array; name: string };
 }
 
 /**

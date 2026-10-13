@@ -107,6 +107,12 @@ export interface ComfyUIConfigSource {
   workflows?: ReadonlyMap<string, string>;
   /** Select one of `workflows` by name (`toony generate --workflow <name>`). */
   workflowName?: string;
+  /**
+   * The reference input the selected named workflow declares (#327), as the
+   * pack manifest states it. Merged into the injection map so the provider
+   * knows where an uploaded reference goes. Absent means the workflow takes none.
+   */
+  workflowReference?: { node: string; input: string };
 }
 
 /** A non-empty string passes through; null/empty/undefined become undefined. */
@@ -279,6 +285,14 @@ export async function resolveComfyUIConfig(
     ...DEFAULT_INJECTION_MAP,
     ...fromFile.injectionMap,
     ...overrides.injectionMap,
+    // A named workflow's own declaration of where a reference goes applies only
+    // when that workflow is the one selected; the default graph takes none.
+    ...(requestedName !== undefined && source.workflowReference !== undefined
+      ? {
+          referenceNode: source.workflowReference.node,
+          referenceInput: source.workflowReference.input,
+        }
+      : {}),
   };
 
   const checkpoint =

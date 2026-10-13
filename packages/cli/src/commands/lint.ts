@@ -27,10 +27,11 @@ import {
   lintPanelShape,
   lintProjectSchema,
   type ManifestFileProbe,
+  readImageDimensions,
   sortFindings,
 } from "@toony/lint";
 import { loadProject, ProjectIoError } from "@toony/project-io";
-import type { EpisodeBundle } from "@toony/schema";
+import type { Character, EpisodeBundle } from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 
 export interface LintIo {
@@ -152,6 +153,36 @@ async function lintEpisode(
   return findings;
 }
 
+/** Warn for every character reference sheet that cannot be read as an image (#327). */
+async function lintCharacterReferences(
+  root: string,
+  registry: readonly Character[],
+): Promise<Finding[]> {
+  const findings: Finding[] = [];
+  for (const character of registry) {
+    for (const ref of character.references ?? []) {
+      let bytes: Uint8Array | null = null;
+      try {
+        bytes = new Uint8Array(await readFile(`${root}/${ref}`));
+      } catch {
+        bytes = null;
+      }
+      const dims = bytes === null ? null : readImageDimensions(bytes);
+      if (dims === null || dims.width <= 0 || dims.height <= 0) {
+        findings.push(
+          finding(
+            "warning",
+            "character/reference-unreadable",
+            character.id,
+            `character "${character.id}" names reference "${ref}", which could not be read as an image; add the file or remove the reference.`,
+          ),
+        );
+      }
+    }
+  }
+  return findings;
+}
+
 /** True when any finding is blocking (error/warning); info findings are advisory. */
 function hasBlockingFindings(findings: readonly Finding[]): boolean {
   return findings.some((f) => f.severity === "error" || f.severity === "warning");
@@ -210,6 +241,10 @@ async function lintAndReport(
   // full schema validity (it only reads each cut's `characters` + the registry).
   const registry = loaded.project.webtoon.characters ?? [];
   for (const bundle of bundles) findings.push(...lintCharacterRefs(bundle, registry));
+  // A character's reference sheets (#327) are files the registry names; a sheet
+  // that is missing or not an image generates nothing useful, so it is reported
+  // here the way a cut's unreadable image is, once for the project.
+  if (episodeId === null) findings.push(...(await lintCharacterReferences(root, registry)));
 
   if (loaded.validation.valid) {
     for (const bundle of bundles) {

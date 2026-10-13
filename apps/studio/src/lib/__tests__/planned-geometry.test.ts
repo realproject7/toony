@@ -17,6 +17,7 @@ import {
 
 const EMPTY_CONTENT: PackContent = {
   workflows: new Map(),
+  workflowReferences: new Map(),
   genres: [],
   exportPresets: [],
   craftBands: new Map(),

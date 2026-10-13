@@ -573,6 +573,14 @@ export interface Character {
   id: string;
   name: string;
   lockstring: string;
+  /**
+   * Reference sheets (#327): project-relative image paths under
+   * `characters/<id>/`, in preference order. `toony generate` hands the first
+   * one to a workflow that declares a reference input; a workflow that declares
+   * none ignores them. Absent means the character is held by its lockstring
+   * alone.
+   */
+  references?: string[];
 }
 
 /** The `webtoon.json` project root. */

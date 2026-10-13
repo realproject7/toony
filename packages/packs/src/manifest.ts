@@ -31,12 +31,25 @@ export const PROJECT_PACKS_DIR = ".toony/packs";
 export const PACK_PRESET_FORMATS = ["png", "jpeg"] as const;
 export type PackPresetFormat = (typeof PACK_PRESET_FORMATS)[number];
 
+/** The node input a workflow receives an uploaded reference image through (#327). */
+export interface PackWorkflowReference {
+  /** The node id, as the API-format graph keys it. */
+  node: string;
+  /** The input key on that node, such as `image` on a LoadImage node. */
+  input: string;
+}
+
 /** A named ComfyUI workflow graph shipped as a JSON file inside the pack. */
 export interface PackWorkflowRef {
   /** The name `toony generate --workflow <name>` selects. */
   name: string;
   /** Pack-relative path to the workflow-graph JSON file. */
   file: string;
+  /**
+   * Where a character's reference sheet goes, when the graph takes one (#327).
+   * Absent means the workflow takes none and references are never sent to it.
+   */
+  reference?: PackWorkflowReference;
 }
 
 /** A genre scaffold: an episode bundle seeded by `toony init --genre <id>`. */

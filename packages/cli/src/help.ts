@@ -47,6 +47,10 @@ options:
                            and workflow come from local runtime config/env
                            (e.g. TOONY_COMFYUI_URL), never from webtoon.json;
                            --workflow selects a workflow a pack contributed;
+                           when that workflow declares a reference input, the
+                           first reference sheet of the first character the cut
+                           names is uploaded and named in the graph, and its
+                           sha256 is recorded in the ingest log;
                            repeat --cut to generate several cuts in one run: it
                            prints a per-cut summary, keeps every cut it
                            finished, and exits non-zero if any cut failed.

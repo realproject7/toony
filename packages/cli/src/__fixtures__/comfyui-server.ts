@@ -64,10 +64,16 @@ export async function startFakeComfy(
   latents: () => { width: unknown; height: unknown }[];
   bodies: () => string[];
   calls: () => number;
+  /** Every raw multipart body posted to /upload/image, in order (#327). */
+  uploads: () => Buffer[];
+  /** The `image` input of node 10 in every submission, when the graph has one. */
+  references: () => unknown[];
 }> {
   const prompts: string[] = [];
   const latents: { width: unknown; height: unknown }[] = [];
   const bodies: string[] = [];
+  const uploads: Buffer[] = [];
+  const references: unknown[] = [];
   let calls = 0;
   const server: Server = createServer((req, res) => {
     const url = req.url ?? "";
@@ -85,11 +91,24 @@ export async function startFakeComfy(
         if (typeof text === "string") prompts.push(text);
         const latent = body.prompt?.["5"]?.inputs ?? {};
         latents.push({ width: latent.width, height: latent.height });
+        references.push(body.prompt?.["10"]?.inputs?.image);
         res.setHeader("content-type", "application/json");
         res.end(
           calls === rejectCall
             ? JSON.stringify({ error: { message: "out of memory" } })
             : JSON.stringify({ prompt_id: PROMPT_ID, node_errors: {} }),
+        );
+      });
+      return;
+    }
+    if (req.method === "POST" && url === "/upload/image") {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", () => {
+        uploads.push(Buffer.concat(chunks));
+        res.setHeader("content-type", "application/json");
+        res.end(
+          JSON.stringify({ name: `ref-${uploads.length}.png`, subfolder: "", type: "input" }),
         );
       });
       return;
@@ -125,5 +144,7 @@ export async function startFakeComfy(
     latents: () => [...latents],
     bodies: () => [...bodies],
     calls: () => calls,
+    uploads: () => [...uploads],
+    references: () => [...references],
   };
 }

@@ -80,7 +80,19 @@ export async function runValidate(args: string[], io: ValidateIo): Promise<numbe
   const missing = requireImages ? cutsWithoutImage(loaded.project) : null;
 
   if (json) {
-    const report = jsonReport(root, loaded.validation);
+    const registry = loaded.project.webtoon.characters ?? [];
+    // The registry summary (#327) is present whenever the project declares a
+    // registry, so a caller sees which characters a workflow can condition on.
+    const characters =
+      registry.length === 0
+        ? {}
+        : {
+            characters: {
+              total: registry.length,
+              withReferences: registry.filter((c) => (c.references?.length ?? 0) > 0).length,
+            },
+          };
+    const report = { ...jsonReport(root, loaded.validation), ...characters };
     // Only present when the check ran, so the default payload is unchanged.
     io.out(JSON.stringify(missing === null ? report : { ...report, missing }, null, 2));
   } else {
