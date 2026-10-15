@@ -5,13 +5,19 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { FontFamilyId } from "@toony/fonts";
 import { buildInitialProject, writeProject } from "@toony/project-io";
-import { type BubbleKind, GUTTER_BAND_WIDTH_DEFAULT } from "@toony/schema";
+import {
+  type BubbleKind,
+  GUTTER_BAND_WIDTH_DEFAULT,
+  STANDARD_CANVAS_WIDTH_PX,
+} from "@toony/schema";
 import {
   buildExportProject,
   buildManyCutsProject,
   writeCutImages,
 } from "../__fixtures__/project.js";
+import { measureEpisodeCraft } from "../craft.js";
 import { ExportError } from "../errors.js";
+import { readImageDimensions } from "../image-dimensions.js";
 import { validateManifest } from "../manifest.js";
 import { exportPlatform, exportPlotlink, exportStitched } from "../targets.js";
 
@@ -76,6 +82,54 @@ test("stitched export writes one image preserving the full sequence height", asy
   assert.ok(file.height > 500 * 1.4);
   const bytes = new Uint8Array(await readFile(join(root, file.path)));
   assert.ok(isPng(bytes));
+});
+
+for (const referenceWidth of [360, undefined]) {
+  test(`stitched export and measure use ${referenceWidth ?? "legacy"} reference width unless overridden`, async () => {
+    const root = join(await mkdtemp(join(tmpdir(), "toony-reference-width-")), "project");
+    const project = buildInitialProject("Reference Width Fixture");
+    if (referenceWidth === undefined) delete project.webtoon.referenceWidth;
+    else project.webtoon.referenceWidth = referenceWidth;
+    await writeProject(root, project);
+    const expected = referenceWidth ?? STANDARD_CANVAS_WIDTH_PX;
+    const exported = await exportStitched(root, "ep-001");
+    assert.equal(exported.manifest.width, expected);
+    const file = exported.manifest.files[0];
+    assert.ok(file);
+    const shape = readImageDimensions(new Uint8Array(await readFile(join(root, file.path))));
+    assert.equal(shape?.width, expected);
+    const measured = await measureEpisodeCraft(root, "ep-001");
+    assert.equal(measured.width, expected);
+    assert.equal(measured.height, file.height);
+    const explicit = await exportStitched(root, "ep-001", { width: expected });
+    assert.equal(explicit.manifest.files[0]?.sha256, file.sha256);
+    assert.equal((await exportStitched(root, "ep-001", { width: 240 })).manifest.width, 240);
+    assert.equal((await measureEpisodeCraft(root, "ep-001", { width: 240 })).width, 240);
+  });
+}
+
+test("a tall scale fixture uses its reference width and still rejects an over-budget override", async () => {
+  const root = join(await mkdtemp(join(tmpdir(), "toony-tall-scale-")), "project");
+  const project = buildManyCutsProject(64);
+  // A small reference column keeps this regression cheap; 1200 px exceeds the
+  // real budget before allocation, just as a full-sized tall episode would.
+  project.webtoon.referenceWidth = 80;
+  for (const cut of project.episodes[0]?.cuts ?? []) cut.panelAspect = 2;
+  await writeProject(root, project);
+  const exported = await exportStitched(root, "ep-001");
+  const measured = await measureEpisodeCraft(root, "ep-001");
+  assert.equal(exported.manifest.width, 80);
+  assert.equal(measured.width, 80);
+  assert.equal(measured.cuts, 64);
+  for (const run of [
+    () => exportStitched(root, "ep-001", { width: 1200 }),
+    () => measureEpisodeCraft(root, "ep-001", { width: 1200 }),
+  ]) {
+    await assert.rejects(
+      run,
+      (error: unknown) => error instanceof ExportError && /budget|limit/.test(error.message),
+    );
+  }
 });
 
 test("plotlink export writes WebP within budget, markdown, and a manifest", async () => {

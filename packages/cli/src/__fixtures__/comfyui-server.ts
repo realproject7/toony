@@ -57,6 +57,7 @@ export async function startFakeComfy(
   image: Uint8Array,
   rejectCall?: number,
   onView?: () => void | Promise<void>,
+  timeout?: { call: number; cancelSupported: boolean },
 ): Promise<{
   url: string;
   close: () => void;
@@ -75,6 +76,7 @@ export async function startFakeComfy(
   const uploads: Buffer[] = [];
   const references: unknown[] = [];
   let calls = 0;
+  let cancelled = false;
   const server: Server = createServer((req, res) => {
     const url = req.url ?? "";
     if (req.method === "POST" && url === "/prompt") {
@@ -115,6 +117,10 @@ export async function startFakeComfy(
     }
     if (req.method === "GET" && url.startsWith(`/history/`)) {
       res.setHeader("content-type", "application/json");
+      if (calls === timeout?.call) {
+        res.end("{}");
+        return;
+      }
       res.end(
         JSON.stringify({
           [PROMPT_ID]: {
@@ -122,6 +128,28 @@ export async function startFakeComfy(
             status: { status_str: "success", completed: true },
           },
         }),
+      );
+      return;
+    }
+    if (
+      req.method === "POST" &&
+      url === `/api/jobs/${PROMPT_ID}/cancel` &&
+      timeout?.cancelSupported
+    ) {
+      cancelled = true;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ cancelled: true }));
+      return;
+    }
+    if (url === "/queue") {
+      res.setHeader("content-type", "application/json");
+      res.end(
+        req.method === "POST"
+          ? "{}"
+          : JSON.stringify({
+              queue_running: calls === timeout?.call && !cancelled ? [[1, PROMPT_ID]] : [],
+              queue_pending: [],
+            }),
       );
       return;
     }

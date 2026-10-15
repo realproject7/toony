@@ -1418,6 +1418,12 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
       io.err(`generation failed for ${job.id}: ${cause.message}`);
       failed.push(job.id);
       io.report?.({ kind: "failed", id: job.id, message: cause.message });
+      if (cause instanceof ProviderError && cause.code === "comfyui.timeout-unsettled") {
+        io.err(
+          "Stopped before submitting remaining cuts because the timed-out job may still be running.",
+        );
+        break;
+      }
     }
   }
   // One line, however many cuts (#286): the count and the ids, so a run that
@@ -1429,7 +1435,10 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   // Nothing already written is undone: a partial run leaves its finished cuts in
   // place, and the summary says which ones are still missing.
   if (jobs.jobs.length > 1) {
-    const counts = `${generated.length} generated, ${failed.length} failed`;
+    const notReached = ready.length - generated.length - failed.length - unrecorded.length;
+    const counts =
+      `${generated.length} generated, ${failed.length} failed` +
+      (notReached > 0 ? `, ${notReached} not reached` : "");
     const named = failed.length === 0 ? counts : `${counts}: ${failed.join(", ")}`;
     // The third state is named only when it happens, so a run that never hits it
     // reports exactly the two counts it always has.

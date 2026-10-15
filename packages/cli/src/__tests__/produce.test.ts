@@ -66,6 +66,43 @@ function targetSetOf(out: string[]): string {
   return line.trim().split("target set ")[1]?.split(/\s/)[0] ?? "";
 }
 
+for (const cancelSupported of [true, false]) {
+  test(`a timeout ${cancelSupported ? "continues only after confirmed cancellation" : "stops before the next cut when cancellation is unavailable"}`, async () => {
+    const dir = await scaffold();
+    await setCuts(dir, (cut) => ({ ...cut, imagePrompt: "an original fixture scene" }));
+    const comfy = await startFakeComfy(pngWithText(), undefined, undefined, {
+      call: 1,
+      cancelSupported,
+    });
+    try {
+      const env = { TOONY_COMFYUI_URL: comfy.url, TOONY_COMFYUI_TIMEOUT_MS: "100" };
+      const inspect = capture(env);
+      const targets = [dir, "--episode", "ep-001", "--cut", "cut-001", "--cut", "cut-002"];
+      assert.equal(await runProduce(["inspect", ...targets], inspect.io), EXIT_OK);
+      const run = capture(env);
+      assert.equal(
+        await runProduce(["run", ...targets, "--accept", targetSetOf(inspect.out)], run.io),
+        EXIT_VALIDATION,
+      );
+      assert.equal(comfy.calls(), cancelSupported ? 2 : 1);
+      assert.match(run.err.join("\n"), /TOONY_COMFYUI_TIMEOUT_MS/);
+      const log = await produceLog(dir);
+      assert.deepEqual(log[0]?.outcomes, {
+        "cut-001": "failed",
+        "cut-002": cancelSupported ? "generated" : "not-reached",
+      });
+      const currentCuts = await cuts(dir);
+      assert.equal(currentCuts[0]?.image?.clean ?? null, null);
+      if (!cancelSupported) {
+        assert.equal(currentCuts[1]?.image?.clean ?? null, null);
+        assert.match(run.out.join("\n"), /1 not-reached/);
+      }
+    } finally {
+      comfy.close();
+    }
+  });
+}
+
 test("inspect resolves the set generate would, discloses counts, and calls no provider", async () => {
   const dir = await scaffold();
   // No endpoint configured anywhere: a provider call would be a usage error.

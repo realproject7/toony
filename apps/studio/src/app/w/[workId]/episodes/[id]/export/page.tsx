@@ -8,6 +8,7 @@
 // path-safely from `<workId>`, lays out a thumbnail strip for context, and hands
 // off to the client `ExportPanel`.
 
+import { resolveReferenceWidth } from "@toony/schema";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ExportPanel } from "@/components/export-panel";
@@ -106,7 +107,11 @@ export default async function EpisodeExportPage({
           ))}
         </aside>
 
-        <ExportPanel workId={work.id} episodeId={episode.id} />
+        <ExportPanel
+          workId={work.id}
+          episodeId={episode.id}
+          referenceWidth={resolveReferenceWidth(loaded.project.webtoon.referenceWidth)}
+        />
       </div>
     </div>
   );

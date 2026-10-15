@@ -18,7 +18,6 @@ import {
   DEFAULT_JPEG_QUALITY,
   PLATFORM_DEFAULT_WIDTH,
   PLOTLINK_DEFAULT_WIDTH,
-  STITCHED_DEFAULT_WIDTH,
 } from "@toony/export/defaults";
 import { useCallback, useMemo, useState } from "react";
 import { type ConstraintCheck, formatBytes } from "@/lib/export-view";
@@ -37,7 +36,8 @@ interface TargetSpec {
    * WebP and honors quality as the encode's starting quality. PNG ignores it.
    */
   supportsQuality: boolean;
-  defaultWidth: number;
+  /** null selects the project's reference column. */
+  defaultWidth: number | null;
 }
 
 // Per-target defaults come from the export engine (#154 single-source), so the
@@ -57,7 +57,7 @@ const TARGETS = [
     blurb: "A single tall image: cuts, gutters, transitions, lettering.",
     supportsFormat: true,
     supportsQuality: true,
-    defaultWidth: STITCHED_DEFAULT_WIDTH,
+    defaultWidth: null,
   },
   {
     kind: "plotlink",
@@ -87,9 +87,10 @@ interface ApiResponse {
 export interface ExportPanelProps {
   workId: string;
   episodeId: string;
+  referenceWidth: number;
 }
 
-export function ExportPanel({ workId, episodeId }: ExportPanelProps) {
+export function ExportPanel({ workId, episodeId, referenceWidth }: ExportPanelProps) {
   const [target, setTarget] = useState<TargetKind>("platform");
   const [width, setWidth] = useState<number>(PLATFORM_DEFAULT_WIDTH);
   const [format, setFormat] = useState<"png" | "jpeg">("png");
@@ -111,12 +112,15 @@ export function ExportPanel({ workId, episodeId }: ExportPanelProps) {
     [spec, target, format],
   );
 
-  const selectTarget = useCallback((next: TargetSpec) => {
-    setTarget(next.kind);
-    setWidth(next.defaultWidth);
-    setResult(null);
-    setError(null);
-  }, []);
+  const selectTarget = useCallback(
+    (next: TargetSpec) => {
+      setTarget(next.kind);
+      setWidth(next.defaultWidth ?? referenceWidth);
+      setResult(null);
+      setError(null);
+    },
+    [referenceWidth],
+  );
 
   const run = useCallback(async () => {
     setBusy(true);
