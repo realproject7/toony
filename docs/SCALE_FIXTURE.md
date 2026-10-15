@@ -17,6 +17,11 @@ not visual acceptance.
 
 ## Running it
 
+The recorded run below predates #350. New runs measure and stitch at the
+project's reference width (800 px when absent). Pass `--width 1200` to those
+commands to reproduce the earlier composition width. Geometry-only planning
+keeps its fixed default, and the raster memory limit is unchanged.
+
 ```bash
 pnpm scale-fixture
 ```

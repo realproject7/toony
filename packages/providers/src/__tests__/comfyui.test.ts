@@ -153,6 +153,7 @@ test("produce times out when no image appears in time", async () => {
   const fetch: FetchLike = async (url) => {
     if (url.endsWith("/prompt")) return jsonResponse(promptAcceptedResponse());
     if (url.includes("/history/")) return jsonResponse(historyPendingResponse());
+    if (url.endsWith("/queue")) return jsonResponse({ queue_running: [], queue_pending: [] });
     throw new Error("unexpected");
   };
   const provider = new ComfyUIProvider(
@@ -172,6 +173,135 @@ test("produce times out when no image appears in time", async () => {
     },
   );
 });
+
+test("the implicit timeout scales with final workflow dimensions, while explicit timeouts do not", async () => {
+  for (const scenario of ["workflow", "explicit-timeout", "request-size", "linked-size"]) {
+    const scaleTimeoutWithArea = scenario !== "explicit-timeout";
+    let clock = 0;
+    const fetch: FetchLike = async (url) => {
+      if (url.endsWith("/prompt")) return jsonResponse(promptAcceptedResponse());
+      if (url.includes("/history/"))
+        return jsonResponse(
+          clock >= 200_000 ? historyCompleteResponse(PROMPT_ID) : historyPendingResponse(),
+        );
+      if (url.includes("/view")) return bytesResponse(pngWithMetadata());
+      if (url.endsWith("/queue")) return jsonResponse({ queue_running: [], queue_pending: [] });
+      return new Response(null, { status: 404 });
+    };
+    // No request width: use the workflow's own final dimensions.
+    const config = testConfig();
+    const latent = config.workflow["5"];
+    assert.ok(latent);
+    latent.inputs = { width: scenario === "linked-size" ? ["10", 0] : 832, height: 2744 };
+    const provider = new ComfyUIProvider(
+      { ...config, timeoutMs: 180_000, pollIntervalMs: 100_000, scaleTimeoutWithArea },
+      {
+        fetch,
+        sleep: async (ms) => {
+          clock += ms;
+        },
+        now: () => clock,
+      },
+    );
+    const request = {
+      prompt: "scene",
+      options: scenario === "request-size" ? { width: 512, height: 512 } : undefined,
+    };
+    if (scenario === "workflow") assert.equal((await provider.produce(request)).format, "png");
+    else
+      await assert.rejects(
+        () => provider.produce(request),
+        (e: unknown) =>
+          e instanceof ProviderError && e.code === "comfyui.timeout" && /180s/.test(e.message),
+      );
+  }
+});
+
+test("a timed-out job is cancelled by ID and confirmed absent without interrupting unrelated jobs", async () => {
+  let clock = 0;
+  let polls = 0;
+  const mutations: Array<{ url: string; body: unknown }> = [];
+  const fetch: FetchLike = async (url, init) => {
+    if (url.endsWith("/prompt")) return jsonResponse(promptAcceptedResponse());
+    if (url.includes("/history/")) return jsonResponse(historyPendingResponse());
+    if (init?.method === "POST") {
+      mutations.push({ url, body: init.body ? JSON.parse(String(init.body)) : null });
+      return jsonResponse({ cancelled: true });
+    }
+    if (url.endsWith("/queue"))
+      return jsonResponse({
+        queue_running: ++polls === 1 ? [[1, PROMPT_ID]] : [[2, "other-job"]],
+        queue_pending: [[3, "another-job"]],
+      });
+    throw new Error("unexpected request");
+  };
+  const provider = new ComfyUIProvider(
+    { ...testConfig(), timeoutMs: 10 },
+    {
+      fetch,
+      sleep: async (ms) => {
+        clock += ms;
+      },
+      now: () => clock,
+    },
+  );
+  await assert.rejects(
+    () => provider.produce({ prompt: "scene" }),
+    (e: unknown) =>
+      e instanceof ProviderError &&
+      e.code === "comfyui.timeout" &&
+      /TOONY_COMFYUI_TIMEOUT_MS/.test(e.message),
+  );
+  assert.deepEqual(mutations, [
+    { url: `http://127.0.0.1:8188/api/jobs/${PROMPT_ID}/cancel`, body: null },
+    { url: "http://127.0.0.1:8188/queue", body: { delete: [PROMPT_ID] } },
+  ]);
+  assert.equal(polls, 2, "a cancel acknowledgement is not proof the worker stopped");
+});
+
+for (const state of ["pending", "running", "malformed", "unreachable"] as const) {
+  test(`legacy cancellation handles a ${state} queue without a global interrupt`, async () => {
+    let clock = 0;
+    let deleted = false;
+    const mutations: string[] = [];
+    const fetch: FetchLike = async (url, init) => {
+      if (url.endsWith("/prompt")) return jsonResponse(promptAcceptedResponse());
+      if (url.includes("/history/")) return jsonResponse(historyPendingResponse());
+      if (init?.method === "POST") {
+        mutations.push(url);
+        if (url.endsWith("/cancel")) return new Response(null, { status: 404 });
+        assert.deepEqual(JSON.parse(String(init.body)), { delete: [PROMPT_ID] });
+        deleted = true;
+        return new Response();
+      }
+      if (state === "unreachable") throw new TypeError("connection lost");
+      if (state === "malformed") return jsonResponse({ queue_running: [], queue_pending: [null] });
+      return jsonResponse({
+        queue_running: state === "running" ? [[1, PROMPT_ID]] : [[2, "other-job"]],
+        queue_pending: state === "pending" && !deleted ? [[3, PROMPT_ID]] : [],
+      });
+    };
+    const provider = new ComfyUIProvider(
+      { ...testConfig(), timeoutMs: 10 },
+      {
+        fetch,
+        sleep: async (ms) => {
+          clock += ms;
+        },
+        now: () => clock,
+      },
+    );
+    await assert.rejects(
+      () => provider.produce({ prompt: "scene" }),
+      (e: unknown) =>
+        e instanceof ProviderError &&
+        e.code === (state === "pending" ? "comfyui.timeout" : "comfyui.timeout-unsettled"),
+    );
+    assert.equal(deleted, true);
+    assert.equal(mutations.length, 2);
+    assert.ok(mutations.every((url) => !url.endsWith("/interrupt")));
+  });
+}
 
 // #180: the gate must reflect where content actually goes. The ImageProvider
 // contract already said "false for local sources (manual/local/ComfyUI-on-

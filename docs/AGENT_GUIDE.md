@@ -87,6 +87,11 @@ choice of its own.
    toony export plotlink --episode <id>
    ```
 
+   Measurement and stitched export default to the project's `referenceWidth`
+   (800 px when absent). An explicit `--width` or export preset width wins.
+   Studio opens the stitched width control at the same project width. The raster
+   memory limit still applies; reduce width or split an episode that exceeds it.
+
 ## Files you write, files you never touch
 
 Write by hand: `script/brief.json`, `script/episodes/<id>.json`,

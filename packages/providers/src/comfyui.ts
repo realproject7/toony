@@ -22,7 +22,7 @@ import {
   parsePromptId,
   readHistory,
 } from "./comfyui-protocol.js";
-import { buildWorkflow, type WorkflowParams } from "./comfyui-workflow.js";
+import { buildWorkflow, type ComfyWorkflowGraph, type WorkflowParams } from "./comfyui-workflow.js";
 import { ProviderError } from "./errors.js";
 import { contentTypeFor, detectImageFormat } from "./format.js";
 import type { ImageProvider, ImageRequest, ProviderResult } from "./types.js";
@@ -170,7 +170,7 @@ export class ComfyUIProvider implements ImageProvider {
     const clientId = randomUUID();
 
     const promptId = await this.submit(graph, clientId);
-    const image = await this.waitForImage(promptId);
+    const image = await this.waitForImage(promptId, this.generationTimeout(graph));
     const bytes = await this.fetchImage(image);
 
     const format = detectImageFormat(bytes);
@@ -262,13 +262,90 @@ export class ComfyUIProvider implements ImageProvider {
     return parsePromptId(parsed);
   }
 
-  private async waitForImage(promptId: string): Promise<ComfyImageRef> {
-    const deadline = this.now() + this.config.timeoutMs;
+  private generationTimeout(graph: ComfyWorkflowGraph): number {
+    if (!this.config.scaleTimeoutWithArea) return this.config.timeoutMs;
+    const map = this.config.injectionMap;
+    const width = graph[map.widthNode]?.inputs[map.widthInput];
+    const height = graph[map.heightNode]?.inputs[map.heightInput];
+    if (
+      typeof width !== "number" ||
+      typeof height !== "number" ||
+      !Number.isSafeInteger(width) ||
+      !Number.isSafeInteger(height) ||
+      width <= 0 ||
+      height <= 0 ||
+      !Number.isSafeInteger(width * height)
+    )
+      return this.config.timeoutMs;
+    return Math.max(
+      this.config.timeoutMs,
+      Math.ceil((this.config.timeoutMs * width * height) / 1_000_000),
+    );
+  }
+
+  /** Confirm the timed-out job has left the queue before another cut can run. */
+  private async settleTimedOutJob(promptId: string): Promise<boolean> {
+    // The job-specific route is atomic on servers that support it. Older
+    // servers return 404. Never use /interrupt: old handlers ignore prompt_id
+    // and can interrupt another user's job, even after a queue pre-check.
+    try {
+      await this.fetch(`${this.config.url}/api/jobs/${encodeURIComponent(promptId)}/cancel`, {
+        method: "POST",
+        signal: AbortSignal.timeout(1_000),
+      });
+    } catch {
+      /* Queue confirmation below is authoritative. */
+    }
+    try {
+      await this.fetch(`${this.config.url}/queue`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ delete: [promptId] }),
+        signal: AbortSignal.timeout(1_000),
+      });
+    } catch {
+      /* A failed delete must not hide the original timeout. */
+    }
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const response = await this.fetch(`${this.config.url}/queue`, {
+          signal: AbortSignal.timeout(1_000),
+        });
+        const queue = response.ok ? await safeJson(response) : undefined;
+        if (typeof queue === "object" && queue !== null) {
+          const { queue_running: running, queue_pending: pending } = queue as Record<
+            string,
+            unknown
+          >;
+          if (Array.isArray(running) && Array.isArray(pending)) {
+            const jobs: unknown[] = [...running, ...pending];
+            if (
+              jobs.every((job) => Array.isArray(job) && typeof job[1] === "string") &&
+              !jobs.some((job) => (job as unknown[])[1] === promptId)
+            )
+              return true;
+          }
+        }
+      } catch {
+        /* Unknown state is not proof that the job stopped. */
+      }
+      if (attempt < 4) await this.sleep(250);
+    }
+    return false;
+  }
+
+  private async waitForImage(promptId: string, timeoutMs: number): Promise<ComfyImageRef> {
+    const deadline = this.now() + timeoutMs;
     for (;;) {
+      const remaining = deadline - this.now();
+      if (remaining <= 0) break;
       let response: Response;
       try {
-        response = await this.fetch(`${this.config.url}/history/${encodeURIComponent(promptId)}`);
+        response = await this.fetch(`${this.config.url}/history/${encodeURIComponent(promptId)}`, {
+          signal: AbortSignal.timeout(Math.min(2_147_483_647, Math.ceil(remaining))),
+        });
       } catch {
+        if (this.now() >= deadline) break;
         throw new ProviderError(
           "comfyui.connect",
           "lost connection to the ComfyUI server while waiting for the result.",
@@ -281,14 +358,18 @@ export class ComfyUIProvider implements ImageProvider {
           throw new ProviderError("comfyui.execution", status.message);
         }
       }
-      if (this.now() >= deadline) {
-        throw new ProviderError(
-          "comfyui.timeout",
-          `ComfyUI did not produce an image within ${Math.round(this.config.timeoutMs / 1000)}s.`,
-        );
-      }
-      await this.sleep(this.config.pollIntervalMs);
+      if (this.now() >= deadline) break;
+      await this.sleep(Math.min(this.config.pollIntervalMs, deadline - this.now()));
     }
+    const settled = await this.settleTimedOutJob(promptId);
+    throw new ProviderError(
+      settled ? "comfyui.timeout" : "comfyui.timeout-unsettled",
+      `ComfyUI did not produce an image within ${Math.round(timeoutMs / 1000)}s. ` +
+        "Set TOONY_COMFYUI_TIMEOUT_MS to allow more time. " +
+        (settled
+          ? "The timed-out job is no longer queued or running."
+          : "The timed-out job could not be confirmed stopped. Check the server queue before retrying; no global interrupt was sent."),
+    );
   }
 
   private async fetchImage(image: ComfyImageRef): Promise<Uint8Array> {

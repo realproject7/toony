@@ -199,7 +199,7 @@ export interface CraftMeasurement {
 }
 
 export interface MeasureOptions {
-  /** Render width in px. Defaults to the stitched export width. */
+  /** Render width in px. Defaults to the project's referenceWidth, or 800. */
   width?: number;
   /** Screen height as a multiple of the width. Defaults to `DEFAULT_SCREEN_ASPECT`. */
   screenAspect?: number;

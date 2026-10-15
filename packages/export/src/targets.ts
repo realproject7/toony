@@ -20,7 +20,6 @@ import {
   DEFAULT_WEBP_QUALITY,
   PLATFORM_DEFAULT_WIDTH,
   PLOTLINK_DEFAULT_WIDTH,
-  STITCHED_DEFAULT_WIDTH,
 } from "./defaults.js";
 import { encodeCanvas, type RasterFormat } from "./encode.js";
 import { ExportError } from "./errors.js";
@@ -357,7 +356,10 @@ export async function stitchEpisode(
 ): Promise<StitchedEpisode> {
   const loaded = await loadEpisode(root, episodeId);
   const { bundle, project } = loaded;
-  const renderWidth = Math.max(1, Math.round(width ?? STITCHED_DEFAULT_WIDTH));
+  const renderWidth = Math.max(
+    1,
+    Math.round(width ?? resolveReferenceWidth(project.webtoon.referenceWidth)),
+  );
   const totalHeight = preflightRasters(loaded, renderWidth, true);
   const bands = await composeEpisodeBands(loaded, renderWidth);
 

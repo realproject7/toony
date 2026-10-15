@@ -50,7 +50,7 @@ import { ProviderError } from "./errors.js";
 /** ComfyUI's documented default local address. Not a configured endpoint. */
 export const COMFYUI_DEFAULT_LOCAL_URL = "http://127.0.0.1:8188";
 
-/** Default overall timeout for a single generation (3 minutes). */
+/** Default timeout floor and allowance per megapixel (3 minutes). */
 export const COMFYUI_DEFAULT_TIMEOUT_MS = 180_000;
 
 /** Fully-resolved settings the ComfyUI client runs against. */
@@ -60,6 +60,8 @@ export interface ComfyUIConfig {
   injectionMap: WorkflowInjectionMap;
   checkpoint?: string;
   timeoutMs: number;
+  /** Only the implicit default scales with the submitted latent area. */
+  scaleTimeoutWithArea?: boolean;
   /** Polling interval for /history while waiting for completion. */
   pollIntervalMs: number;
 }
@@ -301,11 +303,11 @@ export async function resolveComfyUIConfig(
     nonEmpty(fromFile.checkpoint) ??
     nonEmpty(ws?.checkpoint);
 
-  const timeoutMs =
+  const explicitTimeoutMs =
     overrides.timeoutMs ??
     parsePositiveInt(env.TOONY_COMFYUI_TIMEOUT_MS, "TOONY_COMFYUI_TIMEOUT_MS") ??
-    fromFile.timeoutMs ??
-    COMFYUI_DEFAULT_TIMEOUT_MS;
+    fromFile.timeoutMs;
+  const timeoutMs = explicitTimeoutMs ?? COMFYUI_DEFAULT_TIMEOUT_MS;
 
   const pollIntervalMs = overrides.pollIntervalMs ?? fromFile.pollIntervalMs ?? 1_000;
 
@@ -315,6 +317,7 @@ export async function resolveComfyUIConfig(
     injectionMap,
     checkpoint,
     timeoutMs,
+    scaleTimeoutWithArea: explicitTimeoutMs === undefined,
     pollIntervalMs,
   };
 }
