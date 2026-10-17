@@ -390,6 +390,16 @@ export function validateCutValue(value: unknown, path: string, c: IssueCollector
       c.add(joinPath(path, key), "cut.prompt", `${key} must be a string.`);
     }
   }
+  if (
+    value.imageFraming !== undefined &&
+    !isOneOf(value.imageFraming, ["scene", "detail"] as const)
+  ) {
+    c.add(
+      joinPath(path, "imageFraming"),
+      "cut.image-framing",
+      "imageFraming must be scene or detail.",
+    );
+  }
   // Character refs (#92) are OPTIONAL + back-compat. The schema validates only
   // the SHAPE (an array of non-empty id strings); whether each id resolves to a
   // registry character is a referential LINT check (`character/unknown-ref`), so

@@ -71,6 +71,33 @@ choice of its own.
    `toony produce run ... --from <file>`. `toony generate` and
    `toony import-image` remain available for a single cut when the person has
    already said yes.
+   Before approving generation, inspect the resolved provider inputs without
+   submitting an image request:
+
+   ```sh
+   toony generate --episode <id> --cut <cut> --dry-run --json
+   ```
+
+   This shows the composed prompt, effective negative prompt, resolved canvas,
+   reference attachment and authoring findings. It reads local configuration and
+   assets but writes no project data and contacts no provider. A nonzero exit may
+   accompany a complete JSON report when a preflight finding blocks generation.
+   Inspection skips repeat/replacement checks, which still run before a real render.
+
+   Use `--framing detail` for hands, body-part or object inserts. This records
+   `imageFraming: detail`, omits full-character descriptions and automatic portrait
+   references, and keeps the authored detail prompt. Scene framing remains the
+   default. In multi-character tag prompts, standalone singular count tags are
+   removed from separate identity descriptions; the scene must state its cast.
+   No text template guarantees subject binding or professional artwork.
+
+   A panel ratio may no longer silently reduce generation below the workflow's
+   default canvas area. Inspect the proposed size, then choose an explicit width
+   or height if the smaller canvas is deliberate. The warning remains visible.
+   The baseline is an input-budget check, not a universal image-quality threshold.
+   A display slot, generation resolution and future source crop are separate
+   decisions. Existing images and display geometry are unchanged.
+
 6. **Read review and craft results.** `toony validate --json`,
    `toony lint-episode <id> --json`, `toony plan --episode <id> --json`, and
    after art exists `toony measure --episode <id> --json`. Each cut carries a

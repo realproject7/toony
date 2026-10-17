@@ -419,10 +419,12 @@ export interface Cut {
   image: ImageAssetRef | null;
   imagePrompt: string;
   negativePrompt: string;
+  /** Detail framing omits full-character prompt/reference injection. Absent means scene. */
+  imageFraming?: "scene" | "detail";
   /**
    * Ids of the project characters (#92) present in this cut. OPTIONAL and
    * back-compatible: projects written before the character registry omit it.
-   * `toony generate` injects the referenced characters' lockstrings verbatim
+   * `toony generate` composes the referenced characters' identity descriptions
    * into the cut's prompt; an unknown id is flagged by lint, not the schema.
    */
   characters?: string[];

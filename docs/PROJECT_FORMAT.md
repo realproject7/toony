@@ -117,6 +117,15 @@ flags at all returns the image the operator accepted instead of rolling a new
 seed. An explicit flag still wins for the run it is given on, and what that run
 produced is what the cut then holds.
 
+`imageFraming` is optional: `scene` (also the absent default) composes character
+identity descriptions; `detail` keeps a hands/body-part/object insert focused by
+omitting full-character descriptions and automatic character-reference attachment.
+Set it through `toony generate --framing scene|detail` or the corresponding
+`produce run` flag. It is recorded in the ingest log as `renderInputs.framing`
+and written back for clean renders. It does not change existing image pixels,
+cut display geometry, or lettering. Detail prompts must supply their own visible
+identity cues. This is a framing instruction, not a regional-conditioning guarantee.
+
 `imageWorkflow` is a workflow NAME (see [PACK_FORMAT.md](PACK_FORMAT.md)). A
 workflow reached through local runtime config has no name to record — that run
 reproduces through the same local config, and a path on the operator's machine
