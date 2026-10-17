@@ -433,3 +433,44 @@ on-disk format grow without touching either.
 If the project loader is ever made to walk the project root, or the project
 validator is ever made strict about unknown keys, that is a breaking change to
 this contract and has to be handled as one.
+
+## Reference-width text layout
+
+An overlay may opt into `textLayout` independently of its shape and tail:
+
+```json
+{
+  "fontSize": null,
+  "verticalAlign": "middle",
+  "textLayout": {
+    "version": 1,
+    "referenceWidth": 800,
+    "paddingX": 0.08,
+    "paddingY": 0.12,
+    "minFontSize": 20,
+    "maxFontSize": 30
+  }
+}
+```
+
+Padding is the fraction of the bubble body reserved on EACH side. Values range
+from 0 to 0.45. Font sizes are pixels at `referenceWidth`; both fixed `fontSize`
+and auto-fit limits scale with the output artwork width. Resizing a bubble changes
+the room available, without changing authored font-size values. `fontSize: null`
+uses the explicit fit range. At its minimum, unresolved overflow remains flagged.
+Fit bounds use the existing 6..200 size range and minimum cannot exceed maximum.
+Reference width follows the project's supported positive integer width bounds.
+
+The shared renderer fits in reference units, exposes a text frame and resolves
+alphabetic baselines from font ink metrics. Studio and export consume the same
+plan. Font engines may round glyph ink metrics differently; comparisons require
+identical line breaks and allow at most one pixel in baseline positioning for
+the verified reference-layout case. Existing overlays with no
+`textLayout` keep their prior pixel sizes, height-based fitting and absent-field
+alignment. Opening or saving them does not opt them in. Studio offers an explicit
+conversion action. New Studio bubbles opt in at the project width and use middle
+alignment; a selected theme can still provide explicit style overrides.
+
+Use an updated editor/export engine for this extension. Styled text ranges,
+italic font capabilities and gradient fill are separate contract work; this
+object does not imply those capabilities or copy the private prototype format.

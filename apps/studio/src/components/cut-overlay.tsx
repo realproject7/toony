@@ -69,7 +69,7 @@ function Bubble({ plan }: { plan: BubbleRender }) {
           // biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines are a positional, read-only layout output — the index is the stable identity within a single layout pass.
           key={`${plan.id}-line-${i}`}
           x={line.anchorX}
-          y={line.y + fontSize}
+          y={line.baselineY ?? line.y + fontSize}
           // The resolved face goes on as a style, not a `font-family` attribute:
           // an SVG presentation attribute loses to any author stylesheet rule (#229).
           style={bubbleTextStyle(plan)}

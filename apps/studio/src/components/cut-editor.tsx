@@ -83,6 +83,7 @@ export interface CutEditorProps {
    * `layoutCut`, so the editor edits bubbles in the band the export letters in.
    */
   gutterBandWidth: number;
+  referenceWidth: number;
   /** The cut's own editable fields (#332), shown beside the bubble inspector. */
   cutFields: CutFields;
   /** The project character registry, for the cut's character picker. */
@@ -112,6 +113,7 @@ export function CutEditor({
   artworkRevision,
   dialogueLanguage,
   gutterBandWidth,
+  referenceWidth,
   cutFields,
   characters,
   renderRecord,
@@ -316,12 +318,12 @@ export function CutEditor({
   const addBubble = useCallback(() => {
     history.record();
     setBubbles((prev) => {
-      const created = newOverlay(cutId, prev.length, theme ?? undefined);
+      const created = newOverlay(cutId, prev.length, theme ?? undefined, referenceWidth);
       setSelectedId(created.id);
       return [...prev, created];
     });
     markDirty();
-  }, [cutId, markDirty, history, theme]);
+  }, [cutId, markDirty, history, theme, referenceWidth]);
 
   // Apply the project's theme to the selected bubble on request (#336): every
   // field the theme states for its kind is written; the rest stays.
@@ -773,7 +775,7 @@ export function CutEditor({
                           // biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines are a positional layout output; the index is the stable identity within one layout pass.
                           key={`${plan.id}-line-${i}`}
                           x={line.anchorX}
-                          y={line.y + fontSize}
+                          y={line.baselineY ?? line.y + fontSize}
                           // The resolved face goes on as a style, not a `font-family`
                           // attribute: an SVG presentation attribute loses to any
                           // author stylesheet rule (#229).
@@ -919,7 +921,7 @@ export function CutEditor({
                           // biome-ignore lint/suspicious/noArrayIndexKey: positional layout output.
                           key={`${plan.id}-eline-${i}`}
                           x={line.anchorX}
-                          y={line.y + plan.text.fontSize}
+                          y={line.baselineY ?? line.y + plan.text.fontSize}
                           // Same reason as the art-bearing stage above (#229).
                           style={bubbleTextStyle(plan)}
                           fontSize={plan.text.fontSize}
@@ -967,6 +969,7 @@ export function CutEditor({
           {selected ? (
             <BubbleInspector
               overlay={selected}
+              referenceWidth={referenceWidth}
               overflow={selectedPlan?.overflow ?? false}
               onChange={(patch) => update(selected.id, patch)}
               onBringForward={bringForward}

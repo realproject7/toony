@@ -5,22 +5,36 @@
 // reconciliation is (#150).
 
 import { bubbleKindStyle } from "@toony/render";
-import { applyLetteringTheme, type LetteringOverlay, type LetteringTheme } from "@toony/schema";
+import {
+  applyLetteringTheme,
+  defaultLetteringTextLayout,
+  type LetteringOverlay,
+  type LetteringTheme,
+  resolveReferenceWidth,
+} from "@toony/schema";
 
 /**
- * Build a freshly added overlay for `cutId`. Style fields are seeded only where
- * the schema requires a value: `fill` carries the kind's default fill so the new
- * bubble both validates and renders like its kind. Typography is left ABSENT so
- * the renderer resolves the per-kind default family; seeding a face here would
- * persist a choice the user never made (#208).
+ * Build a freshly added overlay for `cutId`. Required appearance fields use the kind defaults:
+ * `fill` carries the kind's default fill so the new
+ * bubble both validates and renders like its kind. The font family is left absent so
+ * the renderer resolves its per-kind default; seeding a face here would
+ * persist a choice the user never made (#208). New bubbles explicitly opt into
+ * width-based text layout and middle alignment. Existing overlays are untouched.
  */
-export function newOverlay(cutId: string, index: number, theme?: LetteringTheme): LetteringOverlay {
+export function newOverlay(
+  cutId: string,
+  index: number,
+  theme?: LetteringTheme,
+  referenceWidth = resolveReferenceWidth(undefined),
+): LetteringOverlay {
   const bare: LetteringOverlay = {
     id: `ov-${cutId}-${Date.now().toString(36)}-${index}`,
     cutId,
     speaker: "",
     kind: "speech",
     text: "New bubble",
+    verticalAlign: "middle",
+    textLayout: defaultLetteringTextLayout(referenceWidth),
     fill: bubbleKindStyle("speech").fill,
     opacity: 1,
     border: null,

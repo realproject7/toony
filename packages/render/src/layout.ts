@@ -71,6 +71,8 @@ export interface RenderedTextLine {
    * arcs narrow the column on the lines nearest the top and bottom edges (#210).
    */
   anchorX: number;
+  /** Alphabetic baseline for versioned text layout; legacy lines retain top anchoring. */
+  baselineY?: number;
 }
 
 /** A fully resolved render plan for one bubble, in the caller's pixel space. */
@@ -159,6 +161,8 @@ export interface BubbleRender {
   lines: RenderedTextLine[];
   /** Text origin: top-left of the body text area. */
   textOrigin: { x: number; y: number };
+  /** Shared inner text frame, before vertical alignment. */
+  textFrame: Rect;
   /** True when text overflows the box even at the minimum font. */
   overflow: boolean;
 }
@@ -462,34 +466,69 @@ export function layoutBubble(
   // #93: a beat bubble with no authored text renders an ellipsis pause; per-kind
   // `fontScale` shrinks the auto-fit range (ambient reads smaller/denser).
   const renderText = kind === "beat" && overlay.text.trim().length === 0 ? "..." : overlay.text;
-  const text = layoutBubbleText(measure, renderText, ow, oh, {
-    minFontSize: gutterFloor * style.fontScale,
-    maxFontSize: maxFontSize * style.fontScale,
-    // A stored numeric fontSize fixes the size; null/absent keeps auto-fit.
+  const policy = overlay.textLayout;
+  const unitScale = policy === undefined ? 1 : width / policy.referenceWidth;
+  const padX = policy === undefined ? Math.max(2, ow * 0.06) : ow * policy.paddingX;
+  const padY = policy === undefined ? Math.max(2, oh * 0.08) : oh * policy.paddingY;
+  // Fit in canonical reference units so different output widths cannot choose
+  // different wrap points or half-pixel auto-fit steps. Legacy units stay exact.
+  const referenceText = layoutBubbleText(measure, renderText, ow / unitScale, oh / unitScale, {
+    minFontSize: policy?.minFontSize ?? gutterFloor * style.fontScale,
+    maxFontSize: policy?.maxFontSize ?? maxFontSize * style.fontScale,
     fontSize: overlay.fontSize ?? undefined,
     fontWeight: measureWeight,
-    // The resolved family id (#56), so a face-aware measurer (export) wraps with
-    // the same face it draws (#77). The default measurer ignores it.
     fontFamily,
     lineHeightFactor,
     letterSpacing,
-    // Wrap inside the DRAWN silhouette, not the body rect (#210). The corner arcs
-    // cut into the rect exactly where the first and last lines sit, which is where
-    // the wrap lets lines grow widest. Zero when no shape is drawn (bare SFX
-    // text), so those layouts are unchanged.
-    cornerRadius: drawsOutline ? radius : 0,
+    paddingX: padX / unitScale,
+    paddingY: padY / unitScale,
+    cornerRadius: drawsOutline ? radius / unitScale : 0,
   });
+  const text =
+    policy === undefined
+      ? referenceText
+      : {
+          ...referenceText,
+          fontSize: referenceText.fontSize * unitScale,
+          lineHeight: referenceText.lineHeight * unitScale,
+          lineInsets: referenceText.lineInsets.map((inset) => inset * unitScale),
+        };
 
-  // Text origin: inside the box padding.
-  const padX = Math.max(2, ow * 0.06);
-  const padY = Math.max(2, oh * 0.08);
   const textOriginX = ox + padX;
   // Vertical anchoring (#115): `top` (default) keeps the text at the top padding
   // (byte-identical to before); `middle`/`bottom` offset the whole block within
   // the box's inner height. Baked into line.y so every consumer honors it.
   const verticalAlign: VerticalAlign = overlay.verticalAlign ?? "top";
   const innerHeight = Math.max(0, oh - 2 * padY);
-  const blockHeight = text.lines.length * text.lineHeight;
+  const ink =
+    policy === undefined
+      ? undefined
+      : text.lines.map((line) => {
+          const measured = measure.metrics?.(
+            line || "Ag가",
+            referenceText.fontSize,
+            measureWeight,
+            fontFamily,
+          );
+          return {
+            ascent:
+              (measured && Number.isFinite(measured.ascent) && measured.ascent >= 0
+                ? measured.ascent
+                : referenceText.fontSize * 0.8) * unitScale,
+            descent:
+              (measured && Number.isFinite(measured.descent) && measured.descent >= 0
+                ? measured.descent
+                : referenceText.fontSize * 0.2) * unitScale,
+          };
+        });
+  const firstAscent = ink?.[0]?.ascent ?? 0;
+  const blockHeight =
+    ink === undefined
+      ? text.lines.length * text.lineHeight
+      : Math.max(
+          0,
+          (text.lines.length - 1) * text.lineHeight + firstAscent + (ink.at(-1)?.descent ?? 0),
+        );
   const vOffset =
     verticalAlign === "middle"
       ? Math.max(0, (innerHeight - blockHeight) / 2)
@@ -511,6 +550,9 @@ export function layoutBubble(
       text: line,
       x: lineLeft,
       y: textOriginY + i * text.lineHeight,
+      ...(policy === undefined
+        ? {}
+        : { baselineY: textOriginY + firstAscent + i * text.lineHeight }),
       centerX,
       anchorX:
         textAlign === "left" ? lineLeft : textAlign === "right" ? ox + ow - padX - inset : centerX,
@@ -580,6 +622,12 @@ export function layoutBubble(
     text,
     lines,
     textOrigin: { x: textOriginX, y: textOriginY },
+    textFrame: {
+      x: ox + padX,
+      y: oy + padY,
+      width: Math.max(0, ow - 2 * padX),
+      height: Math.max(0, oh - 2 * padY),
+    },
     overflow: text.overflow,
   };
 }

@@ -23,12 +23,16 @@ import { GUTTER_BAND_WIDTH_DEFAULT } from "@toony/schema";
  * The deterministic DOM-free default measurer ignores it, so server-side layout
  * stays platform-independent.
  */
-export type MeasureWidth = (
-  text: string,
-  fontSize: number,
-  fontWeight?: 400 | 700,
-  fontFamily?: string,
-) => number;
+export interface MeasureWidth {
+  (text: string, fontSize: number, fontWeight?: 400 | 700, fontFamily?: string): number;
+  /** Optional glyph ink metrics for reference-layout vertical alignment. */
+  metrics?: (
+    text: string,
+    fontSize: number,
+    fontWeight?: 400 | 700,
+    fontFamily?: string,
+  ) => { ascent: number; descent: number };
+}
 
 export interface BubbleTextLayout {
   /** Wrapped lines of body text (never empty; [""] for empty text). */

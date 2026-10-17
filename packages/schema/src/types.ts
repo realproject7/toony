@@ -9,6 +9,8 @@
 // validators operate on already-parsed structures, keeping the schema headless
 // and deterministic. The CLI (#5) is responsible for reading files from disk.
 
+import type { LetteringTextLayout } from "./lettering-layout.js";
+
 /** Schema version embedded in `webtoon.json` and `episode.yaml`. */
 export const SCHEMA_VERSION = 1;
 
@@ -369,6 +371,8 @@ export interface LetteringOverlay {
   fontFamily?: FontFamilyId;
   /** Fixed body font size in px (6–200); null or absent → renderer auto-fit. */
   fontSize?: number | null;
+  /** Versioned width-based typography; absent preserves legacy pixel/height fitting. */
+  textLayout?: LetteringTextLayout;
   /** Body font weight; absent → per-kind default (700 for shout/sfx). */
   fontWeight?: FontWeight;
   /** Line advance as a multiple of font size (0.8–2.5); absent → 1.2. */

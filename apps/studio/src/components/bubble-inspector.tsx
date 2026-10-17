@@ -51,6 +51,7 @@ import {
 } from "@toony/schema";
 import { clamp } from "@/lib/clamp";
 import { ColorPicker } from "./color-picker";
+import { TextLayoutControls } from "./text-layout-controls";
 
 /** Font-size quick presets (px), within the schema's 6..200 bounds. */
 const SIZE_PRESETS = [16, 24, 32, 48, 64] as const;
@@ -65,6 +66,7 @@ const WEIGHT_LABELS: Record<FontWeight, string> = {
 export interface BubbleInspectorProps {
   overlay: LetteringOverlay;
   overflow: boolean;
+  referenceWidth: number;
   onChange: (patch: Partial<LetteringOverlay>) => void;
   /** z-order helpers wired by the editor (re-stack the selected bubble). */
   onBringForward: () => void;
@@ -93,6 +95,7 @@ export function BubbleInspector({
   onNudge,
   projectPalette,
   dialogueLanguage,
+  referenceWidth,
 }: BubbleInspectorProps) {
   const supportsTail = kindSupportsTail(overlay.kind);
 
@@ -352,6 +355,11 @@ export function BubbleInspector({
           </select>
         </label>
 
+        <TextLayoutControls
+          layout={overlay.textLayout}
+          referenceWidth={referenceWidth}
+          onChange={(textLayout) => onChange({ textLayout })}
+        />
         <div className="field">
           <span>Size</span>
           <div className="field-inline">
