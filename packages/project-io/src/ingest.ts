@@ -83,6 +83,8 @@ export interface RenderInputs {
   prompt: string;
   basePrompt: string;
   negativePrompt: string;
+  /** Explicit framing policy that controlled character-context composition. */
+  framing?: "scene" | "detail";
   seed: number;
   /** The workflow's NAME, when the run selected one by name; never a path. */
   workflow?: string;

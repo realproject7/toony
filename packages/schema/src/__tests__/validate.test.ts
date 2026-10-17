@@ -16,6 +16,17 @@ test("a fully valid project passes with no issues", () => {
   assert.deepEqual(result.issues, []);
 });
 
+test("generation framing is optional, explicit, and rejects unsupported values", () => {
+  for (const framing of ["scene", "detail"]) {
+    const project = cloneValidProject();
+    Object.assign(project.episodes[0]?.cuts[0] ?? {}, { imageFraming: framing });
+    assert.equal(validateProject(project).valid, true);
+  }
+  const project = cloneValidProject();
+  Object.assign(project.episodes[0]?.cuts[0] ?? {}, { imageFraming: "automatic" });
+  assert.ok(codes(validateProject(project)).includes("cut.image-framing"));
+});
+
 test("non-object input fails fast", () => {
   const result = validateProject(null);
   assert.equal(result.valid, false);

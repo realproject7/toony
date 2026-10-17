@@ -1082,7 +1082,7 @@ test("a cut that declares no panel shape has NO size injected (#237)", async () 
 
 test("a declared panel shape becomes the cut's latent height (#237)", async () => {
   const projectDir = await scaffold();
-  await authorPanelShapes(projectDir, [0.62, undefined]);
+  await authorPanelShapes(projectDir, [1.62, undefined]);
   const comfy = await startFakeComfy(pngWithText());
   try {
     const c = capture({ TOONY_COMFYUI_URL: comfy.url });
@@ -1091,11 +1091,11 @@ test("a declared panel shape becomes the cut's latent height (#237)", async () =
       c.io,
     );
     assert.equal(code, EXIT_OK, c.err.join("\n"));
-    // 832 * 0.62 = 515.84, snapped to the 8px latent grid. The column is the
+    // 832 * 1.62 = 1347.84, snapped to the 8px latent grid. The column is the
     // workflow's own width, so only the height moved.
-    assert.deepEqual(comfy.latents(), [{ width: 832, height: 512 }]);
+    assert.deepEqual(comfy.latents(), [{ width: 832, height: 1344 }]);
     // The resolved size is reported, so an operator can see the shape took.
-    assert.match(c.out.join("\n"), /cut cut-001 \(clean\) at 832x512/);
+    assert.match(c.out.join("\n"), /cut cut-001 \(clean\) at 832x1344/);
   } finally {
     comfy.close();
   }
@@ -1103,7 +1103,7 @@ test("a declared panel shape becomes the cut's latent height (#237)", async () =
 
 test("each cut in one run is generated at its OWN declared shape (#237)", async () => {
   const projectDir = await scaffold();
-  await authorPanelShapes(projectDir, [1.5, 0.5]);
+  await authorPanelShapes(projectDir, [1.5, 2]);
   const comfy = await startFakeComfy(pngWithText());
   try {
     const c = capture({ TOONY_COMFYUI_URL: comfy.url });
@@ -1114,7 +1114,7 @@ test("each cut in one run is generated at its OWN declared shape (#237)", async 
     assert.equal(code, EXIT_OK, c.err.join("\n"));
     assert.deepEqual(comfy.latents(), [
       { width: 832, height: 1248 },
-      { width: 832, height: 416 },
+      { width: 832, height: 1664 },
     ]);
   } finally {
     comfy.close();
@@ -1205,7 +1205,7 @@ test("an out-of-range or non-numeric panel shape is refused, and nothing is gene
       const c = capture({ TOONY_COMFYUI_URL: comfy.url });
       const before = comfy.latents().length;
       const code = await runGenerate(
-        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
+        [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--width", "832", "--allow-remote"],
         c.io,
       );
       assert.equal(code, EXIT_OK, `${authored} was refused: ${c.err.join("\n")}`);

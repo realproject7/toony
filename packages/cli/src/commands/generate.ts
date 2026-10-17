@@ -94,6 +94,7 @@ import {
 } from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 import { passesAuthoringGate } from "../generate-gate.js";
+import { canvasFinding, type GenerationFinding, promptFindings } from "../generation-preflight.js";
 import { discoverPackContent } from "../packs.js";
 import { appendPaletteClause } from "../palette.js";
 import { latentHeightFor } from "../panel-shape.js";
@@ -139,10 +140,11 @@ const VALUE_FLAGS = new Set([
   "--seed",
   "--workflow",
   "--review-status",
+  "--framing",
 ]);
 /** `--cut` repeats so one run covers a whole episode (#204). */
 const LIST_FLAGS = new Set(["--cut"]);
-const BOOLEAN_FLAGS = new Set(["--allow-remote"]);
+const BOOLEAN_FLAGS = new Set(["--allow-remote", "--dry-run", "--json"]);
 
 function parseFlags(args: string[]): Flags | { error: string } {
   const positional: string[] = [];
@@ -171,7 +173,7 @@ function parseFlags(args: string[]): Flags | { error: string } {
 }
 
 const USAGE =
-  "usage: toony generate [path] --episode <id> ([--cut <id> ...] --review-status draft|human-edited|final | --cut <id> [--cut <id> ...] | --transition <id>) [--slot clean|final] --prompt <text> [--negative <text>] [--width <px>] [--height <px>] [--seed <n>|fresh] [--workflow <name>] [--provider comfyui] [--allow-remote]";
+  "usage: toony generate [path] --episode <id> ([--cut <id> ...] --review-status draft|human-edited|final | --cut <id> [--cut <id> ...] | --transition <id>) [--slot clean|final] --prompt <text> [--negative <text>] [--width <px>] [--height <px>] [--seed <n>|fresh] [--workflow <name>] [--provider comfyui] [--allow-remote] [--framing scene|detail] [--dry-run [--json]]";
 
 /** The `--seed` value that asks for a new roll rather than a number (#286). */
 export const FRESH_SEED = "fresh";
@@ -183,7 +185,7 @@ function parsePositiveInt(raw: string, name: string): number | { error: string }
 }
 
 /**
- * Prepend the referenced characters' lockstrings VERBATIM to `basePrompt` (#92),
+ * Compose the referenced characters' identity descriptions to `basePrompt` (#92),
  * so a character stays on-model across cuts. Order follows `characterIds` (the
  * cut's order), deduplicated; ids not in the registry are skipped (lint flags
  * them via `character/unknown-ref`), as are characters with a blank lockstring.
@@ -206,6 +208,26 @@ export function injectCharacterLockstrings(
     if (lockstring) lockstrings.push(lockstring);
   }
   if (lockstrings.length === 0) return basePrompt;
+  // Count tags are global instructions, not character identity. Scope multi-person
+  // descriptions and remove standalone singular count tags from those blocks.
+  if (
+    lockstrings.length > 1 &&
+    lockstrings.some((text) =>
+      text
+        .split(",")
+        .some((tag) => /^(?:1\s*(?:girl|boy|woman|man|person)|solo)$/i.test(tag.trim())),
+    )
+  ) {
+    const identities = lockstrings.map((text, index) => {
+      const description = text
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter((tag) => !/^(?:1\s*(?:girl|boy|woman|man|person)|solo)$/i.test(tag))
+        .join(", ");
+      return description ? `Character ${index + 1}: ${description}` : `Character ${index + 1}`;
+    });
+    return `${identities.join(". ")}. Scene: ${basePrompt}`;
+  }
   return `${lockstrings.join(", ")}, ${basePrompt}`;
 }
 
@@ -328,6 +350,7 @@ interface Job {
    * built from — so what is submitted and what is recorded cannot drift.
    */
   inputs: RenderInputs;
+  explicitFraming?: boolean;
   /**
    * The reference sheet this cut would condition on (#327): the first reference
    * of the first character the cut names that has one. Attached to the request
@@ -437,6 +460,7 @@ interface PlanInput {
   negative?: string;
   /** `--workflow`, which overrides what a cut recorded for this run only. */
   workflow?: string;
+  framing?: "scene" | "detail";
   /** Size and seed flags, which apply to every job in the run. */
   shared: Readonly<Record<string, string | number>>;
 }
@@ -525,9 +549,12 @@ function composePrompt(
   registry: readonly Character[],
   storyBible: string,
   lexicon?: StyleLexicon,
+  framing: "scene" | "detail" = cut?.imageFraming ?? "scene",
 ): string {
   const palette = appendPaletteClause(
-    injectCharacterLockstrings(basePrompt, cut?.characters, registry),
+    framing === "detail"
+      ? `Detail framing: show only the described part or object, without widening to a portrait or full figure. ${basePrompt}`
+      : injectCharacterLockstrings(basePrompt, cut?.characters, registry),
     cut?.palette,
   );
   // The pack's style words (#335) go last, after the palette, so they qualify
@@ -577,6 +604,7 @@ function planJobs(
     negative,
     workflow,
     shared,
+    framing,
     storyBible,
     lexicon,
   } = input;
@@ -632,7 +660,15 @@ function planJobs(
     }
     // Lockstrings prepend (#92), then the palette clause appends (#207), so the
     // colour qualifies the whole scene rather than one character's description.
-    const composed = composePrompt(cutPrompt, cut, registry, storyBible, lexicon?.lexicon);
+    const resolvedFraming = framing ?? cut?.imageFraming;
+    const composed = composePrompt(
+      cutPrompt,
+      cut,
+      registry,
+      storyBible,
+      lexicon?.lexicon,
+      resolvedFraming,
+    );
     // The cut's recorded inputs describe its clean plate, so only a clean run
     // replays them. The PROMPT still falls back for either slot, as it has since
     // #38: `imagePrompt` is authored text a cut has always shared between its
@@ -646,13 +682,15 @@ function planJobs(
       slot === "clean" ? cut : undefined,
       lexicon,
     );
-    const reference = referenceCandidate(cut, registry);
+    if (resolvedFraming !== undefined) inputs.framing = resolvedFraming;
+    const reference = resolvedFraming === "detail" ? undefined : referenceCandidate(cut, registry);
     jobs.push({
       id: cutId,
       label: `cut ${cutId} (${slot})`,
       target: { kind: "cut", episodeId, cutId, slot },
       request: requestFor(inputs),
       inputs,
+      ...(framing === undefined ? {} : { explicitFraming: true }),
       ...(cut?.panelAspect === undefined ? {} : { panelAspect: cut.panelAspect }),
       ...(reference === undefined ? {} : { reference }),
     });
@@ -772,6 +810,7 @@ async function recordRenderInputs(
             imagePrompt: job.inputs.basePrompt,
             negativePrompt: job.inputs.negativePrompt,
             imageSeed: job.inputs.seed,
+            ...(job.inputs.framing === undefined ? {} : { imageFraming: job.inputs.framing }),
             ...(job.inputs.workflow === undefined ? {} : { imageWorkflow: job.inputs.workflow }),
           }
         : cut,
@@ -887,6 +926,12 @@ interface RepeatInput {
  * workflow, and each of them differs and is named.
  */
 const REPEAT_INPUTS: Record<keyof RenderInputs, RepeatInput> = {
+  framing: {
+    recorded: (record) => record.framing ?? "scene",
+    submitted: ({ job }) => job.inputs.framing ?? "scene",
+    refuses: ({ job }) => !job.explicitFraming,
+    instruct: (value) => (value === "scene" || value === "detail" ? `--framing ${value}` : null),
+  },
   // A dimension the run pinned is deliberate, so it does not refuse — but it is
   // still NAMED when it differs, because the operator's own `--width` stays in
   // the command and an instruction that leaves it out is false.
@@ -1054,7 +1099,7 @@ async function assertRepeatable(
       job,
       latent,
       recompose: (basePrompt) =>
-        composePrompt(basePrompt, cut, registry, storyBible, lexicon).trim(),
+        composePrompt(basePrompt, cut, registry, storyBible, lexicon, job.inputs.framing).trim(),
     };
     const differences: string[] = [];
     const instructions: string[] = [];
@@ -1111,7 +1156,21 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   const providerId = parsed.values.get("--provider") ?? "comfyui";
   const prompt = parsed.values.get("--prompt");
   const negative = parsed.values.get("--negative");
+  const framing = parsed.values.get("--framing");
+  const dryRun = parsed.booleans.has("--dry-run");
+  if (framing !== undefined && framing !== "scene" && framing !== "detail") {
+    io.err("--framing must be scene or detail");
+    return EXIT_USAGE;
+  }
+  if (parsed.booleans.has("--json") && !dryRun) {
+    io.err("--json requires --dry-run");
+    return EXIT_USAGE;
+  }
 
+  if (transitionId !== undefined && framing !== undefined) {
+    io.err("--framing applies to cut targets, not transitions");
+    return EXIT_USAGE;
+  }
   if (episodeId === undefined) {
     io.err("missing required --episode <id>");
     io.err(USAGE);
@@ -1277,6 +1336,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     ...(negative === undefined ? {} : { negative }),
     ...(workflowFlag === undefined ? {} : { workflow: workflowFlag }),
     shared,
+    ...(framing === undefined ? {} : { framing }),
   });
   if ("error" in jobs) {
     io.err(jobs.error);
@@ -1315,7 +1375,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
         return EXIT_USAGE;
       }
       built = result;
-      if (built.provider.transmitsRemotely && !parsed.booleans.has("--allow-remote")) {
+      if (!dryRun && built.provider.transmitsRemotely && !parsed.booleans.has("--allow-remote")) {
         io.err(
           `provider "${providerId}" would send prompt content to a non-local server; re-run with --allow-remote to opt in, or point it at a loopback endpoint (localhost or 127.0.0.1) to keep content on this machine`,
         );
@@ -1348,6 +1408,75 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     io.err(shapes.error);
     return shapes.exit;
   }
+
+  const findings: GenerationFinding[] = [];
+  const plannedBundle = loaded.project.episodes.find((b) => b.episode.id === episodeId);
+  for (const entry of ready) {
+    const { job, latent } = entry;
+    const target = job.target;
+    const cut =
+      target.kind === "cut" ? plannedBundle?.cuts.find((c) => c.id === target.cutId) : undefined;
+    if (cut)
+      findings.push(...promptFindings(cut, job.inputs.basePrompt, job.inputs.framing ?? "scene"));
+    if (job.panelAspect !== undefined) {
+      const finding = canvasFinding(
+        job.id,
+        {
+          width: job.inputs.width ?? latent.width,
+          height: job.inputs.height ?? latent.height,
+        },
+        latent,
+        typeof shared.width === "number" || typeof shared.height === "number",
+      );
+      if (finding) findings.push(finding);
+    }
+  }
+  const blocked = findings.some((finding) => finding.severity === "error");
+  if (dryRun) {
+    const inspection = {
+      version: 1,
+      willGenerate: false,
+      blocked,
+      repeatCheck: "not_run",
+      findings,
+      targets: ready.map(({ job, latent, acceptsReference }) => ({
+        id: job.id,
+        target: job.target,
+        inputs: job.inputs,
+        effectiveNegativePrompt: job.request.options?.negativePrompt ?? "",
+        canvas: {
+          width: job.inputs.width ?? latent.width ?? null,
+          height: job.inputs.height ?? latent.height ?? null,
+        },
+        workflowCanvas: latent,
+        referenceConditioning: {
+          supported: acceptsReference,
+          attached: job.inputs.reference !== undefined,
+        },
+      })),
+      limitations: [
+        "No provider request, image write or visual quality verdict.",
+        "Text checks cover recognized patterns only; subject layout and identity binding are not enforced.",
+        "Workflow baseline area is not a calibrated quality floor. Repeat/replacement protection is checked only for an actual run.",
+      ],
+    };
+    if (parsed.booleans.has("--json")) io.out(JSON.stringify(inspection));
+    else {
+      for (const target of inspection.targets)
+        io.out(
+          `${target.id}: ${target.canvas.width ?? "unknown"}x${target.canvas.height ?? "unknown"}\n${target.inputs.prompt}\nNegative: ${target.effectiveNegativePrompt}`,
+        );
+      for (const finding of findings)
+        io.out(`${finding.severity}: ${finding.target} [${finding.code}] ${finding.message}`);
+      io.out(
+        "Inspection only. No provider call or visual quality verdict; repeat checks require an actual run.",
+      );
+    }
+    return blocked ? EXIT_VALIDATION : EXIT_OK;
+  }
+  for (const finding of findings)
+    io.err(`${finding.severity}: ${finding.target} [${finding.code}] ${finding.message}`);
+  if (blocked) return EXIT_VALIDATION;
 
   // Sizes are final here, so this is the first point a run can tell a repeat of
   // an accepted image from a replacement of it — and it is still before the

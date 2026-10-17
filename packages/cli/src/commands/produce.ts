@@ -30,6 +30,7 @@ import { join, resolve } from "node:path";
 import { episodeDir, loadProject, ProjectIoError, readDraft } from "@toony/project-io";
 import { type Cut, type EpisodeBundle, REVIEW_STATUSES, type ReviewStatus } from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
+import { promptFindings } from "../generation-preflight.js";
 import { FRESH_SEED, type GenerateEvent, runGenerate } from "./generate.js";
 import { runImportImage } from "./import-image.js";
 import { runLintEpisode } from "./lint.js";
@@ -46,7 +47,7 @@ const USAGE = `usage:
   toony produce run [path] --episode <id> ([--cut <id> ...] [--review-status <status>]) --accept <target-set>
                    [--reason <text>] [--from <file>] [--prompt <text>] [--negative <text>] [--seed <n>|fresh]
                    [--workflow <name>] [--width <px>] [--height <px>] [--slot clean|final]
-                   [--provider <id>] [--allow-remote] [--json]`;
+                   [--provider <id>] [--framing scene|detail] [--allow-remote] [--json]`;
 
 /** The inputs a run may change. Any one present makes the run a revision. */
 const INPUT_FLAGS = [
@@ -56,6 +57,7 @@ const INPUT_FLAGS = [
   "--workflow",
   "--width",
   "--height",
+  "--framing",
 ] as const;
 
 const VALUE_FLAGS = new Set([
@@ -110,7 +112,13 @@ function parse(args: string[]): Parsed | { error: string } {
 /** One reason the run would stop, naming the target and what is undetermined. */
 export interface Stop {
   target: string;
-  reason: "no-prompt" | "unknown-character" | "not-accepted" | "no-reason" | "refused";
+  reason:
+    | "no-prompt"
+    | "unknown-character"
+    | "not-accepted"
+    | "no-reason"
+    | "refused"
+    | "composition";
   message: string;
 }
 
@@ -204,11 +212,34 @@ async function disclose(
   selectors: Disclosure["selectors"],
   valid: boolean,
   prompt: string | undefined,
+  framing: string | undefined,
+  checkComposition = true,
 ): Promise<Disclosure> {
   const episodeId = bundle.episode.id;
   const ids = targets.map((cut) => cut.id);
   const stops: Stop[] = [];
   for (const cut of targets) {
+    if (checkComposition) {
+      if (framing !== undefined && framing !== "scene" && framing !== "detail") {
+        stops.push({
+          target: cut.id,
+          reason: "composition",
+          message: "--framing must be scene or detail",
+        });
+      } else {
+        for (const finding of promptFindings(
+          cut,
+          prompt ?? cut.imagePrompt,
+          framing ?? cut.imageFraming ?? "scene",
+        )) {
+          stops.push({
+            target: cut.id,
+            reason: "composition",
+            message: `[${finding.code}] ${finding.message}`,
+          });
+        }
+      }
+    }
     if ((prompt === undefined || prompt.trim() === "") && cut.imagePrompt.trim() === "") {
       stops.push({
         target: cut.id,
@@ -395,7 +426,15 @@ async function runInspect(parsed: Parsed, io: ProduceIo): Promise<number> {
     else io.out(f.resolved.message);
     return EXIT_OK;
   }
-  const d = await disclose(f.root, f.bundle, f.resolved.targets, f.selectors, f.valid, undefined);
+  const d = await disclose(
+    f.root,
+    f.bundle,
+    f.resolved.targets,
+    f.selectors,
+    f.valid,
+    parsed.values.get("--prompt"),
+    parsed.values.get("--framing"),
+  );
   if (json) io.out(JSON.stringify(d, null, 2));
   else {
     for (const line of disclosureLines(d)) io.out(line);
@@ -428,7 +467,16 @@ async function runRun(parsed: Parsed, io: ProduceIo): Promise<number> {
   }
   const { root, episodeId, bundle, resolved } = f;
   const prompt = parsed.values.get("--prompt");
-  const d = await disclose(root, bundle, resolved.targets, f.selectors, f.valid, prompt);
+  const d = await disclose(
+    root,
+    bundle,
+    resolved.targets,
+    f.selectors,
+    f.valid,
+    prompt,
+    parsed.values.get("--framing"),
+    !parsed.values.has("--from"),
+  );
 
   const from = parsed.values.get("--from");
   const changed = INPUT_FLAGS.filter((flag) => parsed.values.has(flag)).map((flag) =>
