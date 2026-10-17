@@ -1,0 +1,1058 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { cloneValidProject, validProject } from "../__fixtures__/valid-project.js";
+import type { ValidationResult } from "../errors.js";
+import { GUTTER_BAND_WIDTH_MAX, GUTTER_BAND_WIDTH_MIN } from "../presets.js";
+import { PANEL_ASPECT_MAX, PANEL_ASPECT_MIN } from "../types.js";
+import { validateProject, validateWebtoon } from "../validate.js";
+
+function codes(result: ValidationResult): string[] {
+  return result.issues.map((issue) => issue.code);
+}
+
+test("a fully valid project passes with no issues", () => {
+  const result = validateProject(validProject);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+  assert.deepEqual(result.issues, []);
+});
+
+test("non-object input fails fast", () => {
+  const result = validateProject(null);
+  assert.equal(result.valid, false);
+  assert.ok(codes(result).includes("project.type"));
+});
+
+test("default language must be listed in supportedLanguages", () => {
+  const project = cloneValidProject();
+  project.webtoon.languages.defaultLanguage = "fr";
+  const result = validateProject(project);
+  assert.equal(result.valid, false);
+  assert.ok(codes(result).includes("language.not-supported"));
+});
+
+test("supportedLanguages must be non-empty", () => {
+  const project = cloneValidProject();
+  project.webtoon.languages.supportedLanguages = [];
+  const result = validateWebtoon(project.webtoon);
+  assert.equal(result.valid, false);
+  assert.ok(codes(result).includes("languages.supported"));
+});
+
+test("unknown defaultProvider is rejected", () => {
+  const project = cloneValidProject();
+  project.webtoon.imageProviders.defaultProvider = "ghost";
+  const result = validateWebtoon(project.webtoon);
+  assert.ok(codes(result).includes("imageProviders.default-unknown"));
+});
+
+test("a configured provider id satisfies defaultProvider", () => {
+  const project = cloneValidProject();
+  project.webtoon.imageProviders.providers = [{ id: "local-comfy", kind: "comfyui" }];
+  project.webtoon.imageProviders.defaultProvider = "local-comfy";
+  const result = validateWebtoon(project.webtoon);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+});
+
+test("provider records reject private metadata fields", () => {
+  const project = cloneValidProject();
+  project.webtoon.imageProviders.providers = [
+    {
+      id: "cloud-x",
+      kind: "constrained-cloud",
+      // Private provider details must not be accepted on a provider record.
+      apiKey: "should-not-be-here",
+      endpoint: "https://provider.example/v1",
+    } as unknown as (typeof project.webtoon.imageProviders.providers)[number],
+  ];
+  project.webtoon.imageProviders.defaultProvider = "cloud-x";
+  const result = validateWebtoon(project.webtoon);
+  assert.equal(result.valid, false);
+  const unexpected = result.issues.filter((issue) => issue.code === "provider.unexpected-field");
+  assert.equal(unexpected.length, 2, JSON.stringify(result.issues));
+  assert.deepEqual(unexpected.map((issue) => issue.path).sort(), [
+    "webtoon.imageProviders.providers[0].apiKey",
+    "webtoon.imageProviders.providers[0].endpoint",
+  ]);
+});
+
+test("duplicate cut ids are reported", () => {
+  const project = cloneValidProject();
+  const bundle = project.episodes[0];
+  assert.ok(bundle);
+  bundle.cuts.push({ id: "cut-001", image: null, imagePrompt: "", negativePrompt: "" });
+  const result = validateProject(project);
+  assert.ok(codes(result).includes("cut.duplicate-id"));
+});
+
+test("episode ids colliding only by case are rejected (#145 case-insensitive FS hazard)", () => {
+  const project = cloneValidProject();
+  const first = project.episodes[0];
+  assert.ok(first);
+  // Second episode differs from the first only by letter case: on APFS/NTFS both
+  // ids resolve to the same `episodes/<id>/` folder and silently overwrite.
+  const collide = structuredClone(first);
+  collide.episode.id = first.episode.id.toUpperCase();
+  project.episodes.push(collide);
+  const result = validateProject(project);
+  assert.equal(result.valid, false);
+  assert.ok(codes(result).includes("episode.id-collision"));
+});
+
+test("two episodes with genuinely distinct ids validate (no false collision, #145)", () => {
+  const project = cloneValidProject();
+  const first = project.episodes[0];
+  assert.ok(first);
+  const second = structuredClone(first);
+  second.episode.id = "ep-002";
+  project.episodes.push(second);
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+  assert.equal(codes(result).includes("episode.id-collision"), false);
+});
+
+// Widening the fold to normalization form can only be judged against the
+// direction that is worse. An id pair the fold merges is work the author cannot
+// get accepted by any spelling; an id pair it misses leaves the hazard as it
+// was. So the over-aggressive control comes first: every pair here is two
+// directory entries on a case-insensitive APFS volume, and each one would be
+// merged by a wider rule someone might reach for (NFKC, or a locale collator).
+test("episode ids that are distinct on disk are still accepted (#317 fold is not over-aggressive)", () => {
+  for (const [a, b] of [
+    ["ep-caf\u00e9", "ep-cafe"],
+    ["ep-\u00b2", "ep-2"],
+    ["ep-\u2160", "ep-I"],
+    ["ep-\u0131", "ep-i"],
+  ]) {
+    assert.ok(a !== undefined && b !== undefined);
+    const project = cloneValidProject();
+    const first = project.episodes[0];
+    assert.ok(first);
+    first.episode.id = a;
+    const second = structuredClone(first);
+    second.episode.id = b;
+    project.episodes.push(second);
+    const result = validateProject(project);
+    assert.equal(
+      result.valid,
+      true,
+      `${JSON.stringify(a)} vs ${JSON.stringify(b)}: ${JSON.stringify(result.issues)}`,
+    );
+  }
+});
+
+// The same text in two Unicode normalization forms: composed e-acute, then `e`
+// followed by a combining acute accent. Written as escapes so the test does not
+// depend on how this source file is normalized on disk.
+const ID_NFC = "ep-caf\u00e9";
+const ID_NFD = "ep-cafe\u0301";
+
+test("episode ids colliding only by Unicode normalization are rejected, naming both (#317)", () => {
+  const project = cloneValidProject();
+  const first = project.episodes[0];
+  assert.ok(first);
+  first.episode.id = ID_NFC;
+  const collide = structuredClone(first);
+  collide.episode.id = ID_NFD;
+  project.episodes.push(collide);
+  assert.notEqual(ID_NFC, ID_NFD);
+
+  const result = validateProject(project);
+  assert.equal(result.valid, false);
+  const issue = result.issues.find((candidate) => candidate.code === "episode.id-collision");
+  // macOS APFS folds these two onto one `episodes/<id>/` folder, so without the
+  // check the second episode's files would destroy the first's. The report has
+  // to name both ids: the one being rejected is not the one at risk.
+  assert.ok(issue, JSON.stringify(result.issues));
+  assert.ok(issue.message.includes(ID_NFD), issue.message);
+  assert.ok(issue.message.includes(ID_NFC), issue.message);
+  // And it names only the filesystems this pair actually folds on. NTFS folds
+  // case and preserves normalization form, so it holds these as two directory
+  // entries; a message naming it here would be untrue of a filesystem it names.
+  assert.ok(
+    issue.message.includes(
+      "on filesystems that fold Unicode normalization form (macOS APFS) both map to the same folder",
+    ),
+    issue.message,
+  );
+  assert.equal(issue.message.includes("NTFS"), false, issue.message);
+});
+
+test("the case collision report names both episode ids too (#317)", () => {
+  const project = cloneValidProject();
+  const first = project.episodes[0];
+  assert.ok(first);
+  const collide = structuredClone(first);
+  collide.episode.id = first.episode.id.toUpperCase();
+  project.episodes.push(collide);
+  const result = validateProject(project);
+  const issue = result.issues.find((candidate) => candidate.code === "episode.id-collision");
+  assert.ok(issue, JSON.stringify(result.issues));
+  assert.ok(issue.message.includes(collide.episode.id), issue.message);
+  assert.ok(issue.message.includes(first.episode.id), issue.message);
+  // A case-only pair is one entry on both filesystems, so both may be named.
+  assert.ok(
+    issue.message.includes(
+      "on filesystems that fold case (macOS APFS, Windows NTFS) both map to the same folder",
+    ),
+    issue.message,
+  );
+});
+
+test("duplicate lettering overlay ids are reported", () => {
+  const project = cloneValidProject();
+  const bundle = project.episodes[0];
+  assert.ok(bundle);
+  const overlay = bundle.lettering[0];
+  assert.ok(overlay);
+  bundle.lettering.push({ ...overlay, cutId: "cut-002" });
+  const result = validateProject(project);
+  assert.ok(codes(result).includes("overlay.duplicate-id"));
+});
+
+test("sequence referencing a missing cut record fails", () => {
+  const project = cloneValidProject();
+  const bundle = project.episodes[0];
+  assert.ok(bundle);
+  bundle.episode.sequence.push({ type: "cut", id: "cut-999" });
+  const result = validateProject(project);
+  assert.ok(codes(result).includes("sequence.missing-cut"));
+});
+
+test("a record not referenced by the sequence is an orphan", () => {
+  const project = cloneValidProject();
+  const bundle = project.episodes[0];
+  assert.ok(bundle);
+  bundle.transitions.push({
+    id: "tr-orphan",
+    type: "fade",
+    gutterHeight: 0,
+    text: null,
+    sfx: null,
+    agentNote: null,
+    humanNote: null,
+    image: null,
+    reviewStatus: "draft",
+  });
+  const result = validateProject(project);
+  assert.ok(codes(result).includes("transition.orphan"));
+});
+
+test("the sequence may not begin or end with a transition", () => {
+  const project = cloneValidProject();
+  const bundle = project.episodes[0];
+  assert.ok(bundle);
+  bundle.episode.sequence = [
+    { type: "transition", id: "tr-001" },
+    { type: "cut", id: "cut-001" },
+  ];
+  bundle.cuts = [{ id: "cut-001", image: null, imagePrompt: "", negativePrompt: "" }];
+  const result = validateProject(project);
+  assert.ok(codes(result).includes("sequence.leading-transition"));
+});
+
+test("two adjacent transitions are rejected", () => {
+  const project = cloneValidProject();
+  const bundle = project.episodes[0];
+  assert.ok(bundle);
+  bundle.episode.sequence = [
+    { type: "cut", id: "cut-001" },
+    { type: "transition", id: "tr-001" },
+    { type: "transition", id: "tr-002" },
+    { type: "cut", id: "cut-002" },
+  ];
+  bundle.transitions.push({
+    id: "tr-002",
+    type: "beat",
+    gutterHeight: 24,
+    text: null,
+    sfx: null,
+    agentNote: null,
+    humanNote: null,
+    image: null,
+    reviewStatus: "draft",
+  });
+  const result = validateProject(project);
+  assert.ok(codes(result).includes("sequence.adjacent-transitions"));
+});
+
+test("a cut and a transition may share an id string (independent namespaces, #146)", () => {
+  const project = cloneValidProject();
+  const bundle = project.episodes[0];
+  assert.ok(bundle);
+  const tr = bundle.transitions[0];
+  assert.ok(tr);
+  // A cut named "beat" and a transition named "beat" both referenced once each:
+  // cut and transition ids are independent namespaces, so this is legitimate.
+  bundle.cuts = [
+    { id: "beat", image: null, imagePrompt: "", negativePrompt: "" },
+    { id: "cut-002", image: null, imagePrompt: "", negativePrompt: "" },
+  ];
+  tr.id = "beat";
+  bundle.transitions = [tr];
+  bundle.lettering = [];
+  bundle.episode.sequence = [
+    { type: "cut", id: "beat" },
+    { type: "transition", id: "beat" },
+    { type: "cut", id: "cut-002" },
+  ];
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+  assert.equal(codes(result).includes("sequence.duplicate-reference"), false);
+});
+
+test("a genuine same-type duplicate sequence reference still fails (#146)", () => {
+  const project = cloneValidProject();
+  const bundle = project.episodes[0];
+  assert.ok(bundle);
+  bundle.lettering = [];
+  // The same CUT id referenced twice is a real duplicate and must still fire.
+  bundle.episode.sequence = [
+    { type: "cut", id: "cut-001" },
+    { type: "transition", id: "tr-001" },
+    { type: "cut", id: "cut-001" },
+  ];
+  const result = validateProject(project);
+  assert.equal(result.valid, false);
+  const dup = result.issues.find((issue) => issue.code === "sequence.duplicate-reference");
+  assert.ok(dup);
+  // The output text is the established legacy message — #146 keys the seen-set
+  // by kind internally but must NOT change validation output (id-only wording).
+  assert.equal(dup.message, 'sequence references id "cut-001" more than once.');
+});
+
+test("bubble geometry must stay inside the cut image", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.geometry = { x: 0.8, y: 0.1, width: 0.5, height: 0.2 };
+  const result = validateProject(project);
+  assert.ok(codes(result).includes("geometry.x-overflow"));
+});
+
+test("tail must be a normalized point when present", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.tail = { x: 1.5, y: 0.5 };
+  const result = validateProject(project);
+  assert.ok(codes(result).includes("tail.bounds"));
+});
+
+test("opacity outside 0..1 is rejected", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.opacity = 1.4;
+  const result = validateProject(project);
+  assert.ok(codes(result).includes("overlay.opacity"));
+});
+
+test("an unknown transition type is rejected", () => {
+  const project = cloneValidProject();
+  const transition = project.episodes[0]?.transitions[0];
+  assert.ok(transition);
+  (transition as { type: string }).type = "wormhole";
+  const result = validateProject(project);
+  assert.ok(codes(result).includes("transition.kind"));
+});
+
+test("gutterHeight outside the allowed px range is rejected", () => {
+  const project = cloneValidProject();
+  const transition = project.episodes[0]?.transitions[0];
+  assert.ok(transition);
+  transition.gutterHeight = 999999;
+  const result = validateProject(project);
+  assert.ok(codes(result).includes("transition.gutter"));
+});
+
+test("lettering referencing a missing cut record fails", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.cutId = "cut-404";
+  const result = validateProject(project);
+  assert.ok(codes(result).includes("overlay.missing-cut"));
+});
+
+test("absolute image paths in cut records are rejected", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  cut.image = { clean: "/etc/passwd", final: null };
+  const result = validateProject(project);
+  assert.ok(codes(result).includes("cut.image-path"));
+});
+
+test("cut prompt fields are accepted as strings", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  cut.imagePrompt = "a quiet harbor at dawn";
+  cut.negativePrompt = "text, watermark";
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+});
+
+test("cuts without prompt fields still validate (back-compat)", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  // Simulate an older record that predates the prompt fields.
+  delete (cut as { imagePrompt?: string }).imagePrompt;
+  delete (cut as { negativePrompt?: string }).negativePrompt;
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+});
+
+test("non-string cut prompt fields are rejected", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  (cut as unknown as { imagePrompt: unknown }).imagePrompt = 42;
+  const result = validateProject(project);
+  assert.ok(codes(result).includes("cut.prompt"));
+});
+
+test("every issue carries a path, code, and message", () => {
+  const result = validateProject(null);
+  for (const issue of result.issues) {
+    assert.equal(typeof issue.path, "string");
+    assert.ok(issue.code.length > 0);
+    assert.ok(issue.message.length > 0);
+  }
+});
+
+test("narration and sfx overlays may have an empty speaker", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.kind = "narration";
+  overlay.speaker = "";
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+});
+
+test("attributed kinds still require a non-empty speaker", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.kind = "speech";
+  overlay.speaker = "";
+  const result = validateProject(project);
+  assert.equal(result.valid, false);
+  assert.ok(codes(result).includes("field.required"));
+});
+
+// --- Pro-lettering style fields (#54) --------------------------------------
+
+test("an overlay with no style fields is valid (back-compatible)", () => {
+  // The default fixture overlay carries none of the new fields.
+  const result = validateProject(validProject);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+});
+
+test("a fully populated style overlay validates", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.fontSize = 24;
+  overlay.fontWeight = 600;
+  overlay.lineHeight = 1.4;
+  overlay.textAlign = "left";
+  overlay.letterSpacing = 0.05;
+  overlay.textColor = "#223344";
+  overlay.cornerRadius = 18;
+  overlay.zIndex = 3;
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+});
+
+test("fontSize accepts null (auto-fit) and rejects out-of-range", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.fontSize = null;
+  assert.equal(validateProject(project).valid, true);
+  overlay.fontSize = 5; // below FONT_SIZE_MIN_PX
+  assert.ok(codes(validateProject(project)).includes("style.font-size"));
+  overlay.fontSize = 201; // above FONT_SIZE_MAX_PX
+  assert.ok(codes(validateProject(project)).includes("style.font-size"));
+});
+
+test("fontWeight must be one of the allowed weights", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.fontWeight = 500;
+  assert.equal(validateProject(project).valid, true);
+  overlay.fontWeight = 450 as unknown as typeof overlay.fontWeight;
+  assert.ok(codes(validateProject(project)).includes("style.font-weight"));
+});
+
+test("lineHeight, letterSpacing, and cornerRadius enforce their bounds", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.lineHeight = 0.5;
+  assert.ok(codes(validateProject(project)).includes("style.line-height"));
+  overlay.lineHeight = 1.2;
+  overlay.letterSpacing = 0.6;
+  assert.ok(codes(validateProject(project)).includes("style.letter-spacing"));
+  overlay.letterSpacing = 0;
+  overlay.cornerRadius = 300;
+  assert.ok(codes(validateProject(project)).includes("style.corner-radius"));
+  overlay.cornerRadius = -1;
+  assert.ok(codes(validateProject(project)).includes("style.corner-radius"));
+});
+
+test("textAlign must be an allowed enum value", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.textAlign = "justify" as unknown as typeof overlay.textAlign;
+  assert.ok(codes(validateProject(project)).includes("style.text-align"));
+});
+
+test("textColor must be a non-empty string when present", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.textColor = "";
+  assert.ok(codes(validateProject(project)).includes("style.text-color"));
+});
+
+test("zIndex must be a non-negative integer", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.zIndex = -1;
+  assert.ok(codes(validateProject(project)).includes("style.z-index"));
+  overlay.zIndex = 1.5;
+  assert.ok(codes(validateProject(project)).includes("style.z-index"));
+});
+
+// --- Curated font family (#56) ----------------------------------------------
+
+test("fontFamily accepts a curated id and is back-compatible when absent", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  // Absent is valid (the default fixture overlay omits it).
+  assert.equal(validateProject(project).valid, true);
+  // A known curated id is valid.
+  overlay.fontFamily = "bangers";
+  assert.equal(
+    validateProject(project).valid,
+    true,
+    JSON.stringify(validateProject(project).issues),
+  );
+  overlay.fontFamily = "noto-sans-kr";
+  assert.equal(validateProject(project).valid, true);
+});
+
+test("fontFamily rejects an unknown family id", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.fontFamily = "comic-sans" as unknown as typeof overlay.fontFamily;
+  assert.ok(codes(validateProject(project)).includes("style.font-family"));
+});
+
+// --- Retired legacy `font` (#208) -------------------------------------------
+// Until #208 `font` was REQUIRED and non-empty, which made every producer stamp
+// a face name nothing ever read. It is now optional and ignored.
+
+test("an overlay with no legacy font validates", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  assert.equal(overlay.font, "Nanum Gothic");
+  overlay.font = undefined;
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+});
+
+test("an overlay with the key absent entirely validates", () => {
+  const project = cloneValidProject();
+  const bundle = project.episodes[0];
+  assert.ok(bundle);
+  const overlay = bundle.lettering[0];
+  assert.ok(overlay);
+  // `undefined` and an absent key are different bytes on disk; both must pass.
+  const stripped = { ...overlay };
+  delete stripped.font;
+  assert.ok(!("font" in stripped));
+  bundle.lettering[0] = stripped;
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+});
+
+test("a project written before #208 still validates with its stored font", () => {
+  // validProject carries `font: "Nanum Gothic"` on every overlay, exactly as the
+  // studio wrote it before #208.
+  const result = validateProject(validProject);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+  assert.deepEqual(
+    validProject.episodes[0]?.lettering.map((o) => o.font),
+    ["Nanum Gothic", "Nanum Gothic"],
+  );
+});
+
+test("an empty legacy font no longer fails, since nothing reads it", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.font = "";
+  const result = validateProject(project);
+  assert.equal(result.valid, true, JSON.stringify(result.issues));
+});
+
+test("a non-string legacy font is still rejected", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.font = 12 as unknown as string;
+  const result = validateProject(project);
+  assert.equal(result.valid, false);
+  assert.deepEqual(
+    result.issues.map((issue) => [issue.path, issue.code]),
+    [["episodes[0].lettering[0].font", "field.type"]],
+  );
+});
+
+// --- Character registry + cut.characters (#92) -----------------------------
+
+test("a project without a character registry is valid (back-compat)", () => {
+  // validProject has no webtoon.characters and no cut.characters.
+  assert.equal(validateProject(validProject).valid, true);
+});
+
+test("a valid character registry validates", () => {
+  const project = cloneValidProject();
+  project.webtoon.characters = [
+    {
+      id: "mina",
+      name: "Mina",
+      lockstring: "short black bob, amber eyes, red scarf, flat cel style",
+    },
+    { id: "rex", name: "Rex", lockstring: "tall, grey hoodie, square jaw, flat cel style" },
+  ];
+  assert.equal(
+    validateProject(project).valid,
+    true,
+    JSON.stringify(validateProject(project).issues),
+  );
+});
+
+test("duplicate character ids are reported", () => {
+  const project = cloneValidProject();
+  project.webtoon.characters = [
+    { id: "dup", name: "A", lockstring: "x" },
+    { id: "dup", name: "B", lockstring: "y" },
+  ];
+  assert.ok(codes(validateProject(project)).includes("character.duplicate-id"));
+});
+
+test("a character with an empty lockstring/name/id is rejected", () => {
+  const project = cloneValidProject();
+  project.webtoon.characters = [{ id: "mina", name: "Mina", lockstring: "" }];
+  assert.ok(codes(validateProject(project)).includes("field.required"));
+});
+
+test("cut.characters must be an array of non-empty strings", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  cut.characters = ["" as string];
+  assert.ok(codes(validateProject(project)).includes("cut.character-ref"));
+  cut.characters = "mina" as unknown as string[];
+  assert.ok(codes(validateProject(project)).includes("cut.characters"));
+});
+
+test("a cut may reference characters; schema does not check refs exist (lint does)", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  cut.characters = ["not-in-registry"]; // no registry defined
+  // Structurally valid — an unknown ref is a lint warning, not a schema error.
+  assert.equal(
+    validateProject(project).valid,
+    true,
+    JSON.stringify(validateProject(project).issues),
+  );
+});
+
+// --- Bubble grammar: kinds, tone, tailTarget (#93) -------------------------
+
+test("beat and ambient are valid kinds and are unattributed (empty speaker ok)", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  for (const kind of ["beat", "ambient"] as const) {
+    overlay.kind = kind;
+    overlay.speaker = ""; // pause / background-noise: no speaker required
+    const result = validateProject(project);
+    assert.equal(result.valid, true, `${kind}: ${JSON.stringify(result.issues)}`);
+  }
+});
+
+test("tone must be one of the allowed tones when present", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.tone = "aggressive";
+  assert.equal(validateProject(project).valid, true);
+  overlay.tone = "angry" as unknown as typeof overlay.tone;
+  assert.ok(codes(validateProject(project)).includes("overlay.tone"));
+});
+
+test("tailTarget may be off-panel (outside 0..1) but must be finite, or null", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.tailTarget = { x: 1.5, y: -0.2 }; // off-panel — allowed
+  assert.equal(
+    validateProject(project).valid,
+    true,
+    JSON.stringify(validateProject(project).issues),
+  );
+  overlay.tailTarget = null;
+  assert.equal(validateProject(project).valid, true);
+  overlay.tailTarget = { x: Number.NaN, y: 0.5 } as unknown as typeof overlay.tailTarget;
+  assert.ok(codes(validateProject(project)).includes("tail-target.bounds"));
+});
+
+test("an overlay without tone/tailTarget is valid (back-compat)", () => {
+  // The default fixture overlay carries neither field.
+  assert.equal(validateProject(validProject).valid, true);
+});
+
+// --- Cut craft fields + Transition.color + placement (#98) ------------------
+
+test("an overlay/cut/transition without the #98 fields is valid (back-compat)", () => {
+  assert.equal(validateProject(validProject).valid, true);
+});
+
+test("cut craft metadata validates (shotType enum, palette/layer/styleTag strings)", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  cut.shotType = "establishing_wide";
+  cut.palette = "#2a3b4c";
+  cut.layer = "metaphor";
+  cut.styleTag = "noir";
+  assert.equal(
+    validateProject(project).valid,
+    true,
+    JSON.stringify(validateProject(project).issues),
+  );
+  cut.shotType = "huge" as unknown as typeof cut.shotType;
+  assert.ok(codes(validateProject(project)).includes("cut.shot-type"));
+  cut.shotType = "medium";
+  cut.palette = "";
+  assert.ok(codes(validateProject(project)).includes("cut.craft-meta"));
+});
+
+// --- Panel shape per cut (#237) ---------------------------------------------
+
+test("a cut without panelAspect is valid (back-compat)", () => {
+  // Every cut in the fixture omits it, and the project is valid as it stands.
+  assert.equal(validateProject(validProject).valid, true);
+});
+
+test("panelAspect accepts any height in its declared range", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  // The pilot style band's own panel-height range, which no rung of
+  // PANEL_HEIGHT_PRESETS lands in — the reason this is a number.
+  for (const aspect of [PANEL_ASPECT_MIN, 0.47, 1.396, 1.471, 2.5, PANEL_ASPECT_MAX]) {
+    cut.panelAspect = aspect;
+    const result = validateProject(project);
+    assert.equal(result.valid, true, `${aspect}: ${JSON.stringify(result.issues)}`);
+  }
+});
+
+test("panelAspect rejects a value outside the range, or a non-number", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  for (const bad of [
+    0,
+    -1,
+    PANEL_ASPECT_MIN / 2,
+    PANEL_ASPECT_MAX + 0.001,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    "1.4" as unknown as number,
+    null as unknown as number,
+  ]) {
+    cut.panelAspect = bad;
+    assert.ok(
+      codes(validateProject(project)).includes("cut.panel-aspect"),
+      `${String(bad)} was accepted`,
+    );
+  }
+});
+
+// --- Recorded render inputs (#240) -------------------------------------------
+
+test("a cut without the recorded render inputs is valid (back-compat)", () => {
+  // Every cut in the fixture omits both, and the project is valid as it stands:
+  // a cut that has never been generated has nothing to record.
+  assert.equal(validateProject(validProject).valid, true);
+});
+
+test("imageSeed accepts a non-negative integer and rejects anything else", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  for (const seed of [0, 7, 91723, 0xffffffff]) {
+    cut.imageSeed = seed;
+    const result = validateProject(project);
+    assert.equal(result.valid, true, `${seed}: ${JSON.stringify(result.issues)}`);
+  }
+  for (const bad of [
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    "7" as unknown as number,
+    null as unknown as number,
+  ]) {
+    cut.imageSeed = bad;
+    assert.ok(
+      codes(validateProject(project)).includes("cut.image-seed"),
+      `${String(bad)} was accepted`,
+    );
+  }
+});
+
+test("imageWorkflow must be a non-empty string when present", () => {
+  const project = cloneValidProject();
+  const cut = project.episodes[0]?.cuts[0];
+  assert.ok(cut);
+  cut.imageWorkflow = "high-detail";
+  assert.equal(
+    validateProject(project).valid,
+    true,
+    JSON.stringify(validateProject(project).issues),
+  );
+  for (const bad of ["", 3 as unknown as string, null as unknown as string]) {
+    cut.imageWorkflow = bad;
+    assert.ok(
+      codes(validateProject(project)).includes("cut.image-workflow"),
+      `${String(bad)} was accepted`,
+    );
+  }
+});
+
+test("transition color must be a non-empty string or null", () => {
+  const project = cloneValidProject();
+  const transition = project.episodes[0]?.transitions[0];
+  assert.ok(transition);
+  transition.color = "#101010";
+  assert.equal(validateProject(project).valid, true);
+  transition.color = null;
+  assert.equal(validateProject(project).valid, true);
+  transition.color = "" as unknown as string;
+  assert.ok(codes(validateProject(project)).includes("transition.color"));
+});
+
+test("overlay placement/placementSide validate against their enums", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  overlay.placement = "gutter";
+  overlay.placementSide = "left";
+  assert.equal(validateProject(project).valid, true);
+  overlay.placement = "sidebar" as unknown as typeof overlay.placement;
+  assert.ok(codes(validateProject(project)).includes("overlay.placement"));
+  overlay.placement = "gutter";
+  overlay.placementSide = "top" as unknown as typeof overlay.placementSide;
+  assert.ok(codes(validateProject(project)).includes("overlay.placement-side"));
+});
+
+// --- v3 transitions & SFX modes (#99) --------------------------------------
+
+test("the v3 craft transition kinds are accepted (#99)", () => {
+  const project = cloneValidProject();
+  const transition = project.episodes[0]?.transitions[0];
+  assert.ok(transition);
+  for (const type of ["black_band", "title_card", "palette_shift", "desaturate_repeat"] as const) {
+    transition.type = type;
+    assert.equal(
+      validateProject(project).valid,
+      true,
+      `${type}: ${JSON.stringify(validateProject(project).issues)}`,
+    );
+  }
+  transition.type = "wormhole" as unknown as typeof transition.type;
+  assert.ok(codes(validateProject(project)).includes("transition.kind"));
+});
+
+test("overlay sfxMode validates against its enum and is optional (#99)", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  // Absent → valid (back-compat).
+  assert.equal(validateProject(project).valid, true);
+  for (const mode of ["typeset", "hand_lettered", "impact_band"] as const) {
+    overlay.sfxMode = mode;
+    assert.equal(validateProject(project).valid, true, mode);
+  }
+  overlay.sfxMode = "graffiti" as unknown as typeof overlay.sfxMode;
+  assert.ok(codes(validateProject(project)).includes("overlay.sfx-mode"));
+});
+
+// --- v4 interstitial kinds + verticalAlign + fade (#115) --------------------
+
+test("the v4 interstitial transition kinds are accepted (#115)", () => {
+  const project = cloneValidProject();
+  const transition = project.episodes[0]?.transitions[0];
+  assert.ok(transition);
+  for (const type of [
+    "color_field",
+    "void",
+    "narration_card",
+    "dialogue_card",
+    "time_card",
+  ] as const) {
+    transition.type = type;
+    assert.equal(
+      validateProject(project).valid,
+      true,
+      `${type}: ${JSON.stringify(validateProject(project).issues)}`,
+    );
+  }
+});
+
+test("transition textAlign/verticalAlign validate against their enums (#115)", () => {
+  const project = cloneValidProject();
+  const transition = project.episodes[0]?.transitions[0];
+  assert.ok(transition);
+  transition.type = "narration_card";
+  transition.textAlign = "left";
+  transition.verticalAlign = "bottom";
+  assert.equal(validateProject(project).valid, true);
+  transition.textAlign = "justified" as unknown as typeof transition.textAlign;
+  assert.ok(codes(validateProject(project)).includes("transition.text-align"));
+  transition.textAlign = "center";
+  transition.verticalAlign = "baseline" as unknown as typeof transition.verticalAlign;
+  assert.ok(codes(validateProject(project)).includes("transition.vertical-align"));
+});
+
+test("transition fade validates type/direction/length when present (#115)", () => {
+  const project = cloneValidProject();
+  const transition = project.episodes[0]?.transitions[0];
+  assert.ok(transition);
+  transition.fade = { type: "to_black", direction: "top_bottom", length: 200 };
+  assert.equal(validateProject(project).valid, true);
+  transition.fade = null;
+  assert.equal(validateProject(project).valid, true);
+  transition.fade = {
+    type: "to_pink",
+    direction: "top_bottom",
+    length: 200,
+  } as unknown as typeof transition.fade;
+  assert.ok(codes(validateProject(project)).includes("transition.fade-type"));
+  transition.fade = {
+    type: "to_black",
+    direction: "sideways",
+    length: 200,
+  } as unknown as typeof transition.fade;
+  assert.ok(codes(validateProject(project)).includes("transition.fade-direction"));
+  transition.fade = {
+    type: "to_black",
+    direction: "top_bottom",
+    length: 0,
+  } as unknown as typeof transition.fade;
+  assert.ok(codes(validateProject(project)).includes("transition.fade-length"));
+});
+
+test("overlay verticalAlign validates against its enum and is optional (#115)", () => {
+  const project = cloneValidProject();
+  const overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  assert.equal(validateProject(project).valid, true); // absent → valid
+  for (const v of ["top", "middle", "bottom"] as const) {
+    overlay.verticalAlign = v;
+    assert.equal(validateProject(project).valid, true, v);
+  }
+  overlay.verticalAlign = "centre" as unknown as typeof overlay.verticalAlign;
+  assert.ok(codes(validateProject(project)).includes("style.vertical-align"));
+});
+
+test("transition gradient validates from/to/direction when present (#115)", () => {
+  const project = cloneValidProject();
+  const transition = project.episodes[0]?.transitions[0];
+  assert.ok(transition);
+  transition.gradient = { from: "#000000", to: "#ffffff", direction: "top_bottom" };
+  assert.equal(validateProject(project).valid, true);
+  transition.gradient = null;
+  assert.equal(validateProject(project).valid, true);
+  transition.gradient = {
+    from: "",
+    to: "#fff",
+    direction: "top_bottom",
+  } as unknown as typeof transition.gradient;
+  assert.ok(codes(validateProject(project)).includes("transition.gradient-from"));
+  transition.gradient = {
+    from: "#000",
+    to: "",
+    direction: "top_bottom",
+  } as unknown as typeof transition.gradient;
+  assert.ok(codes(validateProject(project)).includes("transition.gradient-to"));
+  transition.gradient = {
+    from: "#000",
+    to: "#fff",
+    direction: "diagonal",
+  } as unknown as typeof transition.gradient;
+  assert.ok(codes(validateProject(project)).includes("transition.gradient-direction"));
+});
+
+// --- Reference column (#217) ------------------------------------------------
+
+test("a project without a reference column is valid (back-compat)", () => {
+  // validProject has no webtoon.referenceWidth; render falls back to the
+  // standard canvas, which is what its px were always written against.
+  assert.equal(validateProject(validProject).valid, true);
+  assert.equal(validProject.webtoon.referenceWidth, undefined);
+});
+
+test("a declared reference column must be a positive whole number of px", () => {
+  const project = cloneValidProject();
+  project.webtoon.referenceWidth = 1200;
+  assert.equal(validateWebtoon(project.webtoon).valid, true);
+  for (const bad of [0, -800, 720.5, Number.NaN, "800" as unknown as number]) {
+    project.webtoon.referenceWidth = bad;
+    assert.ok(
+      codes(validateWebtoon(project.webtoon)).includes("webtoon.reference-width"),
+      `referenceWidth ${String(bad)} should be rejected`,
+    );
+  }
+});
+
+// --- Gutter band width (#215) -----------------------------------------------
+
+test("a project without a declared gutter strip is valid (back-compat)", () => {
+  // validProject has no webtoon.gutterBandWidth; render falls back to the strip
+  // the feature has had since #98, so such a project is unchanged by the field.
+  assert.equal(validateProject(validProject).valid, true);
+  assert.equal(validProject.webtoon.gutterBandWidth, undefined);
+});
+
+test("a declared gutter strip must be a fraction inside the craft bounds", () => {
+  const project = cloneValidProject();
+  for (const good of [GUTTER_BAND_WIDTH_MIN, 0.18, 0.3, GUTTER_BAND_WIDTH_MAX]) {
+    project.webtoon.gutterBandWidth = good;
+    assert.equal(validateWebtoon(project.webtoon).valid, true, `${good} should be declarable`);
+  }
+  for (const bad of [0, -0.2, 0.01, 0.9, 1, Number.NaN, "0.3" as unknown as number]) {
+    project.webtoon.gutterBandWidth = bad;
+    assert.ok(
+      codes(validateWebtoon(project.webtoon)).includes("webtoon.gutter-band-width"),
+      `gutterBandWidth ${String(bad)} should be rejected`,
+    );
+  }
+});

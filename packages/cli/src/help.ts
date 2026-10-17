@@ -1,0 +1,190 @@
+// `toony --help` text. Exit codes are documented here so agents can rely on them.
+
+export const HELP_TEXT = `toony — local-first webtoon production CLI
+
+usage:
+  toony init <name> [--genre <romance|comedy|action|thriller|slice-of-life>]
+                           scaffold a new project folder (passes \`toony validate\`); --genre seeds a genre-tuned starter
+  toony validate [path]    validate a project folder (default: current directory)
+  toony studio [path]      launch the web studio over a workspace (or a single project)
+  toony import-image ...   import/ingest an image asset for a cut or transition
+  toony generate ...       generate a cut/transition image via a provider (comfyui)
+  toony export <target> ...  export platform/stitched/plotlink for an episode
+  toony lint [path]        lint a whole project (schema, images, overflow, manifests)
+  toony lint-episode <id>  lint a single episode by id
+  toony plan [path] (--episode <id> | --spec <file>)
+                           grade an episode's page geometry from its
+                           declarations, before any image exists
+  toony measure [path] --episode <id>
+                           measure a rendered episode's craft signals, and grade
+                           them against a target band
+  toony packs <list|doctor|install|remove> ...
+                           see, install, remove, and diagnose installed packs
+  toony draft <compile|show|apply> --episode <id> ...
+                           compile an authored episode script into a draft,
+                           show what applying it would change, apply it
+  toony produce <inspect|run> --episode <id> ...
+                           show what a generation run would touch, then run
+                           the accepted target set through generate or import
+  toony --help             show this help
+
+options:
+  validate --json          emit a structured JSON report instead of text
+  validate --require-images
+                           also fail when a cut an episode renders has no image
+                           asset; opt-in, because \`image: null\` is legitimate
+                           mid-production and the shipped examples rely on it
+  studio --port <n>        port for the studio server (in-repo dev default 4477;
+                           installed: a free port is chosen automatically)
+  import-image --episode <id> (--cut <id> [--slot clean|final] | --transition <id>)
+               --from <file> [--provider manual]
+                           strips image metadata at ingest; provider-neutral
+  generate --episode <id> (--cut <id> [--cut <id> ...] [--slot clean|final]
+                           | --transition <id>)
+           --prompt <text> [--negative <text>] [--width <px>] [--height <px>]
+           [--seed <n>|fresh] [--workflow <name>] [--provider comfyui] [--allow-remote]
+                           generates and ingests an image; the provider endpoint
+                           and workflow come from local runtime config/env
+                           (e.g. TOONY_COMFYUI_URL), never from webtoon.json;
+                           --workflow selects a workflow a pack contributed;
+                           when that workflow declares a reference input, the
+                           first reference sheet of the first character the cut
+                           names is uploaded and named in the graph, and its
+                           sha256 is recorded in the ingest log;
+                           repeat --cut to generate several cuts in one run: it
+                           prints a per-cut summary, keeps every cut it
+                           finished, and exits non-zero if any cut failed.
+                           a project that does not validate is refused before
+                           anything is sent: the run prints the report
+                           \`toony validate\` prints, plus the offending value as
+                           authored, and exits 1 having generated nothing. There
+                           is no override flag. A project that is only half
+                           WIRED — a record not yet in the episode sequence, a
+                           sequence entry whose record is not written yet, or an
+                           episode nothing has been sequenced into — warns on
+                           stderr and generates anyway. A bare re-run repeats the
+                           recorded seed; --seed fresh rolls a new one per cut
+                           and records it. A run that replaces authored prompts
+                           through the write-back says so on one line, with the
+                           cut ids
+  export <platform|stitched|plotlink|preset> [path] --episode <id>
+         [--width <px>] [--format png|jpg] [--quality <0-100>]
+                           writes into the project's exports/ folder + manifest;
+                           the first argument is an export preset — the three
+                           built-ins, or one an installed pack contributes
+  lint [path] --json       emit findings as JSON instead of text
+  lint-episode <id> [path] [--json]
+                           lint only the named episode
+  plan [path] (--episode <id> | --spec <file>) [--against <band-id|band.json>]
+       [--json] [--width <px>] [--screen-aspect <n>]
+                           the cheap half of the measurement loop. Resolves each
+                           cut's declared panelAspect and each gap's kind through
+                           the SAME resolvers the export canvas sizes them with,
+                           and reports the five page-structure metrics — gutter
+                           ratio, gutter median, panel height median and spread,
+                           panels per screen — plus the transition mix, with no
+                           image read and no canvas created. --episode reads an
+                           episode's own cut and transition lists; --spec reads a
+                           plan file, which states the structure as BEATS WITH
+                           LENGTHS (a label, how many cuts the beat runs, the
+                           shape they are declared at, the gaps between them) so
+                           an episode of a hundred panels is a handful of beats.
+                           IT CHECKS FIVE OF THE ELEVEN METRICS. The four colour
+                           metrics and panelInset need pixels, and
+                           gutterIntrusionsPerScreen counts what is drawn inside
+                           a gap; every run names those six and no verdict here
+                           stands in for \`toony measure\`. A band whose every
+                           graded range needs pixels is refused rather than
+                           passed: nothing was checked, so there is no verdict
+  measure [path] --episode <id> [--against <band-id|band.json>] [--json]
+          [--width <px>] [--screen-aspect <n>]
+                           renders the episode the way \`export stitched\` does —
+                           no provider, no prior export — and reports gutter,
+                           panel, and colour signals; --against grades them
+                           against a band file or a band an installed pack ships
+                           (docs/CRAFT_MEASURE.md)
+  packs list [path] [--json]
+                           every installed pack, the root it was found in, and
+                           what it contributes
+  packs doctor [path] [--json]
+                           why a pack is not loading: the roots searched, the
+                           packs that loaded, and every problem with its path,
+                           code, and what to fix
+  packs install <pack-dir> [path] [--workspace] [--force]
+                           copy a pack directory that is already on this machine
+                           into <project>/.toony/packs, or one level up with
+                           --workspace; nothing is fetched
+  packs remove <id> [path] delete an installed pack; a TOONY_PACKS collection is
+                           never touched
+
+  draft compile [path] --episode <id> [--from <script.json>]
+        [--against <band-id|band.json>] [--width <px>] [--screen-aspect <n>] [--json]
+                           read script/episodes/<id>.json (or --from) and the
+                           project, write .toony/drafts/<id>.json, and report
+                           every field the compiler defaulted, the craft and
+                           overflow findings a draft can carry, the page
+                           geometry \`toony plan --episode\` would give it, and
+                           the diff against the episode the project holds now.
+                           Nothing in the project changes. Exit 1 when the diff
+                           has a conflict or a named band is out of band
+  draft show [path] --episode <id> [--json]
+                           the diff and every conflict against the project as
+                           it is now; records that state so apply knows what
+                           was reviewed
+  draft apply [path] --episode <id> [--json]
+                           write the draft into the project. Refuses, writing
+                           nothing, on any conflict with a record the project
+                           already holds, on a project that changed since the
+                           last show or compile, or on a project that does not
+                           validate. Creates the episode when it does not
+                           exist. There is no force flag
+
+  produce inspect [path] --episode <id> ([--cut <id> ...] [--review-status <s>]) [--json]
+                           resolve the target set exactly as generate would and
+                           show what a run would touch: the ids, how many carry
+                           an image, how many carry recorded render inputs, how
+                           many carry a non-draft review the run would reset,
+                           and every reason it would stop. No provider call
+  produce run [path] --episode <id> ([--cut <id> ...] [--review-status <s>])
+          --accept <target-set> [--reason <text>] [--from <file>]
+          [--prompt <text>] [--negative <text>] [--seed <n>|fresh]
+          [--workflow <name>] [--width <px>] [--height <px>]
+          [--slot clean|final] [--provider <id>] [--allow-remote] [--json]
+                           the same disclosure, then the run. --accept names
+                           the exact target set inspect printed; a set that
+                           resolves differently stops. A run that changes an
+                           input on cuts that recorded a render is a revision
+                           and needs --reason; one that changes nothing is a
+                           repeat. Drives generate (or import-image with
+                           --from) in-process with explicit --cut ids; writes
+                           no cut field, no review state and no ingest entry
+                           itself; records what it resolved and what each
+                           target came back as in episodes/<id>/logs/produce.json.
+                           Never re-issues a run the repeat refusal stopped
+
+drafts (docs/PROJECT_FORMAT.md):
+  a draft is one complete episode, compiled from the authored episode script,
+  kept under <project>/.toony/drafts until applied. Compile and show never write
+  project data; apply is the only step that does, and it only ever adds records.
+
+packs (docs/PACK_FORMAT.md):
+  a pack is a local folder of DATA that adds named workflows, genre scaffolds,
+  export presets, craft bands, lettering themes and style lexicons without
+  editing Toony. A project selects a theme or a lexicon by id in webtoon.json. Packs are read from
+  <project>/.toony/packs, the workspace folder above it, and every directory
+  named by TOONY_PACKS. Nothing in a pack can run code, and nothing about a pack
+  is downloaded: \`toony packs install\` copies a local folder.
+
+exit codes (agent-readable):
+  0   success; for \`validate\`, the project is valid; for \`lint\`, no error/warning findings
+  1   domain error: validation errors (\`validate\`: schema errors, or a cut with
+      no image under \`--require-images\`), lint findings
+      (\`lint\`: any error/warning finding), an out-of-band measurement
+      (\`measure --against\`, \`plan --against\`), a pack problem (\`packs doctor\`),
+      or generation failure
+      (\`generate\`: the project does not validate, the endpoint is unreachable, a
+      provider error, or a timeout; in a multi-cut run, ANY failed cut)
+  2   usage error or IO failure (bad arguments, missing/unreadable files; for
+      \`plan --against\`, also a band that grades nothing a plan can check, and a
+      plan naming a page too tall to grade at the requested column)
+`;

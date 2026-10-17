@@ -1,0 +1,45 @@
+- id: tr-001
+  type: gutter
+  gutterHeight: 64
+  text: null
+  sfx: null
+  agentNote: null
+  humanNote: beat after the hook
+  image: null
+  reviewStatus: human-edited
+- id: tr-002
+  type: scene-break
+  gutterHeight: 140
+  text: 11:47 PM
+  sfx: null
+  agentNote: null
+  humanNote: time stamp, settle into the wait
+  image: null
+  reviewStatus: human-edited
+- id: tr-003
+  type: fade
+  gutterHeight: 120
+  text: null
+  sfx: null
+  agentNote: null
+  humanNote: dreamlike approach
+  image: null
+  reviewStatus: human-edited
+- id: tr-004
+  type: gutter
+  gutterHeight: 88
+  text: null
+  sfx: null
+  agentNote: null
+  humanNote: hold before the reveal
+  image: null
+  reviewStatus: human-edited
+- id: tr-005
+  type: scene-break
+  gutterHeight: 140
+  text: The next morning
+  sfx: null
+  agentNote: null
+  humanNote: time skip to resolution
+  image: null
+  reviewStatus: human-edited

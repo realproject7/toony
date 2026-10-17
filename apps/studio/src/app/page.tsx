@@ -1,0 +1,122 @@
+// Workspace library — the studio's new home (issue #51).
+//
+// Opens over the WORKSPACE root and lists every work as a card (cover thumbnail,
+// title, episode/cut counts, last edited). Picking a card enters that work's
+// dashboard at `/w/<id>`. A "New webtoon" action scaffolds a fresh work into the
+// workspace. Real data comes from `listWorks` (the project-io workspace scan) via
+// the server-only `@/lib/workspace` wrapper; no wallet/account/publish surfaces —
+// this is a production tool.
+
+import { join } from "node:path";
+import Link from "next/link";
+import { NewWorkButton } from "@/components/new-work-button";
+import { discoverStudioPacks } from "@/lib/packs";
+import { assetUrl } from "@/lib/project";
+import { listWorks, workspaceRoot } from "@/lib/workspace";
+
+// The workspace is scanned from disk per request, so this page must not be cached.
+export const dynamic = "force-dynamic";
+
+/** Human-readable "last edited" from an ISO timestamp (date only, locale-free). */
+function formatUpdated(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime()) || date.getTime() === 0) return "—";
+  return date.toISOString().slice(0, 10);
+}
+
+export default async function LibraryPage() {
+  const works = await listWorks();
+  const wsRoot = workspaceRoot();
+  const packs = await discoverStudioPacks(wsRoot);
+  const totalEpisodes = works.reduce((sum, work) => sum + work.episodeCount, 0);
+  const totalCuts = works.reduce((sum, work) => sum + work.cutCount, 0);
+
+  return (
+    <div data-testid="studio-library">
+      <header className="page-head">
+        <div>
+          <p className="page-eyebrow">Workspace</p>
+          <h1 className="page-title">Library</h1>
+          <div className="page-meta">
+            <span>
+              <b>{works.length}</b> work{works.length === 1 ? "" : "s"}
+            </span>
+            <span>
+              <b>{totalEpisodes}</b> episodes
+            </span>
+            <span>
+              <b>{totalCuts}</b> cuts
+            </span>
+          </div>
+        </div>
+        <div className="editor-actions">
+          <NewWorkButton genres={packs.genreOptions} />
+        </div>
+      </header>
+
+      {packs.warnings.length > 0 && (
+        <details className="notice" data-testid="pack-warnings">
+          <summary>Some pack content is unavailable ({packs.warnings.length})</summary>
+          {packs.warnings.map((warning) => (
+            <p key={warning}>{warning}</p>
+          ))}
+        </details>
+      )}
+      {works.length === 0 ? (
+        <section className="notice" data-testid="library-empty">
+          <h2 className="card-title">No works yet</h2>
+          <p className="page-meta">
+            This workspace has no webtoons. Create one to begin — it scaffolds a valid project
+            folder in the workspace and opens its dashboard.
+          </p>
+          <p>
+            <NewWorkButton genres={packs.genreOptions} />
+          </p>
+        </section>
+      ) : (
+        <ul className="work-grid" data-testid="work-grid">
+          {works.map((work) => {
+            // Reuse the shared, path-safe `assetUrl` (its `resolveWorkAsset`
+            // pre-check) instead of re-building the URL here (#154).
+            const cover = assetUrl(work.id, join(wsRoot, work.id), work.coverImagePath);
+            return (
+              <li key={work.id}>
+                <Link
+                  href={`/w/${encodeURIComponent(work.id)}`}
+                  className="work-card"
+                  data-testid={`work-${work.id}`}
+                >
+                  <div className="work-cover" data-has-cover={cover ? "true" : "false"}>
+                    {cover ? (
+                      // biome-ignore lint/performance/noImgElement: local-first studio serves project files directly, not via the Next image optimizer.
+                      <img className="work-cover-img" src={cover} alt={`Cover for ${work.title}`} />
+                    ) : (
+                      <span className="work-cover-empty" aria-hidden="true">
+                        {work.title.slice(0, 1).toUpperCase() || "?"}
+                      </span>
+                    )}
+                  </div>
+                  <div className="work-card-body">
+                    <p className="work-card-title">{work.title}</p>
+                    <p className="work-card-id">
+                      <code>{work.id}</code>
+                    </p>
+                    <div className="work-card-counts">
+                      <span>
+                        <b>{work.episodeCount}</b> ep
+                      </span>
+                      <span>
+                        <b>{work.cutCount}</b> cuts
+                      </span>
+                      <span className="work-card-updated">{formatUpdated(work.updatedAt)}</span>
+                    </div>
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}

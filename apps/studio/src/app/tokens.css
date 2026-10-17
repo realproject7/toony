@@ -1,0 +1,331 @@
+/*
+ * Toony "Doodle Studio" design tokens (v4).
+ *
+ * Brand: the operator's tuxedo-cat mark (served from /public/brand) + a playful
+ * but MODERN system — clean cards, modern pill buttons, modern sans type, soft
+ * shadows — with a bright cartoon-doodle feel from spot illustrations and small
+ * scattered accents. Benchmark: doodles.app (cheerful, polished, modern).
+ *
+ * Palette is exactly three brand colors + cream/white neutrals:
+ *   - Teal  #014C63  → primary (--color-accent): nav, links, primary actions
+ *   - Pink  #FC0E4C  → accent-2: emphasis actions (Export/Publish) + danger
+ *   - Gold  #F4CE42  → highlight: active nav pill, highlights, secondary CTAs
+ * Surfaces are white on a warm cream canvas. Type is a modern sans (Inter).
+ *
+ * Every semantic alias name the v2 studio referenced is preserved so the reskin
+ * is token-driven; only the values changed.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* -----------------------------------------------------------------------
+     1. BRAND — Teal (primary) · Pink-red (accent-2) · Gold (highlight)
+     ----------------------------------------------------------------------- */
+  --color-accent: #014c63;
+  --color-accent-hover: #023a4d;
+  --color-accent-press: #012a39;
+  --color-accent-soft: #e0eef2;
+  --color-accent-on: #ffffff;
+  --color-accent-strong: #012a39;
+
+  --color-accent-2: #fc0e4c;
+  --color-accent-2-hover: #e00a42;
+  --color-accent-2-soft: #ffe2e9;
+  --color-accent-2-on: #ffffff;
+  /* A darker pink for SOLID fills behind white text (buttons): white on the
+     brand #fc0e4c is only 3.96:1, so solid accent-2 buttons use this (≥4.5:1)
+     while the brand pink stays for accents/dots/chips. */
+  --color-accent-2-strong: #d10a3f;
+  --color-accent-2-strong-hover: #b00836;
+
+  /* Gold highlight — active nav pill, secondary CTAs, doodle accents. Dark ink
+     sits on gold for contrast. */
+  --color-highlight: #f4ce42;
+  --color-highlight-hover: #ecc11f;
+  --color-highlight-soft: #fdf4d2;
+  --color-highlight-on: #4a3a00;
+
+  /* Raw ramps still referenced directly by components (state/semantic use). */
+  --coral-50: #ffe2e9;
+  --coral-400: #ff5c7f;
+  --coral-600: #d10a3f;
+  --amber-400: #f7d65f;
+  --amber-500: #f4ce42;
+  --teal-400: #1fc6b0;
+  --teal-500: #0fa896;
+  --sky-400: #3aa0ff;
+  --sky-500: #1d83ec;
+
+  /* -----------------------------------------------------------------------
+     2. NEUTRALS — warm cream paper
+     ----------------------------------------------------------------------- */
+  --neutral-0: #ffffff;
+  --neutral-25: #fdfbf6;
+  --neutral-50: #fcf9f3;
+  --neutral-100: #f4efe4;
+  --neutral-200: #ece7db;
+  --neutral-300: #ddd6c7;
+  --neutral-400: #b3ad9f;
+  --neutral-500: #857f72;
+  --neutral-600: #6b655a;
+  --neutral-700: #4a4640;
+  --neutral-800: #2f2c27;
+  --neutral-900: #211f1a;
+  --neutral-950: #14120c;
+
+  /* -----------------------------------------------------------------------
+     3. SEMANTIC SURFACES & TEXT
+     ----------------------------------------------------------------------- */
+  --color-canvas: #fcf9f3;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-surface-sunken: #f4efe4;
+
+  --color-ink: #2b2b2b;
+  --color-ink-strong: #14120c;
+  --color-muted: #6b655a;
+  /* Faint text still meaningful → keep ≥4.5:1 on white/cream (was #aaa494, 2.49:1). */
+  --color-faint: #7a7468;
+  --color-line: #ece7db;
+  --color-line-strong: #ddd6c7;
+
+  /* The Production Scroll canvas itself */
+  --color-scroll-bg: #ece7db;
+  --color-scroll-page: #ffffff;
+  --color-gutter: #ffffff;
+
+  /* -----------------------------------------------------------------------
+     4. STATE COLORS
+     ----------------------------------------------------------------------- */
+  /* Draft chip text must stay ≥4.5:1 on --state-draft-soft (#f4efe4). --neutral-400
+     (#b3ad9f) was only 1.95:1; --neutral-600 (#6b655a) measures ~5.03:1. Neither
+     this token nor its neutrals are dark-overridden, so this fixes both themes. */
+  --state-draft: var(--neutral-600);
+  --state-draft-soft: var(--neutral-100);
+  /* Edited/pending chip text must stay ≥4.5:1 on --state-edited-soft (#fdf4d2).
+     --amber-500 (#f4ce42) was only 1.38:1; the deep gold #8a6a00 measures
+     4.60:1 — the same value proven for --color-warning on this soft. The
+     saturated amber stays for dark theme (see below) and non-text uses. */
+  --state-edited: #8a6a00;
+  --state-edited-soft: var(--color-highlight-soft);
+  /* Final/connected chip text must stay ≥4.5:1 on --state-final-soft (#d7f6f1).
+     --teal-500 (#0fa896) was only 2.60:1; the deep teal #0a7266 measures
+     5.08:1. Soft background and the saturated dark-theme teal are unchanged. */
+  --state-final: #0a7266;
+  --state-final-soft: #d7f6f1;
+
+  --state-connected: #0a7266;
+  --state-connected-soft: #d7f6f1;
+  --state-disconnected: var(--coral-600);
+  --state-disconnected-soft: var(--coral-50);
+  --state-pending: #8a6a00;
+  --state-pending-soft: var(--color-highlight-soft);
+
+  --color-success: var(--teal-500);
+  --color-success-soft: #d7f6f1;
+  /* Darkened so warning TEXT clears ≥4.5:1 on white (was #c79400, 2.74:1). */
+  --color-warning: #8a6a00;
+  --color-warning-soft: var(--color-highlight-soft);
+  --color-danger: var(--coral-600);
+  --color-danger-soft: var(--coral-50);
+  --color-info: var(--sky-500);
+  --color-info-soft: #e3f1ff;
+
+  /* -----------------------------------------------------------------------
+     5. TYPOGRAPHY — modern sans (Inter), bold rounded headings
+     ----------------------------------------------------------------------- */
+  --font-sans:
+    "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display:
+    "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1.0625rem;
+  --text-xl: 1.3125rem;
+  --text-2xl: 1.625rem;
+  --text-3xl: 2.125rem;
+  --text-4xl: 2.875rem;
+  --text-title: var(--text-2xl);
+
+  --leading-tight: 1.15;
+  --leading-snug: 1.3;
+  --leading-normal: 1.5;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --tracking-tight: -0.02em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;
+
+  /* -----------------------------------------------------------------------
+     6. SPACING (4px base)
+     ----------------------------------------------------------------------- */
+  --space-0: 0;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* -----------------------------------------------------------------------
+     7. RADII — generous & rounded (modern doodle feel)
+     ----------------------------------------------------------------------- */
+  --radius-1: 0.375rem;
+  --radius-2: 0.625rem;
+  --radius-3: 0.875rem;
+  --radius-4: 1.125rem;
+  --radius-5: 1.5rem;
+  --radius-round: 999px;
+
+  /* -----------------------------------------------------------------------
+     8. ELEVATION — soft, warm, friendly
+     ----------------------------------------------------------------------- */
+  --shadow-1: 0 1px 2px rgba(33, 31, 26, 0.05);
+  --shadow-2: 0 1px 3px rgba(33, 31, 26, 0.07), 0 4px 12px rgba(33, 31, 26, 0.05);
+  --shadow-3: 0 4px 14px rgba(33, 31, 26, 0.09), 0 14px 34px rgba(33, 31, 26, 0.09);
+  --shadow-canvas: 0 8px 24px rgba(33, 31, 26, 0.12), 0 24px 64px rgba(1, 76, 99, 0.1);
+  --shadow-accent: 0 6px 18px rgba(1, 76, 99, 0.25);
+  --shadow-focus: 0 0 0 3px rgba(1, 76, 99, 0.3);
+  --shadow-panel: var(--shadow-2);
+
+  /* -----------------------------------------------------------------------
+     9. MOTION (subtle)
+     ----------------------------------------------------------------------- */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasis: cubic-bezier(0.3, 0, 0, 1);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 260ms;
+
+  /* -----------------------------------------------------------------------
+     10. LAYOUT METRICS
+     ----------------------------------------------------------------------- */
+  --studio-sidebar-width: 15rem;
+  --studio-inspector-width: 21rem;
+  --studio-toolbar-height: 3.25rem;
+  --studio-statusbar-height: 1.75rem;
+  --scroll-max-width: 30rem;
+  --episode-max-width: var(--scroll-max-width);
+  --cut-gutter: 0.75rem;
+
+  --color-transition: var(--color-accent);
+}
+
+/* ===========================================================================
+   DARK MODE — opt-in via [data-theme="dark"].
+   =========================================================================== */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-canvas: #141210;
+  --color-surface: #1f1c18;
+  --color-surface-raised: #2a2620;
+  --color-surface-sunken: #100e0c;
+
+  --color-ink: #f4efe4;
+  --color-ink-strong: #ffffff;
+  --color-muted: #b3ad9f;
+  --color-faint: #857f72;
+  --color-line: rgba(255, 255, 255, 0.09);
+  --color-line-strong: rgba(255, 255, 255, 0.16);
+
+  --color-accent: #4aa3bd;
+  --color-accent-hover: #6cbcd2;
+  --color-accent-press: #014c63;
+  --color-accent-soft: rgba(1, 76, 99, 0.28);
+  --color-accent-on: #08231c;
+  --color-accent-strong: #6cbcd2;
+
+  --color-accent-2: #ff5c7f;
+  --color-accent-2-hover: #ff85a0;
+  --color-accent-2-soft: rgba(252, 14, 76, 0.22);
+  --color-accent-2-on: #14120c;
+  /* Dark theme uses dark ink on the bright pink, which already passes; the
+     solid-button shade tracks the same pair. */
+  --color-accent-2-strong: #ff5c7f;
+  --color-accent-2-strong-hover: #ff85a0;
+
+  --color-highlight: #f4ce42;
+  --color-highlight-soft: rgba(244, 206, 66, 0.18);
+  --color-highlight-on: #14120c;
+
+  --color-scroll-bg: #100e0c;
+  --color-scroll-page: #2a2620;
+  --color-gutter: #141210;
+
+  --state-final: var(--teal-400);
+  --state-final-soft: rgba(15, 168, 150, 0.16);
+  --state-connected: var(--teal-400);
+  --state-connected-soft: rgba(15, 168, 150, 0.16);
+  --state-disconnected: var(--coral-400);
+  --state-disconnected-soft: rgba(252, 14, 76, 0.18);
+  --state-edited: var(--amber-400);
+  --state-edited-soft: rgba(244, 206, 66, 0.18);
+  --state-pending: var(--amber-400);
+  --state-pending-soft: rgba(244, 206, 66, 0.18);
+
+  --color-success: var(--teal-400);
+  --color-success-soft: rgba(15, 168, 150, 0.16);
+  --color-warning: var(--amber-400);
+  --color-warning-soft: rgba(244, 206, 66, 0.18);
+  --color-danger: var(--coral-400);
+  --color-danger-soft: rgba(252, 14, 76, 0.18);
+  --color-info: var(--sky-400);
+  --color-info-soft: rgba(58, 160, 255, 0.16);
+
+  --shadow-canvas: 0 8px 24px rgba(0, 0, 0, 0.5), 0 24px 64px rgba(0, 0, 0, 0.5);
+  --shadow-accent: 0 6px 24px rgba(74, 163, 189, 0.4);
+  --color-transition: var(--color-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+    --dur-slow: 0ms;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  /* Cream canvas with a sparse doodle motif (v4) — the cartoon feel lives in the
+     margins; opaque white surfaces (sidebar/cards/panels) sit cleanly on top. */
+  background: var(--color-canvas) url("/brand/doodle-bg.svg") repeat;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+code,
+pre {
+  font-family: var(--font-mono);
+}

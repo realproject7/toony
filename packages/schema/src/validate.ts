@@ -1,0 +1,1234 @@
+// Structural and cross-file validators for Toony projects.
+//
+// Validators accept `unknown` and never throw; they return a ValidationResult
+// whose issues are actionable. #4 owns structural validity, schema conformance,
+// canonical ordering, duplicate ids, missing records, and referential integrity.
+// #11 consumes these validators for production-readiness linting.
+
+import { IssueCollector, joinPath, type ValidationResult } from "./errors.js";
+import { EXPORT_WIDTH_MAX, EXPORT_WIDTH_MIN } from "./export-options.js";
+import {
+  isArray,
+  isBoolean,
+  isFiniteNumber,
+  isInteger,
+  isNonEmptyString,
+  isNormalizedUnit,
+  isOneOf,
+  isPlainObject,
+  isString,
+} from "./guards.js";
+import { foldingFilesystems, foldPathSafeId, isPathSafeId } from "./path-safe-id.js";
+import { validateGutterBandWidth } from "./presets.js";
+import {
+  BUBBLE_KINDS,
+  BUBBLE_TONES,
+  CORNER_RADIUS_MAX_PX,
+  CORNER_RADIUS_MIN_PX,
+  FADE_DIRECTIONS,
+  FADE_TYPES,
+  FONT_FAMILY_IDS,
+  FONT_SIZE_MAX_PX,
+  FONT_SIZE_MIN_PX,
+  FONT_WEIGHTS,
+  GUTTER_HEIGHT_MAX_PX,
+  GUTTER_HEIGHT_MIN_PX,
+  LETTER_SPACING_MAX_EM,
+  LETTER_SPACING_MIN_EM,
+  LINE_HEIGHT_MAX,
+  LINE_HEIGHT_MIN,
+  MANUAL_PROVIDER_ID,
+  PANEL_ASPECT_MAX,
+  PANEL_ASPECT_MIN,
+  PLACEMENT_SIDES,
+  PLACEMENTS,
+  REVIEW_STATUSES,
+  SCHEMA_VERSION,
+  SFX_MODES,
+  SHOT_TYPES,
+  TEXT_ALIGNS,
+  TRANSITION_TYPES,
+  VERTICAL_ALIGNS,
+} from "./types.js";
+
+/** Reject absolute or parent-escaping paths so asset references stay project-relative. */
+export function isProjectRelativePath(value: string): boolean {
+  if (value.length === 0) return false;
+  if (value.startsWith("/") || value.startsWith("\\")) return false;
+  if (/^[A-Za-z]:[\\/]/.test(value)) return false;
+  if (value.includes("://")) return false;
+  const segments = value.split(/[\\/]/);
+  return !segments.includes("..");
+}
+
+function requireSchemaVersion(value: unknown, path: string, c: IssueCollector): void {
+  if (value !== SCHEMA_VERSION) {
+    c.add(
+      joinPath(path, "schemaVersion"),
+      "schema-version.unsupported",
+      `schemaVersion must be ${SCHEMA_VERSION}.`,
+    );
+  }
+}
+
+function validateNullableString(
+  obj: Record<string, unknown>,
+  key: string,
+  path: string,
+  c: IssueCollector,
+): void {
+  const value = obj[key];
+  if (value !== null && !isString(value)) {
+    c.add(joinPath(path, key), "field.type", `${key} must be a string or null.`);
+  }
+}
+
+// --- Language ---------------------------------------------------------------
+
+export function validateLanguageConfigValue(value: unknown, path: string, c: IssueCollector): void {
+  if (!isPlainObject(value)) {
+    c.add(path, "languages.type", "languages must be an object.");
+    return;
+  }
+  const fields = ["defaultLanguage", "dialogueLanguage", "promptLanguage"] as const;
+  for (const field of fields) {
+    if (!isNonEmptyString(value[field])) {
+      c.add(joinPath(path, field), "field.required", `${field} must be a non-empty string.`);
+    }
+  }
+
+  const supported = value.supportedLanguages;
+  if (!isArray(supported) || supported.length === 0 || !supported.every(isNonEmptyString)) {
+    c.add(
+      joinPath(path, "supportedLanguages"),
+      "languages.supported",
+      "supportedLanguages must be a non-empty array of non-empty strings.",
+    );
+    return;
+  }
+
+  const supportedSet = new Set<string>();
+  for (let i = 0; i < supported.length; i++) {
+    const lang = supported[i] as string;
+    if (supportedSet.has(lang)) {
+      c.add(
+        joinPath(joinPath(path, "supportedLanguages"), i),
+        "languages.duplicate",
+        `supportedLanguages contains duplicate "${lang}".`,
+      );
+    }
+    supportedSet.add(lang);
+  }
+
+  for (const field of fields) {
+    const lang = value[field];
+    if (isNonEmptyString(lang) && !supportedSet.has(lang)) {
+      c.add(
+        joinPath(path, field),
+        "language.not-supported",
+        `${field} "${lang}" is not listed in supportedLanguages.`,
+      );
+    }
+  }
+}
+
+// --- Image providers --------------------------------------------------------
+
+export function validateImageProvidersValue(value: unknown, path: string, c: IssueCollector): void {
+  if (!isPlainObject(value)) {
+    c.add(path, "imageProviders.type", "imageProviders must be an object.");
+    return;
+  }
+  const providers = value.providers;
+  if (!isArray(providers)) {
+    c.add(joinPath(path, "providers"), "imageProviders.providers", "providers must be an array.");
+    return;
+  }
+
+  const ids = new Set<string>();
+  for (let i = 0; i < providers.length; i++) {
+    const provider = providers[i];
+    const providerPath = joinPath(joinPath(path, "providers"), i);
+    if (!isPlainObject(provider)) {
+      c.add(providerPath, "provider.type", "provider must be an object.");
+      continue;
+    }
+    if (!isNonEmptyString(provider.id)) {
+      c.add(joinPath(providerPath, "id"), "provider.id", "provider id must be a non-empty string.");
+    } else {
+      if (ids.has(provider.id)) {
+        c.add(
+          joinPath(providerPath, "id"),
+          "provider.duplicate",
+          `duplicate provider id "${provider.id}".`,
+        );
+      }
+      ids.add(provider.id);
+    }
+    if (!isNonEmptyString(provider.kind)) {
+      c.add(
+        joinPath(providerPath, "kind"),
+        "provider.kind",
+        "provider kind must be a non-empty string label.",
+      );
+    }
+    // Allowlist provider keys so private metadata (account ids, endpoints,
+    // tokens) cannot ride along on a provider record and still validate.
+    for (const key of Object.keys(provider)) {
+      if (key !== "id" && key !== "kind") {
+        c.add(
+          joinPath(providerPath, key),
+          "provider.unexpected-field",
+          `provider records allow only "id" and "kind"; remove unexpected field "${key}" (provider config must stay provider-neutral, no account details).`,
+        );
+      }
+    }
+  }
+
+  const defaultProvider = value.defaultProvider;
+  if (!isNonEmptyString(defaultProvider)) {
+    c.add(
+      joinPath(path, "defaultProvider"),
+      "imageProviders.default",
+      "defaultProvider must be a non-empty string.",
+    );
+  } else if (defaultProvider !== MANUAL_PROVIDER_ID && !ids.has(defaultProvider)) {
+    c.add(
+      joinPath(path, "defaultProvider"),
+      "imageProviders.default-unknown",
+      `defaultProvider "${defaultProvider}" must be "${MANUAL_PROVIDER_ID}" or a configured provider id.`,
+    );
+  }
+}
+
+// --- Webtoon ----------------------------------------------------------------
+
+export function validateWebtoonValue(value: unknown, path: string, c: IssueCollector): void {
+  if (!isPlainObject(value)) {
+    c.add(path, "webtoon.type", "webtoon must be an object.");
+    return;
+  }
+  requireSchemaVersion(value.schemaVersion, path, c);
+  if (!isNonEmptyString(value.projectId)) {
+    c.add(joinPath(path, "projectId"), "field.required", "projectId must be a non-empty string.");
+  }
+  if (!isNonEmptyString(value.title)) {
+    c.add(joinPath(path, "title"), "field.required", "title must be a non-empty string.");
+  }
+  validateLanguageConfigValue(value.languages, joinPath(path, "languages"), c);
+  validateImageProvidersValue(value.imageProviders, joinPath(path, "imageProviders"), c);
+  // Character registry (#92) is OPTIONAL + back-compat: absent → no characters.
+  if (value.characters !== undefined) {
+    validateCharactersValue(value.characters, joinPath(path, "characters"), c);
+  }
+  // A selected pack theme or lexicon (#334, #335) is an id; whether an installed
+  // pack provides it is the consumer's question, the way a workflow name is.
+  for (const key of ["letteringTheme", "styleLexicon"] as const) {
+    if (value[key] !== undefined && !isNonEmptyString(value[key])) {
+      c.add(
+        joinPath(path, key),
+        "webtoon.pack-selection",
+        `${key} must be a non-empty pack entry id.`,
+      );
+    }
+  }
+  // Reference column (#217) is OPTIONAL + back-compat: absent → the standard
+  // canvas. It is a column width, so it obeys the bounds an export width does.
+  const reference = value.referenceWidth;
+  if (reference !== undefined) {
+    if (!isInteger(reference) || reference < EXPORT_WIDTH_MIN || reference > EXPORT_WIDTH_MAX) {
+      c.add(
+        joinPath(path, "referenceWidth"),
+        "webtoon.reference-width",
+        `referenceWidth must be an integer in px between ${EXPORT_WIDTH_MIN} and ${EXPORT_WIDTH_MAX}.`,
+      );
+    }
+  }
+  // Gutter band width (#215) is OPTIONAL + back-compat: absent → the default
+  // strip. A fraction of the cut width, so it is bounded on both sides — a
+  // strip too narrow to letter, or wide enough to leave no artwork, is an
+  // authoring mistake and is rejected here rather than silently clamped.
+  const bandError = validateGutterBandWidth(value.gutterBandWidth as number | undefined);
+  if (bandError !== null) {
+    c.add(joinPath(path, "gutterBandWidth"), "webtoon.gutter-band-width", `${bandError}.`);
+  }
+}
+
+/**
+ * Validate a character's reference sheets (#327): project-relative image paths
+ * under `characters/<id>/`, unique. Whether a file is there and decodes is a
+ * lint check, like a cut's image, so a registry can name a sheet before the
+ * sheet is drawn.
+ */
+function validateCharacterReferences(
+  value: unknown,
+  characterId: string,
+  path: string,
+  c: IssueCollector,
+): void {
+  if (!isArray(value)) {
+    c.add(path, "character.references", "references must be an array of project-relative paths.");
+    return;
+  }
+  const seen = new Set<string>();
+  const prefix = `characters/${characterId}/`;
+  value.forEach((ref, i) => {
+    const refPath = joinPath(path, i);
+    if (!isNonEmptyString(ref)) {
+      c.add(refPath, "character.reference", "a reference must be a non-empty string.");
+      return;
+    }
+    if (!isProjectRelativePath(ref)) {
+      c.add(
+        refPath,
+        "character.reference-path",
+        "a reference must be a project-relative path (no absolute or parent-escaping paths).",
+      );
+      return;
+    }
+    if (characterId !== "" && !ref.startsWith(prefix)) {
+      c.add(
+        refPath,
+        "character.reference-folder",
+        `a reference for character "${characterId}" must live under ${prefix}.`,
+      );
+    }
+    if (seen.has(ref)) {
+      c.add(refPath, "character.reference-duplicate", `duplicate reference "${ref}".`);
+    }
+    seen.add(ref);
+  });
+}
+
+/**
+ * Validate the project character registry (#92): an array of `{id, name,
+ * lockstring}` with non-empty fields and unique ids. Only called when present.
+ */
+function validateCharactersValue(value: unknown, path: string, c: IssueCollector): void {
+  if (!isArray(value)) {
+    c.add(path, "characters.type", "characters must be an array.");
+    return;
+  }
+  const ids = new Set<string>();
+  for (let i = 0; i < value.length; i++) {
+    const character = value[i];
+    const characterPath = joinPath(path, i);
+    if (!isPlainObject(character)) {
+      c.add(characterPath, "character.type", "character must be an object.");
+      continue;
+    }
+    if (!isNonEmptyString(character.id)) {
+      c.add(
+        joinPath(characterPath, "id"),
+        "field.required",
+        "character id must be a non-empty string.",
+      );
+    } else {
+      if (ids.has(character.id)) {
+        c.add(
+          joinPath(characterPath, "id"),
+          "character.duplicate-id",
+          `duplicate character id "${character.id}".`,
+        );
+      }
+      ids.add(character.id);
+    }
+    if (!isNonEmptyString(character.name)) {
+      c.add(
+        joinPath(characterPath, "name"),
+        "field.required",
+        "character name must be a non-empty string.",
+      );
+    }
+    if (character.references !== undefined) {
+      validateCharacterReferences(
+        character.references,
+        typeof character.id === "string" ? character.id : "",
+        joinPath(characterPath, "references"),
+        c,
+      );
+    }
+    if (!isNonEmptyString(character.lockstring)) {
+      c.add(
+        joinPath(characterPath, "lockstring"),
+        "field.required",
+        "character lockstring must be a non-empty string.",
+      );
+    }
+  }
+}
+
+export function validateWebtoon(value: unknown): ValidationResult {
+  const c = new IssueCollector();
+  validateWebtoonValue(value, "webtoon", c);
+  return c.result();
+}
+
+// --- Cut --------------------------------------------------------------------
+
+export function validateCutValue(value: unknown, path: string, c: IssueCollector): void {
+  if (!isPlainObject(value)) {
+    c.add(path, "cut.type", "cut must be an object.");
+    return;
+  }
+  if (!isNonEmptyString(value.id)) {
+    c.add(joinPath(path, "id"), "field.required", "cut id must be a non-empty string.");
+  }
+  if (value.reviewStatus !== undefined && !isOneOf(value.reviewStatus, REVIEW_STATUSES)) {
+    c.add(
+      joinPath(path, "reviewStatus"),
+      "cut.review-status",
+      `reviewStatus must be one of: ${REVIEW_STATUSES.join(", ")}.`,
+    );
+  }
+  // Prompt fields are back-compatible: a project written before they existed
+  // omits them entirely. A missing (undefined) prompt is accepted and normalized
+  // to "" on read by project-io; a present value must be a string.
+  for (const key of ["imagePrompt", "negativePrompt"] as const) {
+    const prompt = value[key];
+    if (prompt !== undefined && !isString(prompt)) {
+      c.add(joinPath(path, key), "cut.prompt", `${key} must be a string.`);
+    }
+  }
+  // Character refs (#92) are OPTIONAL + back-compat. The schema validates only
+  // the SHAPE (an array of non-empty id strings); whether each id resolves to a
+  // registry character is a referential LINT check (`character/unknown-ref`), so
+  // an in-progress project referencing a not-yet-defined character is not hard-
+  // invalid. Checked before the image early-return so it runs for imageless cuts.
+  if (value.characters !== undefined) {
+    if (!isArray(value.characters)) {
+      c.add(joinPath(path, "characters"), "cut.characters", "characters must be an array.");
+    } else {
+      value.characters.forEach((id, i) => {
+        if (!isNonEmptyString(id)) {
+          c.add(
+            joinPath(joinPath(path, "characters"), i),
+            "cut.character-ref",
+            "character ref must be a non-empty string.",
+          );
+        }
+      });
+    }
+  }
+  // Craft metadata (#98) — OPTIONAL; validated only when present. METADATA ONLY.
+  if (value.shotType !== undefined && !isOneOf(value.shotType, SHOT_TYPES)) {
+    c.add(
+      joinPath(path, "shotType"),
+      "cut.shot-type",
+      `shotType must be one of: ${SHOT_TYPES.join(", ")}.`,
+    );
+  }
+  for (const key of ["palette", "layer", "styleTag"] as const) {
+    if (value[key] !== undefined && !isNonEmptyString(value[key])) {
+      c.add(joinPath(path, key), "cut.craft-meta", `${key} must be a non-empty string.`);
+    }
+  }
+  // Panel shape (#237) — OPTIONAL, and the one cut-level craft field that is not
+  // metadata: it becomes the generation latent's height. A range is enforced
+  // here rather than clamped at generation because an out-of-range shape is an
+  // authoring mistake, and clamping would render a panel the pack never asked
+  // for while reporting success.
+  if (value.panelAspect !== undefined) {
+    const aspect = value.panelAspect;
+    if (!isFiniteNumber(aspect) || aspect < PANEL_ASPECT_MIN || aspect > PANEL_ASPECT_MAX) {
+      c.add(
+        joinPath(path, "panelAspect"),
+        "cut.panel-aspect",
+        `panelAspect must be a number between ${PANEL_ASPECT_MIN} and ${PANEL_ASPECT_MAX} — the cut's height as a multiple of its width.`,
+      );
+    }
+  }
+  // Render inputs (#240) — OPTIONAL, and written by `toony generate` rather than
+  // authored: they record what produced the cut's current image so the run can
+  // be repeated. Absent on every cut that has never been generated, which is why
+  // neither is required and neither is defaulted on read.
+  if (value.imageSeed !== undefined && (!isInteger(value.imageSeed) || value.imageSeed < 0)) {
+    c.add(
+      joinPath(path, "imageSeed"),
+      "cut.image-seed",
+      "imageSeed must be a non-negative integer — the seed that produced the cut's image.",
+    );
+  }
+  if (value.imageWorkflow !== undefined && !isNonEmptyString(value.imageWorkflow)) {
+    c.add(
+      joinPath(path, "imageWorkflow"),
+      "cut.image-workflow",
+      "imageWorkflow must be a non-empty string — the name of the workflow that produced the cut's image.",
+    );
+  }
+  const image = value.image;
+  if (image === null) return;
+  if (!isPlainObject(image)) {
+    c.add(joinPath(path, "image"), "cut.image", "image must be an object or null.");
+    return;
+  }
+  for (const key of ["clean", "final"] as const) {
+    const ref = image[key];
+    if (ref === null) continue;
+    if (!isNonEmptyString(ref)) {
+      c.add(
+        joinPath(joinPath(path, "image"), key),
+        "cut.image-ref",
+        `${key} must be a string or null.`,
+      );
+    } else if (!isProjectRelativePath(ref)) {
+      c.add(
+        joinPath(joinPath(path, "image"), key),
+        "cut.image-path",
+        `${key} must be a project-relative path (no absolute or parent-escaping paths).`,
+      );
+    }
+  }
+}
+
+// --- Transition -------------------------------------------------------------
+
+export function validateTransitionValue(value: unknown, path: string, c: IssueCollector): void {
+  if (!isPlainObject(value)) {
+    c.add(path, "transition.type", "transition must be an object.");
+    return;
+  }
+  if (!isNonEmptyString(value.id)) {
+    c.add(joinPath(path, "id"), "field.required", "transition id must be a non-empty string.");
+  }
+  if (!isOneOf(value.type, TRANSITION_TYPES)) {
+    c.add(
+      joinPath(path, "type"),
+      "transition.kind",
+      `type must be one of: ${TRANSITION_TYPES.join(", ")}.`,
+    );
+  }
+  const gutter = value.gutterHeight;
+  if (!isInteger(gutter) || gutter < GUTTER_HEIGHT_MIN_PX || gutter > GUTTER_HEIGHT_MAX_PX) {
+    c.add(
+      joinPath(path, "gutterHeight"),
+      "transition.gutter",
+      `gutterHeight must be an integer in px between ${GUTTER_HEIGHT_MIN_PX} and ${GUTTER_HEIGHT_MAX_PX}.`,
+    );
+  }
+  for (const key of ["text", "sfx", "agentNote", "humanNote"] as const) {
+    validateNullableString(value, key, path, c);
+  }
+  const image = value.image;
+  if (image !== null) {
+    if (!isNonEmptyString(image)) {
+      c.add(joinPath(path, "image"), "transition.image", "image must be a string or null.");
+    } else if (!isProjectRelativePath(image)) {
+      c.add(
+        joinPath(path, "image"),
+        "transition.image-path",
+        "image must be a project-relative path (no absolute or parent-escaping paths).",
+      );
+    }
+  }
+  if (!isOneOf(value.reviewStatus, REVIEW_STATUSES)) {
+    c.add(
+      joinPath(path, "reviewStatus"),
+      "review-status.invalid",
+      `reviewStatus must be one of: ${REVIEW_STATUSES.join(", ")}.`,
+    );
+  }
+  // Band color (#98) — OPTIONAL: null/absent uses the default treatment color.
+  if (value.color !== undefined && value.color !== null && !isNonEmptyString(value.color)) {
+    c.add(joinPath(path, "color"), "transition.color", "color must be a non-empty string or null.");
+  }
+  // Interstitial panel text alignment (#115), both OPTIONAL + back-compat.
+  if (value.textAlign !== undefined && !isOneOf(value.textAlign, TEXT_ALIGNS)) {
+    c.add(
+      joinPath(path, "textAlign"),
+      "transition.text-align",
+      `textAlign must be one of: ${TEXT_ALIGNS.join(", ")}.`,
+    );
+  }
+  if (value.verticalAlign !== undefined && !isOneOf(value.verticalAlign, VERTICAL_ALIGNS)) {
+    c.add(
+      joinPath(path, "verticalAlign"),
+      "transition.vertical-align",
+      `verticalAlign must be one of: ${VERTICAL_ALIGNS.join(", ")}.`,
+    );
+  }
+  // Panel gradient/fade (#115) — OPTIONAL: null/absent → solid fill / no fade.
+  validateTransitionGradient(value.gradient, joinPath(path, "gradient"), c);
+  validateTransitionFade(value.fade, joinPath(path, "fade"), c);
+}
+
+/**
+ * Validate an optional `Transition.gradient` (#115). `null`/absent is valid (solid
+ * fill). When present it must have non-empty `from`/`to` color strings and a valid
+ * `direction` enum.
+ */
+function validateTransitionGradient(value: unknown, path: string, c: IssueCollector): void {
+  if (value === undefined || value === null) return;
+  if (!isPlainObject(value)) {
+    c.add(path, "transition.gradient", "gradient must be an object or null.");
+    return;
+  }
+  if (!isNonEmptyString(value.from)) {
+    c.add(
+      joinPath(path, "from"),
+      "transition.gradient-from",
+      "gradient.from must be a non-empty color string.",
+    );
+  }
+  if (!isNonEmptyString(value.to)) {
+    c.add(
+      joinPath(path, "to"),
+      "transition.gradient-to",
+      "gradient.to must be a non-empty color string.",
+    );
+  }
+  if (!isOneOf(value.direction, FADE_DIRECTIONS)) {
+    c.add(
+      joinPath(path, "direction"),
+      "transition.gradient-direction",
+      `gradient.direction must be one of: ${FADE_DIRECTIONS.join(", ")}.`,
+    );
+  }
+}
+
+/**
+ * Validate an optional `Transition.fade` (#115). `null`/absent is valid (no fade).
+ * When present it must be an object with a valid `type`/`direction` enum and a
+ * finite positive `length` (px).
+ */
+function validateTransitionFade(value: unknown, path: string, c: IssueCollector): void {
+  if (value === undefined || value === null) return;
+  if (!isPlainObject(value)) {
+    c.add(path, "transition.fade", "fade must be an object or null.");
+    return;
+  }
+  if (!isOneOf(value.type, FADE_TYPES)) {
+    c.add(
+      joinPath(path, "type"),
+      "transition.fade-type",
+      `fade.type must be one of: ${FADE_TYPES.join(", ")}.`,
+    );
+  }
+  if (!isOneOf(value.direction, FADE_DIRECTIONS)) {
+    c.add(
+      joinPath(path, "direction"),
+      "transition.fade-direction",
+      `fade.direction must be one of: ${FADE_DIRECTIONS.join(", ")}.`,
+    );
+  }
+  if (!isFiniteNumber(value.length) || value.length <= 0) {
+    c.add(
+      joinPath(path, "length"),
+      "transition.fade-length",
+      "fade.length must be a positive number of pixels.",
+    );
+  }
+}
+
+// --- Lettering overlay ------------------------------------------------------
+
+function validateGeometry(value: unknown, path: string, c: IssueCollector): void {
+  if (!isPlainObject(value)) {
+    c.add(path, "geometry.type", "geometry must be an object.");
+    return;
+  }
+  const { x, y, width, height } = value;
+  if (!isNormalizedUnit(x) || !isNormalizedUnit(y)) {
+    c.add(path, "geometry.origin", "geometry x and y must be normalized numbers in 0..1.");
+  }
+  if (!isFiniteNumber(width) || width <= 0 || width > 1) {
+    c.add(joinPath(path, "width"), "geometry.width", "geometry width must be in (0..1].");
+  }
+  if (!isFiniteNumber(height) || height <= 0 || height > 1) {
+    c.add(joinPath(path, "height"), "geometry.height", "geometry height must be in (0..1].");
+  }
+  if (isNormalizedUnit(x) && isFiniteNumber(width) && width > 0 && x + width > 1 + Number.EPSILON) {
+    c.add(path, "geometry.x-overflow", "geometry x + width must not exceed 1.");
+  }
+  if (
+    isNormalizedUnit(y) &&
+    isFiniteNumber(height) &&
+    height > 0 &&
+    y + height > 1 + Number.EPSILON
+  ) {
+    c.add(path, "geometry.y-overflow", "geometry y + height must not exceed 1.");
+  }
+}
+
+function validateTail(value: unknown, path: string, c: IssueCollector): void {
+  if (value === null) return;
+  if (!isPlainObject(value)) {
+    c.add(path, "tail.type", "tail must be a normalized {x, y} point or null.");
+    return;
+  }
+  if (!isNormalizedUnit(value.x) || !isNormalizedUnit(value.y)) {
+    c.add(path, "tail.bounds", "tail x and y must be normalized numbers in 0..1.");
+  }
+}
+
+function validateBorder(value: unknown, path: string, c: IssueCollector): void {
+  if (value === null) return;
+  if (!isPlainObject(value)) {
+    c.add(path, "border.type", "border must be an object or null.");
+    return;
+  }
+  if (!isFiniteNumber(value.width) || value.width < 0) {
+    c.add(joinPath(path, "width"), "border.width", "border width must be a number >= 0.");
+  }
+  if (!isNonEmptyString(value.color)) {
+    c.add(joinPath(path, "color"), "border.color", "border color must be a non-empty string.");
+  }
+}
+
+export function validateLetteringOverlayValue(
+  value: unknown,
+  path: string,
+  c: IssueCollector,
+): void {
+  if (!isPlainObject(value)) {
+    c.add(path, "overlay.type", "lettering overlay must be an object.");
+    return;
+  }
+  for (const key of ["id", "cutId", "fill"] as const) {
+    if (!isNonEmptyString(value[key])) {
+      c.add(joinPath(path, key), "field.required", `${key} must be a non-empty string.`);
+    }
+  }
+  // Legacy `font` (#208): no consumer reads it and no producer writes it, but
+  // projects written before #208 carry one, so it is accepted rather than
+  // rejected as unknown. `fontFamily` is the face contract.
+  if (value.font !== undefined && !isString(value.font)) {
+    c.add(joinPath(path, "font"), "field.type", "font must be a string when present.");
+  }
+  // speaker is always a string, but only ATTRIBUTED kinds require it to be
+  // non-empty. Narration/SFX and the v3 beat (silence pause) / ambient
+  // (background noise) treatments are unattributed and may leave it empty.
+  const unattributed =
+    value.kind === "narration" ||
+    value.kind === "sfx" ||
+    value.kind === "beat" ||
+    value.kind === "ambient";
+  if (!isString(value.speaker)) {
+    c.add(joinPath(path, "speaker"), "field.type", "speaker must be a string.");
+  } else if (value.speaker.trim().length === 0 && !unattributed) {
+    c.add(
+      joinPath(path, "speaker"),
+      "field.required",
+      "speaker must be a non-empty string for this bubble kind.",
+    );
+  }
+  if (!isString(value.text)) {
+    c.add(joinPath(path, "text"), "field.type", "text must be a string.");
+  }
+  if (!isOneOf(value.kind, BUBBLE_KINDS)) {
+    c.add(
+      joinPath(path, "kind"),
+      "overlay.kind",
+      `kind must be one of: ${BUBBLE_KINDS.join(", ")}.`,
+    );
+  }
+  if (!isNormalizedUnit(value.opacity)) {
+    c.add(joinPath(path, "opacity"), "overlay.opacity", "opacity must be a number in 0..1.");
+  }
+  if (!isBoolean(value.overflow)) {
+    c.add(joinPath(path, "overflow"), "overlay.overflow", "overflow must be a boolean.");
+  }
+  if (!isOneOf(value.reviewStatus, REVIEW_STATUSES)) {
+    c.add(
+      joinPath(path, "reviewStatus"),
+      "review-status.invalid",
+      `reviewStatus must be one of: ${REVIEW_STATUSES.join(", ")}.`,
+    );
+  }
+  validateBorder(value.border, joinPath(path, "border"), c);
+  validateTail(value.tail, joinPath(path, "tail"), c);
+  validateGeometry(value.geometry, joinPath(path, "geometry"), c);
+  validateLetteringStyle(value, path, c);
+  // Bubble grammar (#93), both OPTIONAL + back-compat.
+  if (value.tone !== undefined && !isOneOf(value.tone, BUBBLE_TONES)) {
+    c.add(
+      joinPath(path, "tone"),
+      "overlay.tone",
+      `tone must be one of: ${BUBBLE_TONES.join(", ")}.`,
+    );
+  }
+  validateTailTarget(value.tailTarget, joinPath(path, "tailTarget"), c);
+  // Placement (#98), both OPTIONAL + back-compat (absent → in_panel / right).
+  if (value.placement !== undefined && !isOneOf(value.placement, PLACEMENTS)) {
+    c.add(
+      joinPath(path, "placement"),
+      "overlay.placement",
+      `placement must be one of: ${PLACEMENTS.join(", ")}.`,
+    );
+  }
+  if (value.placementSide !== undefined && !isOneOf(value.placementSide, PLACEMENT_SIDES)) {
+    c.add(
+      joinPath(path, "placementSide"),
+      "overlay.placement-side",
+      `placementSide must be one of: ${PLACEMENT_SIDES.join(", ")}.`,
+    );
+  }
+  // SFX render mode (#99), OPTIONAL + back-compat (absent → typeset). Only
+  // meaningful for kind=sfx, but the enum is validated whenever present.
+  if (value.sfxMode !== undefined && !isOneOf(value.sfxMode, SFX_MODES)) {
+    c.add(
+      joinPath(path, "sfxMode"),
+      "overlay.sfx-mode",
+      `sfxMode must be one of: ${SFX_MODES.join(", ")}.`,
+    );
+  }
+}
+
+/**
+ * Validate `tailTarget` (#93). Unlike `tail`, the point MAY lie outside [0,1]
+ * (an off-panel speaker) — so only finiteness is required; the renderer clamps
+ * the drawn tip to the art edge. `null`/absent is valid (use `tail`).
+ */
+function validateTailTarget(value: unknown, path: string, c: IssueCollector): void {
+  if (value === undefined || value === null) return;
+  if (!isPlainObject(value)) {
+    c.add(path, "tail-target.type", "tailTarget must be an {x, y} point or null.");
+    return;
+  }
+  if (!isFiniteNumber(value.x) || !isFiniteNumber(value.y)) {
+    c.add(path, "tail-target.bounds", "tailTarget x and y must be finite numbers.");
+  }
+}
+
+/**
+ * Validate the additive pro-lettering style fields (#54). Each is OPTIONAL:
+ * an absent field is valid and resolved to a default by the renderer, so older
+ * projects keep validating. A field that IS present must satisfy its bound/enum.
+ */
+function validateLetteringStyle(
+  value: Record<string, unknown>,
+  path: string,
+  c: IssueCollector,
+): void {
+  // fontFamily (#56): when present, must be one of the curated family ids. Absent
+  // is valid and resolves to the per-kind default in @toony/render / @toony/export,
+  // so projects written before this field existed keep validating and rendering.
+  if (value.fontFamily !== undefined && !isOneOf(value.fontFamily, FONT_FAMILY_IDS)) {
+    c.add(
+      joinPath(path, "fontFamily"),
+      "style.font-family",
+      `fontFamily must be one of: ${FONT_FAMILY_IDS.join(", ")}.`,
+    );
+  }
+  // fontSize: a number within bounds, OR null (explicit auto-fit).
+  if (value.fontSize !== undefined && value.fontSize !== null) {
+    if (
+      !isFiniteNumber(value.fontSize) ||
+      value.fontSize < FONT_SIZE_MIN_PX ||
+      value.fontSize > FONT_SIZE_MAX_PX
+    ) {
+      c.add(
+        joinPath(path, "fontSize"),
+        "style.font-size",
+        `fontSize must be a number in ${FONT_SIZE_MIN_PX}..${FONT_SIZE_MAX_PX} px, or null for auto-fit.`,
+      );
+    }
+  }
+  if (
+    value.fontWeight !== undefined &&
+    !(
+      typeof value.fontWeight === "number" &&
+      (FONT_WEIGHTS as readonly number[]).includes(value.fontWeight)
+    )
+  ) {
+    c.add(
+      joinPath(path, "fontWeight"),
+      "style.font-weight",
+      `fontWeight must be one of: ${FONT_WEIGHTS.join(", ")}.`,
+    );
+  }
+  if (
+    value.lineHeight !== undefined &&
+    (!isFiniteNumber(value.lineHeight) ||
+      value.lineHeight < LINE_HEIGHT_MIN ||
+      value.lineHeight > LINE_HEIGHT_MAX)
+  ) {
+    c.add(
+      joinPath(path, "lineHeight"),
+      "style.line-height",
+      `lineHeight must be a number in ${LINE_HEIGHT_MIN}..${LINE_HEIGHT_MAX}.`,
+    );
+  }
+  if (value.textAlign !== undefined && !isOneOf(value.textAlign, TEXT_ALIGNS)) {
+    c.add(
+      joinPath(path, "textAlign"),
+      "style.text-align",
+      `textAlign must be one of: ${TEXT_ALIGNS.join(", ")}.`,
+    );
+  }
+  // Vertical text anchoring (#115), OPTIONAL + back-compat (absent → top).
+  if (value.verticalAlign !== undefined && !isOneOf(value.verticalAlign, VERTICAL_ALIGNS)) {
+    c.add(
+      joinPath(path, "verticalAlign"),
+      "style.vertical-align",
+      `verticalAlign must be one of: ${VERTICAL_ALIGNS.join(", ")}.`,
+    );
+  }
+  if (
+    value.letterSpacing !== undefined &&
+    (!isFiniteNumber(value.letterSpacing) ||
+      value.letterSpacing < LETTER_SPACING_MIN_EM ||
+      value.letterSpacing > LETTER_SPACING_MAX_EM)
+  ) {
+    c.add(
+      joinPath(path, "letterSpacing"),
+      "style.letter-spacing",
+      `letterSpacing must be a number in ${LETTER_SPACING_MIN_EM}..${LETTER_SPACING_MAX_EM} em.`,
+    );
+  }
+  if (value.textColor !== undefined && !isNonEmptyString(value.textColor)) {
+    c.add(joinPath(path, "textColor"), "style.text-color", "textColor must be a non-empty string.");
+  }
+  if (
+    value.cornerRadius !== undefined &&
+    (!isFiniteNumber(value.cornerRadius) ||
+      value.cornerRadius < CORNER_RADIUS_MIN_PX ||
+      value.cornerRadius > CORNER_RADIUS_MAX_PX)
+  ) {
+    c.add(
+      joinPath(path, "cornerRadius"),
+      "style.corner-radius",
+      `cornerRadius must be a number in ${CORNER_RADIUS_MIN_PX}..${CORNER_RADIUS_MAX_PX} px.`,
+    );
+  }
+  if (value.zIndex !== undefined && (!isInteger(value.zIndex) || value.zIndex < 0)) {
+    c.add(joinPath(path, "zIndex"), "style.z-index", "zIndex must be an integer >= 0.");
+  }
+}
+
+// --- Episode sequence -------------------------------------------------------
+
+export function validateSequenceItemValue(value: unknown, path: string, c: IssueCollector): void {
+  if (!isPlainObject(value)) {
+    c.add(path, "sequence-item.type", "sequence item must be an object.");
+    return;
+  }
+  if (value.type !== "cut" && value.type !== "transition") {
+    c.add(
+      joinPath(path, "type"),
+      "sequence-item.kind",
+      'sequence item type must be "cut" or "transition".',
+    );
+  }
+  if (!isNonEmptyString(value.id)) {
+    c.add(joinPath(path, "id"), "field.required", "sequence item id must be a non-empty string.");
+  }
+}
+
+export function validateEpisodeValue(value: unknown, path: string, c: IssueCollector): void {
+  if (!isPlainObject(value)) {
+    c.add(path, "episode.type", "episode must be an object.");
+    return;
+  }
+  requireSchemaVersion(value.schemaVersion, path, c);
+  if (!isNonEmptyString(value.id)) {
+    c.add(joinPath(path, "id"), "field.required", "episode id must be a non-empty string.");
+  } else if (!isPathSafeId(value.id)) {
+    // The episode id is joined into `episodes/<id>/...` on disk by project-io and
+    // the export engine, so it must be a single safe path segment — reject `/`,
+    // `\`, NUL, absolute prefixes, and `.`/`..` traversal before any write.
+    c.add(
+      joinPath(path, "id"),
+      "episode.id.unsafe",
+      "episode id must be a path-safe segment (no /, \\, NUL, or . / .. traversal).",
+    );
+  }
+  if (!isNonEmptyString(value.title)) {
+    c.add(joinPath(path, "title"), "field.required", "episode title must be a non-empty string.");
+  }
+  const sequence = value.sequence;
+  if (!isArray(sequence)) {
+    c.add(joinPath(path, "sequence"), "episode.sequence", "sequence must be an array.");
+    return;
+  }
+  for (let i = 0; i < sequence.length; i++) {
+    validateSequenceItemValue(sequence[i], joinPath(joinPath(path, "sequence"), i), c);
+  }
+}
+
+// --- Cross-file project validation ------------------------------------------
+
+function collectIds(
+  records: unknown,
+  recordKind: string,
+  path: string,
+  c: IssueCollector,
+): Set<string> {
+  const ids = new Set<string>();
+  if (!isArray(records)) return ids;
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i];
+    if (!isPlainObject(record) || !isNonEmptyString(record.id)) continue;
+    if (ids.has(record.id)) {
+      c.add(
+        joinPath(joinPath(path, i), "id"),
+        `${recordKind}.duplicate-id`,
+        `duplicate ${recordKind} id "${record.id}".`,
+      );
+    }
+    ids.add(record.id);
+  }
+  return ids;
+}
+
+/**
+ * Cross-reference and canonical-shape check for one episode's reading sequence:
+ * every reference resolves to a real record, no record is referenced twice or
+ * left orphaned, and a transition sits between two cuts. Exported so the
+ * surgical writer in `@toony/project-io` (#9 transition save) shares this single
+ * source instead of re-implementing it. `path` is the episode base; sequence and
+ * record subpaths are derived from it.
+ */
+export function validateSequenceIntegrity(
+  episode: { sequence?: unknown },
+  cutIds: Set<string>,
+  transitionIds: Set<string>,
+  path: string,
+  c: IssueCollector,
+): void {
+  const sequence = episode.sequence;
+  if (!isArray(sequence)) return;
+
+  // Cut ids and transition ids are INDEPENDENT namespaces (validated separately
+  // by `collectIds`), so a cut and a transition may legitimately share an id
+  // string. Key the seen-set by `${type}:${id}` so a duplicate reference only
+  // fires within one kind — never falsely across the cut/transition boundary.
+  const seen = new Set<string>();
+  const referencedCutIds = new Set<string>();
+  const referencedTransitionIds = new Set<string>();
+
+  for (let i = 0; i < sequence.length; i++) {
+    const item = sequence[i];
+    const itemPath = joinPath(joinPath(path, "sequence"), i);
+    if (!isPlainObject(item) || !isNonEmptyString(item.id)) continue;
+
+    // Key the seen-set by `${kind}:${id}` (internal only) so a duplicate fires
+    // within one namespace, not across it. The issue MESSAGE is left byte-for-
+    // byte as before — #146 changes namespace semantics, not validation output.
+    const kind = typeof item.type === "string" ? item.type : "invalid";
+    const seenKey = `${kind}:${item.id}`;
+    if (seen.has(seenKey)) {
+      c.add(
+        itemPath,
+        "sequence.duplicate-reference",
+        `sequence references id "${item.id}" more than once.`,
+      );
+    }
+    seen.add(seenKey);
+
+    if (item.type === "cut") {
+      referencedCutIds.add(item.id);
+      if (!cutIds.has(item.id)) {
+        c.add(
+          itemPath,
+          "sequence.missing-cut",
+          `sequence references cut "${item.id}" with no matching cut record.`,
+        );
+      }
+    } else if (item.type === "transition") {
+      referencedTransitionIds.add(item.id);
+      if (!transitionIds.has(item.id)) {
+        c.add(
+          itemPath,
+          "sequence.missing-transition",
+          `sequence references transition "${item.id}" with no matching transition record.`,
+        );
+      }
+    }
+  }
+
+  for (const cutId of cutIds) {
+    if (!referencedCutIds.has(cutId)) {
+      c.add(
+        joinPath(path, "cuts"),
+        "cut.orphan",
+        `cut "${cutId}" is not referenced by the episode sequence.`,
+      );
+    }
+  }
+  for (const transitionId of transitionIds) {
+    if (!referencedTransitionIds.has(transitionId)) {
+      c.add(
+        joinPath(path, "transitions"),
+        "transition.orphan",
+        `transition "${transitionId}" is not referenced by the episode sequence.`,
+      );
+    }
+  }
+
+  validateSequenceShape(sequence, joinPath(path, "sequence"), c);
+}
+
+/** Canonical well-formedness: a transition must sit between two cuts. */
+function validateSequenceShape(sequence: unknown[], path: string, c: IssueCollector): void {
+  const types: string[] = [];
+  for (const item of sequence) {
+    if (isPlainObject(item) && typeof item.type === "string") types.push(item.type);
+    else types.push("invalid");
+  }
+  if (types.length === 0) {
+    c.add(path, "sequence.empty", "episode sequence must contain at least one cut.");
+    return;
+  }
+  if (types[0] === "transition") {
+    c.add(
+      path,
+      "sequence.leading-transition",
+      "episode sequence must not begin with a transition.",
+    );
+  }
+  if (types[types.length - 1] === "transition") {
+    c.add(path, "sequence.trailing-transition", "episode sequence must not end with a transition.");
+  }
+  for (let i = 1; i < types.length; i++) {
+    if (types[i] === "transition" && types[i - 1] === "transition") {
+      c.add(
+        joinPath(path, i),
+        "sequence.adjacent-transitions",
+        "two transitions cannot be adjacent; a transition must sit between cuts.",
+      );
+    }
+  }
+}
+
+/**
+ * Validate one episode bundle's RECORDS — cuts, transitions, lettering — plus the
+ * id uniqueness, sequence integrity, and overlay→cut references that tie them
+ * together. `path` is the bundle base; record subpaths are derived from it.
+ *
+ * The bundle's `episode` is NOT validated here: callers run
+ * `validateEpisodeValue` themselves first, so `validateProject` can interleave
+ * its cross-episode id-collision checks between the two without reordering the
+ * issues it reports. Exported so an episode-bundle scaffold contributed from
+ * outside the core (a pack genre, `@toony/packs`) is checked by exactly the same
+ * code that checks a project's own episodes, instead of a second validator that
+ * could drift from this one.
+ */
+export function validateEpisodeBundleRecords(
+  bundle: Record<string, unknown>,
+  path: string,
+  c: IssueCollector,
+): void {
+  if (isArray(bundle.cuts)) {
+    for (let j = 0; j < bundle.cuts.length; j++) {
+      validateCutValue(bundle.cuts[j], joinPath(joinPath(path, "cuts"), j), c);
+    }
+  } else {
+    c.add(joinPath(path, "cuts"), "episode-bundle.cuts", "cuts must be an array.");
+  }
+
+  if (isArray(bundle.transitions)) {
+    for (let j = 0; j < bundle.transitions.length; j++) {
+      validateTransitionValue(bundle.transitions[j], joinPath(joinPath(path, "transitions"), j), c);
+    }
+  } else {
+    c.add(
+      joinPath(path, "transitions"),
+      "episode-bundle.transitions",
+      "transitions must be an array.",
+    );
+  }
+
+  if (isArray(bundle.lettering)) {
+    for (let j = 0; j < bundle.lettering.length; j++) {
+      validateLetteringOverlayValue(
+        bundle.lettering[j],
+        joinPath(joinPath(path, "lettering"), j),
+        c,
+      );
+    }
+  } else {
+    c.add(joinPath(path, "lettering"), "episode-bundle.lettering", "lettering must be an array.");
+  }
+
+  const cutIds = collectIds(bundle.cuts, "cut", joinPath(path, "cuts"), c);
+  const transitionIds = collectIds(
+    bundle.transitions,
+    "transition",
+    joinPath(path, "transitions"),
+    c,
+  );
+
+  // Overlay ids must also be unique so #8 can target edits deterministically.
+  collectIds(bundle.lettering, "overlay", joinPath(path, "lettering"), c);
+
+  const episode = bundle.episode;
+  if (isPlainObject(episode)) {
+    validateSequenceIntegrity(episode, cutIds, transitionIds, path, c);
+  }
+
+  if (isArray(bundle.lettering)) {
+    for (let j = 0; j < bundle.lettering.length; j++) {
+      const overlay = bundle.lettering[j];
+      if (isPlainObject(overlay) && isNonEmptyString(overlay.cutId) && !cutIds.has(overlay.cutId)) {
+        c.add(
+          joinPath(joinPath(joinPath(path, "lettering"), j), "cutId"),
+          "overlay.missing-cut",
+          `lettering overlay references cut "${overlay.cutId}" with no matching cut record.`,
+        );
+      }
+    }
+  }
+}
+
+export function validateProject(value: unknown): ValidationResult {
+  const c = new IssueCollector();
+  if (!isPlainObject(value)) {
+    c.add("project", "project.type", "project must be an object.");
+    return c.result();
+  }
+
+  validateWebtoonValue(value.webtoon, "webtoon", c);
+
+  const episodes = value.episodes;
+  if (!isArray(episodes)) {
+    c.add("episodes", "project.episodes", "episodes must be an array.");
+    return c.result();
+  }
+
+  const episodeIds = new Set<string>();
+  // Episode ids become filesystem directory segments (`episodes/<id>/`), so two
+  // ids that differ only by case, or only by Unicode normalization form, still
+  // map to the SAME folder on a filesystem that folds either one (macOS APFS
+  // folds both, Windows NTFS folds case), silently overwriting one episode's
+  // files. Track the fold of every id seen alongside the exact-match set to
+  // catch that collision before it reaches disk, and keep the id it folds onto
+  // so the report can name both. `foldPathSafeId` is the same fold the script
+  // writer in `@toony/project-io` compares, so the two guards cannot answer
+  // this question differently, and `foldingFilesystems` names the filesystems
+  // that fold THIS pair, so the report never tells a reader on NTFS that a pair
+  // it keeps apart would overwrite itself.
+  const episodeIdsByFold = new Map<string, string>();
+  for (let i = 0; i < episodes.length; i++) {
+    const bundle = episodes[i];
+    const bundlePath = joinPath("episodes", i);
+    if (!isPlainObject(bundle)) {
+      c.add(bundlePath, "episode-bundle.type", "episode bundle must be an object.");
+      continue;
+    }
+
+    validateEpisodeValue(bundle.episode, joinPath(bundlePath, "episode"), c);
+
+    const episode = bundle.episode;
+    if (isPlainObject(episode) && isNonEmptyString(episode.id)) {
+      const idPath = joinPath(joinPath(bundlePath, "episode"), "id");
+      const fold = foldPathSafeId(episode.id);
+      const collision = episodeIdsByFold.get(fold);
+      if (episodeIds.has(episode.id)) {
+        c.add(idPath, "episode.duplicate-id", `duplicate episode id "${episode.id}".`);
+      } else if (collision !== undefined) {
+        c.add(
+          idPath,
+          "episode.id-collision",
+          `episode id "${episode.id}" collides with episode id "${collision}" once case and Unicode normalization are folded; on ${foldingFilesystems(episode.id, collision)} both map to the same folder and would overwrite each other.`,
+        );
+      }
+      episodeIds.add(episode.id);
+      if (collision === undefined) episodeIdsByFold.set(fold, episode.id);
+    }
+
+    validateEpisodeBundleRecords(bundle, bundlePath, c);
+  }
+
+  return c.result();
+}

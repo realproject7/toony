@@ -1,0 +1,444 @@
+// Genre starter templates for `toony init --genre <genre>` (#101).
+//
+// Each genre seeds a VALID, lint-clean starter episode tuned to the webtoon
+// craft study (docs/TOONY-WEBTOON-CRAFT.md §6 hooks, §9 tension arcs): a
+// genre-appropriate cold-open plus a short setup→escalation→payoff beat curve,
+// using the P1/P2 craft fields now on main — per-cut `shotType`/`palette`/
+// `styleTag`/`layer`, bubble `tone` + `sfxMode`, and craft transition kinds with
+// `color`/`text`. The scaffolds are intentionally SMALL and deterministic; they
+// are seed content an author edits, and the planning heuristics they embody are
+// documented in docs/TOONY-PLANNING-HEURISTICS.md.
+//
+// Lint discipline: these must pass `toony lint` (no warnings), so each cut keeps
+// ≤2 dialogue bubbles with short attributed text, no run of ≥4 identical
+// `shotType`, and wide bubble boxes that never overflow. Tests pin each genre's
+// shape.
+
+import {
+  type BubbleGeometry,
+  type BubbleKind,
+  type BubbleTone,
+  type Cut,
+  type Episode,
+  type EpisodeBundle,
+  type LetteringOverlay,
+  SCHEMA_VERSION,
+  type SequenceItem,
+  type SfxMode,
+  type ShotType,
+  type Transition,
+  type TransitionType,
+} from "@toony/schema";
+
+/** The documented genre vocabulary for `toony init --genre`. */
+export const GENRES = ["romance", "comedy", "action", "thriller", "slice-of-life"] as const;
+export type Genre = (typeof GENRES)[number];
+
+/** Narrow an arbitrary string to a supported genre. */
+export function isGenre(value: string): value is Genre {
+  return (GENRES as readonly string[]).includes(value);
+}
+
+// --- Compact per-genre spec -------------------------------------------------
+// A genre is authored as plain data; `buildGenreEpisode` expands it into the
+// canonical schema records (ids, sequence interleave, defaults). This keeps the
+// presets readable and makes the seeded craft fields obvious at a glance.
+
+interface CutSpec {
+  shotType: ShotType;
+  palette: string;
+  /** The cut's image-generation prompt — the seed scene description. */
+  prompt: string;
+  styleTag?: string;
+  layer?: string;
+}
+
+interface TransitionSpec {
+  type: TransitionType;
+  gutterHeight?: number;
+  color?: string;
+  text?: string;
+}
+
+interface OverlaySpec {
+  /** 1-based index of the owning cut in `cuts`. */
+  cut: number;
+  kind: BubbleKind;
+  speaker?: string;
+  text: string;
+  tone?: BubbleTone;
+  sfxMode?: SfxMode;
+}
+
+interface GenreSpec {
+  cuts: CutSpec[];
+  /** One transition between each adjacent pair of cuts (length = cuts.length - 1). */
+  transitions: TransitionSpec[];
+  overlays: OverlaySpec[];
+}
+
+/** A wide, short default bubble box that comfortably fits short seeded lines. */
+const DEFAULT_BOX: BubbleGeometry = { x: 0.08, y: 0.07, width: 0.84, height: 0.16 };
+
+function pad(prefix: string, n: number): string {
+  return `${prefix}-${String(n).padStart(3, "0")}`;
+}
+
+/** Expand a genre spec into a canonical, schema-valid episode bundle. */
+function buildGenreEpisode(spec: GenreSpec): EpisodeBundle {
+  const cuts: Cut[] = spec.cuts.map((c, i) => ({
+    id: pad("cut", i + 1),
+    image: null,
+    imagePrompt: c.prompt,
+    negativePrompt: "",
+    shotType: c.shotType,
+    palette: c.palette,
+    ...(c.styleTag ? { styleTag: c.styleTag } : {}),
+    ...(c.layer ? { layer: c.layer } : {}),
+  }));
+
+  const transitions: Transition[] = spec.transitions.map((t, i) => ({
+    id: pad("tr", i + 1),
+    type: t.type,
+    gutterHeight: t.gutterHeight ?? 48,
+    text: t.text ?? null,
+    sfx: null,
+    agentNote: null,
+    humanNote: null,
+    image: null,
+    reviewStatus: "draft",
+    ...(t.color ? { color: t.color } : {}),
+  }));
+
+  const sequence: SequenceItem[] = [];
+  spec.cuts.forEach((_, i) => {
+    sequence.push({ type: "cut", id: pad("cut", i + 1) });
+    if (i < spec.transitions.length) sequence.push({ type: "transition", id: pad("tr", i + 1) });
+  });
+
+  const lettering: LetteringOverlay[] = spec.overlays.map((o, i) => ({
+    id: pad("ov", i + 1),
+    cutId: pad("cut", o.cut),
+    speaker: o.speaker ?? "",
+    kind: o.kind,
+    text: o.text,
+    fill: "#ffffff",
+    opacity: 1,
+    border: null,
+    tail: null,
+    geometry: DEFAULT_BOX,
+    overflow: false,
+    reviewStatus: "draft",
+    ...(o.tone ? { tone: o.tone } : {}),
+    ...(o.sfxMode ? { sfxMode: o.sfxMode } : {}),
+  }));
+
+  const episode: Episode = {
+    schemaVersion: SCHEMA_VERSION,
+    id: "ep-001",
+    title: "Episode 1",
+    sequence,
+  };
+  return { episode, cuts, transitions, lettering };
+}
+
+// --- Genre presets ----------------------------------------------------------
+// Cold-open + setup→escalation→payoff, one preset per genre. shotType varies so
+// no monotony run forms; dialogue is short + attributed so attribution/density/
+// overflow lints stay clean. Craft transitions/tones/sfxMode showcase the P2
+// vocabulary where the genre calls for it.
+
+const SPECS: Record<Genre, GenreSpec> = {
+  // Romance: dialogue-first withhold over an establishing wide, then draw in.
+  romance: {
+    cuts: [
+      {
+        shotType: "establishing_wide",
+        palette: "#f3d9e0",
+        prompt:
+          "Wide establishing shot of a quiet rooftop at dusk; two figures stand apart, the city glowing behind them.",
+      },
+      {
+        shotType: "close_up",
+        palette: "#f6e3ea",
+        prompt: "Close-up on Mina's eyes, caught between hope and guard.",
+      },
+      {
+        shotType: "medium",
+        palette: "#efd2dd",
+        prompt: "Medium two-shot: they finally face each other, a careful half-step closer.",
+      },
+      {
+        shotType: "small_centered",
+        palette: "#f8eef2",
+        prompt: "Small centered cut: two hands almost touching on the railing.",
+      },
+    ],
+    transitions: [
+      { type: "gutter" },
+      { type: "fade" },
+      // The band's fill is authored so it DRAWS the bucket `palette_shift`
+      // declares (#273). A colour field is `declaredBandAppearance`'s bucket for
+      // this kind, and `appearanceOf` reaches it on saturation, not on value:
+      // over `BAND_COLOR_FIELD_SATURATION` (0.18) and at or over
+      // `BAND_VOID_VALUE` (60), with no ceiling above — the page-background
+      // floor is only tested on a fill too grey to be a colour field at all.
+      //
+      // This scaffold used to carry `#f3d9e0`, cut 1's own palette. At
+      // saturation 0.107 that is under the colour-field line whatever its value
+      // is, so it fell through to page background at value 223 and `toony lint`
+      // reported `craft/transition-appearance` on the shipped romance project.
+      // Darkening the same rose does NOT fix it, and this is the trap the value
+      // in the finding's text sets: hold saturation and walk the value down and
+      // the band goes page background, then unclassified under 190, then void
+      // under 60 — it never becomes a colour field at any value, and void is
+      // #236's defect at the other end of the scale. Saturation is the axis.
+      //
+      // `#efaec4` is that rose with the chroma it was missing: saturation 0.272,
+      // value 189.4, hue 339.7°. Both numbers are anchored to colours this repo
+      // already authors rather than tuned until the check went quiet — the hue
+      // sits inside the genre's own cut palettes (336.0-343.8°) and the
+      // saturation sits at the chroma of `CRAFT_BAND_DEFAULTS.palette_shift`
+      // (`#5a6b7a`, 0.262), so the band carries as much colour as the renderer's
+      // own default colour field, in this genre's hue instead of its slate. It
+      // stays a soft blush: a clear step under the cuts (value 217-240) so the
+      // band reads as a wash rather than the page showing through, and nowhere
+      // near dark enough to read as a bruise.
+      { type: "palette_shift", color: "#efaec4" },
+    ],
+    overlays: [
+      { cut: 1, kind: "speech", speaker: "Mina", text: "You came back." },
+      { cut: 2, kind: "thought", speaker: "Mina", text: "He's really here." },
+      { cut: 4, kind: "narration", text: "Some distances take years to close." },
+    ],
+  },
+
+  // Comedy: a serious, ominous open that the next beat undercuts (tonal misdirect).
+  comedy: {
+    cuts: [
+      {
+        shotType: "establishing_wide",
+        palette: "#3a3f4b",
+        prompt:
+          "Ominous wide shot: storm clouds boiling over a high-school gate, dramatic shadows.",
+        layer: "metaphor",
+      },
+      {
+        shotType: "impact_splash",
+        palette: "#ffe08a",
+        prompt: "Hard cut reveal: it's just Jun, overslept, sprinting with toast in his mouth.",
+        styleTag: "chibi",
+      },
+      {
+        shotType: "medium",
+        palette: "#ffe9a8",
+        prompt: "Medium shot: Jun skids to a stop in front of the unimpressed hall monitor.",
+      },
+      {
+        shotType: "close_up",
+        palette: "#fff2c4",
+        prompt: "Close-up punchline: the monitor's deadpan stare.",
+      },
+    ],
+    transitions: [{ type: "scene-break" }, { type: "gutter" }, { type: "beat" }],
+    overlays: [
+      { cut: 2, kind: "sfx", text: "tmp tmp tmp", sfxMode: "hand_lettered" },
+      { cut: 3, kind: "speech", speaker: "Jun", text: "I can explain!", tone: "shout" },
+      { cut: 4, kind: "speech", speaker: "Monitor", text: "Late. Again." },
+    ],
+  },
+
+  // Action: a tight desire/question montage that pulls back to a scale reveal,
+  // then a kinetic payoff.
+  action: {
+    cuts: [
+      {
+        shotType: "medium",
+        palette: "#d94f3a",
+        prompt: "Medium shot: a fighter's hands tightening around a worn hilt.",
+      },
+      {
+        shotType: "close_up",
+        palette: "#b23a2a",
+        prompt: "Close-up: eyes narrowing, breath held.",
+      },
+      {
+        shotType: "establishing_wide",
+        palette: "#7a2418",
+        prompt:
+          "Pull back to a vast establishing wide: the enemy host fills the whole valley (scale reveal).",
+      },
+      {
+        shotType: "impact_splash",
+        palette: "#f0c419",
+        prompt: "Full-bleed impact splash: the first clash, dust and motion.",
+      },
+    ],
+    transitions: [
+      { type: "gutter", gutterHeight: 24 },
+      { type: "black_band" },
+      { type: "gutter", gutterHeight: 24 },
+    ],
+    overlays: [
+      { cut: 1, kind: "thought", speaker: "Rei", text: "Not one step back." },
+      { cut: 4, kind: "sfx", text: "BOOM", sfxMode: "impact_band" },
+    ],
+  },
+
+  // Thriller: a threat-object cold-open with a sound-cue card, pivoting darker.
+  thriller: {
+    cuts: [
+      {
+        shotType: "close_up",
+        palette: "#2b2f38",
+        prompt:
+          "Extreme close-up of a phone lighting up on a dark table — UNKNOWN NUMBER (threat object).",
+        layer: "reality",
+      },
+      {
+        shotType: "medium",
+        palette: "#23262d",
+        prompt: "Medium shot: a silhouette frozen in the doorway, listening.",
+      },
+      {
+        shotType: "establishing_wide",
+        palette: "#1b1d22",
+        prompt: "Wide establishing shot of the empty house, a single light burning upstairs.",
+      },
+      {
+        shotType: "small_centered",
+        palette: "#15171b",
+        prompt: "Small centered cut: a hand reaching for the door lock.",
+      },
+    ],
+    transitions: [
+      { type: "title_card", text: "RING — RING —", color: "#15110d" },
+      { type: "desaturate_repeat" },
+      { type: "gutter" },
+    ],
+    overlays: [
+      { cut: 2, kind: "whisper", speaker: "Ana", text: "Who's there?" },
+      { cut: 4, kind: "narration", text: "The lock was already open." },
+    ],
+  },
+
+  // Slice-of-life: a gentle establishing open and a quiet, warm beat.
+  "slice-of-life": {
+    cuts: [
+      {
+        shotType: "establishing_wide",
+        palette: "#cfe3d8",
+        prompt: "Soft morning light spilling across a small, lived-in kitchen.",
+      },
+      {
+        shotType: "medium",
+        palette: "#d8e8de",
+        prompt: "Medium shot: pouring coffee, steam curling up.",
+      },
+      {
+        shotType: "close_up",
+        palette: "#e3efe8",
+        prompt: "Close-up: a small, unguarded smile.",
+      },
+      {
+        shotType: "small_centered",
+        palette: "#eef5f1",
+        prompt: "Small centered cut: two mugs set side by side.",
+      },
+    ],
+    transitions: [{ type: "gutter" }, { type: "gutter" }, { type: "fade" }],
+    overlays: [
+      { cut: 2, kind: "speech", speaker: "Sora", text: "Morning." },
+      { cut: 4, kind: "narration", text: "Ordinary days, quietly kept." },
+    ],
+  },
+};
+
+/** Build the genre-tuned starter episode bundle for a genre. */
+export function buildGenreEpisodeBundle(genre: Genre): EpisodeBundle {
+  return buildGenreEpisode(SPECS[genre]);
+}
+
+// --- Genre registry ---------------------------------------------------------
+// `GENRES` above is the CORE's closed vocabulary and stays that way. The lookup
+// below is the open one: it answers with a built-in genre first and only then
+// considers scaffolds contributed from outside the repo (packs, #192), so a
+// contributed scaffold can never redefine a genre the core already ships.
+
+/**
+ * A genre scaffold contributed from outside the core — one ready-to-seed episode
+ * bundle under an id. Declared here, structurally identical to `@toony/packs`'
+ * `PackGenre`, so this package keeps no dependency on the pack loader: the
+ * caller discovers packs and passes the scaffolds in (the same injection shape
+ * `@toony/providers` uses for the workspace ComfyUI config).
+ */
+export interface GenreScaffold {
+  id: string;
+  title: string;
+  bundle: EpisodeBundle;
+  /**
+   * The gutter strip width this genre letters in (#215), a fraction of the cut
+   * width, or absent when it declares none. A genre that is defined by its
+   * gutter dialogue ships the width that dialogue needs, and `toony init` writes
+   * it into the new project so the project — not the pack — carries it from
+   * then on.
+   */
+  gutterBandWidth?: number;
+  /** The lettering theme id this genre selects (#346); init writes it into the project. */
+  letteringTheme?: string;
+  /** The style lexicon id this genre selects (#346); init writes it into the project. */
+  styleLexicon?: string;
+}
+
+/**
+ * What `toony init --genre <id>` seeds: the starter episode bundle plus the
+ * project-level craft values the genre declares. A built-in genre contributes a
+ * bundle and nothing else, so its seed is the bundle alone.
+ */
+export interface GenreSeed {
+  bundle: EpisodeBundle;
+  /** See {@link GenreScaffold.gutterBandWidth}. */
+  gutterBandWidth?: number;
+  /** See {@link GenreScaffold.letteringTheme}. */
+  letteringTheme?: string;
+  /** See {@link GenreScaffold.styleLexicon}. */
+  styleLexicon?: string;
+}
+
+/**
+ * Every genre id `toony init --genre` accepts: the built-in five, then any
+ * contributed scaffold whose id does not collide with them.
+ *
+ * Async because this is a registry lookup. The first implementation answers from
+ * memory, but making the seam async from day one means a later resolution
+ * strategy is a change here rather than a refactor of every consumer.
+ */
+export async function listGenreIds(scaffolds: readonly GenreScaffold[] = []): Promise<string[]> {
+  const ids = [...GENRES];
+  const extra = scaffolds
+    .map((s) => s.id)
+    .filter((id) => !(GENRES as readonly string[]).includes(id));
+  return [...ids, ...new Set(extra)];
+}
+
+/**
+ * Resolve a genre id to what `toony init` seeds — the starter episode bundle and
+ * the project-level craft values the genre declares — or `undefined` when no
+ * built-in genre and no contributed scaffold claims it.
+ */
+export async function resolveGenreSeed(
+  id: string,
+  scaffolds: readonly GenreScaffold[] = [],
+): Promise<GenreSeed | undefined> {
+  if (isGenre(id)) return { bundle: buildGenreEpisodeBundle(id) };
+  const scaffold = scaffolds.find((candidate) => candidate.id === id);
+  if (scaffold === undefined) return undefined;
+  return {
+    bundle: scaffold.bundle,
+    ...(scaffold.gutterBandWidth === undefined
+      ? {}
+      : { gutterBandWidth: scaffold.gutterBandWidth }),
+    ...(scaffold.letteringTheme === undefined ? {} : { letteringTheme: scaffold.letteringTheme }),
+    ...(scaffold.styleLexicon === undefined ? {} : { styleLexicon: scaffold.styleLexicon }),
+  };
+}

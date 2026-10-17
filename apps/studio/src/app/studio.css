@@ -1,0 +1,2360 @@
+/*
+ * Production Scroll studio shell styles.
+ *
+ * Layout and density follow the Open Design studio mocks
+ * (`project-dashboard.png`, `episode-preview.png`): a compact left rail, a
+ * working content surface, and a vertical reading sequence where cuts and
+ * transitions are first-class objects. Artwork/sequence gets screen priority;
+ * status and counters stay quiet.
+ */
+
+/* Native form controls (range/checkbox/radio) adopt the primary accent so the
+   whole studio reads as one decisive Toony Indigo. */
+input[type="range"],
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--color-accent);
+}
+
+/* ---- App frame: fixed sidebar + scrollable working surface ---- */
+.app-frame {
+  display: grid;
+  grid-template-columns: var(--studio-sidebar-width) 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  border-right: 1px solid var(--color-line);
+  background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: var(--space-5) var(--space-4);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-xl);
+  letter-spacing: var(--tracking-tight);
+  color: var(--color-ink-strong);
+}
+
+/* The app icon (indigo scroll + coral bubble) anchors the brand lockup. */
+.brand-mark {
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-2);
+  display: block;
+  box-shadow: var(--shadow-1);
+}
+
+/* The wordmark closes with a Pulse Coral dot, matching the brand sheet. */
+.brand-dot {
+  color: var(--color-accent-2);
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.nav-link {
+  display: block;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-round);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  transition:
+    background var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
+}
+
+.nav-link:hover {
+  background: var(--color-surface-sunken);
+  color: var(--color-ink);
+}
+
+/* Active nav reads as a bright gold doodle pill (matches the v4 mocks). */
+.nav-link[aria-current="page"] {
+  background: var(--color-highlight);
+  color: var(--color-highlight-on);
+  font-weight: 700;
+}
+
+.nav-link[aria-current="page"]:hover {
+  background: var(--color-highlight-hover);
+}
+
+/* A calm status pill at the foot of the rail, mirroring the design mocks'
+   "PROVIDER CONNECTED" affordance. State color comes from the chip system. */
+.sidebar-status {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.nav-section-title {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-faint);
+  padding: 0 var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.sidebar-foot {
+  font-size: var(--text-xs);
+  color: var(--color-faint);
+}
+
+.content {
+  min-width: 0;
+  padding: var(--space-6) var(--space-8);
+}
+
+/* ---- Headers ---- */
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+  flex-wrap: wrap;
+}
+
+.page-eyebrow {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  font-weight: var(--weight-semibold);
+  color: var(--color-accent);
+}
+
+.page-title {
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: 700;
+  letter-spacing: var(--tracking-tight);
+  color: var(--color-ink-strong);
+  margin: var(--space-1) 0 0;
+}
+
+.page-meta {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.page-meta code {
+  color: var(--color-ink);
+}
+
+/* ---- Cards / grid ---- */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-4);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-2);
+}
+
+.card-title {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  font-weight: var(--weight-semibold);
+  color: var(--color-muted);
+  margin: 0 0 var(--space-3);
+}
+
+.stat-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+  padding: var(--space-1) 0;
+}
+
+.stat-row + .stat-row {
+  border-top: 1px solid var(--color-line);
+}
+
+.stat-row b {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+/* ---- Episode list (navigable rows) ---- */
+.section-title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin: 0 0 var(--space-3);
+}
+
+.episode-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* A row pairs the navigable Open link with a small direct Read entry (#49). */
+.episode-row-wrap {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.episode-row {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-3);
+  padding: var(--space-4) var(--space-5);
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.episode-row-read {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-3);
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.episode-row-read:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+
+.episode-row:hover {
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-panel);
+}
+
+.episode-row-main {
+  min-width: 0;
+}
+
+.episode-row-id {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-faint);
+}
+
+.episode-row-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  margin: var(--space-1) 0 0;
+}
+
+.episode-row-counts {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.episode-row-counts b {
+  color: var(--color-ink);
+}
+
+.episode-row-go {
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ---- Status chips ----
+   Color signals state (a v2 guardrail): each tone is a soft state-colored pill
+   with a leading dot, so draft/edited/final and connected/disconnected read at
+   a glance and stay consistent across every surface (chips, checks, status). */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  padding: 0.15rem var(--space-2);
+  border-radius: var(--radius-round);
+  border: 1px solid var(--color-line-strong);
+  color: var(--state-draft);
+  background: var(--state-draft-soft);
+  white-space: nowrap;
+}
+
+/* The leading status dot — saturated state color even on a soft pill. */
+.chip::before {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: var(--radius-round);
+  background: currentColor;
+  flex: none;
+}
+
+.chip-ok {
+  color: var(--state-final);
+  background: var(--state-final-soft);
+  border-color: color-mix(in srgb, var(--state-final) 40%, transparent);
+}
+
+.chip-warn {
+  color: var(--state-edited);
+  background: var(--state-edited-soft);
+  border-color: color-mix(in srgb, var(--state-edited) 40%, transparent);
+}
+
+.chip-danger {
+  color: var(--state-disconnected);
+  background: var(--state-disconnected-soft);
+  border-color: color-mix(in srgb, var(--state-disconnected) 40%, transparent);
+}
+
+.chip-accent {
+  color: var(--color-accent-press);
+  background: var(--color-accent-soft);
+  border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
+}
+
+/* ---- Episode preview: vertical reading sequence ---- */
+.preview-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--studio-inspector-width);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.sequence {
+  max-width: var(--episode-max-width);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.seq-item-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-faint);
+}
+
+.seq-index {
+  font-family: var(--font-mono);
+}
+
+.seq-id {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+/* Cut block: the canvas seam #7 will fill with real artwork + bubbles. */
+.cut-block {
+  margin-bottom: var(--space-4);
+}
+
+.cut-canvas {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-3);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-panel);
+  min-height: 13rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--color-muted);
+}
+
+.cut-canvas-hint {
+  font-size: var(--text-sm);
+}
+
+/* Rich preview stage: artwork with the SVG bubble overlay on top (#7). The
+   <img> and <svg> share one aspect-ratio box so overlays scale with the art. */
+.cut-stage {
+  position: relative;
+  width: 100%;
+  border-radius: var(--radius-3);
+  overflow: hidden;
+  background: var(--color-scroll-page);
+  box-shadow: var(--shadow-3);
+  border: 1px solid var(--color-line);
+}
+
+.cut-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Nothing here may set font-family on `text`. Bubble text carries the face the
+   render plan resolved (#229); a rule on `text` outranks the element's own
+   presentation attribute and would draw every bubble in the brand display font
+   again, against a layout measured for the resolved face. */
+.cut-overlays {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.cut-bubbles {
+  margin-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.bubble-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+}
+
+.bubble-speaker {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.bubble-text {
+  color: var(--color-ink);
+}
+
+/* Transition block: a first-class beat between cuts whose real gutter height
+   occupies actual vertical space, conveying the scroll rhythm (#7). */
+/* A transition renders as a real interstitial PANEL (#118): a full-width band of
+   its authored height, filled/faded/lettered to match the export raster. */
+.transition-block {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-3);
+}
+
+/* In the reader the panels stack flush as a continuous webtoon scroll; in the
+   preview a little breathing room separates them. */
+.transition-block[data-readonly="true"] {
+  border-radius: 0;
+}
+
+/* Full-panel fade overlay (#115), above the fill and below the text. */
+.transition-fade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Scene-break divider styling now lives inline on `.transition-rule` from the
+   shared `resolveBandDivider` (#147) — span inset, height-scaled thickness, and
+   color — so it can never drift from the export raster (was a fixed 2px border). */
+
+/* A single, already-wrapped panel text line, absolutely positioned from the
+   shared render geometry (layoutPanelText / layoutCardText). Wrapping and the
+   typeface come from the layout (#148), NOT CSS, so Read matches the export
+   raster's line breaks and face; `nowrap` keeps each computed line intact. */
+.transition-line {
+  position: absolute;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Authoring-only meta chip (type · height); hidden in the reader. */
+.transition-meta {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-1);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-round);
+  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-muted);
+}
+
+/* ---- Transition editor (#119): selectable real-panel rows + preset controls ---- */
+.transition-row-edit {
+  position: relative;
+  border-radius: var(--radius-3);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition: outline-color var(--dur-fast) var(--ease-standard);
+}
+
+.transition-row-edit:hover {
+  outline-color: var(--color-line-strong);
+}
+
+.transition-row-edit:focus-within {
+  outline-color: var(--color-accent);
+}
+
+.transition-row-edit[data-selected="true"] {
+  outline-color: var(--color-accent);
+}
+
+/* Transparent full-bleed click target over the panel preview. */
+.transition-row-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* Review-status chip pinned to the panel's top-left in the editor. */
+.transition-row-status {
+  position: absolute;
+  left: var(--space-2);
+  top: var(--space-2);
+  z-index: 2;
+}
+
+.mood-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.mood-swatch {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--radius-round);
+  border: 1px solid var(--color-line-strong);
+  cursor: pointer;
+  padding: 0;
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+
+.mood-swatch:hover {
+  transform: scale(1.12);
+}
+
+.preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.field-warn {
+  color: var(--color-warning);
+}
+
+/* ---- Preview inspector (compact, secondary) ---- */
+.inspector {
+  position: sticky;
+  top: var(--space-6);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-3);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-panel);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.inspector-back {
+  font-size: var(--text-sm);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+/* Planned geometry is an inspector report, not a new dashboard. Keep the
+   selection compact and the metric comparison legible at narrow widths. */
+.planned-geometry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border-top: 1px solid var(--color-line);
+  padding-top: var(--space-4);
+}
+
+.planned-geometry-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.planned-geometry-head .card-title {
+  margin-bottom: var(--space-1);
+}
+
+.planned-geometry-summary,
+.planned-geometry-meta,
+.planned-geometry-limitations {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.planned-geometry-picker {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2);
+  align-items: end;
+}
+
+.planned-geometry-picker label {
+  grid-column: 1 / -1;
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.planned-geometry-picker select {
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+}
+
+.planned-geometry-error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--text-xs);
+}
+
+.planned-geometry-table-wrap {
+  overflow-x: auto;
+}
+
+.planned-geometry-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-xs);
+}
+
+.planned-geometry-table th,
+.planned-geometry-table td {
+  border-top: 1px solid var(--color-line);
+  padding: var(--space-2) 0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.planned-geometry-table th[scope="row"] {
+  color: var(--color-ink);
+  font-weight: var(--weight-semibold);
+}
+
+.planned-geometry-table td:not(:first-child),
+.planned-geometry-table thead th:not(:first-child) {
+  padding-left: var(--space-2);
+}
+
+.planned-geometry-table .chip {
+  white-space: normal;
+}
+
+.planned-geometry-transitions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.planned-geometry-transitions h3 {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.planned-geometry-detail {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.planned-geometry-transition-results {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.planned-geometry-limitations summary {
+  cursor: pointer;
+  color: var(--color-accent);
+  font-weight: var(--weight-semibold);
+}
+
+.planned-geometry-limitations ul {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+}
+
+/* ---- Generic states ---- */
+.notice {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-3);
+  padding: var(--space-6);
+  max-width: 40rem;
+}
+
+.notice-danger {
+  border-color: color-mix(in srgb, var(--color-danger) 40%, var(--color-line));
+}
+
+.notice pre {
+  background: var(--color-canvas);
+  border-radius: var(--radius-2);
+  padding: var(--space-3);
+  overflow: auto;
+  font-size: var(--text-sm);
+  margin: var(--space-3) 0 0;
+}
+
+.empty {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  padding: var(--space-4) 0;
+}
+
+.cut-edit-link {
+  margin-left: auto;
+  color: var(--color-accent);
+  font-weight: 600;
+  font-size: var(--text-xs);
+}
+
+.cut-edit-link:hover {
+  color: var(--color-accent-strong);
+  text-decoration: underline;
+}
+
+/* ---- Responsive: collapse inspector under the sequence on narrow widths ---- */
+@media (max-width: 980px) {
+  .preview-layout {
+    grid-template-columns: 1fr;
+  }
+  .inspector {
+    position: static;
+  }
+}
+
+/* ---- Focused cut lettering editor (#8) ---- */
+.editor-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-round);
+  border: 1px solid var(--color-line-strong);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent-press);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-on);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  color: var(--color-accent-on);
+  box-shadow: var(--shadow-accent);
+}
+
+/* Pink secondary — the energetic "save"/decisive moment. Uses the darker solid
+   shade so white label text clears WCAG AA (#142); brand pink stays for accents. */
+.btn-accent2 {
+  background: var(--color-accent-2-strong);
+  border-color: var(--color-accent-2-strong);
+  color: var(--color-accent-2-on);
+}
+
+.btn-accent2:hover:not(:disabled) {
+  background: var(--color-accent-2-strong-hover);
+  border-color: var(--color-accent-2-strong-hover);
+  color: var(--color-accent-2-on);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--color-surface-sunken);
+}
+
+.btn-danger {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 35%, var(--color-line-strong));
+}
+
+.btn-danger:hover:not(:disabled) {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+.editor-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--studio-inspector-width);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.editor-stage-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  /* Keep the artwork in view while the (often longer) inspector scrolls (#120):
+     pin the image column; if the stage itself exceeds the viewport, the column
+     scrolls internally rather than dragging the image off-screen. */
+  position: sticky;
+  top: var(--space-6);
+  align-self: start;
+  max-height: calc(100vh - 2 * var(--space-6));
+  overflow: auto;
+}
+
+.editor-toolbar {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.editor-stage {
+  position: relative;
+  width: 100%;
+  max-width: var(--episode-max-width);
+  border-radius: var(--radius-3);
+  overflow: hidden;
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-canvas);
+  border: 1px solid var(--color-line);
+  touch-action: none;
+}
+
+/* The aspect is set inline from the render core's fallback (#211); a literal here
+   would stretch the overlay SVG, which is sized from that same fallback. */
+.editor-stage-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--color-muted);
+}
+
+.editor-overlays {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* No font-family here. Bubble text carries the face the render plan resolved
+   (#229); a rule on `text` outranks the element's own presentation attribute and
+   would draw every bubble in the brand display font again. */
+.editor-overlays text {
+  user-select: none;
+}
+
+.editor-overlays-empty {
+  position: absolute;
+  inset: 0;
+}
+
+.editor-stage-empty .cut-canvas-hint {
+  position: relative;
+  z-index: 1;
+  max-width: 30rem;
+}
+
+.editor-inspector {
+  position: sticky;
+  top: var(--space-6);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-3);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-panel);
+}
+
+.inspector-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.field > span {
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.field input[type="text"],
+.field input[type="number"],
+.field textarea,
+.field select {
+  width: 100%;
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  transition:
+    border-color var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
+}
+
+.field input[type="text"]:focus,
+.field input[type="number"]:focus,
+.field textarea:focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-focus);
+}
+
+.field textarea {
+  resize: vertical;
+}
+
+.field-group {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.field-group legend {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-faint);
+  padding: 0 var(--space-1);
+}
+
+.field-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.field-inline > span {
+  font-weight: 600;
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.field-inline input[type="range"] {
+  flex: 1;
+}
+
+.field-inline output {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+.field-hint {
+  font-size: var(--text-xs);
+  color: var(--color-faint);
+}
+
+/* --- Pro-lettering inspector controls (#55) ------------------------------- */
+
+/* Compact chip buttons used for size presets, weight, alignment, z-order and
+   nudge. They reuse the base .btn look but sit tighter so a row of options fits
+   the inspector column. */
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.btn-chip {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.btn-chip-active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-on);
+}
+
+.btn-chip-active:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  color: var(--color-accent-on);
+}
+
+/* Directional nudge pad: a 3x3 grid with arrows on the cross. */
+.nudge-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 2rem);
+  grid-template-rows: repeat(3, 2rem);
+  gap: var(--space-1);
+  width: max-content;
+}
+
+.nudge-pad .btn-chip {
+  justify-content: center;
+  padding: 0;
+}
+
+.nudge-up {
+  grid-column: 2;
+  grid-row: 1;
+}
+.nudge-left {
+  grid-column: 1;
+  grid-row: 2;
+}
+.nudge-right {
+  grid-column: 3;
+  grid-row: 2;
+}
+.nudge-down {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+/* Lightweight color picker (#55). */
+.color-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  position: relative;
+  font-size: var(--text-sm);
+}
+
+.color-picker-label {
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.color-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.color-trigger:hover {
+  border-color: var(--color-accent);
+}
+
+.color-trigger-chip {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: var(--radius-1, 0.25rem);
+  border: 1px solid var(--color-line);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+  flex: none;
+}
+
+.color-trigger-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+.color-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  width: 13.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  box-shadow: var(--shadow-panel);
+}
+
+.color-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: var(--space-1);
+}
+
+.color-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.color-section-title {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-faint);
+}
+
+.color-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.color-swatch {
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: var(--radius-1, 0.25rem);
+  border: 1px solid var(--color-line);
+  cursor: pointer;
+  padding: 0;
+}
+
+.color-swatch:hover {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.color-swatch-active {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.color-hex-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.color-native {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  cursor: pointer;
+  flex: none;
+}
+
+.color-hex-input {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+.editor-toast {
+  border-radius: var(--radius-2);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-4);
+}
+
+.editor-toast-ok {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+
+.editor-toast-error {
+  background: color-mix(in srgb, var(--color-danger) 12%, var(--color-surface));
+  color: var(--color-danger);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 35%, var(--color-line));
+}
+
+.editor-toast-warn {
+  background: color-mix(in srgb, var(--color-warning) 14%, var(--color-surface));
+  color: var(--color-warning);
+  margin-bottom: var(--space-2);
+}
+
+@media (max-width: 980px) {
+  .editor-layout {
+    grid-template-columns: 1fr;
+  }
+  .editor-inspector {
+    position: static;
+  }
+}
+
+/* ---- Transition editor (#9) ---- */
+/* The editable reading sequence: cut rows with insert points between them and
+   selectable transition rhythm bands. */
+.seq-rhythm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.seq-cut-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.seq-cut-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-3);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-panel);
+}
+
+/* An insert point between two cuts. Reads as a dashed slot until hovered. */
+.seq-insert {
+  align-self: center;
+  margin: var(--space-1) 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-accent);
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--color-accent) 45%, var(--color-line));
+  border-radius: var(--radius-round);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.seq-insert:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+/* The transition band is a real button in the editor (clickable to select). */
+button.transition-block {
+  width: 100%;
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  text-align: center;
+}
+
+.transition-block-selected .transition-band {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.inspector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.inspector-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-2);
+}
+
+.transition-image-preview {
+  width: 100%;
+  border-radius: var(--radius-2);
+  border: 1px solid var(--color-line);
+  display: block;
+}
+
+/* ---- Distraction-free reader (#49) ---- */
+/* A centered, comfortable reading column with NO inspector/edit chrome. The cut
+   and transition render path is shared with the preview; only the surrounding
+   affordances differ. The header carries the Reader/Edit toggle so returning to
+   editing is always one click away. */
+.reader-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.reader-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  max-width: var(--episode-max-width);
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* The Reader/Edit toggle: a segmented pair where the active mode reads as a
+   solid primary chip and the inactive mode as a ghost button you can click. */
+.reader-toggle {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+.reader-toggle .btn[aria-current="page"] {
+  cursor: default;
+}
+
+/* The reading flow itself: cuts and transitions stacked top-to-bottom at a
+   comfortable centered width, the way a reader scrolls the published episode. */
+.reader-flow {
+  max-width: var(--episode-max-width);
+  margin: 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* In the reader, cut artwork stacks flush (no per-item head gap) for a
+   continuous vertical scroll; transitions still reserve their real gutter. */
+.reader-flow .cut-block {
+  margin-bottom: 0;
+}
+
+.reader-foot {
+  max-width: var(--episode-max-width);
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ---- Workspace library (issue #51) ---- */
+.work-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: var(--space-4);
+}
+
+.work-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-4);
+  overflow: hidden;
+  box-shadow: var(--shadow-2);
+  color: inherit;
+  transition:
+    border-color var(--dur-base) var(--ease-standard),
+    box-shadow var(--dur-base) var(--ease-standard),
+    transform var(--dur-base) var(--ease-standard);
+}
+
+.work-card:hover {
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-3);
+  transform: translateY(-2px);
+}
+
+.work-cover {
+  aspect-ratio: 3 / 4;
+  background: linear-gradient(
+    150deg,
+    color-mix(in srgb, var(--color-accent) 16%, var(--color-surface-sunken)),
+    var(--color-surface-sunken)
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.work-cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.work-cover-empty {
+  font-family: var(--font-display);
+  font-size: var(--text-4xl);
+  font-weight: 700;
+  color: color-mix(in srgb, var(--color-accent) 55%, var(--color-faint));
+}
+
+.work-card-body {
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.work-card-title {
+  font-weight: 600;
+  font-size: var(--text-md);
+  margin: 0;
+}
+
+.work-card-id {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-faint);
+}
+
+.work-card-counts {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+.work-card-updated {
+  margin-left: auto;
+}
+
+/* ---- New webtoon inline form ---- */
+.new-work-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.new-work-input {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+  min-width: 12rem;
+}
+
+.new-work-error {
+  flex-basis: 100%;
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+
+.nav-section-work {
+  margin-top: var(--space-3);
+  color: var(--color-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ---- Workspace settings (#52) ---- */
+.settings-card {
+  max-width: 44rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.settings-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.settings-card-head .card-title {
+  margin-bottom: var(--space-1);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+}
+
+.settings-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.settings-actions {
+  flex-wrap: wrap;
+}
+
+.settings-ok {
+  color: var(--color-success);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+/* ---- Export screen (issue #53) ---- */
+.export-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 14rem) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+@media (max-width: 64rem) {
+  .export-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.export-thumbs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-height: 80vh;
+  overflow-y: auto;
+  padding-right: var(--space-2);
+}
+
+.export-thumb {
+  margin: 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  overflow: hidden;
+  background: var(--color-surface-raised);
+}
+
+.export-thumb img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.export-thumb-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 4rem;
+  color: var(--color-faint);
+  font-size: var(--text-sm);
+}
+
+.export-thumb figcaption {
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+  border-top: 1px solid var(--color-line);
+}
+
+.export-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.export-card,
+.export-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.export-targets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--space-3);
+}
+
+.export-target {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-raised);
+  cursor: pointer;
+}
+
+.export-target:hover {
+  border-color: var(--color-accent);
+}
+
+.export-target-active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.export-target-title {
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.export-target-blurb {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.export-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-4);
+}
+
+.export-actions {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.export-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.export-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.export-check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--color-line);
+}
+
+.export-check:first-child {
+  border-top: none;
+}
+
+.export-check-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.export-check-detail {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.export-output {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-line);
+}
+
+.export-output code {
+  word-break: break-all;
+}
+
+.export-manifest-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.export-files {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  overflow: hidden;
+}
+
+.export-file-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.export-file-row + .export-file-row {
+  border-top: 1px solid var(--color-line);
+}
+
+.export-file-path {
+  flex: 1 1 14rem;
+  word-break: break-all;
+}
+
+.export-file-meta {
+  color: var(--color-muted);
+}
+
+.export-file-sha {
+  font-family: var(--font-mono);
+  color: var(--color-faint);
+}
+
+/* --- Cut craft panel: lint findings list (#102) -------------------------- */
+.lint-list {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.lint-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-2);
+  background: var(--color-surface-sunken);
+}
+
+.lint-item[data-severity="error"] {
+  border-color: color-mix(in srgb, var(--color-danger) 40%, var(--color-line));
+}
+
+.lint-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.lint-code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+.lint-target {
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+.lint-message {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+}
+
+/* Inline two-up field row (#119) — placed after the base .field rules so the
+   direct-child overrides don't precede them (avoids descending specificity). */
+.field-row {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.field-row > .field {
+  flex: 1 1 8rem;
+}
+
+.field-row > select,
+.field-row > input {
+  flex: 1 1 6rem;
+  min-width: 0;
+}
+
+/* ---- Script page: the authored script and the episode draft (#330, #331) ---- */
+.script-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .script-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.script-column {
+  min-width: 0;
+}
+
+.script-aside {
+  display: grid;
+  gap: var(--space-4);
+  position: sticky;
+  top: var(--space-4);
+}
+
+.script-beats {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.script-beat {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-4);
+  padding: var(--space-4) var(--space-5);
+}
+
+.script-beat-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.script-purpose {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  color: var(--color-ink-strong);
+}
+
+.script-goals {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-5);
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.script-cut {
+  border-top: 1px solid var(--color-line);
+  padding: var(--space-3) 0;
+}
+
+.script-cut-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.script-cut-id {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+.script-swatch {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: var(--radius-round);
+  border: 1px solid var(--color-line-strong);
+}
+
+.script-intent {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.script-scene {
+  margin: 0 0 var(--space-2);
+  color: var(--color-ink);
+  line-height: var(--leading-normal);
+}
+
+.script-line {
+  display: grid;
+  grid-template-columns: minmax(6rem, auto) minmax(0, 1fr);
+  gap: var(--space-3);
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.script-speaker {
+  font-weight: var(--weight-semibold);
+  color: var(--color-accent-press);
+}
+
+.script-speaker-narration {
+  color: var(--color-muted);
+  font-style: italic;
+  font-weight: var(--weight-regular);
+}
+
+.script-lettering,
+.script-gap {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+.script-gap {
+  text-align: center;
+  padding: var(--space-1) 0;
+  border-top: 1px dashed var(--color-line-strong);
+  border-bottom: 1px dashed var(--color-line-strong);
+}
+
+.script-warnings {
+  list-style: none;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.script-warnings .notice {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  max-width: none;
+}
+
+/* The draft panel */
+.draft-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.draft-summary {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.draft-counts {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-3);
+}
+
+.draft-counts th,
+.draft-counts td {
+  text-align: right;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.draft-counts th:first-child,
+.draft-counts td:first-child {
+  text-align: left;
+}
+
+.draft-counts th {
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-muted);
+}
+
+.draft-changes {
+  margin: var(--space-3) 0;
+}
+
+.diff-record {
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--color-line);
+}
+
+.diff-record-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+}
+
+.diff-field {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+  word-break: break-word;
+}
+
+.diff-old {
+  color: var(--color-danger);
+  text-decoration: line-through;
+}
+
+.diff-new {
+  color: var(--color-success);
+}
+
+.draft-panel .notice {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  max-width: none;
+  margin: var(--space-3) 0;
+}
+
+.draft-defaults-toggle {
+  padding-left: 0;
+}
+
+.draft-defaults {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-5);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+  max-height: 14rem;
+  overflow: auto;
+}
+
+.draft-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+/* The brief card */
+.brief-card {
+  grid-column: 1 / -1;
+}
+
+.brief-fields {
+  display: grid;
+  grid-template-columns: minmax(7rem, auto) minmax(0, 1fr);
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.brief-fields dt {
+  color: var(--color-muted);
+  font-weight: var(--weight-semibold);
+}
+
+.brief-fields dd {
+  margin: 0;
+  color: var(--color-ink);
+}
+
+.brief-fields ol,
+.brief-fields ul {
+  margin: 0;
+  padding-left: var(--space-5);
+}
+
+.brief-fields p {
+  margin: 0 0 var(--space-1);
+}
+
+/* ---- Cut fields editor beside the bubble inspector (#332) ---- */
+.cut-fields {
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-line);
+  padding-bottom: var(--space-3);
+}
+
+.cut-fields-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  list-style: none;
+}
+
+.cut-fields-summary::-webkit-details-marker {
+  display: none;
+}
+
+.cut-fields-summary::before {
+  content: "▸";
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.cut-fields[open] > .cut-fields-summary::before {
+  content: "▾";
+}
+
+.cut-fields-summary .card-title {
+  margin: 0;
+}
+
+.cut-fields-preview {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cut-fields textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+.cut-fields-character {
+  gap: var(--space-1);
+}
+
+.cut-fields-palette {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.cut-fields-palette input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---- Characters page (#328) ---- */
+.character-actions {
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.character-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-4);
+}
+
+.character-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.character-head .btn-chip {
+  margin-left: auto;
+}
+
+.character-id {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-ink-strong);
+}
+
+.character-fields {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) minmax(0, 2fr);
+  gap: var(--space-3);
+}
+
+@media (max-width: 760px) {
+  .character-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.character-fields textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: var(--space-2);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+.field-label {
+  display: block;
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  font-weight: var(--weight-semibold);
+  color: var(--color-muted);
+  margin: var(--space-3) 0 var(--space-2);
+}
+
+.character-sheet-list {
+  list-style: none;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.character-sheet {
+  display: grid;
+  gap: var(--space-1);
+  width: 8rem;
+}
+
+.character-sheet img,
+.character-sheet-missing {
+  width: 8rem;
+  height: 8rem;
+  object-fit: cover;
+  border-radius: var(--radius-2);
+  border: 1px solid var(--color-line);
+  background: var(--color-surface-sunken);
+}
+
+.character-sheet-missing {
+  display: grid;
+  place-items: center;
+  font-size: var(--text-xs);
+  color: var(--color-danger);
+}
+
+.character-sheet-path {
+  font-size: var(--text-2xs);
+  color: var(--color-muted);
+  word-break: break-all;
+}
+
+.character-sheet-add {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.character-sheet-add input {
+  flex: 1;
+  min-width: 0;
+}
+
+.character-uses {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.character-uses .field-label {
+  margin: 0;
+}
+
+.draft-continuity,
+.script-continuity {
+  font-size: var(--text-sm);
+  color: var(--color-ink);
+  margin: 0 0 var(--space-3);
+}
+
+.script-continuity {
+  padding: var(--space-3) var(--space-4);
+  max-width: none;
+}

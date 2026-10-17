@@ -1,0 +1,10 @@
+{
+  // The test compile emits into `dist-test`, NOT `dist`. `dist` is the `build`
+  // task's declared turbo output; a second task emitting there makes the build
+  // cache disagree with the directory it claims to describe, and lets a package's
+  // own build and test overwrite each other's files mid-run (#253).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist-test"
+  }
+}

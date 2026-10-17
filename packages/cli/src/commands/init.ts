@@ -1,0 +1,138 @@
+// `toony init <name>` — scaffold a new local project folder.
+
+import { stat } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
+import {
+  buildInitialProject,
+  GENRES,
+  listGenreIds,
+  resolveGenreSeed,
+  slugify,
+  writeProject,
+} from "@toony/project-io";
+import { EXIT_OK, EXIT_USAGE } from "../exit.js";
+import { discoverPackContent } from "../packs.js";
+import { shellQuote } from "../shell.js";
+
+const USAGE = `usage: toony init <name> [--genre <${GENRES.join("|")}>]`;
+
+export interface InitIo {
+  cwd: string;
+  out: (line: string) => void;
+  err: (line: string) => void;
+  /** Process environment; `TOONY_PACKS` names extra pack directories. */
+  env?: Record<string, string | undefined>;
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function plural(count: number, singular: string): string {
+  return `${count} ${singular}${count === 1 ? "" : "s"}`;
+}
+
+/** Count the resolved starter records, not the selected genre's presumed shape. */
+function starterFragmentSummary(project: ReturnType<typeof buildInitialProject>): string {
+  let cuts = 0;
+  let transitions = 0;
+  for (const bundle of project.episodes) {
+    cuts += bundle.cuts.length;
+    transitions += bundle.transitions.length;
+  }
+  return `starter fragment: ${plural(cuts, "cut")}, ${plural(transitions, "transition")}`;
+}
+
+/** Run `toony init`. Returns the process exit code. */
+export async function runInit(args: string[], io: InitIo): Promise<number> {
+  // Packs are discovered from the folder `init` is run in — the workspace a new
+  // project is created inside — so a genre scaffold contributed by a pack is
+  // offered alongside the built-in five (#192). With no packs installed this is
+  // an empty list and the genre vocabulary is exactly `GENRES`.
+  const packs = await discoverPackContent(io.cwd, io);
+  const genreIds = await listGenreIds(packs.genres);
+
+  // Parse a single positional <name> plus an optional `--genre <g>` flag. Unknown
+  // flags are a usage error (consistent with the other commands).
+  let name: string | undefined;
+  let genre: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === undefined) continue;
+    if (arg === "--genre") {
+      const value = args[i + 1];
+      if (value === undefined) {
+        io.err(`missing value for --genre; expected one of: ${genreIds.join(", ")}`);
+        return EXIT_USAGE;
+      }
+      if (!genreIds.includes(value)) {
+        io.err(`unknown genre "${value}"; expected one of: ${genreIds.join(", ")}`);
+        return EXIT_USAGE;
+      }
+      genre = value;
+      i++;
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      io.err(`unknown option: ${arg}\n${USAGE}`);
+      return EXIT_USAGE;
+    }
+    if (name === undefined) {
+      name = arg;
+      continue;
+    }
+    io.err(`unexpected argument: ${arg}\n${USAGE}`);
+    return EXIT_USAGE;
+  }
+
+  if (name === undefined || name.length === 0) {
+    io.err(USAGE);
+    return EXIT_USAGE;
+  }
+
+  // The folder name is derived from the provided name unless it is already a
+  // path; this keeps the on-disk id and the folder name in sync.
+  const slug = slugify(name);
+  const target = isAbsolute(name) ? name : resolve(io.cwd, slug);
+
+  if (await exists(target)) {
+    io.err(`target already exists: ${target}`);
+    return EXIT_USAGE;
+  }
+
+  // `genre` was checked against the merged list above, so this always resolves.
+  // A contributed genre may also declare the gutter strip its dialogue needs
+  // (#215) and the theme and lexicon it selects (#346); `buildInitialProject`
+  // writes them into `webtoon.json`, so the project carries them from here on
+  // and nothing consults the pack to render.
+  const seed = genre === undefined ? undefined : await resolveGenreSeed(genre, packs.genres);
+  const project = buildInitialProject(name, seed?.bundle, {
+    ...(seed?.gutterBandWidth === undefined ? {} : { gutterBandWidth: seed.gutterBandWidth }),
+    ...(seed?.letteringTheme === undefined ? {} : { letteringTheme: seed.letteringTheme }),
+    ...(seed?.styleLexicon === undefined ? {} : { styleLexicon: seed.styleLexicon }),
+  });
+  try {
+    await writeProject(target, project);
+  } catch (cause) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    io.err(`init failed: ${reason}`);
+    return EXIT_USAGE;
+  }
+
+  const flavor = genre ? ` (${genre} template)` : "";
+  io.out(`created project "${project.webtoon.projectId}"${flavor} at ${target}`);
+  io.out(starterFragmentSummary(project));
+  const firstEpisodeId = project.episodes[0]?.episode.id;
+  if (firstEpisodeId !== undefined) {
+    io.out(
+      `before mass generation: cd ${shellQuote(target)} && toony plan --episode ${shellQuote(firstEpisodeId)}`,
+    );
+  }
+  io.out(`next: cd ${shellQuote(target)} && toony validate`);
+  return EXIT_OK;
+}

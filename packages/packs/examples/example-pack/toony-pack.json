@@ -1,0 +1,37 @@
+{
+  "packFormat": 1,
+  "id": "example-pack",
+  "name": "Toony Example Pack",
+  "description": "A complete, working pack: one named ComfyUI workflow, one genre scaffold, one export preset, and one craft band. Copy this folder to start your own. See docs/PACK_FORMAT.md.",
+  "workflows": [
+    {
+      "name": "high-detail",
+      "file": "workflows/high-detail.workflow.json"
+    }
+  ],
+  "genres": [
+    {
+      "id": "noir",
+      "title": "Noir",
+      "file": "genres/noir.json",
+      "gutterBandWidth": 0.24
+    }
+  ],
+  "exportPresets": [
+    {
+      "id": "webtoon-tall",
+      "target": "platform",
+      "options": {
+        "width": 1600,
+        "format": "jpeg",
+        "quality": 88
+      }
+    }
+  ],
+  "craftBands": [
+    {
+      "id": "noir-band",
+      "file": "bands/noir.json"
+    }
+  ]
+}

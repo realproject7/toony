@@ -1,0 +1,36 @@
+{
+  "name": "@toony/studio",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "copy-fonts": "node scripts/copy-fonts.mjs",
+    "gen-fonts-css": "node scripts/gen-studio-fonts-css.mjs",
+    "predev": "node scripts/copy-fonts.mjs && node scripts/gen-studio-fonts-css.mjs",
+    "dev": "next dev",
+    "prebuild": "node scripts/copy-fonts.mjs && node scripts/gen-studio-fonts-css.mjs",
+    "build": "next build",
+    "start": "next start",
+    "pretypecheck": "next typegen",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.test.json && node ../../scripts/run-tests.mjs dist-test"
+  },
+  "dependencies": {
+    "@toony/export": "workspace:*",
+    "@toony/fonts": "workspace:*",
+    "@toony/lint": "workspace:*",
+    "@toony/packs": "workspace:*",
+    "@toony/project-io": "workspace:*",
+    "@toony/render": "workspace:*",
+    "@toony/schema": "workspace:*",
+    "next": "15.5.19",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "typescript": "6.0.3"
+  }
+}

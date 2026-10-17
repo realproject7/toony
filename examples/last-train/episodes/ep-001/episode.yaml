@@ -1,0 +1,28 @@
+id: ep-001
+schemaVersion: 1
+title: Last Train
+sequence:
+  - type: cut
+    id: cut-001
+  - type: transition
+    id: tr-001
+  - type: cut
+    id: cut-002
+  - type: transition
+    id: tr-002
+  - type: cut
+    id: cut-003
+  - type: transition
+    id: tr-003
+  - type: cut
+    id: cut-004
+  - type: cut
+    id: cut-005
+  - type: transition
+    id: tr-004
+  - type: cut
+    id: cut-006
+  - type: transition
+    id: tr-005
+  - type: cut
+    id: cut-007

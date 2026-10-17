@@ -1,0 +1,30 @@
+id: ep-001
+schemaVersion: 1
+sequence:
+  - id: cut-001
+    type: cut
+  - id: tr-001
+    type: transition
+  - id: cut-002
+    type: cut
+  - id: tr-002
+    type: transition
+  - id: cut-003
+    type: cut
+  - id: tr-003
+    type: transition
+  - id: cut-004
+    type: cut
+  - id: tr-004
+    type: transition
+  - id: cut-005
+    type: cut
+  - id: tr-005
+    type: transition
+  - id: cut-006
+    type: cut
+  - id: tr-006
+    type: transition
+  - id: cut-007
+    type: cut
+title: Dead Air
