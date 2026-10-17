@@ -538,7 +538,7 @@ export function CutEditor({
           fetch("/api/lettering", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ workId, episodeId, overlays: payload }),
+            body: JSON.stringify({ workId, episodeId, cutId, overlays: payload }),
           }),
         generationAtStart,
         readGeneration: () => editGenRef.current,
@@ -554,7 +554,7 @@ export function CutEditor({
     } finally {
       setSaving(false);
     }
-  }, [bubbles, plans, workId, episodeId]);
+  }, [bubbles, plans, workId, episodeId, cutId]);
 
   return (
     <div className="editor" data-testid={`cut-editor-${cutId}`}>
