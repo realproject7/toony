@@ -1,3 +1,8 @@
+export {
+  defaultLetteringTextLayout,
+  type LetteringTextLayout,
+  validateLetteringTextLayout,
+} from "./lettering-layout.js";
 // Public API for @toony/schema: the shared structural model, its validators,
 // and canonical serialization for Toony projects.
 

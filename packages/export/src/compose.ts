@@ -119,9 +119,11 @@ function drawBubble(ctx: SKRSContext2D, b: BubbleRender): void {
 
   ctx.font = `${fontWeight} ${b.text.fontSize}px "${family}"`;
   for (const line of b.lines) {
+    ctx.textBaseline = line.baselineY === undefined ? "top" : "alphabetic";
+    const textY = line.baselineY ?? line.y;
     if (b.hasBubble) {
       ctx.fillStyle = b.textColor;
-      ctx.fillText(line.text, line.anchorX, line.y);
+      ctx.fillText(line.text, line.anchorX, textY);
     } else {
       // SFX: outline the bare text so it reads on any background. Width comes
       // from the render plan (single source) so the raster and the SVG preview
@@ -129,9 +131,9 @@ function drawBubble(ctx: SKRSContext2D, b: BubbleRender): void {
       ctx.lineWidth = b.textOutlineWidth;
       ctx.strokeStyle = b.stroke;
       ctx.lineJoin = "round";
-      ctx.strokeText(line.text, line.anchorX, line.y);
+      ctx.strokeText(line.text, line.anchorX, textY);
       ctx.fillStyle = b.textColor;
-      ctx.fillText(line.text, line.anchorX, line.y);
+      ctx.fillText(line.text, line.anchorX, textY);
     }
   }
   ctx.letterSpacing = "0px";

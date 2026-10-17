@@ -22,12 +22,23 @@ export function createCanvasMeasure(): MeasureWidth {
   // system fallback (idempotent, cheap on repeat calls).
   registerToonyFonts();
   const scratch = createCanvas(8, 8).getContext("2d");
-  return (text: string, fontSize: number, fontWeight: 400 | 700 = 400, fontFamily?: string) => {
+  const details = (
+    text: string,
+    fontSize: number,
+    fontWeight: 400 | 700 = 400,
+    fontFamily?: string,
+  ) => {
     // `fontFamily` is the render plan's already-resolved family id, so a direct
     // registry lookup is enough — no per-kind fallback needed here.
     const family = fontFamily ? getFontFamily(fontFamily) : undefined;
     const name = family ? canvasFamilyName(family, fontWeight) : FONT_FAMILY;
     scratch.font = `${cssFaceWeight(fontWeight)} ${fontSize}px "${name}"`;
-    return scratch.measureText(text).width;
+    return scratch.measureText(text);
   };
+  const measure: MeasureWidth = (...args) => details(...args).width;
+  measure.metrics = (...args) => {
+    const m = details(...args);
+    return { ascent: m.actualBoundingBoxAscent, descent: m.actualBoundingBoxDescent };
+  };
+  return measure;
 }

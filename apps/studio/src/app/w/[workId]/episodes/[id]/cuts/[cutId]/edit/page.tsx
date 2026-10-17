@@ -6,7 +6,7 @@
 // through `@toony/render` and persists edits through `/api/lettering` (scoped to
 // this work). Cut prompts/craft/characters are the agent/CLI's domain (#121).
 
-import { resolveGutterBandWidth } from "@toony/schema";
+import { resolveGutterBandWidth, resolveReferenceWidth } from "@toony/schema";
 import { notFound } from "next/navigation";
 import { CutEditor } from "@/components/cut-editor";
 import { LoadError } from "@/components/load-error";
@@ -68,6 +68,7 @@ export default async function CutEditorPage({
       initialReviewStatus={cut.reviewStatus}
       artworkRevision={artworkRevision}
       dialogueLanguage={loaded.project.webtoon.languages.dialogueLanguage}
+      referenceWidth={resolveReferenceWidth(loaded.project.webtoon.referenceWidth)}
       gutterBandWidth={resolveGutterBandWidth(loaded.project.webtoon.gutterBandWidth)}
       cutFields={cutFieldsOf(cut)}
       characters={loaded.project.webtoon.characters ?? []}

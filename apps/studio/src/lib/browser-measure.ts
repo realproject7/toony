@@ -27,7 +27,12 @@ export function createBrowserMeasure(): MeasureWidth | null {
   const ctx = document.createElement("canvas").getContext("2d");
   if (!ctx) return null;
   const fontCache = new Map<string, string>();
-  return (text, fontSize, fontWeight = 400, fontFamily) => {
+  const details = (
+    text: string,
+    fontSize: number,
+    fontWeight: 400 | 700 = 400,
+    fontFamily?: string,
+  ) => {
     const key = `${fontFamily ?? ""}|${fontWeight}|${fontSize}`;
     let font = fontCache.get(key);
     if (font === undefined) {
@@ -35,8 +40,14 @@ export function createBrowserMeasure(): MeasureWidth | null {
       fontCache.set(key, font);
     }
     ctx.font = font;
-    return ctx.measureText(text).width;
+    return ctx.measureText(text);
   };
+  const measure: MeasureWidth = (...args) => details(...args).width;
+  measure.metrics = (...args) => {
+    const m = details(...args);
+    return { ascent: m.actualBoundingBoxAscent, descent: m.actualBoundingBoxDescent };
+  };
+  return measure;
 }
 
 /**

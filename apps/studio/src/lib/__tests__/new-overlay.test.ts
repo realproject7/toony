@@ -17,7 +17,7 @@ function issues(overlay: unknown): string[] {
   return collector.result().issues.map((issue) => `${issue.path}: ${issue.code}`);
 }
 
-test("a new bubble seeds exactly the fields the schema requires", () => {
+test("a new bubble seeds required data and explicit middle-aligned width-based text layout", () => {
   const created = newOverlay("cut-004", 2);
   assert.deepEqual(Object.keys(created).sort(), [
     "border",
@@ -32,6 +32,8 @@ test("a new bubble seeds exactly the fields the schema requires", () => {
     "speaker",
     "tail",
     "text",
+    "textLayout",
+    "verticalAlign",
   ]);
   assert.equal(created.cutId, "cut-004");
   assert.equal(created.kind, "speech");
@@ -56,7 +58,16 @@ test("a new bubble renders in its kind's default face, not a stamped one", () =>
   assert.equal(plan.fontFamily, defaultFontFamilyForKind("speech"));
 });
 
-test("a project theme seeds a new bubble, and no theme leaves it exactly as before (#334)", () => {
+test("new bubbles use the project width and middle alignment without inheriting height-based fitting", () => {
+  const created = newOverlay("cut-001", 0, undefined, 1080);
+  assert.equal(created.verticalAlign, "middle");
+  assert.equal(created.textLayout?.referenceWidth, 1080);
+  const plan = layoutBubble(created, 1080, 2000);
+  assert.equal(plan.text.fontSize, 30);
+  assert.ok(plan.lines[0]?.baselineY !== undefined);
+});
+
+test("a project theme overrides appearance while keeping the new bubble layout defaults", () => {
   const bare = newOverlay("cut-001", 0);
   const themed = newOverlay("cut-001", 0, {
     themeFormat: 1,
