@@ -1,44 +1,13 @@
-// Lettering write endpoint for the focused cut editor (issue #8, scoped for #51).
-//
-// The studio is local-first and account-free: this route is the single server
-// write path the editor uses to persist a cut's bubbles. It resolves the posted
-// `workId` to a work directory PATH-SAFELY against the workspace scan, loads that
-// work's project, replaces ONE episode's lettering with the posted overlay set,
-// validates the resulting project with `@toony/schema` (per-overlay shape, unique
-// ids, and cross-file integrity — every `cutId` must match a real cut in the
-// episode), and writes only that episode's `lettering.json` deterministically
-// through project-io. Invalid edits are rejected and nothing is written.
-//
-// Path safety: the work id is matched exactly against the workspace scan and the
-// episode id is resolved by exact match against the loaded project's episode ids
-// — neither is ever joined into a filesystem path from raw input, so neither can
-// traverse outside the work tree. project-io derives the concrete file path from
-// the validated ids, mirroring the `/api/asset` guard.
-
-import { writeLettering } from "@toony/project-io";
-import { type LetteringOverlay, type Project, validateProject } from "@toony/schema";
+// Save one cut's lettering. Resolve the work path through the workspace, then
+// merge only that cut into the latest episode under the Studio write queue.
 import { safeErrorMessage } from "@/lib/errors";
-import { loadWork } from "@/lib/project";
+import { isCutLetteringPayload, saveCutLettering } from "@/lib/lettering-save";
 import { resolveWork } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-interface SavePayload {
-  workId: string;
-  episodeId: string;
-  overlays: LetteringOverlay[];
-}
-
 function badRequest(message: string): Response {
   return Response.json({ ok: false, error: message }, { status: 400 });
-}
-
-function isSavePayload(value: unknown): value is SavePayload {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  return (
-    typeof v.workId === "string" && typeof v.episodeId === "string" && Array.isArray(v.overlays)
-  );
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -48,64 +17,20 @@ export async function POST(request: Request): Promise<Response> {
   } catch {
     return badRequest("request body must be valid JSON");
   }
-  if (!isSavePayload(payload)) {
+  if (!isCutLetteringPayload(payload)) {
     return badRequest(
-      "request body must be { workId: string, episodeId: string, overlays: array }",
+      "request body must be { workId: string, episodeId: string, cutId: string, overlays: array }",
     );
   }
-  const { workId, episodeId, overlays } = payload;
-
-  const work = await resolveWork(workId);
-  if (work === null) {
-    return badRequest(`unknown work "${workId}"`);
-  }
-
-  let loaded: Awaited<ReturnType<typeof loadWork>>;
+  const work = await resolveWork(payload.workId);
+  if (!work) return badRequest(`unknown work "${payload.workId}"`);
   try {
-    loaded = await loadWork(work.root);
-  } catch (cause) {
-    return Response.json({ ok: false, error: safeErrorMessage(cause) }, { status: 500 });
-  }
-
-  // Resolve the episode by exact id match — never join raw input into a path.
-  const bundleIndex = loaded.project.episodes.findIndex(
-    (bundle) => bundle.episode.id === episodeId,
-  );
-  if (bundleIndex === -1) {
-    return badRequest(`unknown episode "${episodeId}"`);
-  }
-
-  // Build the candidate project with this episode's lettering replaced, then run
-  // the full validator so cross-file integrity (cutId references, id uniqueness)
-  // is enforced before any bytes are written.
-  const candidate: Project = {
-    webtoon: loaded.project.webtoon,
-    episodes: loaded.project.episodes.map((bundle, index) =>
-      index === bundleIndex ? { ...bundle, lettering: overlays } : bundle,
-    ),
-  };
-  const result = validateProject(candidate);
-  if (!result.valid) {
-    const detail = result.issues
-      .filter((issue) => issue.path.startsWith(`episodes[${bundleIndex}].lettering`))
-      .map((issue) => `${issue.path}: ${issue.message}`);
-    const message =
-      detail.length > 0
-        ? `invalid lettering: ${detail.join("; ")}`
-        : `invalid project after edit: ${result.issues
-            .map((issue) => `${issue.path}: ${issue.message}`)
-            .join("; ")}`;
-    return badRequest(message);
-  }
-
-  try {
-    await writeLettering(work.root, episodeId, overlays);
+    const result = await saveCutLettering(work.root, payload);
+    return Response.json(result, { status: result.ok ? 200 : 400 });
   } catch (cause) {
     return Response.json(
       { ok: false, error: safeErrorMessage(cause, "could not save the lettering") },
       { status: 500 },
     );
   }
-
-  return Response.json({ ok: true, count: overlays.length });
 }
