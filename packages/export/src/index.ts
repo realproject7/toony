@@ -1,0 +1,118 @@
+// Public API for @toony/export: headless platform / stitched / PlotLink-ready
+// exports built on the shared renderer, plus the export manifest schema.
+
+export { composeCut, composeTransitionBand } from "./compose.js";
+export {
+  asCraftBand,
+  CRAFT_BAND_FORMAT_VERSION,
+  CRAFT_CAPTURE_MODES,
+  CRAFT_METRIC_NAMES,
+  type CraftBand,
+  type CraftBandProvenance,
+  type CraftBandRange,
+  type CraftBandReport,
+  type CraftBandWork,
+  type CraftCaptureMode,
+  type CraftMeasurement,
+  type CraftMetricName,
+  type CraftMetrics,
+  type CraftMetricVerdict,
+  type CraftRecordedMetric,
+  compareToCraftBand,
+  compareToTransitionVocabulary,
+  DEFAULT_SCREEN_ASPECT,
+  FLAT_ROW_STDDEV_MAX,
+  GUTTER_MIN_RUN_FRACTION,
+  type MeasureOptions,
+  measureEpisodeCraft,
+  measureTransitionMix,
+  PANEL_MIN_RUN_FRACTION,
+  type PageGeometryMetrics,
+  sequencedTransitions,
+  type TransitionKindMix,
+  type TransitionMix,
+  type TransitionRangeVerdict,
+  type TransitionVocabularyEntry,
+  type TransitionVocabularyVerdict,
+  validateCraftBandValue,
+} from "./craft.js";
+// Plain constants live in the Node-free `./defaults.js` (also a browser-safe
+// subpath) so consumers keep importing them from the main entry (#154).
+export {
+  DEFAULT_JPEG_QUALITY,
+  DEFAULT_WEBP_QUALITY,
+  PLATFORM_DEFAULT_WIDTH,
+  PLOTLINK_DEFAULT_WIDTH,
+  STITCHED_DEFAULT_WIDTH,
+} from "./defaults.js";
+export {
+  clampQuality,
+  encodeCanvas,
+  encodeWebpToFit,
+  type FitResult,
+  type RasterFormat,
+} from "./encode.js";
+export { ExportError } from "./errors.js";
+export { type ImageDimensions, type ImageFormat, readImageDimensions } from "./image-dimensions.js";
+export {
+  EXPORT_TARGET_KINDS,
+  type ExportManifest,
+  type ExportTargetKind,
+  MANIFEST_FILE,
+  MANIFEST_VERSION,
+  type ManifestFile,
+  type ManifestMarkdown,
+  PLOTLINK_MAX_BYTES,
+  PLOTLINK_MAX_IMAGES,
+  sha256Hex,
+  validateManifest,
+} from "./manifest.js";
+export {
+  buildPlotlinkMarkdown,
+  PLOTLINK_MARKDOWN_MAX,
+  PLOTLINK_MARKDOWN_MIN,
+} from "./markdown.js";
+export {
+  asEpisodePlan,
+  comparePlanToCraftBand,
+  EPISODE_PLAN_FORMAT_VERSION,
+  type EpisodePlan,
+  measureEpisodeBundle,
+  measureEpisodePlan,
+  measurePlan,
+  PLAN_PAGE_ROWS_MAX,
+  PLAN_UNCHECKED_METRICS,
+  type PlanBandGraded,
+  type PlanBandReport,
+  type PlanBandUngraded,
+  type PlanBeat,
+  type PlanBeatMeasurement,
+  type PlanGap,
+  type PlanMeasurement,
+  type PlanUncheckedMetric,
+  validateEpisodePlanValue,
+} from "./plan.js";
+export {
+  BUILTIN_EXPORT_PRESETS,
+  type ExportPreset,
+  listExportPresetIds,
+  resolveExportPreset,
+} from "./presets.js";
+// The raster caps (#277), exported so a record of a composed page can state its
+// size beside the limits that admitted it (#314).
+export {
+  CANVAS_PIXELS_MAX,
+  EPISODE_RASTER_BYTES_MAX,
+  IMAGE_FILE_BYTES_MAX,
+  IMAGE_PIXELS_MAX,
+  RASTER_DIMENSION_MAX,
+} from "./raster-safety.js";
+export {
+  type ExportOptions,
+  type ExportOutput,
+  exportPlatform,
+  exportPlotlink,
+  exportStitched,
+  type StitchedEpisode,
+  stitchEpisode,
+} from "./targets.js";

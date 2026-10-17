@@ -1,0 +1,323 @@
+// Runtime configuration for the ComfyUI provider.
+//
+// SECRETS AND ENDPOINTS ARE RUNTIME-ONLY. The project's `webtoon.json` provider
+// entries stay neutral (kind/label) — they NEVER carry an endpoint or key. The
+// operator points Toony at their own ComfyUI install through (highest precedence
+// first; each FIELD is resolved independently so e.g. an env URL can override the
+// file's URL while the file still supplies the checkpoint):
+//
+//   1. Inline overrides (programmatic callers / tests).
+//   2. Environment variables:
+//        TOONY_COMFYUI_URL          base URL of the operator's ComfyUI server
+//        TOONY_COMFYUI_WORKFLOW     path to a workflow-graph JSON template
+//        TOONY_COMFYUI_CHECKPOINT   checkpoint filename to load
+//        TOONY_COMFYUI_CONFIG       path to a JSON config file (see below)
+//        TOONY_COMFYUI_TIMEOUT_MS   overall generation timeout in ms
+//   3. A local JSON config file (path from TOONY_COMFYUI_CONFIG), e.g.:
+//        {
+//          "url": "http://127.0.0.1:8188",
+//          "workflowPath": "./my-workflow.json",
+//          "checkpoint": "myModel.safetensors",
+//          "timeoutMs": 180000,
+//          "injectionMap": { ... node/param mapping ... }
+//        }
+//   4. The shared workspace config `<root>/.toony/config.json` (the Studio
+//      settings page #52 edits it; the CLI reads it with @toony/project-io and
+//      passes the provider-neutral `{ endpoint, checkpoint, workflow }` here as
+//      `toonyConfig`). It is the LOWEST precedence so env always overrides the
+//      file, preserving the documented env-first behaviour. `workflow` is a path
+//      to a workflow-graph JSON template, like TOONY_COMFYUI_WORKFLOW.
+//
+// A workflow may also be selected BY NAME from a registry the caller injects
+// (`workflows` + `workflowName` on the config source) — that is how a named
+// workflow contributed by a pack reaches this provider (#192). The registry is
+// plain data (name → local file path), so this package resolves named workflows
+// while staying dependency-free.
+//
+// The example URL "http://127.0.0.1:8188" is the operator's OWN local instance
+// (ComfyUI's documented default address). Nothing here is committed for a real
+// server.
+
+import { readFile } from "node:fs/promises";
+import {
+  type ComfyWorkflowGraph,
+  DEFAULT_INJECTION_MAP,
+  parseWorkflowGraph,
+  type WorkflowInjectionMap,
+} from "./comfyui-workflow.js";
+import { ProviderError } from "./errors.js";
+
+/** ComfyUI's documented default local address. Not a configured endpoint. */
+export const COMFYUI_DEFAULT_LOCAL_URL = "http://127.0.0.1:8188";
+
+/** Default timeout floor and allowance per megapixel (3 minutes). */
+export const COMFYUI_DEFAULT_TIMEOUT_MS = 180_000;
+
+/** Fully-resolved settings the ComfyUI client runs against. */
+export interface ComfyUIConfig {
+  url: string;
+  workflow: ComfyWorkflowGraph;
+  injectionMap: WorkflowInjectionMap;
+  checkpoint?: string;
+  timeoutMs: number;
+  /** Only the implicit default scales with the submitted latent area. */
+  scaleTimeoutWithArea?: boolean;
+  /** Polling interval for /history while waiting for completion. */
+  pollIntervalMs: number;
+}
+
+/** Raw config-file shape before resolution. All fields optional. */
+interface ComfyUIConfigFile {
+  url?: string;
+  workflowPath?: string;
+  workflow?: ComfyWorkflowGraph;
+  checkpoint?: string;
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  injectionMap?: Partial<WorkflowInjectionMap>;
+}
+
+/**
+ * Provider-neutral workspace config (`.toony/config.json`) as the caller already
+ * read it. Structurally compatible with @toony/project-io's `ComfyUiConfig`, but
+ * declared here so this package keeps no dependency on project-io. Each field is
+ * null when the workspace has not configured it.
+ */
+export interface ToonyWorkspaceComfyConfig {
+  endpoint: string | null;
+  checkpoint: string | null;
+  workflow: string | null;
+}
+
+/** Inputs that drive config resolution (env + an explicit override hook). */
+export interface ComfyUIConfigSource {
+  env?: Record<string, string | undefined>;
+  /** Inline overrides (used by tests and callers that already hold values). */
+  overrides?: ComfyUIConfigFile;
+  /**
+   * The shared workspace config (`.toony/config.json`), pre-read by the caller.
+   * Used as the LOWEST-precedence source so env vars still override it.
+   */
+  toonyConfig?: ToonyWorkspaceComfyConfig;
+  /**
+   * Named workflow templates the caller has resolved: name → local JSON file
+   * path. This is the registry of NAMED workflows (#192) — the CLI discovers
+   * packs and injects their workflows here as plain data, so this package keeps
+   * no dependency on the pack loader and stays dependency-free. Absent (the
+   * zero-pack case) means no workflow can be selected by name.
+   */
+  workflows?: ReadonlyMap<string, string>;
+  /** Select one of `workflows` by name (`toony generate --workflow <name>`). */
+  workflowName?: string;
+  /**
+   * The reference input the selected named workflow declares (#327), as the
+   * pack manifest states it. Merged into the injection map so the provider
+   * knows where an uploaded reference goes. Absent means the workflow takes none.
+   */
+  workflowReference?: { node: string; input: string };
+}
+
+/** A non-empty string passes through; null/empty/undefined become undefined. */
+function nonEmpty(value: string | null | undefined): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function readConfigFile(text: string, path: string): ComfyUIConfigFile {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new ProviderError(
+      "comfyui.config-parse",
+      `ComfyUI config file at "${path}" is not valid JSON.`,
+    );
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new ProviderError(
+      "comfyui.config-shape",
+      `ComfyUI config file at "${path}" must be a JSON object.`,
+    );
+  }
+  return parsed as ComfyUIConfigFile;
+}
+
+async function loadDefaultWorkflow(): Promise<ComfyWorkflowGraph> {
+  // The shipped default graph lives beside this module; resolve relative to it
+  // so it works regardless of the consumer's working directory.
+  const assetUrl = new URL("./assets/default-txt2img.workflow.json", import.meta.url);
+  let text: string;
+  try {
+    text = await readFile(assetUrl, "utf8");
+  } catch {
+    throw new ProviderError(
+      "comfyui.default-workflow-missing",
+      "the bundled default ComfyUI workflow could not be read.",
+    );
+  }
+  return parseWorkflowGraph(text);
+}
+
+async function loadWorkflowFromPath(path: string): Promise<ComfyWorkflowGraph> {
+  let text: string;
+  try {
+    text = await readFile(path, "utf8");
+  } catch {
+    throw new ProviderError(
+      "comfyui.workflow-read",
+      "could not read the ComfyUI workflow template (check the path).",
+    );
+  }
+  return parseWorkflowGraph(text);
+}
+
+/**
+ * Resolve a workflow the caller selected BY NAME against the injected registry
+ * (#192). The registry is plain data — names to local file paths — so this
+ * package resolves named workflows without knowing anything about where the
+ * names came from. An unknown name fails with the available names listed, never
+ * by silently falling back to the default graph.
+ */
+async function loadWorkflowByName(
+  name: string,
+  workflows: ReadonlyMap<string, string> | undefined,
+): Promise<ComfyWorkflowGraph> {
+  const path = workflows?.get(name);
+  if (path === undefined) {
+    const available = [...(workflows?.keys() ?? [])].sort();
+    throw new ProviderError(
+      "comfyui.unknown-workflow",
+      available.length === 0
+        ? `no workflow named "${name}"; no named workflows are installed.`
+        : `no workflow named "${name}"; available: ${available.join(", ")}.`,
+    );
+  }
+  return loadWorkflowFromPath(path);
+}
+
+function parsePositiveInt(value: string | undefined, label: string): number | undefined {
+  if (value === undefined || value.length === 0) return undefined;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new ProviderError("comfyui.config-value", `${label} must be a positive integer.`);
+  }
+  return n;
+}
+
+/**
+ * Resolve a complete `ComfyUIConfig` from env, an optional config file, and
+ * inline overrides. The ENDPOINT URL is REQUIRED to be configured — there is no
+ * baked-in server. When it is missing, this throws an actionable error so the
+ * CLI fails clearly instead of pretending to generate.
+ */
+export async function resolveComfyUIConfig(
+  source: ComfyUIConfigSource = {},
+): Promise<ComfyUIConfig> {
+  const env = source.env ?? {};
+
+  let fromFile: ComfyUIConfigFile = {};
+  const configPath = env.TOONY_COMFYUI_CONFIG;
+  if (configPath !== undefined && configPath.length > 0) {
+    let text: string;
+    try {
+      text = await readFile(configPath, "utf8");
+    } catch {
+      throw new ProviderError(
+        "comfyui.config-read",
+        "could not read the ComfyUI config file named by TOONY_COMFYUI_CONFIG.",
+      );
+    }
+    fromFile = readConfigFile(text, configPath);
+  }
+
+  const overrides = source.overrides ?? {};
+  const ws = source.toonyConfig;
+
+  // Precedence (per field): inline overrides > env > TOONY_COMFYUI_CONFIG file >
+  // workspace .toony/config.json. Env always wins over the file, so configuring
+  // the Studio settings page is equivalent to the env vars but lower priority.
+  const url =
+    nonEmpty(overrides.url) ??
+    nonEmpty(env.TOONY_COMFYUI_URL) ??
+    nonEmpty(fromFile.url) ??
+    nonEmpty(ws?.endpoint);
+  if (url === undefined || url.length === 0) {
+    throw new ProviderError(
+      "comfyui.no-endpoint",
+      `no ComfyUI endpoint configured. Set TOONY_COMFYUI_URL (e.g. ${COMFYUI_DEFAULT_LOCAL_URL} for a local install), provide it via TOONY_COMFYUI_CONFIG, or set the ComfyUI endpoint in Studio settings (.toony/config.json).`,
+    );
+  }
+  try {
+    // Validate it is a real URL; reject garbage early with a clear message.
+    new URL(url);
+  } catch {
+    throw new ProviderError("comfyui.bad-endpoint", "the ComfyUI endpoint URL is not a valid URL.");
+  }
+
+  // Workflow precedence (documented): inline override > requested NAME > env
+  // path > config-file (inline graph ?? path) > workspace path > bundled
+  // default. Each source is checked IN ORDER, so a lower-precedence PATH can
+  // never beat the config file's inline graph — the bug this fixes was
+  // coalescing env/config/workspace PATHs into one value checked before the
+  // config-file inline graph (#155). A requested name sits directly under the
+  // inline graph because naming a workflow is an explicit per-run choice; when
+  // no name is requested the chain below is exactly the one that shipped before
+  // named workflows existed, so the zero-pack path is unchanged (#192).
+  let workflow: ComfyWorkflowGraph;
+  const envWorkflowPath = nonEmpty(env.TOONY_COMFYUI_WORKFLOW);
+  const fileWorkflowPath = nonEmpty(fromFile.workflowPath);
+  const wsWorkflowPath = nonEmpty(ws?.workflow);
+  const requestedName = nonEmpty(source.workflowName);
+  if (overrides.workflow !== undefined) {
+    workflow = overrides.workflow;
+  } else if (requestedName !== undefined) {
+    workflow = await loadWorkflowByName(requestedName, source.workflows);
+  } else if (envWorkflowPath !== undefined) {
+    workflow = await loadWorkflowFromPath(envWorkflowPath);
+  } else if (fromFile.workflow !== undefined) {
+    workflow = fromFile.workflow;
+  } else if (fileWorkflowPath !== undefined) {
+    workflow = await loadWorkflowFromPath(fileWorkflowPath);
+  } else if (wsWorkflowPath !== undefined) {
+    workflow = await loadWorkflowFromPath(wsWorkflowPath);
+  } else {
+    workflow = await loadDefaultWorkflow();
+  }
+
+  const injectionMap: WorkflowInjectionMap = {
+    ...DEFAULT_INJECTION_MAP,
+    ...fromFile.injectionMap,
+    ...overrides.injectionMap,
+    // A named workflow's own declaration of where a reference goes applies only
+    // when that workflow is the one selected; the default graph takes none.
+    ...(requestedName !== undefined && source.workflowReference !== undefined
+      ? {
+          referenceNode: source.workflowReference.node,
+          referenceInput: source.workflowReference.input,
+        }
+      : {}),
+  };
+
+  const checkpoint =
+    nonEmpty(overrides.checkpoint) ??
+    nonEmpty(env.TOONY_COMFYUI_CHECKPOINT) ??
+    nonEmpty(fromFile.checkpoint) ??
+    nonEmpty(ws?.checkpoint);
+
+  const explicitTimeoutMs =
+    overrides.timeoutMs ??
+    parsePositiveInt(env.TOONY_COMFYUI_TIMEOUT_MS, "TOONY_COMFYUI_TIMEOUT_MS") ??
+    fromFile.timeoutMs;
+  const timeoutMs = explicitTimeoutMs ?? COMFYUI_DEFAULT_TIMEOUT_MS;
+
+  const pollIntervalMs = overrides.pollIntervalMs ?? fromFile.pollIntervalMs ?? 1_000;
+
+  return {
+    url: url.replace(/\/+$/, ""),
+    workflow,
+    injectionMap,
+    checkpoint,
+    timeoutMs,
+    scaleTimeoutWithArea: explicitTimeoutMs === undefined,
+    pollIntervalMs,
+  };
+}

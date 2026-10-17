@@ -1,0 +1,215 @@
+// v4 interstitial-panel presets (#117) — shared, headless typed constants.
+//
+// The "gutter-as-clock" spacing ladder, panel-height presets, and the mood-color
+// script from docs/TOONY-INTERSTITIAL-CRAFT.md (§1/§2/§5). These are the SINGLE
+// source the v4 transition schema/render/export (#115), craft lints (#116),
+// transition editor (#119), and the agent/CLI all consume — no consumer should
+// hardcode its own copy (the parity discipline from #112). Pure data + small
+// typed helpers; no UI, no rendering here.
+
+/**
+ * Standard canvas width (px) the presets are calibrated against (§1). A reader
+ * scrolls a ~800px-wide canvas at ~800px/sec, so vertical pixels map to seconds.
+ *
+ * It is also the DEFAULT reference column (#217). Every px measurement authored
+ * on this ladder is a length on this canvas and means nothing without it: the
+ * spacing presets, the panel heights, and a transition's `gutterHeight`.
+ * A project that authored against a different column records it as
+ * `Webtoon.referenceWidth`; one that omits the field declares this canvas.
+ */
+export const STANDARD_CANVAS_WIDTH_PX = 800;
+
+/**
+ * A single no-art panel taller than this (px) gets sliced across the mobile fold
+ * (~1200–1280px per screen), so it can't read as one beat. #116's panel-slice
+ * lint warns above this; the editor/agent can auto-note it (§1/§5).
+ *
+ * Reference-column px, like every other length here: the fold is 1.5 columns of
+ * the standard canvas, so the comparison holds at every export width (#217).
+ */
+export const PANEL_FOLD_SLICE_PX = 1200;
+
+/**
+ * The column a project's px-authored vertical measurements were written against,
+ * resolved from the optional `Webtoon.referenceWidth` (#217).
+ *
+ * A rendered episode scales its art to the export column, so the gutters between
+ * cuts have to scale with it or the page rhythm changes with the export
+ * resolution. Scaling needs the column the numbers were MEANT for; that is this.
+ * Absent → the standard canvas, which is what the authoring vocabulary has been
+ * calibrated to since #117, so a project written before the field renders
+ * unchanged at 800px.
+ */
+export function resolveReferenceWidth(declared: number | undefined | null): number {
+  return typeof declared === "number" && Number.isFinite(declared) && declared > 0
+    ? declared
+    : STANDARD_CANVAS_WIDTH_PX;
+}
+
+// --- The gutter band (#98/#215) ---------------------------------------------
+//
+// A `placement: gutter` bubble sits in a reserved strip beside the artwork, and
+// the strip's width is a fraction of the cut's width. Gutter dialogue is the
+// measured signature of the genres that lean on it, so how much column it gets
+// is a craft decision a project makes — not a number the renderer fixes. They
+// live beside the reference column because they are needed on every side of
+// that decision at once: validating `webtoon.json`, validating the pack genre
+// entry that seeds it, and laying the strip out.
+
+/**
+ * Default gutter band width, as a fraction of the cut's width. The value the
+ * strip has had since #98, so a project that declares nothing renders exactly
+ * as it did before the field existed.
+ */
+export const GUTTER_BAND_WIDTH_DEFAULT = 0.18;
+
+/**
+ * Narrowest declarable band. On the standard 800px canvas this is a 40px strip —
+ * about one short word at a size a reader can take in at arm's length. Below it
+ * the strip stops being a place dialogue is read and becomes a decorative gap.
+ */
+export const GUTTER_BAND_WIDTH_MIN = 0.05;
+
+/**
+ * Widest declarable band. At half the column the strip is no longer a reading
+ * margin beside the art — it is a second column — and a cut carrying a band on
+ * BOTH sides at this width leaves the artwork the 1px `cutPlacementFrame`
+ * clamps to, which is to say none.
+ */
+export const GUTTER_BAND_WIDTH_MAX = 0.5;
+
+/**
+ * The gutter band width a render uses, resolved from the optional
+ * `Webtoon.gutterBandWidth` (#215).
+ *
+ * Absent or unusable → {@link GUTTER_BAND_WIDTH_DEFAULT}. A declared number is
+ * clamped into the validated range, so a value that reached a renderer without
+ * passing `validateWebtoonValue` still produces a drawable strip instead of a
+ * negative art rect. This is the SINGLE resolution: the studio preview, the
+ * export raster, and the lints all reach the strip through it rather than
+ * reading the raw field, so none of them can resolve it differently from the
+ * others.
+ */
+export function resolveGutterBandWidth(declared: number | undefined | null): number {
+  if (typeof declared !== "number" || !Number.isFinite(declared)) {
+    return GUTTER_BAND_WIDTH_DEFAULT;
+  }
+  return Math.min(GUTTER_BAND_WIDTH_MAX, Math.max(GUTTER_BAND_WIDTH_MIN, declared));
+}
+
+/**
+ * Validate an optional declared gutter band width against the bounds above.
+ * Returns an error string when `value` is present and out of range, `null` when
+ * it is absent or valid — the shape `validateExportWidth` uses, for the same
+ * reason: `webtoon.json` and a pack manifest's genre entry both declare this
+ * number, and they must reject the same values with the same wording.
+ */
+export function validateGutterBandWidth(
+  value: number | undefined,
+  name = "gutterBandWidth",
+): string | null {
+  if (value === undefined) return null;
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < GUTTER_BAND_WIDTH_MIN ||
+    value > GUTTER_BAND_WIDTH_MAX
+  ) {
+    return `${name} must be a fraction of the cut width between ${GUTTER_BAND_WIDTH_MIN} and ${GUTTER_BAND_WIDTH_MAX}`;
+  }
+  return null;
+}
+
+// --- Clock-ladder spacing presets (§1/§5) -----------------------------------
+// Empty vertical space IS time: each preset is how long a no-art gap "reads"
+// at the standard scroll speed. Px on the standard canvas; authors may override.
+
+/** Spacing preset names, ordered from shortest (continuous) to longest (time skip). */
+export const SPACING_PRESET_NAMES = ["tight", "beat", "cut", "pause", "timeskip"] as const;
+export type SpacingPreset = (typeof SPACING_PRESET_NAMES)[number];
+
+/** Clock-ladder spacing presets in px: tight=120 · beat=250 · cut=500 · pause=700 · timeskip=1600. */
+export const SPACING_PRESETS: Record<SpacingPreset, number> = {
+  tight: 120,
+  beat: 250,
+  cut: 500,
+  pause: 700,
+  timeskip: 1600,
+};
+
+// --- Panel-height presets (§5) ----------------------------------------------
+
+/** Panel-height preset names, ordered smallest → largest. */
+export const PANEL_HEIGHT_PRESET_NAMES = ["S", "M", "L", "Impact"] as const;
+export type PanelHeightPreset = (typeof PANEL_HEIGHT_PRESET_NAMES)[number];
+
+/** Panel-height presets in px: S=400 · M=800 · L=1600 · Impact=2000. */
+export const PANEL_HEIGHT_PRESETS: Record<PanelHeightPreset, number> = {
+  S: 400,
+  M: 800,
+  L: 1600,
+  Impact: 2000,
+};
+
+// --- Mood-color presets (§2) ------------------------------------------------
+// A per-scene mood-color SCRIPT (named swatch → emotion), not per-panel decor.
+// Hex values follow the color→emotion coding in §2.
+
+/** Mood-color preset names (named swatch → emotion). */
+export const MOOD_COLOR_NAMES = [
+  "anger-red",
+  "calm-blue",
+  "melancholy-desat",
+  "joy-vivid",
+  "dread-black",
+  "shock-white",
+] as const;
+export type MoodColor = (typeof MOOD_COLOR_NAMES)[number];
+
+/**
+ * Mood-color preset hex values (§2): red = rage/danger; cool blue = sadness/
+ * calm/night; desaturated = numbness/memory; vivid = intensity/joy; near-black =
+ * dread/void; white = emptiness/shock. All `#rrggbb`.
+ */
+export const MOOD_COLORS: Record<MoodColor, string> = {
+  "anger-red": "#c62828",
+  "calm-blue": "#3f6fa3",
+  "melancholy-desat": "#8a8f98",
+  "joy-vivid": "#f5a623",
+  "dread-black": "#0a0a0a",
+  "shock-white": "#ffffff",
+};
+
+// --- Typed helpers ----------------------------------------------------------
+
+/** Narrow an arbitrary value to a spacing-preset name. */
+export function isSpacingPreset(value: unknown): value is SpacingPreset {
+  return typeof value === "string" && (SPACING_PRESET_NAMES as readonly string[]).includes(value);
+}
+
+/** Narrow an arbitrary value to a panel-height-preset name. */
+export function isPanelHeightPreset(value: unknown): value is PanelHeightPreset {
+  return (
+    typeof value === "string" && (PANEL_HEIGHT_PRESET_NAMES as readonly string[]).includes(value)
+  );
+}
+
+/** Narrow an arbitrary value to a mood-color name. */
+export function isMoodColor(value: unknown): value is MoodColor {
+  return typeof value === "string" && (MOOD_COLOR_NAMES as readonly string[]).includes(value);
+}
+
+/** Resolve a spacing preset to its px height. */
+export function spacingPx(preset: SpacingPreset): number {
+  return SPACING_PRESETS[preset];
+}
+
+/** Resolve a panel-height preset to its px height. */
+export function panelHeightPx(preset: PanelHeightPreset): number {
+  return PANEL_HEIGHT_PRESETS[preset];
+}
+
+/** Resolve a mood-color name to its hex value. */
+export function moodColorHex(name: MoodColor): string {
+  return MOOD_COLORS[name];
+}

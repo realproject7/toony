@@ -1,0 +1,195 @@
+# @toony/render
+
+Framework-agnostic geometry and layout core for Toony lettering and transitions.
+
+Pure TypeScript — **no React, no DOM, no canvas**. It depends only on
+`@toony/schema`. Given a lettering overlay and the cut's pixel dimensions, it
+computes the balloon outline, the speech-tail triangle, and the wrapped /
+auto-fit body text lines. Given a transition, it computes the gutter band plan.
+
+Everything it returns is **plain geometry data** — command lists, an SVG path
+string, point triangles, positioned text lines, resolved colors — never
+SVG/canvas nodes. This is the single source of truth that the studio SVG preview
+(#7), the focused lettering editor (#8), and the headless canvas export (#10)
+all consume, so the three renderers cannot drift and there is no body/tail seam.
+
+## Coordinate contract
+
+- **In:** all overlay geometry and tail points are normalized `0..1` relative to
+  the cut image (the `@toony/schema` space). `(0,0)` is the top-left of the cut.
+- **Out:** all returned coordinates are in the **caller's render pixel space** —
+  pass display px for the preview, natural-image px for the export. Because
+  layout scales linearly with the render size, the same overlay wraps and breaks
+  identically at any scale (the WYSIWYG invariant).
+
+The schema's `LetteringOverlay.tail` is a normalized **point** (not an enum) — the
+tail resolves deterministically to `0..1` image coordinates upstream (#4), so this
+core never re-derives a tail from an enum.
+
+## Bubble layout API
+
+```ts
+import { layoutCut, type BubbleRender } from "@toony/render";
+
+const plans: BubbleRender[] = layoutCut(overlays, renderWidth, renderHeight);
+```
+
+`layoutBubble(overlay, width, height, opts?)` / `layoutCut(overlays, width, height, opts?)`
+return one `BubbleRender` per overlay:
+
+| Field | Meaning |
+| --- | --- |
+| `box` | body rect `{x,y,width,height}` in pixel space |
+| `hasBubble` | false for SFX (bare text, no body) |
+| `outline` | `BalloonCommand[]` — `M`/`L`/`A`, maps 1:1 to canvas and SVG |
+| `pathD` | SVG path `d` tracing the same outline (`""` for SFX) |
+| `tail` | `{tip, base1, base2}` triangle, or `null` (tailless / tip inside box) |
+| `fill`, `stroke`, `textColor` | resolved colors (stored style overrides per-kind defaults); for narration `fill` is the resolved caption plate |
+| `strokeWidth`, `fillOpacity` | resolved stroke px and fill opacity (narration: the plate alpha) |
+| `text` | `{lines, fontSize, lineHeight, overflow}` |
+| `lines` | positioned, center-anchored `RenderedTextLine[]` |
+| `textOrigin` | top-left of the body text area |
+| `overflow` | text overflows even at min font |
+
+### SVG consumer (preview, #7)
+
+```ts
+const p = layoutBubble(overlay, w, h);
+// <path d={p.pathD} fill={p.fill} fillOpacity={p.fillOpacity}
+//       stroke={p.stroke} strokeWidth={p.strokeWidth} />
+// p.lines.forEach(l => <text x={l.centerX} y={l.y + p.text.fontSize}
+//       textAnchor="middle">{l.text}</text>)
+```
+
+### Canvas consumer (export, #10)
+
+```ts
+const p = layoutBubble(overlay, naturalW, naturalH);
+for (const c of p.outline) {
+  if (c.k === "M") ctx.moveTo(c.x, c.y);
+  else if (c.k === "L") ctx.lineTo(c.x, c.y);
+  else ctx.arcTo(c.cornerX, c.cornerY, c.x, c.y, c.r);
+}
+ctx.closePath(); ctx.fill(); ctx.stroke();
+```
+
+## The gutter strip is the project's (#98/#215)
+
+A `placement: gutter` overlay lays out in a strip reserved beside the artwork
+rather than on it. How much of the column that strip takes is a value the
+**project** declares (`webtoon.json` → `gutterBandWidth`), not a constant here:
+gutter dialogue is the feature some genres are identified by, and how much room
+it gets is part of that signature. Absent → `GUTTER_BAND_WIDTH_DEFAULT` (`0.18`),
+so a caller with no project in hand lays out exactly as it always did.
+
+The strip is reserved in two halves, and a consumer must hand the SAME resolved
+value to both or the artwork will cover part of the strip the lettering sits in:
+
+```ts
+const bandWidth = resolveGutterBandWidth(webtoon.gutterBandWidth);
+// what the artwork may fill, and the strip(s) to leave as reading margin
+const { art, bands } = cutPlacementFrame(overlays, w, h, bandWidth);
+// the plans, each carrying its own `band` and `art`
+const plans = layoutCut(overlays, w, h, { gutterBandWidth: bandWidth });
+```
+
+A gutter overlay's `geometry` stays normalized **against the strip**, so the same
+authored box is the same share of whatever strip the project declares. Its
+`tailTarget` stays normalized against the art.
+
+The auto-fit floor for a gutter bubble comes off the cut's WIDTH — the dimension
+the strip is cut from — capped at the default strip, rather than off its height.
+So it does not climb as a cut gets taller (the strip beside a taller panel is no
+narrower), and it does not climb as the strip gets wider (a pack that buys column
+is buying room for a longer line, not a bigger minimum).
+`gutterBubbleMinFontSize` is the one function that decides it, and the caller
+takes the SMALLER of it and the height-derived floor: the floor only ever drops,
+so a layout that already fits keeps the size it had, and on a very wide short cut
+(height under about half the width) the height term is still the smaller one and
+still binds.
+
+What the floor buys is measured, not promised: with the balloon's corners squared
+a strip-filling bubble holds a craft-length line at the floor, and with the
+default rounded corners it holds fewer, because the arcs take a further bite that
+grows with the radius (#210). `docs/PACK_FORMAT.md` states both for a pack author.
+
+## Narration caption plate (#186)
+
+`narration` is a borderless caption: no tail, no border of its own, fixed dark
+ink. Painted straight onto the artwork that ink disappears over dark art — and
+`layoutCut` receives no pixel data, so the core can never sample what is behind a
+caption. Instead it puts its own surface there: a **caption plate** whose alpha is
+resolved so the ink clears the WCAG AA 4.5:1 floor over pure black, and therefore
+over any artwork at all.
+
+The plate arrives on the plan as the ordinary `fill` + `fillOpacity` + `pathD`
+that every kind uses, so the SVG preview and the canvas export draw it with the
+code they already had, and **no consumer re-derives a caption color**. The plate
+color is the overlay's authored `fill` (or the per-kind caption color); its alpha
+is that fill's alpha × the overlay's `opacity`, raised to the floor when the
+authored value is too faint to be legible. An `opacity` of exactly `0` is an
+explicit "no plate" and is honored, which is how a fully borderless caption over
+art the author already reserved stays reachable. `resolveCaptionPlate` is the one
+function that decides this; `CAPTION_MIN_CONTRAST` is the floor it clears.
+
+## Text clears the balloon, not the box (#210)
+
+A balloon is a rounded rect, and its corner arcs cut inside the body rectangle
+near the top and bottom edges, which is where the first and last lines sit. So
+the wrap reserves its horizontal padding from the **drawn silhouette**: lines nearest
+either edge are narrower than the middle ones by the arc's own bite at that
+depth. The per-line amount is on the plan as `text.lineInsets`, and it is already
+folded into each line's `anchorX`. **Draw a line at its own `anchorX`.** Do not
+re-derive a column from `box` + padding, or left/right-aligned lettering lands on
+the arc the wrap moved it off. Centered text is unaffected: the arcs bite both
+sides equally. A bubble with `cornerRadius: 0` has no arcs and is laid out
+exactly as before.
+
+## Text measurement
+
+Layout is deterministic **given a `measure` function**. By default the core uses
+`approximateMeasure` — a DOM-free, per-character metric approximation — so the
+preview can lay out on the server and every consumer that does not inject its own
+measurer gets identical numbers. Inject a real `canvas.measureText`-backed
+measurer via `opts.measure` for pixel-accurate fit in the browser/export:
+
+```ts
+layoutBubble(overlay, w, h, { measure: (t, size, weight) => {
+  ctx.font = `${weight ?? 400} ${size}px sans-serif`;
+  return ctx.measureText(t).width;
+}});
+```
+
+## Transition layout API
+
+```ts
+import { layoutTransition, resolveBandHeight, type TransitionRender } from "@toony/render";
+
+const t = layoutTransition(transition);
+// t.gutterHeight  = clamped px height on the project's REFERENCE column
+// t.treatment     — "gutter" | "fade" | "card" | "break"
+// t.label, t.detail, t.isSfx, t.isCard
+
+// Never draw t.gutterHeight. The band's drawn height is that number scaled from
+// the column it was authored on to the one being rendered, so a bigger export is
+// the same page at a bigger size rather than a page with thinner gutters.
+const height = resolveBandHeight(t, columnWidth, webtoon.referenceWidth ?? 800);
+```
+
+## Lower-level geometry
+
+`balloonOutline`, `balloonPathD`, `speechTailGeometry`, `defaultBalloonRadius`
+are exported for callers that need the raw geometry. `bubbleKindStyle`,
+`kindHasBubble`, `kindSupportsTail` expose the per-kind defaults, and
+`resolveCaptionPlate` / `CAPTION_MIN_CONTRAST` the caption-plate decision;
+`layoutBubbleText`, `wrapText`, `defaultBubbleFontRange` expose the text engine.
+
+## Provenance
+
+The balloon outline + tail geometry and the deterministic word-wrap / auto-fit
+were **adopted from** `plotlink-ows` `app/lib/overlays.ts` and
+`app/lib/bubble-text.ts` (the proven WYSIWYG command-list core) and **adapted**
+to Toony's schema: image-space tail points instead of bubble-relative anchors,
+Toony's six-kind bubble taxonomy with stored-style overrides, and a DOM-free
+default measurer for server-side preview. The transition layout is built fresh —
+`plotlink-ows` has no transition concept.

@@ -1,0 +1,38 @@
+node_modules/
+.pnpm-store/
+dist/
+# Test compiles emit here, never into dist/ — see turbo.json's `test` task.
+dist-test/
+build/
+.turbo/
+.next/
+coverage/
+.DS_Store
+
+.env
+.env.*
+!.env.example
+
+*.log
+*.tsbuildinfo
+
+toony-projects/
+exports/
+tmp/
+temp/
+
+# Local workspace runtime config (endpoints/settings) — never committed.
+.toony/
+
+# Studio font assets copied from packages/fonts/assets by the copy-fonts script
+# (predev/prebuild). The single committed copy lives in packages/fonts/assets.
+apps/studio/public/fonts/
+
+# Agent worktrees / local Claude Code state (keep biome + git out of these)
+.claude/
+
+# Local planning, session history and private research never enter code history.
+.agent-history/
+.toony-internal/
+.internal/
+research-private/

@@ -1,0 +1,12 @@
+{
+  "bandFormat": 1,
+  "name": "Noir",
+  "screenAspect": 2,
+  "metrics": {
+    "gutterRatio": { "min": 0.15, "max": 0.45 },
+    "panelHeightMedian": { "min": 0.1, "max": 0.7 },
+    "panelsPerScreen": { "min": 1, "max": 4 },
+    "valueMean": { "max": 140 },
+    "saturationMean": { "min": 0.1, "max": 0.4 }
+  }
+}

@@ -1,0 +1,331 @@
+// Discovery reads local pack directories, merges what they contribute, and never
+// throws — a malformed pack is reported and skipped so the core keeps working.
+
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, test } from "node:test";
+import { loadPacks, PACKS_ENV_VAR, PROJECT_PACKS_DIR, packRoots } from "../index.js";
+
+let workdir: string;
+
+beforeEach(async () => {
+  workdir = await mkdtemp(join(tmpdir(), "toony-packs-"));
+});
+afterEach(async () => {
+  await rm(workdir, { recursive: true, force: true });
+});
+
+const SCAFFOLD = {
+  episode: {
+    schemaVersion: 1,
+    id: "ep-001",
+    title: "Episode 1",
+    sequence: [{ type: "cut", id: "cut-001" }],
+  },
+  cuts: [{ id: "cut-001", image: null, imagePrompt: "a street", negativePrompt: "" }],
+  transitions: [],
+  lettering: [],
+};
+
+const GRAPH = { "3": { class_type: "KSampler", inputs: { seed: 0 } } };
+
+const BAND = { bandFormat: 1, metrics: { gutterRatio: { min: 0.2, max: 0.4 } } };
+
+/** Write a complete pack contributing every kind. Returns its directory. */
+async function writePack(
+  root: string,
+  id: string,
+  overrides: Record<string, unknown> = {},
+): Promise<string> {
+  const dir = join(root, id);
+  await mkdir(join(dir, "workflows"), { recursive: true });
+  await mkdir(join(dir, "genres"), { recursive: true });
+  await mkdir(join(dir, "bands"), { recursive: true });
+  const manifest = {
+    packFormat: 1,
+    id,
+    name: id,
+    workflows: [{ name: `${id}-flow`, file: "workflows/flow.json" }],
+    genres: [{ id: `${id}-genre`, title: id, file: "genres/scaffold.json" }],
+    exportPresets: [{ id: `${id}-preset`, target: "platform", options: { width: 1600 } }],
+    craftBands: [{ id: `${id}-band`, file: "bands/band.json" }],
+    ...overrides,
+  };
+  await writeFile(join(dir, "toony-pack.json"), JSON.stringify(manifest, null, 2));
+  await writeFile(join(dir, "workflows", "flow.json"), JSON.stringify(GRAPH));
+  await writeFile(join(dir, "genres", "scaffold.json"), JSON.stringify(SCAFFOLD));
+  await writeFile(join(dir, "bands", "band.json"), JSON.stringify(BAND));
+  return dir;
+}
+
+test("with no packs installed, discovery returns empty content and no issues", async () => {
+  const loaded = await loadPacks(workdir);
+  assert.deepEqual(loaded.packs, []);
+  assert.deepEqual(loaded.issues, []);
+  assert.equal(loaded.content.workflows.size, 0);
+  assert.deepEqual(loaded.content.genres, []);
+  assert.deepEqual(loaded.content.exportPresets, []);
+  assert.equal(loaded.content.craftBands.size, 0);
+});
+
+test("an unreadable pack root is the zero-pack case, not a failure", async () => {
+  const loaded = await loadPacks(join(workdir, "does-not-exist"));
+  assert.deepEqual(loaded.issues, []);
+  assert.deepEqual(loaded.packs, []);
+});
+
+test("a pack in <root>/.toony/packs contributes every kind", async () => {
+  const packsDir = join(workdir, PROJECT_PACKS_DIR);
+  await mkdir(packsDir, { recursive: true });
+  const dir = await writePack(packsDir, "alpha");
+
+  const loaded = await loadPacks(workdir);
+  assert.deepEqual(loaded.issues, []);
+  // The summary carries the root it was found in and the names it put into the
+  // merged content, so a report can name both without re-reading the manifest.
+  assert.deepEqual(loaded.packs, [
+    {
+      id: "alpha",
+      name: "alpha",
+      dir,
+      root: packsDir,
+      contributes: {
+        workflows: ["alpha-flow"],
+        genres: ["alpha-genre"],
+        exportPresets: ["alpha-preset"],
+        craftBands: ["alpha-band"],
+        letteringThemes: [],
+        styleLexicons: [],
+      },
+    },
+  ]);
+  assert.equal(loaded.content.workflows.get("alpha-flow"), join(dir, "workflows", "flow.json"));
+  assert.equal(loaded.content.genres[0]?.id, "alpha-genre");
+  assert.equal(loaded.content.genres[0]?.bundle.episode.id, "ep-001");
+  assert.deepEqual(loaded.content.exportPresets[0], {
+    id: "alpha-preset",
+    target: "platform",
+    options: { width: 1600 },
+  });
+  // A band is carried as a path, like a workflow graph: the band format belongs
+  // to the package that owns the measurement, not to discovery.
+  assert.equal(loaded.content.craftBands.get("alpha-band"), join(dir, "bands", "band.json"));
+});
+
+test("TOONY_PACKS names extra pack roots and they are searched first", async () => {
+  const envRoot = join(workdir, "global-packs");
+  await mkdir(envRoot, { recursive: true });
+  await writePack(envRoot, "fromenv");
+
+  const loaded = await loadPacks(workdir, { [PACKS_ENV_VAR]: envRoot });
+  assert.deepEqual(loaded.issues, []);
+  assert.deepEqual(
+    loaded.packs.map((p) => p.id),
+    ["fromenv"],
+  );
+  assert.equal(packRoots(workdir, { [PACKS_ENV_VAR]: envRoot })[0], envRoot);
+});
+
+test("a pack installed for the workspace is visible from inside a project", async () => {
+  // `<workspace>/.toony/packs` with the command running against
+  // `<workspace>/my-story` — the same parent lookup `toony generate` does for
+  // the shared ComfyUI config.
+  const packsDir = join(workdir, PROJECT_PACKS_DIR);
+  await mkdir(packsDir, { recursive: true });
+  await writePack(packsDir, "shared");
+  const project = join(workdir, "my-story");
+  await mkdir(project, { recursive: true });
+
+  const loaded = await loadPacks(project);
+  assert.deepEqual(
+    loaded.packs.map((p) => [p.id, p.root]),
+    [["shared", packsDir]],
+    "the summary names the workspace root it was found in, not the project's",
+  );
+});
+
+test("a malformed pack is reported and skipped; the good packs still load", async () => {
+  const packsDir = join(workdir, PROJECT_PACKS_DIR);
+  await mkdir(packsDir, { recursive: true });
+  await writePack(packsDir, "good");
+  // A pack whose manifest declares code.
+  await writePack(packsDir, "bad", { main: "./evil.js" });
+  // A pack with no manifest at all.
+  await mkdir(join(packsDir, "empty"), { recursive: true });
+  // A pack whose manifest is not JSON.
+  await mkdir(join(packsDir, "broken"), { recursive: true });
+  await writeFile(join(packsDir, "broken", "toony-pack.json"), "{ not json");
+
+  const loaded = await loadPacks(workdir);
+  assert.deepEqual(
+    loaded.packs.map((p) => p.id),
+    ["good"],
+  );
+  const codes = loaded.issues.map((i) => i.code);
+  assert.ok(codes.includes("pack.unexpected-field"));
+  assert.ok(codes.includes("pack.manifest-missing"));
+  assert.ok(codes.includes("pack.manifest-parse"));
+  // Every issue names the pack directory it came from, so it is actionable.
+  for (const issue of loaded.issues) assert.match(issue.pack, /packs\//);
+  // The good pack's content is intact despite the broken neighbours.
+  assert.equal(loaded.content.workflows.size, 1);
+  assert.equal(loaded.content.genres.length, 1);
+});
+
+test("a manifest naming a file that is not there is reported, not thrown", async () => {
+  const packsDir = join(workdir, PROJECT_PACKS_DIR);
+  await mkdir(packsDir, { recursive: true });
+  await writePack(packsDir, "gap", {
+    workflows: [{ name: "missing-flow", file: "workflows/absent.json" }],
+    genres: [{ id: "missing-genre", title: "Gone", file: "genres/absent.json" }],
+    craftBands: [{ id: "missing-band", file: "bands/absent.json" }],
+  });
+
+  const loaded = await loadPacks(workdir);
+  const codes = loaded.issues.map((i) => i.code);
+  assert.ok(codes.includes("pack.workflow.file-missing"));
+  assert.ok(codes.includes("pack.genre.file-missing"));
+  assert.ok(codes.includes("pack.craft-band.file-missing"));
+  // The pack still counts as installed; only the broken contributions are gone.
+  assert.equal(loaded.packs.length, 1);
+  assert.equal(loaded.content.workflows.size, 0);
+  assert.equal(loaded.content.genres.length, 0);
+  assert.equal(loaded.content.craftBands.size, 0);
+  assert.equal(loaded.content.exportPresets.length, 1);
+});
+
+test("a genre scaffold that would not validate as a project is rejected", async () => {
+  const packsDir = join(workdir, PROJECT_PACKS_DIR);
+  await mkdir(packsDir, { recursive: true });
+  const dir = await writePack(packsDir, "invalid");
+  await writeFile(
+    join(dir, "genres", "scaffold.json"),
+    JSON.stringify({ ...SCAFFOLD, cuts: [] }), // sequence now references a missing cut
+  );
+
+  const loaded = await loadPacks(workdir);
+  assert.ok(loaded.issues.some((i) => i.code === "sequence.missing-cut"));
+  assert.equal(loaded.content.genres.length, 0);
+});
+
+test("the first pack to claim a name keeps it and the loser is told why", async () => {
+  const envRoot = join(workdir, "global-packs");
+  await mkdir(envRoot, { recursive: true });
+  const winner = await writePack(envRoot, "first");
+  const packsDir = join(workdir, PROJECT_PACKS_DIR);
+  await mkdir(packsDir, { recursive: true });
+  // A second pack claiming the same workflow name, genre id, and preset id.
+  await writePack(packsDir, "second", {
+    workflows: [{ name: "first-flow", file: "workflows/flow.json" }],
+    genres: [{ id: "first-genre", title: "Second", file: "genres/scaffold.json" }],
+    exportPresets: [{ id: "first-preset", target: "stitched", options: {} }],
+    craftBands: [{ id: "first-band", file: "bands/band.json" }],
+  });
+
+  const loaded = await loadPacks(workdir, { [PACKS_ENV_VAR]: envRoot });
+  assert.equal(loaded.content.workflows.get("first-flow"), join(winner, "workflows", "flow.json"));
+  assert.equal(loaded.content.genres.length, 1);
+  assert.equal(loaded.content.genres[0]?.title, "first");
+  assert.equal(loaded.content.exportPresets[0]?.target, "platform");
+  assert.equal(loaded.content.craftBands.get("first-band"), join(winner, "bands", "band.json"));
+  const codes = loaded.issues.map((i) => i.code);
+  assert.ok(codes.includes("pack.workflow.claimed"));
+  assert.ok(codes.includes("pack.genre.claimed"));
+  assert.ok(codes.includes("pack.export-preset.claimed"));
+  assert.ok(codes.includes("pack.craft-band.claimed"));
+
+  // The loser is still an installed pack, and its summary says plainly that it
+  // contributed nothing. Reporting what it DECLARED here would tell a user their
+  // genre is available when it is not.
+  assert.deepEqual(loaded.packs[1]?.contributes, {
+    workflows: [],
+    genres: [],
+    exportPresets: [],
+    craftBands: [],
+    letteringThemes: [],
+    styleLexicons: [],
+  });
+  assert.deepEqual(loaded.packs[0]?.contributes.genres, ["first-genre"]);
+});
+
+test("two packs declaring the same pack id are reported; only the first loads", async () => {
+  const envRoot = join(workdir, "global-packs");
+  await mkdir(envRoot, { recursive: true });
+  await writePack(envRoot, "twin");
+  const packsDir = join(workdir, PROJECT_PACKS_DIR);
+  await mkdir(packsDir, { recursive: true });
+  await writePack(packsDir, "clone", { id: "twin" });
+
+  const loaded = await loadPacks(workdir, { [PACKS_ENV_VAR]: envRoot });
+  assert.equal(loaded.packs.length, 1);
+  assert.ok(loaded.issues.some((i) => i.code === "pack.duplicate"));
+});
+
+test("discovery is deterministic across runs", async () => {
+  const packsDir = join(workdir, PROJECT_PACKS_DIR);
+  await mkdir(packsDir, { recursive: true });
+  for (const id of ["zeta", "alpha", "mid"]) await writePack(packsDir, id);
+
+  const first = await loadPacks(workdir);
+  const second = await loadPacks(workdir);
+  assert.deepEqual(
+    first.packs.map((p) => p.id),
+    ["alpha", "mid", "zeta"],
+  );
+  assert.deepEqual(first.packs, second.packs);
+  assert.deepEqual(first.content.genres, second.content.genres);
+});
+
+// #198: a pack collection is normally a git repository, so `.git` sits beside
+// the packs and used to be reported as a pack missing its manifest — a false
+// warning on every command. The negative control matters as much as the fix:
+// without it, "suppress every warning" would also pass.
+test("dot directories and node_modules are not packs, but a real one still warns", async () => {
+  const packsDir = join(workdir, PROJECT_PACKS_DIR);
+  await mkdir(packsDir, { recursive: true });
+  const dir = await writePack(packsDir, "alpha");
+  await mkdir(join(packsDir, ".git", "objects"), { recursive: true });
+  await mkdir(join(packsDir, "node_modules", "something"), { recursive: true });
+
+  const quiet = await loadPacks(workdir);
+  assert.deepEqual(quiet.issues, [], "skipped entries must not report as packs");
+  assert.deepEqual(
+    quiet.packs.map((pack) => [pack.id, pack.dir]),
+    [["alpha", dir]],
+  );
+
+  // Control: a genuinely malformed pack must still be reported, so the fix
+  // cannot have been "stop warning".
+  await mkdir(join(packsDir, "broken"), { recursive: true });
+  const loud = await loadPacks(workdir);
+  assert.equal(loud.issues.length, 1, "a real pack with no manifest must warn");
+  assert.match(loud.issues[0]?.code ?? "", /manifest-missing/);
+});
+
+test("a genre's declared gutter strip survives discovery (#215)", async () => {
+  // The number a pack ships has to reach `toony init` intact: it is the only
+  // way a project ever inherits it, since nothing consults a pack at render.
+  const packsDir = join(workdir, PROJECT_PACKS_DIR);
+  await writePack(packsDir, "thriller-pack", {
+    genres: [
+      {
+        id: "thriller-noir",
+        title: "Thriller Noir",
+        file: "genres/scaffold.json",
+        gutterBandWidth: 0.32,
+      },
+      { id: "thriller-quiet", title: "Thriller Quiet", file: "genres/scaffold.json" },
+    ],
+  });
+  const loaded = await loadPacks(workdir);
+  assert.deepEqual(loaded.issues, []);
+  const declared = loaded.content.genres.find((g) => g.id === "thriller-noir");
+  const silent = loaded.content.genres.find((g) => g.id === "thriller-quiet");
+  assert.equal(declared?.gutterBandWidth, 0.32);
+  // A genre that declares none carries none, rather than a defaulted number the
+  // project would then record as an explicit choice.
+  assert.ok(silent);
+  assert.equal("gutterBandWidth" in silent, false);
+});

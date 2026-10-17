@@ -1,0 +1,320 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import type { FontFamilyId } from "@toony/fonts";
+import { buildInitialProject, writeProject } from "@toony/project-io";
+import {
+  type BubbleKind,
+  GUTTER_BAND_WIDTH_DEFAULT,
+  STANDARD_CANVAS_WIDTH_PX,
+} from "@toony/schema";
+import {
+  buildExportProject,
+  buildManyCutsProject,
+  writeCutImages,
+} from "../__fixtures__/project.js";
+import { measureEpisodeCraft } from "../craft.js";
+import { ExportError } from "../errors.js";
+import { readImageDimensions } from "../image-dimensions.js";
+import { validateManifest } from "../manifest.js";
+import { exportPlatform, exportPlotlink, exportStitched } from "../targets.js";
+
+async function richProject(): Promise<string> {
+  const base = await mkdtemp(join(tmpdir(), "toony-export-"));
+  const root = join(base, "proj");
+  await writeProject(root, buildExportProject());
+  await writeCutImages(root);
+  return root;
+}
+
+function isPng(bytes: Uint8Array): boolean {
+  return bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+}
+
+function isWebp(bytes: Uint8Array): boolean {
+  const tag = (i: number) => String.fromCharCode(bytes[i] ?? 0);
+  return (
+    tag(0) + tag(1) + tag(2) + tag(3) === "RIFF" && tag(8) + tag(9) + tag(10) + tag(11) === "WEBP"
+  );
+}
+
+test("platform export writes ordered PNG files with a valid manifest", async () => {
+  const root = await richProject();
+  const out = await exportPlatform(root, "ep-001", { width: 600, format: "png" });
+
+  assert.deepEqual(validateManifest(out.manifest), []);
+  assert.equal(out.manifest.target, "platform");
+  assert.equal(out.manifest.files.length, 2);
+  assert.equal(out.manifest.files[0]?.path, "episodes/ep-001/exports/platform/001.png");
+  assert.equal(out.manifest.files[1]?.path, "episodes/ep-001/exports/platform/002.png");
+
+  for (const file of out.manifest.files) {
+    assert.equal(file.width, 600);
+    assert.ok(!file.path.startsWith("/"));
+    const bytes = new Uint8Array(await readFile(join(root, file.path)));
+    assert.ok(isPng(bytes));
+    assert.equal(bytes.length, file.byteSize);
+  }
+});
+
+test("platform export supports configurable jpeg width and quality", async () => {
+  const root = await richProject();
+  const out = await exportPlatform(root, "ep-001", { width: 320, format: "jpeg", quality: 70 });
+  assert.deepEqual(validateManifest(out.manifest), []);
+  assert.equal(out.manifest.files[0]?.format, "jpeg");
+  assert.equal(out.manifest.files[0]?.quality, 70);
+  assert.equal(out.manifest.files[0]?.width, 320);
+});
+
+test("stitched export writes one image preserving the full sequence height", async () => {
+  const root = await richProject();
+  const out = await exportStitched(root, "ep-001", { width: 500, format: "png" });
+
+  assert.deepEqual(validateManifest(out.manifest), []);
+  assert.equal(out.manifest.target, "stitched");
+  assert.equal(out.manifest.files.length, 1);
+  const file = out.manifest.files[0];
+  assert.ok(file);
+  assert.equal(file.width, 500);
+  // Two cuts (each ~500*1.4) plus a transition band → taller than a single cut.
+  assert.ok(file.height > 500 * 1.4);
+  const bytes = new Uint8Array(await readFile(join(root, file.path)));
+  assert.ok(isPng(bytes));
+});
+
+for (const referenceWidth of [360, undefined]) {
+  test(`stitched export and measure use ${referenceWidth ?? "legacy"} reference width unless overridden`, async () => {
+    const root = join(await mkdtemp(join(tmpdir(), "toony-reference-width-")), "project");
+    const project = buildInitialProject("Reference Width Fixture");
+    if (referenceWidth === undefined) delete project.webtoon.referenceWidth;
+    else project.webtoon.referenceWidth = referenceWidth;
+    await writeProject(root, project);
+    const expected = referenceWidth ?? STANDARD_CANVAS_WIDTH_PX;
+    const exported = await exportStitched(root, "ep-001");
+    assert.equal(exported.manifest.width, expected);
+    const file = exported.manifest.files[0];
+    assert.ok(file);
+    const shape = readImageDimensions(new Uint8Array(await readFile(join(root, file.path))));
+    assert.equal(shape?.width, expected);
+    const measured = await measureEpisodeCraft(root, "ep-001");
+    assert.equal(measured.width, expected);
+    assert.equal(measured.height, file.height);
+    const explicit = await exportStitched(root, "ep-001", { width: expected });
+    assert.equal(explicit.manifest.files[0]?.sha256, file.sha256);
+    assert.equal((await exportStitched(root, "ep-001", { width: 240 })).manifest.width, 240);
+    assert.equal((await measureEpisodeCraft(root, "ep-001", { width: 240 })).width, 240);
+  });
+}
+
+test("a tall scale fixture uses its reference width and still rejects an over-budget override", async () => {
+  const root = join(await mkdtemp(join(tmpdir(), "toony-tall-scale-")), "project");
+  const project = buildManyCutsProject(64);
+  // A small reference column keeps this regression cheap; 1200 px exceeds the
+  // real budget before allocation, just as a full-sized tall episode would.
+  project.webtoon.referenceWidth = 80;
+  for (const cut of project.episodes[0]?.cuts ?? []) cut.panelAspect = 2;
+  await writeProject(root, project);
+  const exported = await exportStitched(root, "ep-001");
+  const measured = await measureEpisodeCraft(root, "ep-001");
+  assert.equal(exported.manifest.width, 80);
+  assert.equal(measured.width, 80);
+  assert.equal(measured.cuts, 64);
+  for (const run of [
+    () => exportStitched(root, "ep-001", { width: 1200 }),
+    () => measureEpisodeCraft(root, "ep-001", { width: 1200 }),
+  ]) {
+    await assert.rejects(
+      run,
+      (error: unknown) => error instanceof ExportError && /budget|limit/.test(error.message),
+    );
+  }
+});
+
+test("plotlink export writes WebP within budget, markdown, and a manifest", async () => {
+  const root = await richProject();
+  const out = await exportPlotlink(root, "ep-001", { width: 400 });
+
+  assert.deepEqual(validateManifest(out.manifest), []);
+  assert.equal(out.manifest.target, "plotlink");
+  assert.equal(out.manifest.files.length, 1);
+  for (const file of out.manifest.files) {
+    assert.equal(file.format, "webp");
+    assert.ok(file.byteSize <= 1_000_000);
+    const bytes = new Uint8Array(await readFile(join(root, file.path)));
+    assert.ok(isWebp(bytes));
+  }
+
+  const md = out.manifest.markdown;
+  assert.ok(md);
+  assert.ok(md.characters >= 500 && md.characters <= 10000);
+  const text = await readFile(join(root, md.path), "utf8");
+  assert.equal(text.length, md.characters);
+});
+
+test("plotlink export refuses an episode below the markdown minimum", async () => {
+  const base = await mkdtemp(join(tmpdir(), "toony-export-"));
+  const root = join(base, "proj");
+  await writeProject(root, buildInitialProject("Sparse")); // no lettering → short markdown
+  await assert.rejects(() => exportPlotlink(root, "ep-001"), ExportError);
+});
+
+test("plotlink packs 21 cuts into at most 20 images instead of rejecting source cut count", async () => {
+  const base = await mkdtemp(join(tmpdir(), "toony-export-"));
+  const root = join(base, "proj");
+  await writeProject(root, buildManyCutsProject(21));
+  const out = await exportPlotlink(root, "ep-001");
+  assert.ok(out.manifest.files.length <= 20);
+  assert.equal(
+    out.manifest.files.reduce((height, file) => height + file.height, 0),
+    21 * 1120,
+  );
+});
+
+test("export refuses an unknown episode", async () => {
+  const root = await richProject();
+  await assert.rejects(() => exportPlatform(root, "ep-999"), ExportError);
+});
+
+// --- Dialogue language (#213) ------------------------------------------------
+// The export target is what actually reads `languages.dialogueLanguage` off the
+// loaded project and hands it to the compositor. These assert on the manifest's
+// content hashes, so they only pass if the declared language reaches the pixels.
+
+/** The kinds whose default face follows the declared dialogue language. */
+const DIALOGUE_KINDS = new Set<BubbleKind>(["speech", "whisper", "ambient"]);
+
+/** Export the fixture with a given language declared, and hash what it wrote. */
+async function exportedHashes(
+  dialogueLanguage: string,
+  pinDialogueFace?: FontFamilyId,
+): Promise<string[]> {
+  const project = buildExportProject();
+  project.webtoon.languages.dialogueLanguage = dialogueLanguage;
+  // A project only validates when its dialogue language is one it supports.
+  if (!project.webtoon.languages.supportedLanguages.includes(dialogueLanguage)) {
+    project.webtoon.languages.supportedLanguages.push(dialogueLanguage);
+  }
+  if (pinDialogueFace) {
+    for (const bundle of project.episodes) {
+      for (const overlay of bundle.lettering) {
+        if (DIALOGUE_KINDS.has(overlay.kind)) overlay.fontFamily = pinDialogueFace;
+      }
+    }
+  }
+  const base = await mkdtemp(join(tmpdir(), "toony-export-lang-"));
+  const root = join(base, "proj");
+  await writeProject(root, project);
+  await writeCutImages(root);
+  const out = await exportPlatform(root, "ep-001", { width: 400, format: "png" });
+  return out.manifest.files.map((f) => f.sha256);
+}
+
+test("an export draws the dialogue face the project's declared language picks", async () => {
+  const en = await exportedHashes("en");
+  const ko = await exportedHashes("ko");
+  assert.notDeepEqual(en, ko, "the declared language never reached the exported pixels");
+
+  // Declaring Korean must be exactly equivalent to pinning the Korean sans on
+  // every dialogue bubble and nothing else: same bytes, cut for cut.
+  const pinnedKorean = await exportedHashes("en", "noto-sans-kr");
+  assert.deepEqual(ko, pinnedKorean, "ko export is not the Korean sans");
+
+  const pinnedLatin = await exportedHashes("ko", "nunito");
+  assert.deepEqual(en, pinnedLatin, "en export is not the Latin sans");
+});
+
+// --- The gutter strip the project declares (#215) ----------------------------
+// The export target is what reads `webtoon.gutterBandWidth` off the loaded
+// project and hands it to the compositor. As above, these assert on the
+// manifest's content hashes, so they only pass if the declared strip reaches
+// the pixels — and on the ONE field, so read and export cannot part ways.
+
+/** Export the fixture with a gutter bubble, and hash what it wrote. */
+async function exportedGutterHashes(gutterBandWidth?: number): Promise<string[]> {
+  const project = buildExportProject();
+  if (gutterBandWidth !== undefined) project.webtoon.gutterBandWidth = gutterBandWidth;
+  const bundle = project.episodes[0];
+  if (!bundle) throw new Error("fixture missing episode");
+  const first = bundle.lettering[0];
+  if (!first) throw new Error("fixture missing lettering");
+  bundle.lettering = [
+    { ...first, placement: "gutter", placementSide: "right", text: "Still no answer." },
+  ];
+  const base = await mkdtemp(join(tmpdir(), "toony-export-gutter-"));
+  const root = join(base, "proj");
+  await writeProject(root, project);
+  await writeCutImages(root);
+  const out = await exportPlatform(root, "ep-001", { width: 400, format: "png" });
+  return out.manifest.files.map((f) => f.sha256);
+}
+
+test("an export reserves the gutter strip the project declares (#215)", async () => {
+  const declared = await exportedGutterHashes(0.34);
+  const wider = await exportedGutterHashes(0.45);
+  assert.notDeepEqual(declared, wider, "the declared strip never reached the exported pixels");
+
+  // A project that declares nothing exports exactly as one that declares the
+  // default: the field is additive, and an episode written before it existed is
+  // untouched by it.
+  assert.deepEqual(
+    await exportedGutterHashes(),
+    await exportedGutterHashes(GUTTER_BAND_WIDTH_DEFAULT),
+    "declaring the default strip changed the exported bytes",
+  );
+});
+
+// --- A declared panel shape reaches the raster targets (#260) ---------------
+
+/** A project whose art-less cuts declare `panelAspect`, with no images on disk. */
+async function declaredShapeProject(aspects: (number | undefined)[]): Promise<string> {
+  const base = await mkdtemp(join(tmpdir(), "toony-export-shape-"));
+  const root = join(base, "proj");
+  const project = buildInitialProject("Shape Sample");
+  const bundle = project.episodes[0];
+  if (!bundle) throw new Error("fixture missing episode");
+  bundle.cuts = bundle.cuts.map((cut, i) => {
+    const aspect = aspects[i];
+    return aspect === undefined ? cut : { ...cut, panelAspect: aspect };
+  });
+  await writeProject(root, project);
+  return root;
+}
+
+test("each exported cut is staged at the shape THAT cut declares (#260)", async () => {
+  // Per cut, not per project: the targets read the field off the cut record, so
+  // two cuts in one episode take two heights. A wiring that passed only the
+  // project's values down would export both at the fallback.
+  const root = await declaredShapeProject([0.3, 2.6]);
+  const out = await exportPlatform(root, "ep-001", { width: 400, format: "png" });
+  assert.deepEqual(
+    out.manifest.files.map((f) => f.height),
+    [Math.round(400 * 0.3), Math.round(400 * 2.6)],
+  );
+});
+
+test("a cut that declares nothing still exports at the fallback shape (#260)", async () => {
+  const root = await declaredShapeProject([undefined, undefined]);
+  const out = await exportPlatform(root, "ep-001", { width: 400, format: "png" });
+  assert.deepEqual(
+    out.manifest.files.map((f) => f.height),
+    [Math.round(400 * 1.4), Math.round(400 * 1.4)],
+  );
+});
+
+test("the stitched page is as much taller as the declarations make it (#260)", async () => {
+  // The stitched target composes the same cuts, so a page of declared shapes is
+  // a different LENGTH — which is what pacing means in a vertical scroll.
+  const shaped = await exportStitched(await declaredShapeProject([0.3, 2.6]), "ep-001", {
+    width: 400,
+  });
+  const flat = await exportStitched(await declaredShapeProject([undefined, undefined]), "ep-001", {
+    width: 400,
+  });
+  const band = (flat.manifest.files[0]?.height ?? 0) - 2 * Math.round(400 * 1.4);
+  assert.equal(
+    shaped.manifest.files[0]?.height,
+    Math.round(400 * 0.3) + Math.round(400 * 2.6) + band,
+  );
+});

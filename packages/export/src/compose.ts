@@ -1,0 +1,432 @@
+// Composite cuts (image + lettering) and transition bands onto real rasters.
+//
+// Layout comes entirely from @toony/render (layoutCut/layoutTransition) so export
+// matches the studio preview and never invents its own lettering/transition
+// geometry. This module only turns those layout plans into pixels.
+
+import {
+  type Canvas,
+  createCanvas,
+  type Image,
+  loadImage,
+  type SKRSContext2D,
+} from "@napi-rs/canvas";
+import {
+  ARTLESS_CUT_FILL,
+  BAND_FONT_ID,
+  type BalloonCommand,
+  type BubbleRender,
+  cutHeightAt,
+  cutPlacementFrame,
+  GUTTER_MARGIN_FILL,
+  IMPACT_BURST_FILL,
+  IMPACT_BURST_STROKE,
+  IMPACT_RAY_COLOR,
+  layoutCardText,
+  layoutCut,
+  layoutPanelText,
+  layoutTransition,
+  type ResolvedFade,
+  type ResolvedGradient,
+  resolveBandBackground,
+  resolveBandDivider,
+  resolveBandFade,
+  resolveBandHeight,
+  resolveCutAspect,
+  type TransitionRender,
+} from "@toony/render";
+import type { LetteringOverlay, Transition } from "@toony/schema";
+import { canvasFontFamily, registerToonyFonts } from "./fonts.js";
+import { createCanvasMeasure } from "./measure.js";
+import { assertRasterSize, prepareImage } from "./raster-safety.js";
+
+// Band labels (transition cards/breaks) use a registered curated face so the
+// stitched export never falls back to the host's default sans. The band typeface
+// is the ONE shared decision from `@toony/render` (`BAND_FONT_ID`, curated
+// Nunito), so studio and export draw transition text in the same face (#148).
+const BAND_FONT_REGULAR = canvasFontFamily(BAND_FONT_ID, 400, "narration");
+const BAND_FONT_BOLD = canvasFontFamily(BAND_FONT_ID, 700, "narration");
+
+export interface ComposedCut {
+  canvas: Canvas;
+  width: number;
+  height: number;
+}
+
+function traceOutline(ctx: SKRSContext2D, outline: readonly BalloonCommand[]): void {
+  ctx.beginPath();
+  for (const cmd of outline) {
+    if (cmd.k === "M") ctx.moveTo(cmd.x, cmd.y);
+    else if (cmd.k === "L") ctx.lineTo(cmd.x, cmd.y);
+    else ctx.arcTo(cmd.cornerX, cmd.cornerY, cmd.x, cmd.y, cmd.r);
+  }
+  ctx.closePath();
+}
+
+function drawBubble(ctx: SKRSContext2D, b: BubbleRender): void {
+  if (b.hasBubble) {
+    traceOutline(ctx, b.outline);
+    ctx.globalAlpha = b.fillOpacity;
+    ctx.fillStyle = b.fill;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    if (b.strokeWidth > 0) {
+      ctx.lineWidth = b.strokeWidth;
+      ctx.strokeStyle = b.stroke;
+      ctx.lineJoin = "round";
+      ctx.stroke();
+    }
+  }
+
+  // impact_band SFX (#99): radial speed-lines + a burst star behind the text,
+  // traced from the render plan's pure straight segments so the raster matches the
+  // studio SVG exactly. Drawn before the bare text so the lettering reads on top.
+  if (b.impact) {
+    ctx.strokeStyle = IMPACT_RAY_COLOR;
+    ctx.lineWidth = b.impact.rayWidth;
+    for (const ray of b.impact.rays) {
+      ctx.beginPath();
+      ctx.moveTo(ray.x1, ray.y1);
+      ctx.lineTo(ray.x2, ray.y2);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    b.impact.burst.forEach((p, i) => {
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.closePath();
+    ctx.fillStyle = IMPACT_BURST_FILL;
+    ctx.fill();
+    ctx.lineWidth = b.impact.burstStrokeWidth;
+    ctx.strokeStyle = IMPACT_BURST_STROKE;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+  }
+
+  // Use the SAME face the render plan resolved (#56): the per-weight registered
+  // canvas family for the overlay's font family, so the raster matches the SVG.
+  const fontWeight = b.fontWeight;
+  const family = canvasFontFamily(b.fontFamily, fontWeight, b.kind);
+  // Honor the render plan's resolved alignment (#54/#55): draw each line at its
+  // `anchorX` with the matching canvas textAlign so the raster matches the SVG.
+  ctx.textAlign = b.textAlign === "left" ? "left" : b.textAlign === "right" ? "right" : "center";
+  ctx.textBaseline = "top";
+  // Letter spacing is expressed in em by the plan; @napi-rs/canvas takes a CSS
+  // length, so convert at the resolved font size. Reset afterward so the band
+  // labels and the next bubble are unaffected.
+  ctx.letterSpacing = `${b.letterSpacing * b.text.fontSize}px`;
+
+  ctx.font = `${fontWeight} ${b.text.fontSize}px "${family}"`;
+  for (const line of b.lines) {
+    if (b.hasBubble) {
+      ctx.fillStyle = b.textColor;
+      ctx.fillText(line.text, line.anchorX, line.y);
+    } else {
+      // SFX: outline the bare text so it reads on any background. Width comes
+      // from the render plan (single source) so the raster and the SVG preview
+      // stroke it identically (#83).
+      ctx.lineWidth = b.textOutlineWidth;
+      ctx.strokeStyle = b.stroke;
+      ctx.lineJoin = "round";
+      ctx.strokeText(line.text, line.anchorX, line.y);
+      ctx.fillStyle = b.textColor;
+      ctx.fillText(line.text, line.anchorX, line.y);
+    }
+  }
+  ctx.letterSpacing = "0px";
+}
+
+export interface ComposeCutOptions {
+  /** Target record for an actionable decode/allocation error. */
+  imageLabel?: string;
+  /**
+   * The project's declared dialogue language (`webtoon.json` →
+   * `languages.dialogueLanguage`). Handed straight to the shared layout so the
+   * raster picks the same DEFAULT dialogue face the studio preview shows (#213).
+   */
+  dialogueLanguage?: string;
+  /**
+   * The project's declared gutter band width (`webtoon.json` →
+   * `gutterBandWidth`), a fraction of the cut width (#215). ONE value reaches
+   * both halves of the reservation below — the strip the artwork is kept out of
+   * and the strip the bubbles are laid into — so the raster cannot draw art over
+   * the band it letters in, and the studio, reading the same field through the
+   * same layout, reserves the same strip.
+   */
+  gutterBandWidth?: number;
+  /**
+   * The cut's declared panel shape (`Cut.panelAspect`, #237): its height as a
+   * multiple of its own width. It reaches only the ART-LESS stage below — a cut
+   * that already carries art composes at that art's shape, because nothing
+   * re-cuts an image to match a declaration made after it. Absent → the
+   * fallback aspect, exactly as before the field existed (#260).
+   */
+  panelAspect?: number;
+}
+
+/**
+ * Composite a cut at `targetWidth`: its image (scaled to width) with all its
+ * lettering overlays drawn on top via the shared renderer. When the cut has no
+ * usable image asset, a neutral background of the cut's own declared shape —
+ * else the fallback aspect — is used so reading order and lettering still
+ * export.
+ */
+export async function composeCut(
+  overlays: LetteringOverlay[],
+  imageBytes: Uint8Array | null,
+  targetWidth: number,
+  options: ComposeCutOptions = {},
+): Promise<ComposedCut> {
+  const width = Math.max(1, Math.round(targetWidth));
+  // The stage for a cut with no usable art: the shape it declares, else the
+  // fallback (#260). No image is offered to the resolver because in the branches
+  // that use this there is none — a cut that HAS art is staged at that art.
+  let height: number;
+  let image: Image | null = null;
+  if (imageBytes) {
+    const safe = await prepareImage(imageBytes, options.imageLabel ?? "cut image");
+    height = cutRasterHeight(width, options.panelAspect, safe);
+    assertRasterSize(width, height, options.imageLabel ?? "cut");
+    image = await loadImage(Buffer.from(safe.bytes));
+  } else {
+    height = cutRasterHeight(width, options.panelAspect, null);
+    assertRasterSize(width, height, options.imageLabel ?? "cut");
+  }
+
+  // Register the bundled curated faces before any text is measured or drawn so the
+  // raster uses the SAME self-hosted faces as the studio preview (no CDN, no
+  // host-default fallback). Idempotent across cuts.
+  registerToonyFonts();
+
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  // Reserve the gutter strip(s) (#98): the artwork fills only the `art` rect; the
+  // band(s) are a neutral reading margin where gutter bubbles sit. No gutter
+  // overlays → art == the whole canvas (full-bleed, byte-identical to before).
+  const { art, bands } = cutPlacementFrame(overlays, width, height, options.gutterBandWidth);
+  if (bands.length > 0) {
+    ctx.fillStyle = GUTTER_MARGIN_FILL;
+    ctx.fillRect(0, 0, width, height);
+  }
+  if (image) {
+    ctx.drawImage(image, art.x, art.y, art.width, art.height);
+  } else {
+    ctx.fillStyle = ARTLESS_CUT_FILL;
+    ctx.fillRect(art.x, art.y, art.width, art.height);
+  }
+
+  const measure = createCanvasMeasure();
+  for (const bubble of layoutCut(overlays, width, height, {
+    measure,
+    dialogueLanguage: options.dialogueLanguage,
+    gutterBandWidth: options.gutterBandWidth,
+  })) {
+    drawBubble(ctx, bubble);
+  }
+  return { canvas, width, height };
+}
+
+/** The same height is used for allocation preflight and actual composition. */
+export function cutRasterHeight(
+  width: number,
+  panelAspect: number | undefined,
+  image: { width: number; height: number } | null,
+): number {
+  return image
+    ? Math.max(1, Math.round((image.height * width) / image.width))
+    : cutHeightAt(width, resolveCutAspect(panelAspect, null).aspect);
+}
+
+function drawBandText(
+  ctx: SKRSContext2D,
+  render: TransitionRender,
+  width: number,
+  height: number,
+): void {
+  // Geometry comes from the shared `layoutCardText` (#118 parity) so the studio
+  // Read panel and this canvas place legacy card/break text from one source.
+  const layout = layoutCardText(render, width, height);
+  if (!layout) return;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (const line of layout.lines) {
+    const face = line.weight >= 700 ? BAND_FONT_BOLD : BAND_FONT_REGULAR;
+    ctx.font = `${line.weight} ${line.fontSize}px "${face}"`;
+    ctx.fillText(line.text, line.x, line.y);
+  }
+}
+
+// The v4 interstitial text panels (#115) — narration/dialogue/time cards — draw
+// their `text` with the render plan's resolved H+V anchoring (not the legacy
+// fixed `drawBandText` layout, which beat/time-skip/title_card keep).
+const V4_TEXT_PANELS = new Set<TransitionRender["type"]>([
+  "narration_card",
+  "dialogue_card",
+  "time_card",
+]);
+
+/** Parse `#rgb`/`#rrggbb` to `[r,g,b]`, or null for any other color string. */
+function hexToRgb(color: string): [number, number, number] | null {
+  const m3 = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(color);
+  if (m3) {
+    return [
+      Number.parseInt(`${m3[1]}${m3[1]}`, 16),
+      Number.parseInt(`${m3[2]}${m3[2]}`, 16),
+      Number.parseInt(`${m3[3]}${m3[3]}`, 16),
+    ];
+  }
+  const m6 = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color);
+  if (m6) {
+    return [
+      Number.parseInt(m6[1] as string, 16),
+      Number.parseInt(m6[2] as string, 16),
+      Number.parseInt(m6[3] as string, 16),
+    ];
+  }
+  return null;
+}
+
+/** A gradient-safe `rgba()` for a color at `alpha`, so the transparent stop of a
+ * fade doesn't darken toward black at the midpoint. Falls back to the raw color. */
+function rgba(color: string, alpha: number): string {
+  const rgb = hexToRgb(color);
+  return rgb ? `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})` : color;
+}
+
+/**
+ * Fill the whole panel with a full-panel gradient (#115). `top_bottom` puts
+ * `from` at the top → `to` at the bottom; `bottom_up` flips it. Resolved colors
+ * come from the render plan so export and studio match.
+ */
+function drawGradient(
+  ctx: SKRSContext2D,
+  gradient: ResolvedGradient,
+  width: number,
+  height: number,
+): void {
+  const g = ctx.createLinearGradient(0, 0, 0, height);
+  const [top, bottom] =
+    gradient.direction === "top_bottom"
+      ? [gradient.from, gradient.to]
+      : [gradient.to, gradient.from];
+  g.addColorStop(0, top);
+  g.addColorStop(1, bottom);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, width, height);
+}
+
+/**
+ * Draw an interstitial panel fade (#115): blends into `fade.color` over
+ * `fade.length` px. `top_bottom` fades downward into the color at the BOTTOM edge;
+ * `bottom_up` starts at the color on the TOP edge and clears downward. Resolved
+ * length/color come from the render plan so the export and studio match.
+ */
+function drawFade(ctx: SKRSContext2D, fade: ResolvedFade, width: number, height: number): void {
+  const len = Math.min(fade.length, height);
+  if (fade.direction === "top_bottom") {
+    const g = ctx.createLinearGradient(0, height - len, 0, height);
+    g.addColorStop(0, rgba(fade.color, 0));
+    g.addColorStop(1, rgba(fade.color, 1));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, height - len, width, len);
+  } else {
+    const g = ctx.createLinearGradient(0, 0, 0, len);
+    g.addColorStop(0, rgba(fade.color, 1));
+    g.addColorStop(1, rgba(fade.color, 0));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, width, len);
+  }
+}
+
+/**
+ * Draw a v4 text-panel's `detail` from the SHARED `layoutPanelText` geometry (#115)
+ * — the same resolved block the studio Read panel (#118) consumes, so neither
+ * re-derives the size/padding/anchoring constants (the #112 single-source rule).
+ */
+function drawPanelText(
+  ctx: SKRSContext2D,
+  render: TransitionRender,
+  width: number,
+  height: number,
+): void {
+  const t = layoutPanelText(render, width, height);
+  if (!t) return;
+  ctx.font = `400 ${t.fontSize}px "${BAND_FONT_REGULAR}"`;
+  ctx.fillStyle = t.color;
+  ctx.textAlign = t.align === "left" ? "left" : t.align === "right" ? "right" : "center";
+  // Each wrapped line is positioned by its vertical CENTER (#148).
+  ctx.textBaseline = "middle";
+  for (const line of t.lines) ctx.fillText(line.text, line.x, line.y);
+}
+
+/**
+ * Compose a transition into a band of `targetWidth` × its gutter height, scaled
+ * from the project's `referenceWidth` (#217). Card and break treatments get a
+ * floor height so their label/detail is legible; a plain gutter of zero height
+ * yields null (pure spacing, nothing to draw).
+ */
+export function composeTransitionBand(
+  transition: Transition,
+  targetWidth: number,
+  referenceWidth: number,
+): { canvas: Canvas; width: number; height: number } | null {
+  const render = layoutTransition(transition);
+  const width = Math.max(1, Math.round(targetWidth));
+  // Cards/breaks and the v3 solid bands (#99) get a floor so they stay legible/
+  // visible even when authored with a small gutter; plain gutters honor the exact
+  // height. Height + floor come from the shared single source (#147), which also
+  // scales the authored px from the reference column to this one (#217).
+  const height = resolveBandHeight(render, width, referenceWidth);
+  if (height <= 0) return null;
+  assertRasterSize(width, height, `transition "${transition.id}"`);
+
+  // Band labels draw with a bundled curated face; register before drawing.
+  registerToonyFonts();
+
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+
+  // Band background from the shared precedence resolver (#147): a full-panel
+  // gradient (own #115 gradient or the fade-treatment default) fills via the
+  // same `drawGradient`; every solid case fills its resolved color. No fallback
+  // colors or precedence live here anymore.
+  const background = resolveBandBackground(render);
+  if (background.kind === "gradient") {
+    drawGradient(ctx, background.gradient, width, height);
+  } else {
+    ctx.fillStyle = background.color;
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  // Panel fade (#115): an additive gradient over the fill, under any text. Its
+  // span is scaled to this column by the shared resolver, never read raw (#217).
+  const fade = resolveBandFade(render, width, height, referenceWidth);
+  if (fade) drawFade(ctx, fade, width, height);
+
+  // Foreground per treatment (text/divider), drawn over the background. The v4
+  // text panels honor the plan's H+V anchoring; legacy cards keep drawBandText.
+  if (V4_TEXT_PANELS.has(render.type)) {
+    drawPanelText(ctx, render, width, height);
+  } else if (render.treatment === "card") {
+    ctx.fillStyle = "#f3ece0";
+    drawBandText(ctx, render, width, height);
+  } else if (render.treatment === "break") {
+    // Divider geometry + color from the shared single source (#147); the height-
+    // scaled thickness is the value that had drifted from the studio's fixed 2px.
+    const divider = resolveBandDivider(height);
+    ctx.strokeStyle = divider.color;
+    ctx.lineWidth = divider.thickness;
+    ctx.beginPath();
+    ctx.moveTo(width * divider.spanStart, height / 2);
+    ctx.lineTo(width * divider.spanEnd, height / 2);
+    ctx.stroke();
+    // Break LABEL ink and the card-text color (#f3ece0 above) are TEXT colors
+    // owned by #148 (they mirror render's PANEL_TEXT_COLOR / card-text color),
+    // deliberately left here — #147 single-sources band bg/floor/divider only.
+    ctx.fillStyle = "#2a2a2a";
+    if (render.detail) drawBandText(ctx, render, width, height);
+  }
+
+  return { canvas, width, height };
+}
