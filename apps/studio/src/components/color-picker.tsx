@@ -96,6 +96,8 @@ export interface ColorPickerProps {
   projectPalette?: readonly string[];
   /** Test id applied to the trigger button. */
   testId?: string;
+  /** Expand in a narrow inspector instead of clipping an anchored popup. */
+  inline?: boolean;
 }
 
 /** A single clickable swatch cell. */
@@ -127,12 +129,14 @@ export function ColorPicker({
   onChange,
   projectPalette = [],
   testId,
+  inline = false,
 }: ColorPickerProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value);
   const [recent, setRecent] = useState<string[]>([]);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const popoverId = useId();
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   // Load recent colors once the popover first opens (client only).
   useEffect(() => {
@@ -151,7 +155,11 @@ export function ColorPicker({
       if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+      }
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
@@ -178,6 +186,16 @@ export function ColorPicker({
     return out;
   }, [projectPalette]);
 
+  useEffect(() => {
+    const panel = popoverRef.current;
+    if (!open || !inline || !panel) return;
+    const reveal = () => panel.scrollIntoView({ block: "nearest", inline: "nearest" });
+    reveal();
+    const observer = new ResizeObserver(reveal);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [open, inline]);
+
   const pick = (raw: string) => {
     const hex = normalizeHex(raw);
     if (!hex) return;
@@ -196,7 +214,7 @@ export function ColorPicker({
   };
 
   return (
-    <div className="color-picker" ref={rootRef}>
+    <div className={inline ? "color-picker color-picker-inline" : "color-picker"} ref={rootRef}>
       <span className="color-picker-label">{label}</span>
       <button
         type="button"
@@ -212,7 +230,13 @@ export function ColorPicker({
       </button>
 
       {open && (
-        <div className="color-popover" id={popoverId} role="dialog" aria-label={`${label} color`}>
+        <div
+          className="color-popover"
+          ref={popoverRef}
+          id={popoverId}
+          role="dialog"
+          aria-label={`${label} color`}
+        >
           <div className="color-grid" data-testid={testId ? `${testId}-grid` : undefined}>
             {DEFAULT_SWATCHES.map((color) => (
               <Swatch key={color} color={color} active={normalizedValue === color} onPick={pick} />

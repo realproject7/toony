@@ -405,6 +405,7 @@ export function BubbleInspector({
               value={textColor}
               projectPalette={projectPalette}
               onChange={(hex) => onChange({ textColor: hex })}
+              inline
               testId="field-text-color"
             />
           </>
@@ -434,6 +435,7 @@ export function BubbleInspector({
                   value={overlay.fill}
                   projectPalette={projectPalette}
                   onChange={(hex) => onChange({ fill: hex })}
+                  inline
                   testId="field-fill-color"
                 />
               )}
@@ -446,6 +448,7 @@ export function BubbleInspector({
                     border: { width: overlay.border?.width ?? 2, color: hex },
                   })
                 }
+                inline
                 testId="field-border-color"
               />
               <label className="field field-inline">

@@ -2915,3 +2915,8 @@ button.transition-block {
   overflow: hidden;
   overflow-wrap: anywhere;
 }
+.color-picker-inline .color-popover {
+  position: static;
+  width: 100%;
+  max-width: 100%;
+}
