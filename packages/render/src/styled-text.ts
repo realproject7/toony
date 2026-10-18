@@ -26,6 +26,8 @@ export interface StyledTextSegment {
 }
 
 export interface StyledTextLine {
+  sourceStart: number;
+  sourceEnd: number;
   text: string;
   segments: StyledTextSegment[];
   width: number;
@@ -194,6 +196,8 @@ export function layoutStyledText(
       const advance = Math.max(ascent + descent, ...metrics.map((m) => m.size * lineFactor));
       const last = segments.at(-1);
       const line = {
+        sourceStart: start,
+        sourceEnd: end,
         text: text.slice(start, end),
         segments,
         width: last ? last.x + last.width : 0,

@@ -5,7 +5,11 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { buildInitialProject, loadProject, writeProject } from "@toony/project-io";
 import type { LetteringOverlay } from "@toony/schema";
-import { isCutLetteringPayload, saveCutLettering } from "../lettering-save.js";
+import {
+  cutLetteringRevision,
+  isCutLetteringPayload,
+  saveCutLettering,
+} from "../lettering-save.js";
 
 const overlay = (cutId: string, text: string): LetteringOverlay => ({
   id: `bubble-${cutId}`,
@@ -55,6 +59,64 @@ test("lettering payload requires an explicit cut even when deleting its last bub
     false,
   );
   assert.equal(isCutLetteringPayload({ ...payload("cut-001", []), overlays: null }), false);
+  for (const baseRevision of [null, 0, "", "bad", "x".repeat(64)])
+    assert.equal(isCutLetteringPayload({ ...payload("cut-001", []), baseRevision }), false);
+});
+
+test("a stale cut revision cannot overwrite saved content and its current revision can retry", async (t) => {
+  const f = await fixture(t),
+    before = (await f.read()) ?? [],
+    baseRevision = cutLetteringRevision(before.filter((b) => b.cutId === "cut-001"));
+  const first = await saveCutLettering(f.root, {
+    ...payload("cut-001", [overlay("cut-001", "Saved first")]),
+    baseRevision,
+  });
+  assert.equal(first.ok, true);
+  assert.ok(first.ok && first.revision);
+  const bytes = await readFile(f.path);
+  const stale = await saveCutLettering(f.root, {
+    ...payload("cut-001", [overlay("cut-001", "Stale overwrite")]),
+    baseRevision,
+  });
+  assert.ok(!stale.ok && stale.conflict);
+  assert.deepEqual(await readFile(f.path), bytes);
+  assert.ok(first.ok);
+  assert.equal(
+    (await saveCutLettering(f.root, { ...payload("cut-001", []), baseRevision: first.revision }))
+      .ok,
+    true,
+  );
+  assert.equal(
+    (await f.read())?.some((b) => b.cutId === "cut-002"),
+    true,
+  );
+});
+
+test("simultaneous same-cut editors serialize to one success and one conflict", async (t) => {
+  const f = await fixture(t),
+    baseRevision = cutLetteringRevision(
+      ((await f.read()) ?? []).filter((b) => b.cutId === "cut-001"),
+    );
+  const results = await Promise.all(
+    ["First tab", "Second tab"].map((text) =>
+      saveCutLettering(f.root, { ...payload("cut-001", [overlay("cut-001", text)]), baseRevision }),
+    ),
+  );
+  assert.equal(results.filter((r) => r.ok).length, 1);
+  assert.equal(results.filter((r) => !r.ok && r.conflict).length, 1);
+  const other = await saveCutLettering(f.root, {
+    ...payload("cut-002", [overlay("cut-002", "Independent sibling")]),
+    baseRevision: cutLetteringRevision([overlay("cut-002", "Second original")]),
+  });
+  assert.equal(other.ok, true);
+});
+
+test("cut revisions ignore object key insertion order and reflect literal text or style changes", () => {
+  const a = overlay("cut-001", "안녕"),
+    reordered = Object.fromEntries(Object.entries(a).reverse()) as unknown as LetteringOverlay;
+  assert.equal(cutLetteringRevision([a]), cutLetteringRevision([reordered]));
+  assert.notEqual(cutLetteringRevision([a]), cutLetteringRevision([{ ...a, text: "안녕하세요" }]));
+  assert.notEqual(cutLetteringRevision([a]), cutLetteringRevision([{ ...a, fontSize: 30 }]));
 });
 
 test("sequential cut saves and empty deletion preserve sibling lettering and project files", async (t) => {

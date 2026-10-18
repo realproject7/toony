@@ -61,6 +61,8 @@ export interface RenderedTextSegment extends StyledTextSegment {
 }
 
 export interface RenderedTextLine {
+  sourceStart?: number;
+  sourceEnd?: number;
   segments?: RenderedTextSegment[];
   text: string;
   /** Baseline-independent top-left x of this line's own column. */
@@ -602,6 +604,8 @@ export function layoutBubble(
               : centerX - (line.width * unitScale) / 2;
         const baselineY = textOriginY + line.baseline * unitScale;
         return {
+          sourceStart: line.sourceStart,
+          sourceEnd: line.sourceEnd,
           text: line.text,
           x: left,
           y: baselineY - line.ascent * unitScale,

@@ -60,7 +60,7 @@ export function GradientControls({
           </label>
           {gradient.stops.map((stop, index) => (
             <div
-              className="chip-row"
+              className="gradient-stop-controls"
               // biome-ignore lint/suspicious/noArrayIndexKey: controls edit the ordered stop at this position.
               key={index}
             >

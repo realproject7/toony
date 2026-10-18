@@ -17,16 +17,13 @@
 // `/api/lettering`, which validates and writes `lettering.json`; cancel returns
 // to the preview without writing.
 
-import {
-  IMPACT_BURST_FILL,
-  IMPACT_BURST_STROKE,
-  IMPACT_RAY_COLOR,
-  kindSupportsTail,
-  layoutCut,
-} from "@toony/render";
+import { layoutCut } from "@toony/render";
 import {
   applyLetteringTheme,
+  BUBBLE_KINDS,
+  type BubbleKind,
   type Character,
+  defaultLetteringTextLayout,
   LETTERING_STYLE_DEFAULTS,
   type LetteringOverlay,
   type LetteringTheme,
@@ -40,12 +37,15 @@ import { clamp } from "@/lib/clamp";
 import type { CutFields } from "@/lib/cut-fields";
 import { resolveCutStage } from "@/lib/cut-stage";
 import { persistWithGuard } from "@/lib/editor-save";
-import { newOverlay } from "@/lib/new-overlay";
+import { letteringClipboard, parseLetteringClipboard } from "@/lib/lettering-clipboard";
+import { newOverlay, presetOverlay } from "@/lib/new-overlay";
 import type { CutArt } from "@/lib/project";
-import { BubbleBody } from "./bubble-body";
-import { BubbleText } from "./bubble-text";
+import { AlignmentSymbol } from "./alignment-symbol";
 import { CutFieldsEditor } from "./cut-fields-editor";
 import { CutReviewControl } from "./cut-review-control";
+import type { InlineTextHandle, TextSelection } from "./inline-lettering-text";
+import { LetteringCanvas } from "./lettering-canvas";
+import { LETTERING_PRESET_MIME, LetteringPresets } from "./lettering-presets";
 import { keyboardOwnedByField, useEditHistory } from "./use-edit-history";
 
 // The pro-lettering inspector (typography/color/styling/arrangement) and its
@@ -69,6 +69,8 @@ export interface CutEditorProps {
   cutId: string;
   art: CutArt;
   initialBubbles: LetteringOverlay[];
+  initialLetteringRevision: string;
+  cutNavigation: { id: string; href: string }[];
   initialReviewStatus?: ReviewStatus;
   artworkRevision: string;
   /**
@@ -97,7 +99,16 @@ export interface CutEditorProps {
 }
 
 type DragMode =
-  | { kind: "move"; id: string; grabDX: number; grabDY: number }
+  | {
+      kind: "move";
+      id: string;
+      startX: number;
+      startY: number;
+      clientX: number;
+      clientY: number;
+      originals: Record<string, LetteringOverlay["geometry"]>;
+      moved: boolean;
+    }
   | { kind: "resize"; id: string; fx: number; fy: number }
   | { kind: "tail"; id: string };
 
@@ -109,6 +120,8 @@ export function CutEditor({
   cutId,
   art,
   initialBubbles,
+  initialLetteringRevision,
+  cutNavigation,
   initialReviewStatus,
   artworkRevision,
   dialogueLanguage,
@@ -125,6 +138,30 @@ export function CutEditor({
   // it is about to replace; a drag records once at its start.
   const history = useEditHistory<LetteringOverlay[]>(bubbles);
   const [selectedId, setSelectedId] = useState<string | null>(initialBubbles[0]?.id ?? null);
+  const editorRoot = useRef<HTMLDivElement>(null);
+  const confirmationRef = useRef<HTMLDivElement>(null);
+  const [pendingNavigation, setPendingNavigation] = useState<
+    { href: string } | { reload: true } | null
+  >(null);
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
+  const [focusMode, setFocusMode] = useState(true);
+  const [additionalIds, setAdditionalIds] = useState<string[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [legacyRequest, setLegacyRequest] = useState<string | null>(null);
+  const [textSelection, setTextSelection] = useState<TextSelection>({ start: 0, end: 0 });
+  const [armed, setArmed] = useState<BubbleKind | null>(null);
+  const [zoom, setZoom] = useState(0.75),
+    [fitMode, setFitMode] = useState(true);
+  const [panMode, setPanMode] = useState(false),
+    [snap, setSnap] = useState(true);
+  const [guides, setGuides] = useState<{ x?: number; y?: number }>({});
+  const viewportRef = useRef<HTMLDivElement>(null),
+    inlineRef = useRef<InlineTextHandle>(null);
+  const panRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null),
+    spaceRef = useRef(false);
+  const revisionRef = useRef(initialLetteringRevision),
+    allowUnloadRef = useRef(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
@@ -136,9 +173,7 @@ export function CutEditor({
   // editor dirty instead of being reverted or false-cleaned (#150).
   const editGenRef = useRef(0);
 
-  const hasArt = Boolean(art.src);
   const { width, height } = art;
-  const aspectRatio = `${width} / ${height}`;
 
   // Lay out every bubble through the render core at natural pixel dimensions,
   // using a real browser text measurer (#149) so the editor's wrap/auto-fit
@@ -164,6 +199,17 @@ export function CutEditor({
     () => resolveCutStage(bubbles, width, height, gutterBandWidth),
     [bubbles, width, height, gutterBandWidth],
   );
+  const activeIds = useMemo(
+    () => [
+      ...new Set(
+        [selectedId, ...additionalIds].filter(
+          (id): id is string => id !== null && bubbles.some((b) => b.id === id),
+        ),
+      ),
+    ],
+    [selectedId, additionalIds, bubbles],
+  );
+  const hasEditableSelection = bubbles.some((b) => activeIds.includes(b.id) && !b.locked);
   const selected = bubbles.find((b) => b.id === selectedId) ?? null;
   const selectedPlan = plans.find((plan) => plan.id === selectedId) ?? null;
 
@@ -177,11 +223,21 @@ export function CutEditor({
 
   const update = useCallback(
     (id: string, patch: Partial<LetteringOverlay>) => {
-      history.record({ coalesce: true });
+      const existing = bubbles.find((b) => b.id === id);
+      if (
+        !existing ||
+        (existing.locked && patch.locked === undefined) ||
+        Object.entries(patch).every(
+          ([key, value]) =>
+            JSON.stringify(existing[key as keyof LetteringOverlay]) === JSON.stringify(value),
+        )
+      )
+        return;
+      history.record({ coalesce: true, key: `${id}:${Object.keys(patch).sort().join(",")}` });
       setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
       markDirty();
     },
-    [markDirty, history],
+    [markDirty, history, bubbles],
   );
 
   const undo = useCallback(() => {
@@ -218,42 +274,98 @@ export function CutEditor({
 
   const onPointerMove = useCallback(
     (event: React.PointerEvent) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      const pt = pointerToNorm(event);
-      if (!pt) return;
-      setBubbles((prev) =>
-        prev.map((b) => {
-          if (b.id !== drag.id) return b;
-          if (drag.kind === "move") {
-            const w = b.geometry.width;
-            const h = b.geometry.height;
-            const x = clamp(pt.x - drag.grabDX, 0, 1 - w);
-            const y = clamp(pt.y - drag.grabDY, 0, 1 - h);
-            return { ...b, geometry: { ...b.geometry, x, y } };
+      const drag = dragRef.current,
+        pt = pointerToNorm(event);
+      if (!drag || !pt) return;
+      if (drag.kind === "move") {
+        if (
+          !drag.moved &&
+          Math.hypot(event.clientX - drag.clientX, event.clientY - drag.clientY) < 4
+        )
+          return;
+        if (!drag.moved) {
+          history.record();
+          drag.moved = true;
+        }
+        const originals = Object.values(drag.originals);
+        if (!originals.length) return;
+        let dx = pt.x - drag.startX,
+          dy = pt.y - drag.startY;
+        const minX = Math.min(...originals.map((g) => g.x)),
+          maxX = Math.max(...originals.map((g) => g.x + g.width));
+        const minY = Math.min(...originals.map((g) => g.y)),
+          maxY = Math.max(...originals.map((g) => g.y + g.height));
+        const guide: { x?: number; y?: number } = {};
+        if (snap) {
+          const cx = (minX + maxX) / 2,
+            cy = (minY + maxY) / 2;
+          const peers = bubbles.filter((b) => !drag.originals[b.id]).map((b) => b.geometry);
+          const gx = [0.5, ...peers.map((g) => g.x + g.width / 2)].find(
+            (x) => Math.abs(x - cx - dx) < 6 / (referenceWidth * zoom),
+          );
+          const gy = [0.5, ...peers.map((g) => g.y + g.height / 2)].find(
+            (y) => Math.abs(y - cy - dy) < 6 / ((referenceWidth * zoom * height) / width),
+          );
+          if (gx !== undefined) {
+            dx = gx - cx;
+            guide.x = gx;
           }
-          if (drag.kind === "resize") {
-            // Resize the box as the rect between the FIXED opposite corner
-            // (`fx,fy`, captured at drag start) and the pointer — so any of the
-            // four corner handles works. Keep a positive minimum and stay inside
-            // the image bounds.
-            const minW = 0.04;
-            const minH = 0.03;
-            const x = clamp(Math.min(pt.x, drag.fx), 0, 1 - minW);
-            const y = clamp(Math.min(pt.y, drag.fy), 0, 1 - minH);
-            const w = clamp(Math.abs(pt.x - drag.fx), minW, 1 - x);
-            const h = clamp(Math.abs(pt.y - drag.fy), minH, 1 - y);
-            return { ...b, geometry: { x, y, width: w, height: h } };
+          if (gy !== undefined) {
+            dy = gy - cy;
+            guide.y = gy;
           }
-          // tail: aim the tail tip at the pointer (image-space normalized point).
-          return { ...b, tail: { x: pt.x, y: pt.y } };
-        }),
-      );
+        }
+        dx = clamp(dx, -minX, 1 - maxX);
+        dy = clamp(dy, -minY, 1 - maxY);
+        setGuides(guide);
+        setBubbles((prev) =>
+          prev.map((b) => {
+            const g = drag.originals[b.id];
+            return g ? { ...b, geometry: { ...g, x: g.x + dx, y: g.y + dy } } : b;
+          }),
+        );
+      } else
+        setBubbles((prev) =>
+          prev.map((b) => {
+            if (b.id !== drag.id || b.locked) return b;
+            if (drag.kind === "tail") return { ...b, tail: { x: pt.x, y: pt.y } };
+            const minW = 0.04,
+              minH = 0.03,
+              x = clamp(Math.min(pt.x, drag.fx), 0, 1 - minW),
+              y = clamp(Math.min(pt.y, drag.fy), 0, 1 - minH);
+            return {
+              ...b,
+              geometry: {
+                x,
+                y,
+                width: clamp(Math.abs(pt.x - drag.fx), minW, 1 - x),
+                height: clamp(Math.abs(pt.y - drag.fy), minH, 1 - y),
+              },
+            };
+          }),
+        );
       markDirty();
     },
-    [pointerToNorm, markDirty],
+    [pointerToNorm, history, markDirty, bubbles, snap, referenceWidth, zoom, width, height],
   );
 
+  const startEditing = useCallback(
+    (id: string) => {
+      const b = bubbles.find((b) => b.id === id),
+        plan = plans.find((p) => p.id === id);
+      if (!b || b.locked || !plan) return;
+      setAdditionalIds([]);
+      setSelectedId(id);
+      setArmed(null);
+      if (plan.lines.some((line) => line.sourceStart === undefined)) {
+        setLegacyRequest(id);
+        return;
+      }
+      setEditingId(id);
+      setTextSelection({ start: 0, end: b.text.length });
+    },
+    [bubbles, plans],
+  );
   // Capture the pointer on the SVG itself (the element that owns the move/up
   // handlers), not on the individual handle. Handles are re-created on every
   // state change, so capturing them would invalidate the capture mid-drag; the
@@ -263,36 +375,68 @@ export function CutEditor({
     svgRef.current?.setPointerCapture?.(pointerId);
   }, []);
 
-  const endDrag = useCallback((event: React.PointerEvent) => {
-    if (dragRef.current) {
-      svgRef.current?.releasePointerCapture?.(event.pointerId);
-      dragRef.current = null;
-    }
-  }, []);
+  const endDrag = useCallback(
+    (event: React.PointerEvent) => {
+      const drag = dragRef.current;
+      if (drag) {
+        svgRef.current?.releasePointerCapture?.(event.pointerId);
+        dragRef.current = null;
+        setGuides({});
+        if (drag.kind === "move" && !drag.moved && event.type !== "pointercancel")
+          startEditing(drag.id);
+      }
+    },
+    [startEditing],
+  );
 
   const startMove = useCallback(
     (event: React.PointerEvent, b: LetteringOverlay) => {
       event.stopPropagation();
+      event.preventDefault();
+      svgRef.current?.focus({ preventScroll: true });
+      setEditingId(null);
+      if (event.shiftKey || event.metaKey || event.ctrlKey) {
+        const ids = activeIds.includes(b.id)
+          ? activeIds.filter((id) => id !== b.id)
+          : [...activeIds, b.id];
+        setSelectedId(ids.at(-1) ?? null);
+        setAdditionalIds(ids.slice(0, -1));
+        return;
+      }
+      const ids = activeIds.includes(b.id) ? activeIds : [b.id];
       setSelectedId(b.id);
+      setAdditionalIds(ids.filter((id) => id !== b.id));
+      if (b.locked) return;
       const pt = pointerToNorm(event);
       if (!pt) return;
-      history.record();
       dragRef.current = {
         kind: "move",
         id: b.id,
-        grabDX: pt.x - b.geometry.x,
-        grabDY: pt.y - b.geometry.y,
+        startX: pt.x,
+        startY: pt.y,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        moved: false,
+        originals: Object.fromEntries(
+          bubbles
+            .filter((b) => ids.includes(b.id) && !b.locked)
+            .map((b) => [b.id, { ...b.geometry }]),
+        ),
       };
       capture(event.pointerId);
     },
-    [pointerToNorm, capture, history],
+    [activeIds, bubbles, pointerToNorm, capture],
   );
-
   // Resize from any corner: the FIXED point is the opposite corner of the one
   // grabbed, so the box grows/shrinks toward the pointer from a stable anchor.
   const startResize = useCallback(
     (event: React.PointerEvent, b: LetteringOverlay, corner: "nw" | "ne" | "sw" | "se") => {
       event.stopPropagation();
+      if (b.locked) return;
+      event.preventDefault();
+      svgRef.current?.focus({ preventScroll: true });
+      setEditingId(null);
+      setAdditionalIds([]);
       setSelectedId(b.id);
       const { x, y, width: w, height: h } = b.geometry;
       const fx = corner === "nw" || corner === "sw" ? x + w : x;
@@ -307,6 +451,11 @@ export function CutEditor({
   const startTail = useCallback(
     (event: React.PointerEvent, b: LetteringOverlay) => {
       event.stopPropagation();
+      if (b.locked) return;
+      event.preventDefault();
+      svgRef.current?.focus({ preventScroll: true });
+      setEditingId(null);
+      setAdditionalIds([]);
       setSelectedId(b.id);
       history.record();
       dragRef.current = { kind: "tail", id: b.id };
@@ -316,14 +465,14 @@ export function CutEditor({
   );
 
   const addBubble = useCallback(() => {
+    const created = newOverlay(cutId, bubbles.length, theme ?? undefined, referenceWidth);
+    setAdditionalIds([]);
     history.record();
-    setBubbles((prev) => {
-      const created = newOverlay(cutId, prev.length, theme ?? undefined, referenceWidth);
-      setSelectedId(created.id);
-      return [...prev, created];
-    });
+    setBubbles((prev) => [...prev, created]);
+    setSelectedId(created.id);
+    setEditingId(created.id);
     markDirty();
-  }, [cutId, markDirty, history, theme, referenceWidth]);
+  }, [cutId, bubbles.length, theme, referenceWidth, history, markDirty]);
 
   // Apply the project's theme to the selected bubble on request (#336): every
   // field the theme states for its kind is written; the rest stays.
@@ -350,34 +499,215 @@ export function CutEditor({
   }, [selected, theme, history, markDirty]);
 
   const duplicateSelected = useCallback(() => {
-    if (!selected) return;
-    history.record();
-    setBubbles((prev) => {
-      const copy: LetteringOverlay = {
-        ...selected,
-        id: `ov-${cutId}-${Date.now().toString(36)}-${prev.length}`,
+    const copies = bubbles
+      .filter((b) => activeIds.includes(b.id) && !b.locked)
+      .map((b, index) => ({
+        ...structuredClone(b),
+        id: `ov-${cutId}-${crypto.randomUUID()}-${index}`,
         geometry: {
-          ...selected.geometry,
-          x: clamp(selected.geometry.x + 0.04, 0, 1 - selected.geometry.width),
-          y: clamp(selected.geometry.y + 0.04, 0, 1 - selected.geometry.height),
+          ...b.geometry,
+          x: clamp(b.geometry.x + 0.03, 0, 1 - b.geometry.width),
+          y: clamp(b.geometry.y + 0.03, 0, 1 - b.geometry.height),
         },
-      };
-      setSelectedId(copy.id);
-      return [...prev, copy];
-    });
+      }));
+    if (!copies.length) return;
+    setEditingId(null);
+    history.record();
+    setBubbles((prev) => [...prev, ...copies]);
+    setSelectedId(copies.at(-1)?.id ?? null);
+    setAdditionalIds(copies.slice(0, -1).map((b) => b.id));
     markDirty();
-  }, [selected, cutId, markDirty, history]);
+  }, [bubbles, activeIds, cutId, history, markDirty]);
 
   const deleteSelected = useCallback(() => {
-    if (!selectedId) return;
+    const ids = activeIds.filter((id) => !bubbles.find((b) => b.id === id)?.locked);
+    if (!ids.length) return;
+    setEditingId(null);
     history.record();
-    setBubbles((prev) => {
-      const next = prev.filter((b) => b.id !== selectedId);
-      setSelectedId(next[0]?.id ?? null);
-      return next;
-    });
+    setBubbles((prev) => prev.filter((b) => !ids.includes(b.id)));
+    setSelectedId(null);
+    setAdditionalIds([]);
     markDirty();
-  }, [selectedId, markDirty, history]);
+  }, [activeIds, bubbles, history, markDirty]);
+
+  const addPreset = useCallback(
+    (kind: BubbleKind, point: { x: number; y: number }) => {
+      const created = presetOverlay(cutId, bubbles.length, kind, point, {
+        width,
+        height,
+        referenceWidth,
+        theme: theme ?? undefined,
+      });
+      history.record();
+      setBubbles((prev) => [...prev, created]);
+      setSelectedId(created.id);
+      setAdditionalIds([]);
+      setArmed(null);
+      setEditingId(created.id);
+      markDirty();
+    },
+    [cutId, bubbles.length, width, height, referenceWidth, theme, history, markDirty],
+  );
+
+  const copyBubbles = useCallback(
+    (all = false) => {
+      try {
+        const text = letteringClipboard(
+          all ? bubbles : bubbles.filter((b) => activeIds.includes(b.id)),
+        );
+        sessionStorage.setItem("toony-lettering-clipboard-v1", text);
+        void navigator.clipboard?.writeText(text).catch(() => {});
+        setMessage({
+          kind: all ? "error" : "ok",
+          text: all
+            ? "Draft copied in this tab. Reload, then paste to recover it."
+            : "Bubbles copied in this tab. Paste in this or another cut.",
+        });
+      } catch {
+        setMessage({
+          kind: "error",
+          text: "Could not copy the lettering. Your edits are still here.",
+        });
+      }
+    },
+    [bubbles, activeIds],
+  );
+  const insertCopied = useCallback(
+    (copied: LetteringOverlay[]) => {
+      const next = copied.map((b) => ({
+        ...b,
+        id: `ov-${cutId}-${crypto.randomUUID()}`,
+        cutId,
+        locked: false,
+        geometry: {
+          ...b.geometry,
+          x: clamp(b.geometry.x + 0.02, 0, 1 - b.geometry.width),
+          y: clamp(b.geometry.y + 0.02, 0, 1 - b.geometry.height),
+        },
+      }));
+      history.record();
+      setBubbles((prev) => [...prev, ...next]);
+      setSelectedId(next.at(-1)?.id ?? null);
+      setAdditionalIds(next.slice(0, -1).map((b) => b.id));
+      setEditingId(null);
+      markDirty();
+    },
+    [cutId, history, markDirty],
+  );
+  const pasteBubbles = useCallback(() => {
+    try {
+      const text = sessionStorage.getItem("toony-lettering-clipboard-v1");
+      if (!text)
+        throw new Error(
+          "Copy bubbles in this tab first, or use Cmd/Ctrl+V for the system clipboard.",
+        );
+      insertCopied(parseLetteringClipboard(text));
+    } catch (cause) {
+      setMessage({
+        kind: "error",
+        text: cause instanceof Error ? cause.message : "Could not paste lettering.",
+      });
+    }
+  }, [insertCopied]);
+  useEffect(() => {
+    const paste = (event: ClipboardEvent) => {
+      if (keyboardOwnedByField(event)) return;
+      const text = event.clipboardData?.getData("text/plain");
+      if (!text) return;
+      try {
+        const copied = parseLetteringClipboard(text);
+        event.preventDefault();
+        insertCopied(copied);
+      } catch {
+        /* Other clipboard formats keep their native behavior. */
+      }
+    };
+    window.addEventListener("paste", paste);
+    return () => window.removeEventListener("paste", paste);
+  }, [insertCopied]);
+  const toggleLock = useCallback(() => {
+    if (!activeIds.length) return;
+    const unlock = bubbles.some((b) => activeIds.includes(b.id) && b.locked);
+    setEditingId(null);
+    history.record();
+    setBubbles((prev) =>
+      prev.map((b) => (activeIds.includes(b.id) ? { ...b, locked: !unlock } : b)),
+    );
+    markDirty();
+  }, [activeIds, bubbles, history, markDirty]);
+  const alignObjects = useCallback(
+    (mode: "left" | "center" | "right" | "top" | "middle" | "bottom") => {
+      const selected = bubbles.filter((b) => activeIds.includes(b.id));
+      if (!selected.length) return;
+      const minX = selected.length === 1 ? 0 : Math.min(...selected.map((b) => b.geometry.x)),
+        maxX =
+          selected.length === 1
+            ? 1
+            : Math.max(...selected.map((b) => b.geometry.x + b.geometry.width));
+      const minY = selected.length === 1 ? 0 : Math.min(...selected.map((b) => b.geometry.y)),
+        maxY =
+          selected.length === 1
+            ? 1
+            : Math.max(...selected.map((b) => b.geometry.y + b.geometry.height));
+      setEditingId(null);
+      history.record();
+      setBubbles((prev) =>
+        prev.map((b) => {
+          if (!activeIds.includes(b.id) || b.locked) return b;
+          const g = b.geometry;
+          const x =
+            mode === "left"
+              ? minX
+              : mode === "center"
+                ? (minX + maxX - g.width) / 2
+                : mode === "right"
+                  ? maxX - g.width
+                  : g.x;
+          const y =
+            mode === "top"
+              ? minY
+              : mode === "middle"
+                ? (minY + maxY - g.height) / 2
+                : mode === "bottom"
+                  ? maxY - g.height
+                  : g.y;
+          return { ...b, geometry: { ...g, x, y } };
+        }),
+      );
+      markDirty();
+    },
+    [activeIds, bubbles, history, markDirty],
+  );
+
+  useEffect(() => {
+    const element = viewportRef.current;
+    if (!element || !fitMode) return;
+    const fit = () =>
+      setZoom(
+        Math.max(
+          0.25,
+          Math.min(
+            2.5,
+            (element.clientWidth - 32) / referenceWidth,
+            (element.clientHeight - 32) / ((referenceWidth * height) / width),
+          ),
+        ),
+      );
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [fitMode, referenceWidth, width, height]);
+  useEffect(() => {
+    const unload = (event: BeforeUnloadEvent) => {
+      if (dirty && !allowUnloadRef.current) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", unload);
+    return () => window.removeEventListener("beforeunload", unload);
+  }, [dirty]);
 
   // --- Arrangement: z-order + nudge ---------------------------------------
   //
@@ -397,7 +727,7 @@ export function CutEditor({
   const zOf = useCallback((b: LetteringOverlay) => b.zIndex ?? LETTERING_STYLE_DEFAULTS.zIndex, []);
 
   const bringForward = useCallback(() => {
-    if (!selected) return;
+    if (!selected || selected.locked) return;
     const current = zOf(selected);
     // Step above the lowest peer that currently sits at or above this bubble.
     const above = bubbles
@@ -408,7 +738,7 @@ export function CutEditor({
   }, [selected, bubbles, zOf, updateZ]);
 
   const sendBackward = useCallback(() => {
-    if (!selected) return;
+    if (!selected || selected.locked) return;
     const current = zOf(selected);
     const below = bubbles
       .filter((b) => b.id !== selected.id && zOf(b) <= current)
@@ -418,13 +748,13 @@ export function CutEditor({
   }, [selected, bubbles, zOf, updateZ]);
 
   const bringToFront = useCallback(() => {
-    if (!selected) return;
+    if (!selected || selected.locked) return;
     const maxZ = bubbles.reduce((m, b) => Math.max(m, zOf(b)), 0);
     updateZ(maxZ + 1);
   }, [selected, bubbles, zOf, updateZ]);
 
   const sendToBack = useCallback(() => {
-    if (!selected) return;
+    if (!selected || selected.locked) return;
     // Push every other bubble up by one and place this one at 0, so it sits below
     // all peers while keeping their relative order.
     const minZ = bubbles.reduce((m, b) => Math.min(m, zOf(b)), Number.POSITIVE_INFINITY);
@@ -445,17 +775,29 @@ export function CutEditor({
 
   const nudgeSelected = useCallback(
     (dx: number, dy: number) => {
-      if (!selected) return;
-      const g = selected.geometry;
-      update(selected.id, {
-        geometry: {
-          ...g,
-          x: clamp(g.x + dx, 0, 1 - g.width),
-          y: clamp(g.y + dy, 0, 1 - g.height),
-        },
-      });
+      const items = bubbles.filter((b) => activeIds.includes(b.id) && !b.locked);
+      if (!items.length) return;
+      dx = clamp(
+        dx,
+        -Math.min(...items.map((b) => b.geometry.x)),
+        1 - Math.max(...items.map((b) => b.geometry.x + b.geometry.width)),
+      );
+      dy = clamp(
+        dy,
+        -Math.min(...items.map((b) => b.geometry.y)),
+        1 - Math.max(...items.map((b) => b.geometry.y + b.geometry.height)),
+      );
+      history.record({ coalesce: true, key: `nudge:${activeIds.join(",")}` });
+      setBubbles((prev) =>
+        prev.map((b) =>
+          activeIds.includes(b.id) && !b.locked
+            ? { ...b, geometry: { ...b.geometry, x: b.geometry.x + dx, y: b.geometry.y + dy } }
+            : b,
+        ),
+      );
+      markDirty();
     },
-    [selected, update],
+    [bubbles, activeIds, history, markDirty],
   );
 
   // The cut's own colors (text / fill / border) form a small "project palette"
@@ -470,13 +812,118 @@ export function CutEditor({
     return [...set];
   }, [bubbles]);
 
+  useEffect(() => {
+    const editor = confirmationRef.current ?? editorRoot.current;
+    if ((!focusMode && !pendingNavigation) || !ready || !editor) return;
+    const previous = document.activeElement;
+    const fields = () =>
+      Array.from(
+        editor.querySelectorAll<HTMLElement>(
+          'button,input,select,textarea,a[href],[contenteditable="true"],[tabindex="0"]',
+        ),
+      ).filter(
+        (el) => !el.matches(":disabled") && el.getClientRects().length > 0 && el.tabIndex >= 0,
+      );
+    if (!editor.contains(document.activeElement)) fields()[0]?.focus();
+    const trap = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || event.isComposing) return;
+      const list = fields(),
+        first = list[0],
+        last = list.at(-1);
+      if (!first || !last) return;
+      if (
+        event.shiftKey &&
+        (document.activeElement === first || !editor.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        (document.activeElement === last || !editor.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", trap, true);
+    return () => {
+      window.removeEventListener("keydown", trap, true);
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
+  }, [focusMode, ready, pendingNavigation]);
+
+  const save = useCallback(async () => {
+    if (saving || !dirty) return;
+    setSaving(true);
+    setMessage(null);
+    // Snapshot the payload AND the edit generation together. Persist the render
+    // core's overflow flag so the on-disk model matches what the editor shows
+    // (the schema overlay carries its own `overflow` field).
+    const generationAtStart = editGenRef.current;
+    const overflowById = new Map(plans.map((plan) => [plan.id, plan.overflow]));
+    const payload = bubbles.map((b) => ({ ...b, overflow: overflowById.get(b.id) ?? b.overflow }));
+    try {
+      const outcome = await persistWithGuard({
+        request: () =>
+          fetch("/api/lettering", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              workId,
+              episodeId,
+              cutId,
+              overlays: payload,
+              baseRevision: revisionRef.current,
+            }),
+          }),
+        generationAtStart,
+        readGeneration: () => editGenRef.current,
+      });
+      if (!outcome.ok) {
+        setMessage({ kind: "error", text: outcome.error });
+      } else {
+        // Do NOT write the snapshot back into state — an edit made during the
+        // await would be reverted. Only clear dirty when no edit landed mid-save.
+        if (outcome.revision) revisionRef.current = outcome.revision;
+        if (outcome.clean) setDirty(false);
+        setMessage({ kind: "ok", text: "Saved to lettering.json." });
+      }
+    } finally {
+      setSaving(false);
+    }
+  }, [bubbles, plans, workId, episodeId, cutId, saving, dirty]);
+
   // Keyboard (#333): arrows nudge the selected bubble (Shift for a larger
   // step), Delete removes it, Cmd/Ctrl+D duplicates it, Cmd/Ctrl+Z undoes and
   // Shift+Cmd/Ctrl+Z or Cmd/Ctrl+Y redoes. A field that has focus keeps its own
   // keys, so typing in the inspector never moves or deletes a bubble.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.isComposing) return;
+      if (pendingNavigation) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setPendingNavigation(null);
+        }
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void save();
+        return;
+      }
       if (keyboardOwnedByField(event)) return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest("button,a") &&
+        ["Enter", " "].includes(event.key)
+      )
+        return;
+      if (event.code === "Space") {
+        event.preventDefault();
+        spaceRef.current = true;
+        return;
+      }
       const mod = event.metaKey || event.ctrlKey;
       const key = event.key.toLowerCase();
       if (mod && key === "z") {
@@ -495,7 +942,29 @@ export function CutEditor({
         duplicateSelected();
         return;
       }
-      if (!selected) return;
+      if (mod && key === "a") {
+        event.preventDefault();
+        setSelectedId(bubbles.at(-1)?.id ?? null);
+        setAdditionalIds(bubbles.slice(0, -1).map((b) => b.id));
+        return;
+      }
+      if (mod && key === "c") {
+        event.preventDefault();
+        void copyBubbles();
+        return;
+      }
+      if (event.key === "Escape") {
+        if (!armed && !editingId) setFocusMode(false);
+        setArmed(null);
+        setEditingId(null);
+        return;
+      }
+      if (event.key === "Enter" && selected) {
+        event.preventDefault();
+        startEditing(selected.id);
+        return;
+      }
+      if (!hasEditableSelection) return;
       const step = event.shiftKey ? 0.05 : 0.01;
       switch (event.key) {
         case "ArrowUp":
@@ -521,45 +990,82 @@ export function CutEditor({
           break;
       }
     };
+    const up = (event: KeyboardEvent) => {
+      if (event.code === "Space") spaceRef.current = false;
+    };
+    const blur = () => {
+      spaceRef.current = false;
+      panRef.current = null;
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [selected, undo, redo, duplicateSelected, nudgeSelected, deleteSelected]);
-
-  const save = useCallback(async () => {
-    setSaving(true);
-    setMessage(null);
-    // Snapshot the payload AND the edit generation together. Persist the render
-    // core's overflow flag so the on-disk model matches what the editor shows
-    // (the schema overlay carries its own `overflow` field).
-    const generationAtStart = editGenRef.current;
-    const overflowById = new Map(plans.map((plan) => [plan.id, plan.overflow]));
-    const payload = bubbles.map((b) => ({ ...b, overflow: overflowById.get(b.id) ?? b.overflow }));
-    try {
-      const outcome = await persistWithGuard({
-        request: () =>
-          fetch("/api/lettering", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ workId, episodeId, cutId, overlays: payload }),
-          }),
-        generationAtStart,
-        readGeneration: () => editGenRef.current,
-      });
-      if (!outcome.ok) {
-        setMessage({ kind: "error", text: outcome.error });
-      } else {
-        // Do NOT write the snapshot back into state — an edit made during the
-        // await would be reverted. Only clear dirty when no edit landed mid-save.
-        if (outcome.clean) setDirty(false);
-        setMessage({ kind: "ok", text: "Saved to lettering.json." });
-      }
-    } finally {
-      setSaving(false);
-    }
-  }, [bubbles, plans, workId, episodeId, cutId]);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", blur);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", blur);
+    };
+  }, [
+    selected,
+    hasEditableSelection,
+    undo,
+    redo,
+    duplicateSelected,
+    nudgeSelected,
+    deleteSelected,
+    save,
+    bubbles,
+    copyBubbles,
+    startEditing,
+    armed,
+    editingId,
+    pendingNavigation,
+  ]);
 
   return (
-    <div className="editor" data-testid={`cut-editor-${cutId}`}>
+    <div
+      ref={editorRoot}
+      inert={!ready}
+      aria-busy={!ready}
+      role="dialog"
+      aria-modal={focusMode}
+      aria-label="Lettering editor"
+      className={focusMode ? "editor editor-focus" : "editor"}
+      data-testid={`cut-editor-${cutId}`}
+    >
+      {pendingNavigation && (
+        <div className="lettering-confirm-backdrop">
+          <div
+            className="lettering-confirm"
+            role="alertdialog"
+            aria-modal="true"
+            aria-label="Discard unsaved lettering"
+            ref={confirmationRef}
+          >
+            <h2>Discard unsaved lettering?</h2>
+            <p>
+              Copy your draft before leaving. Reloading keeps the saved version and discards the
+              edits currently on screen.
+            </p>
+            <div className="chip-row">
+              <button type="button" className="btn" onClick={() => setPendingNavigation(null)}>
+                Keep editing
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() => {
+                  allowUnloadRef.current = true;
+                  if ("reload" in pendingNavigation) window.location.reload();
+                  else window.location.assign(pendingNavigation.href);
+                }}
+              >
+                Discard and continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <header className="page-head">
         <div>
           <p className="page-eyebrow">{webtoonTitle}</p>
@@ -579,9 +1085,38 @@ export function CutEditor({
           </div>
         </div>
         <div className="editor-actions">
+          <label className="lettering-cut-picker">
+            Cut
+            <select
+              aria-label="Edit cut"
+              value={cutId}
+              disabled={dirty}
+              onChange={(event) => {
+                const target = cutNavigation.find((c) => c.id === event.target.value);
+                if (target) window.location.assign(target.href);
+              }}
+            >
+              {cutNavigation.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className="btn btn-ghost" onClick={() => setFocusMode((f) => !f)}>
+            {focusMode ? "Exit focus" : "Focus editor"}
+          </button>
           <Link
             href={`/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}`}
             className="btn btn-ghost"
+            onClick={(event) => {
+              if (dirty) {
+                event.preventDefault();
+                setPendingNavigation({
+                  href: `/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}`,
+                });
+              }
+            }}
           >
             Cancel
           </Link>
@@ -597,30 +1132,79 @@ export function CutEditor({
         </div>
       </header>
 
-      {message && (
-        <div
-          className={
-            message.kind === "ok"
-              ? "editor-toast editor-toast-ok"
-              : "editor-toast editor-toast-error"
-          }
-          role="status"
-          data-testid="editor-message"
-        >
-          {message.text}
-        </div>
-      )}
+      <div
+        className={`lettering-status${message?.kind === "error" ? " is-error" : ""}`}
+        role={message?.kind === "error" ? "alert" : "status"}
+      >
+        <span title={message?.text}>{message?.text ?? (dirty ? "Unsaved changes" : "Saved")}</span>
+        {message?.kind === "error" && (
+          <>
+            <button type="button" className="btn btn-chip" onClick={() => copyBubbles(true)}>
+              Copy draft
+            </button>
+            <button
+              type="button"
+              className="btn btn-chip"
+              onClick={() => {
+                setPendingNavigation({ reload: true });
+              }}
+            >
+              Reload saved version
+            </button>
+          </>
+        )}
+        {message && (
+          <button
+            type="button"
+            className="btn btn-chip"
+            aria-label="Dismiss notification"
+            onClick={() => setMessage(null)}
+          >
+            ×
+          </button>
+        )}
+      </div>
 
       <div className="editor-layout">
         <div className="editor-stage-wrap">
-          <CutReviewControl
-            workId={workId}
-            episodeId={episodeId}
-            cutId={cutId}
-            initialReviewStatus={initialReviewStatus}
-            artworkRevision={artworkRevision}
-          />
+          <details className="lettering-art-review">
+            <summary>Artwork review</summary>
+            <CutReviewControl
+              workId={workId}
+              episodeId={episodeId}
+              cutId={cutId}
+              initialReviewStatus={initialReviewStatus}
+              artworkRevision={artworkRevision}
+            />
+          </details>
           <div className="editor-toolbar">
+            <button
+              type="button"
+              className="btn"
+              disabled={!activeIds.length}
+              onClick={() => void copyBubbles()}
+            >
+              Copy
+            </button>
+            <button
+              type="button"
+              className="btn"
+              title="Paste bubbles copied in this tab. Cmd/Ctrl+V uses the system clipboard."
+              onClick={() => void pasteBubbles()}
+            >
+              Paste
+            </button>
+            <button type="button" className="btn" disabled={!activeIds.length} onClick={toggleLock}>
+              {bubbles.some((b) => activeIds.includes(b.id) && b.locked) ? "Unlock" : "Lock"}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              disabled={!selected || selected.locked}
+              onClick={() => selected && startEditing(selected.id)}
+            >
+              Edit text
+            </button>
             <button
               type="button"
               className="btn"
@@ -648,7 +1232,7 @@ export function CutEditor({
               type="button"
               className="btn"
               onClick={duplicateSelected}
-              disabled={!selected}
+              disabled={!hasEditableSelection}
               title="Duplicate (Cmd/Ctrl+D)"
               data-testid="editor-duplicate"
             >
@@ -658,7 +1242,7 @@ export function CutEditor({
               type="button"
               className="btn btn-danger"
               onClick={deleteSelected}
-              disabled={!selected}
+              disabled={!hasEditableSelection}
               title="Delete (Delete key)"
               data-testid="editor-delete"
             >
@@ -669,7 +1253,7 @@ export function CutEditor({
                 type="button"
                 className="btn"
                 onClick={applyThemeToSelected}
-                disabled={!selected || theme === null}
+                disabled={!selected || selected.locked || theme === null}
                 title={
                   theme === null
                     ? `Theme "${themeId}" is selected in webtoon.json but no installed pack provides it`
@@ -682,215 +1266,216 @@ export function CutEditor({
             )}
           </div>
 
-          {hasArt ? (
-            <div
-              className="editor-stage"
-              style={reserved ? { aspectRatio, background: "#ffffff" } : { aspectRatio }}
-              data-reserved={reserved ? "true" : undefined}
-              data-testid={`editor-stage-${cutId}`}
-            >
-              {/* biome-ignore lint/performance/noImgElement: local-first studio serves project files directly, not via the Next image optimizer. */}
-              <img
-                className="cut-art"
-                style={artStyle}
-                src={art.src ?? undefined}
-                alt={`Artwork for ${cutId}`}
-              />
-              <svg
-                ref={svgRef}
-                className="editor-overlays"
-                viewBox={`0 0 ${width} ${height}`}
-                preserveAspectRatio="none"
-                role="img"
-                aria-label={`Bubble editing surface for cut ${cutId}`}
-                onPointerMove={onPointerMove}
-                onPointerUp={endDrag}
-                onPointerCancel={endDrag}
-                onPointerDown={() => setSelectedId(null)}
-              >
-                <title>{`Bubble editing surface for cut ${cutId}`}</title>
-                {plans.map((plan) => {
-                  const b = bubbles.find((x) => x.id === plan.id);
-                  if (!b) return null;
-                  const isSelected = plan.id === selectedId;
-                  const bx = b.geometry.x * width;
-                  const by = b.geometry.y * height;
-                  const bw = b.geometry.width * width;
-                  const bh = b.geometry.height * height;
-                  const handle = Math.max(width, height) * 0.012;
-                  const impact = plan.impact;
-                  return (
-                    <g key={plan.id} data-bubble-id={plan.id}>
-                      {plan.tail && (
-                        <line
-                          x1={plan.box.x + plan.box.width / 2}
-                          y1={plan.box.y + plan.box.height / 2}
-                          x2={plan.tail.tip.x}
-                          y2={plan.tail.tip.y}
-                          stroke="var(--color-accent)"
-                          strokeWidth={Math.max(1, height * 0.002)}
-                          strokeDasharray="4 4"
-                          opacity={isSelected ? 0.8 : 0}
-                        />
-                      )}
-                      <BubbleBody plan={plan} />
-                      {/* impact_band SFX (#99/#110): speed-lines + burst behind the
-                          text, from the SAME pure-segment plan the preview and
-                          export trace → the editor surface matches what renders. */}
-                      {impact && (
-                        <g data-testid={`impact-${plan.id}`}>
-                          {impact.rays.map((ray, i) => (
-                            <line
-                              // biome-ignore lint/suspicious/noArrayIndexKey: rays are a positional, read-only layout output — the index is the stable identity within one layout pass.
-                              key={`${plan.id}-ray-${i}`}
-                              x1={ray.x1}
-                              y1={ray.y1}
-                              x2={ray.x2}
-                              y2={ray.y2}
-                              stroke={IMPACT_RAY_COLOR}
-                              strokeWidth={impact.rayWidth}
-                            />
-                          ))}
-                          <polygon
-                            points={impact.burst.map((p) => `${p.x},${p.y}`).join(" ")}
-                            fill={IMPACT_BURST_FILL}
-                            stroke={IMPACT_BURST_STROKE}
-                            strokeWidth={impact.burstStrokeWidth}
-                            strokeLinejoin="round"
-                          />
-                        </g>
-                      )}
-                      <BubbleText plan={plan} />
-
-                      {/* Selection chrome + interaction handles. */}
-                      <rect
-                        x={bx}
-                        y={by}
-                        width={bw}
-                        height={bh}
-                        fill="transparent"
-                        stroke={isSelected ? "var(--color-accent)" : "transparent"}
-                        strokeWidth={Math.max(1, height * 0.0025)}
-                        strokeDasharray="6 4"
-                        style={{ cursor: "move" }}
-                        data-handle="move"
-                        data-bubble-id={plan.id}
-                        onPointerDown={(event) => startMove(event, b)}
-                      />
-                      {plan.overflow && (
-                        <rect
-                          x={bx}
-                          y={by}
-                          width={bw}
-                          height={bh}
-                          fill="none"
-                          stroke="var(--color-warning)"
-                          strokeWidth={Math.max(1, height * 0.003)}
-                          pointerEvents="none"
-                          data-overflow="true"
-                        />
-                      )}
-                      {isSelected && (
-                        <>
-                          {(
-                            [
-                              { corner: "nw", cx: bx, cy: by, cursor: "nwse-resize" },
-                              { corner: "ne", cx: bx + bw, cy: by, cursor: "nesw-resize" },
-                              { corner: "sw", cx: bx, cy: by + bh, cursor: "nesw-resize" },
-                              { corner: "se", cx: bx + bw, cy: by + bh, cursor: "nwse-resize" },
-                            ] as const
-                          ).map((c) => (
-                            <rect
-                              key={c.corner}
-                              x={c.cx - handle}
-                              y={c.cy - handle}
-                              width={handle * 2}
-                              height={handle * 2}
-                              fill="var(--color-accent)"
-                              stroke="#ffffff"
-                              strokeWidth={handle * 0.25}
-                              style={{ cursor: c.cursor }}
-                              data-handle={`resize-${c.corner}`}
-                              onPointerDown={(event) => startResize(event, b, c.corner)}
-                            />
-                          ))}
-                          {kindSupportsTail(b.kind) && b.tail && (
-                            <circle
-                              cx={b.tail.x * width}
-                              cy={b.tail.y * height}
-                              r={handle}
-                              fill="#ffffff"
-                              stroke="var(--color-accent)"
-                              strokeWidth={handle * 0.4}
-                              style={{ cursor: "grab" }}
-                              data-handle="tail"
-                              onPointerDown={(event) => startTail(event, b)}
-                            />
-                          )}
-                        </>
-                      )}
-                    </g>
-                  );
-                })}
-              </svg>
-            </div>
-          ) : (
-            <div
-              className="editor-stage editor-stage-empty"
-              style={{ aspectRatio }}
-              data-testid={`editor-stage-${cutId}`}
-            >
-              <span className="chip">No image yet</span>
-              <span className="cut-canvas-hint">
-                This cut has no linked artwork. You can still place and edit bubbles on a default
-                page frame; positions are normalized 0..1 and apply once art is linked.
+          <details className="lettering-alignment-menu" aria-disabled={!activeIds.length}>
+            <summary>Align objects</summary>
+            <fieldset className="lettering-object-alignment" aria-label="Align objects">
+              <span>
+                {activeIds.length > 1
+                  ? `${activeIds.length} selected · align objects`
+                  : "Align to artwork"}
               </span>
-              {/* The empty-state stage still hosts the same editing surface so a cut
-                  without art is not a dead end. */}
-              <svg
-                ref={svgRef}
-                className="editor-overlays editor-overlays-empty"
-                viewBox={`0 0 ${width} ${height}`}
-                preserveAspectRatio="none"
-                role="img"
-                aria-label={`Bubble editing surface for cut ${cutId}`}
-                onPointerMove={onPointerMove}
-                onPointerUp={endDrag}
-                onPointerCancel={endDrag}
-                onPointerDown={() => setSelectedId(null)}
+              {(["left", "center", "right", "top", "middle", "bottom"] as const).map((mode) => (
+                <button
+                  type="button"
+                  className="btn btn-chip"
+                  key={mode}
+                  disabled={!hasEditableSelection}
+                  onClick={() => alignObjects(mode)}
+                  title={`Align objects ${mode}`}
+                >
+                  <AlignmentSymbol
+                    mode={mode}
+                    vertical={["top", "middle", "bottom"].includes(mode)}
+                  />
+                  {mode}
+                </button>
+              ))}
+            </fieldset>
+          </details>
+          <div className="lettering-view-controls">
+            <button
+              className="btn btn-chip"
+              type="button"
+              onClick={() => {
+                setFitMode(false);
+                setZoom((z) => Math.max(0.25, z - 0.1));
+              }}
+              aria-label="Zoom out"
+            >
+              −
+            </button>
+            <output>{Math.round(zoom * 100)}%</output>
+            <button
+              className="btn btn-chip"
+              type="button"
+              onClick={() => {
+                setFitMode(false);
+                setZoom((z) => Math.min(2.5, z + 0.1));
+              }}
+              aria-label="Zoom in"
+            >
+              +
+            </button>
+            <button className="btn btn-chip" type="button" onClick={() => setFitMode(true)}>
+              Fit
+            </button>
+            <button
+              className="btn btn-chip"
+              type="button"
+              aria-pressed={panMode}
+              onClick={() => {
+                setPanMode((p) => !p);
+                viewportRef.current?.focus();
+              }}
+            >
+              Pan
+            </button>
+            <label>
+              <input type="checkbox" checked={snap} onChange={(e) => setSnap(e.target.checked)} />{" "}
+              Snap guides
+            </label>
+            {editingId && (
+              <button className="btn btn-primary" type="button" onClick={() => setEditingId(null)}>
+                Done typing
+              </button>
+            )}
+            <span>
+              {editingId
+                ? "Select words for text formatting. Esc finishes."
+                : armed
+                  ? "Click the art to place, or drag a preset."
+                  : "Click text to type. Drag to move. Shift-click to select several."}
+            </span>
+          </div>
+          {legacyRequest && (
+            <div className="editor-toast editor-toast-warn">
+              Direct text editing uses consistent text sizing and bundled font fallback. Convert
+              this bubble to enable it.
+              <button
+                type="button"
+                className="btn btn-chip"
+                onClick={() => {
+                  const b = bubbles.find((b) => b.id === legacyRequest);
+                  if (!b) return;
+                  update(b.id, {
+                    textLayout: b.textLayout ?? defaultLetteringTextLayout(referenceWidth),
+                    textRanges: b.textRanges ?? [],
+                  });
+                  setEditingId(b.id);
+                  setLegacyRequest(null);
+                }}
               >
-                <title>{`Bubble editing surface for cut ${cutId}`}</title>
-                {plans.map((plan) => {
-                  const b = bubbles.find((x) => x.id === plan.id);
-                  if (!b) return null;
-                  const isSelected = plan.id === selectedId;
-                  const bx = b.geometry.x * width;
-                  const by = b.geometry.y * height;
-                  const bw = b.geometry.width * width;
-                  const bh = b.geometry.height * height;
-                  return (
-                    <g key={plan.id} data-bubble-id={plan.id}>
-                      <BubbleBody plan={plan} />
-                      <BubbleText plan={plan} />
-                      <rect
-                        x={bx}
-                        y={by}
-                        width={bw}
-                        height={bh}
-                        fill="transparent"
-                        stroke={isSelected ? "var(--color-accent)" : "var(--color-line-strong)"}
-                        strokeWidth={Math.max(1, height * 0.0025)}
-                        strokeDasharray="6 4"
-                        style={{ cursor: "move" }}
-                        data-handle="move"
-                        onPointerDown={(event) => startMove(event, b)}
-                      />
-                    </g>
-                  );
-                })}
-              </svg>
+                Enable direct editing
+              </button>
+              <button type="button" className="btn btn-chip" onClick={() => setLegacyRequest(null)}>
+                Keep current layout
+              </button>
             </div>
           )}
+          <div className="lettering-workspace">
+            <LetteringPresets
+              armed={armed}
+              onArm={(kind) => {
+                setEditingId(null);
+                setArmed(kind);
+              }}
+            />
+            <section
+              className="lettering-viewport"
+              aria-label="Artwork viewport"
+              tabIndex={-1}
+              ref={viewportRef}
+              data-testid="lettering-viewport"
+              onKeyDown={(event) => {
+                if (event.target === event.currentTarget && event.key.startsWith("Arrow")) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  event.currentTarget.scrollBy(
+                    event.key === "ArrowRight" ? 40 : event.key === "ArrowLeft" ? -40 : 0,
+                    event.key === "ArrowDown" ? 40 : event.key === "ArrowUp" ? -40 : 0,
+                  );
+                }
+              }}
+              onDragOver={(event) => {
+                if (event.dataTransfer.types.includes(LETTERING_PRESET_MIME)) {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "copy";
+                }
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const kind = event.dataTransfer.getData(LETTERING_PRESET_MIME);
+                const pt = pointerToNorm(event);
+                if (pt && (BUBBLE_KINDS as readonly string[]).includes(kind))
+                  addPreset(kind as BubbleKind, pt);
+              }}
+              onPointerDownCapture={(event) => {
+                if ((panMode || spaceRef.current || event.button === 1) && !editingId) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const el = event.currentTarget;
+                  panRef.current = {
+                    x: event.clientX,
+                    y: event.clientY,
+                    left: el.scrollLeft,
+                    top: el.scrollTop,
+                  };
+                  el.setPointerCapture(event.pointerId);
+                }
+              }}
+              onPointerMoveCapture={(event) => {
+                const p = panRef.current;
+                if (!p) return;
+                event.stopPropagation();
+                event.currentTarget.scrollLeft = p.left - event.clientX + p.x;
+                event.currentTarget.scrollTop = p.top - event.clientY + p.y;
+              }}
+              onPointerUpCapture={(event) => {
+                if (panRef.current) {
+                  panRef.current = null;
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                  event.stopPropagation();
+                }
+              }}
+            >
+              <LetteringCanvas
+                art={art}
+                plans={plans}
+                bubbles={bubbles}
+                selectedIds={activeIds}
+                editingId={editingId}
+                svgRef={svgRef}
+                inlineRef={inlineRef}
+                guides={guides}
+                displayWidth={referenceWidth * zoom}
+                artStyle={artStyle}
+                reserved={reserved}
+                onMove={startMove}
+                onResize={startResize}
+                onTail={startTail}
+                onPointerMove={onPointerMove}
+                onPointerUp={endDrag}
+                onBackground={(event) => {
+                  if (armed) {
+                    event.preventDefault();
+                    const pt = pointerToNorm(event);
+                    if (pt) addPreset(armed, pt);
+                  } else {
+                    setSelectedId(null);
+                    setAdditionalIds([]);
+                    setEditingId(null);
+                  }
+                }}
+                onTextChange={(patch) => {
+                  if (editingId) update(editingId, patch);
+                }}
+                onTextSelection={setTextSelection}
+                onFinish={() => setEditingId(null)}
+                onUndo={undo}
+                onRedo={redo}
+              />
+            </section>
+          </div>
         </div>
 
         <aside className="editor-inspector" data-testid="editor-inspector">
@@ -906,20 +1491,24 @@ export function CutEditor({
             renderRecord={renderRecord}
           />
           {selected ? (
-            <BubbleInspector
-              overlay={selected}
-              referenceWidth={referenceWidth}
-              overflow={selectedPlan?.overflow ?? false}
-              fontSegments={selectedPlan?.lines.flatMap((line) => line.segments ?? [])}
-              onChange={(patch) => update(selected.id, patch)}
-              onBringForward={bringForward}
-              onSendBackward={sendBackward}
-              onBringToFront={bringToFront}
-              onSendToBack={sendToBack}
-              onNudge={nudgeSelected}
-              projectPalette={projectPalette}
-              dialogueLanguage={dialogueLanguage}
-            />
+            <fieldset className="lettering-object-settings" disabled={Boolean(selected.locked)}>
+              <BubbleInspector
+                overlay={selected}
+                referenceWidth={referenceWidth}
+                directSelection={editingId === selected.id ? textSelection : undefined}
+                onRestoreSelection={() => inlineRef.current?.focusSelection(textSelection)}
+                overflow={selectedPlan?.overflow ?? false}
+                fontSegments={selectedPlan?.lines.flatMap((line) => line.segments ?? [])}
+                onChange={(patch) => update(selected.id, patch)}
+                onBringForward={bringForward}
+                onSendBackward={sendBackward}
+                onBringToFront={bringToFront}
+                onSendToBack={sendToBack}
+                onNudge={nudgeSelected}
+                projectPalette={projectPalette}
+                dialogueLanguage={dialogueLanguage}
+              />
+            </fieldset>
           ) : (
             <div className="inspector-empty">
               <h2 className="card-title">Inspector</h2>

@@ -9,7 +9,7 @@ import { test } from "node:test";
 import { defaultFontFamilyForKind } from "@toony/fonts";
 import { bubbleKindStyle, layoutBubble } from "@toony/render";
 import { IssueCollector, validateLetteringOverlayValue } from "@toony/schema";
-import { newOverlay } from "../new-overlay.js";
+import { newOverlay, presetOverlay } from "../new-overlay.js";
 
 function issues(overlay: unknown): string[] {
   const collector = new IssueCollector();
@@ -82,4 +82,31 @@ test("a project theme overrides appearance while keeping the new bubble layout d
   assert.equal(bare.fontFamily, undefined);
   assert.equal(themed.kind, bare.kind);
   assert.deepEqual(themed.geometry, bare.geometry);
+});
+
+test("presets preserve their own kind defaults and reference units on short and tall artwork", () => {
+  for (const height of [248, 2000])
+    for (const kind of ["speech", "thought", "shout", "whisper", "narration", "sfx"] as const) {
+      const b = presetOverlay(
+        "cut-001",
+        0,
+        kind,
+        { x: 0.99, y: 0.99 },
+        {
+          width: 832,
+          height,
+          referenceWidth: 1080,
+          theme: { themeFormat: 1, kinds: { speech: { fontFamily: "nunito" } } },
+        },
+      );
+      assert.equal(b.kind, kind);
+      assert.equal(b.textLayout?.referenceWidth, 1080);
+      assert.ok(b.geometry.x + b.geometry.width <= 1 && b.geometry.y + b.geometry.height <= 1);
+      assert.equal(b.fontFamily, kind === "speech" ? "nunito" : undefined);
+      if (kind === "narration") {
+        assert.equal(b.cornerRadius, 0);
+        assert.equal(b.tail, null);
+      }
+      assert.deepEqual(issues({ ...b, speaker: "Speaker" }), []);
+    }
 });

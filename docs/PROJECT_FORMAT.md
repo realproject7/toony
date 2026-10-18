@@ -549,3 +549,11 @@ their start. These rules apply to literal text, never HTML or markup.
 Use an updated engine for this extension. Studio's initial selection controls
 live beside the native text field; direct artwork typing is a later interaction
 integration. Stored ranges and shared rendering do not imply that UI is complete.
+
+## Editor object locking
+
+The optional lettering field `locked` is a boolean. It persists an editor object
+lock and does not alter rendered appearance or text. Absent means unlocked. The
+editor disables manipulation and property edits until explicitly unlocked. Pasted
+objects receive new identities, their destination cut and an unlocked state;
+their text and styling are preserved.

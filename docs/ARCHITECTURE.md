@@ -391,3 +391,32 @@ density) is deliberately left to the lints that run on our own content.
 `CRAFT_MEASURE.md` carries the signal list; this paragraph does not, because a
 list in prose goes stale the next time one is added. See
 [CRAFT_MEASURE.md](./CRAFT_MEASURE.md).
+
+## Direct Studio lettering
+
+The focused editor uses the shared SVG render plan for presets, movement, sizing,
+tails, ordering, text and fills. Native rich input follows the same positioned
+lines and effective font runs. Source offsets distinguish authored hard breaks
+from visual wraps. Plain text and validated ranges remain authoritative; editable
+DOM/HTML is never stored. IME owns its DOM during composition and reconciles the
+resulting literal text afterward.
+
+An existing legacy overlay keeps its layout until the user explicitly enables
+direct editing. New presets use the versioned reference-width contract. Movement
+and resizing use document coordinates across zoom and pan. Locks persist as editor
+metadata; group alignment and optional guides do not change rendering semantics.
+
+Modern cut saves include a `baseRevision` content hash for that cut's lettering.
+The process write queue compares it with current saved content before merging. A
+stale save returns HTTP409 without writing. Successful saves return the new
+revision, including saves that leave newer local edits dirty. The UI preserves a
+failed draft and offers copy/reload. Legacy API callers may omit the revision;
+this is not a multi-process lock or a guarantee against unconditional external
+writers. The one-external-writer project rule remains.
+
+Explicit bubble copy stores a clipboard envelope in the tab session,
+which survives reloads and cut navigation. Paste validates the envelope, inserts new objects and never
+replaces existing lettering automatically. Native system paste is handled through
+the clipboard event; text fields keep their normal text paste. Reload/discard
+confirmation stays inside the editor so its focus, recovery and cancellation
+remain accessible without a blocking browser dialog.

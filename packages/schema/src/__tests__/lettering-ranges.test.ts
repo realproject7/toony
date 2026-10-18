@@ -128,6 +128,17 @@ test("invalid gradient coordinates, stops, colors and text styles are rejected",
   );
 });
 
+test("object locking is optional, persists without changing text and rejects non-boolean state", () => {
+  const project = cloneValidProject(),
+    b = project.episodes[0]?.lettering[0];
+  assert.ok(b);
+  b.locked = true;
+  assert.equal(validateProject(project).valid, true);
+  assert.deepEqual(parseProject(serializeProject(project)), project);
+  Object.assign(b, { locked: "yes" });
+  assert.ok(validateProject(project).issues.some((i) => i.code === "style.locked"));
+});
+
 test("insert, replace and delete preserve unaffected ranges and defined inheritance", () => {
   const doc = {
     text: "ab CD",

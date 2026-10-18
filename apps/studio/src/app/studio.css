@@ -2370,3 +2370,314 @@ button.transition-block {
   flex-direction: column;
   gap: var(--space-1);
 }
+
+/* Direct lettering remains in project coordinates at every zoom. */
+.lettering-presets,
+.lettering-view-controls,
+.lettering-object-alignment {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.lettering-preset {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  font-size: 12px;
+}
+.lettering-preset svg {
+  width: 30px;
+  height: 26px;
+  flex-shrink: 0;
+}
+.lettering-preset[aria-pressed="true"],
+.lettering-view-controls [aria-pressed="true"] {
+  background: var(--color-accent);
+  color: var(--color-surface);
+}
+.lettering-view-controls {
+  font-size: 12px;
+}
+.lettering-view-controls output {
+  min-width: 36px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.lettering-view-controls > span {
+  flex-basis: 100%;
+  color: var(--color-muted);
+}
+.lettering-view-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.lettering-object-alignment {
+  font-size: 12px;
+}
+.lettering-object-alignment > span {
+  flex-basis: 100%;
+  color: var(--color-muted);
+}
+.lettering-viewport {
+  position: relative;
+  overflow: auto;
+  max-width: 100%;
+  height: min(66vh, 850px);
+  min-height: 280px;
+  padding: 16px;
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.lettering-viewport > .editor-stage {
+  margin: 0 auto;
+  flex-shrink: 0;
+}
+.lettering-object-settings {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.lettering-object-settings:disabled {
+  opacity: 0.6;
+}
+.lettering-no-art {
+  position: absolute;
+  inset: 20px;
+  color: var(--color-muted);
+  pointer-events: none;
+}
+[data-testid="inline-lettering-text"]::selection,
+[data-testid="inline-lettering-text"] *::selection {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+.geometry-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.geometry-controls input {
+  width: 100%;
+}
+.gradient-stop-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.gradient-stop-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.gradient-stop-controls input {
+  min-width: 0;
+  max-width: 100%;
+}
+.gradient-stop-controls input[type="color"] {
+  width: 100%;
+  height: 34px;
+}
+.alignment-symbol {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+.lettering-presets,
+.lettering-object-alignment {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.lettering-workspace {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+}
+.lettering-workspace .lettering-presets {
+  display: flex;
+  flex-direction: column;
+  align-self: start;
+  gap: 7px;
+}
+.lettering-workspace .lettering-preset {
+  width: 100%;
+  flex-direction: column;
+  padding: 9px 4px;
+  gap: 4px;
+  font-size: 11px;
+}
+.lettering-art-review summary,
+.lettering-alignment-menu summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.lettering-alignment-menu[open] .lettering-object-alignment {
+  padding-top: 8px;
+}
+.lettering-cut-picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.lettering-cut-picker select {
+  max-width: 120px;
+}
+.editor-focus {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  padding: 18px 22px;
+  background: var(--color-bg, var(--color-surface));
+  overflow: auto;
+}
+.editor-focus .page-head {
+  margin-bottom: 12px;
+  align-items: center;
+}
+.editor-focus .page-title {
+  font-size: 24px;
+  line-height: 1.2;
+}
+.editor-focus .page-eyebrow {
+  display: none;
+}
+.editor-focus .page-meta {
+  font-size: 12px;
+}
+.editor-focus .editor-layout {
+  grid-template-columns: minmax(0, 1fr) 310px;
+  grid-template-rows: minmax(0, 1fr);
+  height: calc(100dvh - 130px);
+  gap: 18px;
+}
+.editor-focus .editor-stage-wrap {
+  position: static;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+  gap: 8px;
+}
+.editor-focus .lettering-viewport {
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+}
+.editor-focus .editor-inspector {
+  position: static;
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+.editor-focus .editor-toolbar .btn {
+  font-size: 12px;
+  padding: 6px 11px;
+}
+@media (max-width: 1050px) {
+  .editor-focus .editor-layout {
+    grid-template-columns: minmax(0, 1fr) 270px;
+    gap: 12px;
+  }
+  .lettering-workspace {
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 8px;
+  }
+  .editor-focus {
+    padding: 14px;
+  }
+}
+.editor {
+  position: relative;
+}
+.editor-focus {
+  position: fixed;
+}
+.editor-actions [data-testid="editor-save"] {
+  min-width: 120px;
+}
+.lettering-alignment-menu[aria-disabled="true"] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.lettering-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  min-height: 32px;
+  margin: 0 0 8px;
+  color: var(--color-muted);
+  font-size: 12px;
+  overflow: hidden;
+}
+.lettering-status > span {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lettering-status.is-error {
+  color: var(--color-danger);
+}
+.lettering-status .btn {
+  padding: 3px 8px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.lettering-viewport {
+  flex-shrink: 0;
+}
+
+.editor-focus .lettering-workspace {
+  flex: 1;
+  min-height: 0;
+}
+.editor-focus .lettering-workspace .lettering-presets {
+  align-self: stretch;
+  max-height: 100%;
+  overflow: auto;
+}
+.lettering-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #11182770;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.lettering-confirm {
+  max-width: 440px;
+  padding: 24px;
+  border: 1px solid var(--color-line);
+  border-radius: 16px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-panel);
+}
+.lettering-confirm h2 {
+  margin-top: 0;
+  font-size: 20px;
+}
+.lettering-confirm p {
+  font-size: 14px;
+  line-height: 1.6;
+}
