@@ -1,6 +1,7 @@
 "use client";
 
 import { FONT_FAMILIES } from "@toony/fonts";
+import { bubbleKindStyle } from "@toony/render";
 import {
   defaultLetteringTextLayout,
   type LetteringOverlay,
@@ -16,13 +17,18 @@ export function LetteringTextField({
   overlay,
   referenceWidth,
   onChange,
+  externalSelection,
+  onRestoreSelection,
 }: {
   overlay: LetteringOverlay;
   referenceWidth: number;
   onChange: (patch: Partial<LetteringOverlay>) => void;
+  externalSelection?: { start: number; end: number };
+  onRestoreSelection?: () => void;
 }) {
   const textarea = useRef<HTMLTextAreaElement>(null);
-  const [selection, setSelection] = useState({ start: 0, end: 0 });
+  const [localSelection, setSelection] = useState({ start: 0, end: 0 });
+  const selection = externalSelection ?? localSelection;
   const select = (input: HTMLTextAreaElement) => {
     const bounds = letteringGraphemeBoundaries(input.value);
     const start = bounds.filter((b) => b <= input.selectionStart).at(-1) ?? 0;
@@ -39,6 +45,21 @@ export function LetteringTextField({
     );
     return values.size === 1 ? [...values][0] : undefined;
   };
+  const effective = (key: "fontWeight" | "fontStyle") => {
+    const inherited =
+      key === "fontStyle"
+        ? (overlay.fontStyle ?? "normal")
+        : (overlay.fontWeight ?? bubbleKindStyle(overlay.kind).fontWeight);
+    const values = new Set(
+      letteringGraphemeBoundaries(overlay.text)
+        .filter((b) => b >= selection.start && b < selection.end)
+        .map(
+          (b) =>
+            overlay.textRanges?.find((r) => r.start <= b && b < r.end)?.style[key] ?? inherited,
+        ),
+    );
+    return values.size === 1 ? [...values][0] : undefined;
+  };
   const apply = (patch: LetteringStylePatch, restoreFocus = true) => {
     if (!hasSelection) return;
     const doc = styleLetteringRange(overlay, selection.start, selection.end, patch);
@@ -48,13 +69,17 @@ export function LetteringTextField({
       textLayout: overlay.textLayout ?? defaultLetteringTextLayout(referenceWidth),
     });
     if (restoreFocus) {
+      if (externalSelection !== undefined) {
+        onRestoreSelection?.();
+        return;
+      }
       textarea.current?.focus();
       textarea.current?.setSelectionRange(selection.start, selection.end);
     }
   };
   return (
     <div className="field">
-      <label>
+      <label hidden={externalSelection !== undefined}>
         <span>Text</span>
         <textarea
           ref={textarea}
@@ -77,8 +102,8 @@ export function LetteringTextField({
               type="button"
               className="btn btn-chip"
               onMouseDown={(e) => e.preventDefault()}
-              aria-pressed={common("fontWeight") === 700}
-              onClick={() => apply({ fontWeight: common("fontWeight") === 700 ? null : 700 })}
+              aria-pressed={effective("fontWeight") === 700}
+              onClick={() => apply({ fontWeight: effective("fontWeight") === 700 ? 400 : 700 })}
             >
               Bold selection
             </button>
@@ -86,9 +111,9 @@ export function LetteringTextField({
               type="button"
               className="btn btn-chip"
               onMouseDown={(e) => e.preventDefault()}
-              aria-pressed={common("fontStyle") === "italic"}
+              aria-pressed={effective("fontStyle") === "italic"}
               onClick={() =>
-                apply({ fontStyle: common("fontStyle") === "italic" ? "normal" : "italic" })
+                apply({ fontStyle: effective("fontStyle") === "italic" ? "normal" : "italic" })
               }
             >
               Italic selection

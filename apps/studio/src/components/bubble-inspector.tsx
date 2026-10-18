@@ -51,8 +51,10 @@ import {
   type VerticalAlign,
 } from "@toony/schema";
 import { clamp } from "@/lib/clamp";
+import { AlignmentSymbol } from "./alignment-symbol";
 import { ColorPicker } from "./color-picker";
 import { FontCoverageNotice } from "./font-coverage-notice";
+import { GeometryControls } from "./geometry-controls";
 import { GradientControls } from "./gradient-controls";
 import { LetteringTextField } from "./lettering-text-field";
 import { TextLayoutControls } from "./text-layout-controls";
@@ -72,6 +74,8 @@ export interface BubbleInspectorProps {
   overflow: boolean;
   referenceWidth: number;
   fontSegments?: readonly RenderedTextSegment[];
+  directSelection?: { start: number; end: number };
+  onRestoreSelection?: () => void;
   onChange: (patch: Partial<LetteringOverlay>) => void;
   /** z-order helpers wired by the editor (re-stack the selected bubble). */
   onBringForward: () => void;
@@ -102,6 +106,8 @@ export function BubbleInspector({
   dialogueLanguage,
   referenceWidth,
   fontSegments = [],
+  directSelection,
+  onRestoreSelection,
 }: BubbleInspectorProps) {
   const supportsTail = kindSupportsTail(overlay.kind);
 
@@ -130,6 +136,14 @@ export function BubbleInspector({
   return (
     <div className="inspector-form" data-testid="bubble-inspector">
       <h2 className="card-title">Bubble</h2>
+      <LetteringTextField
+        key={overlay.id}
+        overlay={overlay}
+        referenceWidth={referenceWidth}
+        onChange={onChange}
+        externalSelection={directSelection}
+        onRestoreSelection={onRestoreSelection}
+      />
       <FontCoverageNotice segments={fontSegments} />
       {overlay.textLayout && overlay.textRanges === undefined && (
         <button type="button" className="btn btn-chip" onClick={() => onChange({ textRanges: [] })}>
@@ -174,13 +188,6 @@ export function BubbleInspector({
           ))}
         </select>
       </label>
-
-      <LetteringTextField
-        key={overlay.id}
-        overlay={overlay}
-        referenceWidth={referenceWidth}
-        onChange={onChange}
-      />
 
       {/* --- Craft (#93/#98/#99) -------------------------------------------- */}
       <fieldset className="field-group" data-testid="group-craft">
@@ -463,6 +470,7 @@ export function BubbleInspector({
                 onClick={() => onChange({ textAlign: align })}
                 data-testid={`field-align-${align}`}
               >
+                <AlignmentSymbol mode={align} />
                 {align}
               </button>
             ))}
@@ -483,6 +491,7 @@ export function BubbleInspector({
                 onClick={() => onChange({ verticalAlign: align })}
                 data-testid={`field-valign-${align}`}
               >
+                <AlignmentSymbol mode={align} vertical />
                 {align}
               </button>
             ))}
@@ -664,6 +673,8 @@ export function BubbleInspector({
           )}
         </div>
       </fieldset>
+
+      <GeometryControls overlay={overlay} onChange={onChange} />
 
       {/* --- Arrangement ---------------------------------------------------- */}
       <fieldset className="field-group" data-testid="group-arrangement">

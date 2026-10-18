@@ -26,7 +26,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!work) return badRequest(`unknown work "${payload.workId}"`);
   try {
     const result = await saveCutLettering(work.root, payload);
-    return Response.json(result, { status: result.ok ? 200 : 400 });
+    return Response.json(result, { status: result.ok ? 200 : result.conflict ? 409 : 400 });
   } catch (cause) {
     return Response.json(
       { ok: false, error: safeErrorMessage(cause, "could not save the lettering") },

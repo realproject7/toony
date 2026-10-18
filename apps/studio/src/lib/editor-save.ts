@@ -15,7 +15,9 @@ export interface SaveResponse {
   json: () => Promise<unknown>;
 }
 
-export type SaveOutcome = { ok: true; clean: boolean } | { ok: false; error: string };
+export type SaveOutcome =
+  | { ok: true; clean: boolean; revision?: string }
+  | { ok: false; error: string };
 
 /**
  * Read the save routes' `{ ok, error }` body defensively. A malformed body —
@@ -23,12 +25,13 @@ export type SaveOutcome = { ok: true; clean: boolean } | { ok: false; error: str
  * (`ok: false`), never a thrown property access, so a stray `null` payload can't
  * crash the (catch-free) save handlers.
  */
-function readBody(parsed: unknown): { ok: boolean; error?: string } {
+function readBody(parsed: unknown): { ok: boolean; error?: string; revision?: string } {
   if (typeof parsed !== "object" || parsed === null) return { ok: false };
   const record = parsed as Record<string, unknown>;
   return {
     ok: record.ok === true,
     error: typeof record.error === "string" ? record.error : undefined,
+    revision: typeof record.revision === "string" ? record.revision : undefined,
   };
 }
 
@@ -67,5 +70,5 @@ export async function persistWithGuard(args: {
   // An edit that landed while the request was in flight advanced the generation,
   // so the just-saved snapshot is already stale: reconcile by staying dirty.
   const clean = args.readGeneration() === args.generationAtStart;
-  return { ok: true, clean };
+  return { ok: true, clean, ...(body.revision ? { revision: body.revision } : {}) };
 }

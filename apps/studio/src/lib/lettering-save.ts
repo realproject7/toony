@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { loadProject, writeLettering } from "@toony/project-io";
 import { type LetteringOverlay, type Project, validateProject } from "@toony/schema";
@@ -7,6 +8,24 @@ export interface CutLetteringPayload {
   episodeId: string;
   cutId: string;
   overlays: LetteringOverlay[];
+  baseRevision?: string;
+}
+
+/** Compare saved content rather than timestamps or unrelated sibling cuts. */
+export function cutLetteringRevision(overlays: readonly LetteringOverlay[]): string {
+  const canonical = (value: unknown): unknown =>
+    Array.isArray(value)
+      ? value.map(canonical)
+      : value && typeof value === "object"
+        ? Object.fromEntries(
+            Object.entries(value)
+              .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+              .map(([key, item]) => [key, canonical(item)]),
+          )
+        : value;
+  return createHash("sha256")
+    .update(JSON.stringify(canonical(overlays)))
+    .digest("hex");
 }
 
 export function isCutLetteringPayload(value: unknown): value is CutLetteringPayload {
@@ -17,11 +36,15 @@ export function isCutLetteringPayload(value: unknown): value is CutLetteringPayl
     typeof v.episodeId === "string" &&
     typeof v.cutId === "string" &&
     v.cutId.length > 0 &&
-    Array.isArray(v.overlays)
+    Array.isArray(v.overlays) &&
+    (v.baseRevision === undefined ||
+      (typeof v.baseRevision === "string" && /^[a-f0-9]{64}$/.test(v.baseRevision)))
   );
 }
 
-type SaveResult = { ok: true; count: number } | { ok: false; error: string };
+type SaveResult =
+  | { ok: true; count: number; revision?: string }
+  | { ok: false; error: string; conflict?: boolean };
 
 // Serialize read/merge/write within this Studio process, including empty saves.
 // External CLI/Studio processes still require the project's single-writer rule.
@@ -58,6 +81,16 @@ async function mergeAndWrite(root: string, payload: CutLetteringPayload): Promis
     return { ok: false, error: `unknown cut "${cutId}"` };
   }
   if (
+    payload.baseRevision !== undefined &&
+    payload.baseRevision !== cutLetteringRevision(bundle.lettering.filter((b) => b.cutId === cutId))
+  )
+    return {
+      ok: false,
+      conflict: true,
+      error:
+        "This cut's lettering changed after you opened it. Your edits are still here. Copy them before reloading the saved version.",
+    };
+  if (
     overlays.some(
       (overlay) => typeof overlay !== "object" || overlay === null || overlay.cutId !== cutId,
     )
@@ -86,5 +119,9 @@ async function mergeAndWrite(root: string, payload: CutLetteringPayload): Promis
     };
   }
   await writeLettering(root, episodeId, lettering);
-  return { ok: true, count: overlays.length };
+  return {
+    ok: true,
+    count: overlays.length,
+    ...(payload.baseRevision !== undefined ? { revision: cutLetteringRevision(overlays) } : {}),
+  };
 }

@@ -812,6 +812,8 @@ function validateLetteringStyle(
   path: string,
   c: IssueCollector,
 ): void {
+  if (value.locked !== undefined && typeof value.locked !== "boolean")
+    c.add(joinPath(path, "locked"), "style.locked", "locked must be a boolean.");
   if (value.fontStyle !== undefined) {
     if (value.fontStyle !== "normal" && value.fontStyle !== "italic")
       c.add(joinPath(path, "fontStyle"), "style.font-style", "fontStyle must be normal or italic.");

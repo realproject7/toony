@@ -401,6 +401,8 @@ export interface LetteringOverlay {
   cornerRadius?: number;
   /** Stacking order among overlapping overlays (integer ≥ 0); absent → 0. */
   zIndex?: number;
+  /** Editor object lock. Rendering is unchanged; explicit unlocking permits edits. */
+  locked?: boolean;
 }
 
 /**

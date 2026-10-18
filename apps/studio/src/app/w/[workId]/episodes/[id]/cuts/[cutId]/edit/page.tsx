@@ -11,6 +11,7 @@ import { notFound } from "next/navigation";
 import { CutEditor } from "@/components/cut-editor";
 import { LoadError } from "@/components/load-error";
 import { cutFieldsOf } from "@/lib/cut-fields";
+import { cutLetteringRevision } from "@/lib/lettering-save";
 import { discoverStudioPacks } from "@/lib/packs";
 import {
   findEpisodeBundle,
@@ -65,6 +66,11 @@ export default async function CutEditorPage({
       cutId={cut.id}
       art={art}
       initialBubbles={bubbles}
+      initialLetteringRevision={cutLetteringRevision(bubbles)}
+      cutNavigation={bundle.cuts.map((c) => ({
+        id: c.id,
+        href: `/w/${encodeURIComponent(work.id)}/episodes/${encodeURIComponent(episodeId)}/cuts/${encodeURIComponent(c.id)}/edit`,
+      }))}
       initialReviewStatus={cut.reviewStatus}
       artworkRevision={artworkRevision}
       dialogueLanguage={loaded.project.webtoon.languages.dialogueLanguage}

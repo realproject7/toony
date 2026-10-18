@@ -20,7 +20,7 @@ import {
 const COALESCE_MS = 400;
 
 export interface EditHistoryControls<T> {
-  record: (options?: { coalesce?: boolean }) => void;
+  record: (options?: { coalesce?: boolean; key?: string }) => void;
   undo: () => T | null;
   redo: () => T | null;
   canUndo: boolean;
@@ -34,14 +34,20 @@ export function useEditHistory<T>(current: T): EditHistoryControls<T> {
   const historyRef = useRef(history);
   historyRef.current = history;
   const lastRecordRef = useRef(0);
+  const lastKeyRef = useRef<string | undefined>(undefined);
 
-  const record = useCallback((options?: { coalesce?: boolean }) => {
+  const record = useCallback((options?: { coalesce?: boolean; key?: string }) => {
     const now = Date.now();
-    if (options?.coalesce && now - lastRecordRef.current < COALESCE_MS) {
+    if (
+      options?.coalesce &&
+      options.key === lastKeyRef.current &&
+      now - lastRecordRef.current < COALESCE_MS
+    ) {
       lastRecordRef.current = now;
       return;
     }
     lastRecordRef.current = now;
+    lastKeyRef.current = options?.key;
     const next = pushRecord(historyRef.current, currentRef.current);
     historyRef.current = next;
     setHistory(next);
@@ -75,7 +81,7 @@ export function useEditHistory<T>(current: T): EditHistoryControls<T> {
 }
 
 /** True when a keyboard event started in a field that owns its own keys. */
-export function keyboardOwnedByField(event: KeyboardEvent): boolean {
+export function keyboardOwnedByField(event: Pick<KeyboardEvent, "target">): boolean {
   const target = event.target as HTMLElement | null;
   if (!target) return false;
   const tag = target.tagName;

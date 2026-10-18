@@ -184,3 +184,24 @@ test("linear gradient endpoints use body coordinates and preserve legacy solid p
   assert.deepEqual(g.stops, b.fillGradient.stops);
   assert.equal(layoutBubble(fixture, 800, 1000, { measure }).fillGradient, undefined);
 });
+
+test("native editing source spans preserve hard breaks, skipped wrap whitespace and whole graphemes", () => {
+  const text = "AA  👩‍🚀\r\n\r\n안녕하세요. Hello world.  ";
+  const plan = layoutBubble(
+    { ...fixture, text, textRanges: [], geometry: { x: 0, y: 0, width: 0.12, height: 0.9 } },
+    800,
+    1000,
+    { measure },
+  );
+  let end = 0,
+    recovered = "";
+  const boundaries = new Set(new Intl.Segmenter("und", { granularity: "grapheme" }).segment(text));
+  const points = new Set([...boundaries].map((part) => part.index).concat(text.length));
+  for (const line of plan.lines) {
+    assert.ok(line.sourceStart !== undefined && line.sourceEnd !== undefined);
+    assert.ok(points.has(line.sourceStart) && points.has(line.sourceEnd));
+    recovered += text.slice(end, line.sourceStart) + line.text;
+    end = line.sourceEnd;
+  }
+  assert.equal(recovered + text.slice(end), text);
+});
