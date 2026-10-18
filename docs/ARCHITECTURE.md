@@ -420,3 +420,16 @@ replaces existing lettering automatically. Native system paste is handled throug
 the clipboard event; text fields keep their normal text paste. Reload/discard
 confirmation stays inside the editor so its focus, recovery and cancellation
 remain accessible without a blocking browser dialog.
+
+The selected-object inspector groups text, bubble appearance and layout separately.
+Advanced spacing, placement and review controls use explicit disclosures. A native
+text selection exposes range formatting in place of whole-bubble typography.
+The type picker stays above these groups and preserves content, position, colors
+and text ranges when explicitly changing a kind; incompatible tails and shape
+overrides are reset. New or explicitly selected shout presets use a sharp outline.
+Saved overlays are never restyled automatically.
+
+Palette and type-picker thumbnails consume the same preset/type-change factories,
+render plans and SVG body as the artwork. Thumbnail strokes use a fixed display
+weight for legibility; the body/tail path and themed colors are shared. No separate
+illustrative icon geometry represents a different generated silhouette.

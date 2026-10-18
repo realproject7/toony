@@ -4,7 +4,7 @@
 // testable under the repo-standard node:test harness (#157), the way the save
 // reconciliation is (#150).
 
-import { bubbleKindStyle, kindSupportsTail } from "@toony/render";
+import { bubbleKindStyle, kindSupportsTail, layoutBubble } from "@toony/render";
 import {
   applyLetteringTheme,
   type BubbleKind,
@@ -73,6 +73,7 @@ export function presetOverlay(
   const overlay: LetteringOverlay = {
     ...base,
     kind,
+    ...(kind === "shout" ? { tone: "aggressive" as const } : {}),
     text: "",
     fill: bubbleKindStyle(kind).fill,
     geometry: { x, y, width, height },
@@ -82,4 +83,53 @@ export function presetOverlay(
     ...(kind === "narration" ? { cornerRadius: 0 } : {}),
   };
   return options.theme ? applyLetteringTheme(overlay, options.theme) : overlay;
+}
+
+export const BUBBLE_PRESETS: { kind: BubbleKind; label: string }[] = [
+  { kind: "speech", label: "Speech" },
+  { kind: "thought", label: "Thought" },
+  { kind: "shout", label: "Shout" },
+  { kind: "whisper", label: "Whisper" },
+  { kind: "narration", label: "Narration" },
+  { kind: "sfx", label: "Free text" },
+];
+export const bubbleKindLabel = (kind: BubbleKind) =>
+  BUBBLE_PRESETS.find((preset) => preset.kind === kind)?.label ??
+  (kind === "beat" ? "Silent beat" : "Ambient");
+
+/** An explicit type change keeps authored content, geometry, colors and text styles. */
+export function bubbleKindPatch(
+  overlay: LetteringOverlay,
+  kind: BubbleKind,
+): Partial<LetteringOverlay> {
+  if (kind === overlay.kind) return {};
+  const { x, y, width, height } = overlay.geometry;
+  return {
+    kind,
+    tone: kind === "shout" ? "aggressive" : "neutral",
+    cornerRadius: kind === "narration" ? 0 : undefined,
+    tail: kindSupportsTail(kind)
+      ? (overlay.tail ?? {
+          x: Math.min(1, x + width * 0.7),
+          y: y + height < 0.98 ? Math.min(1, y + height + 0.05) : Math.max(0, y - 0.05),
+        })
+      : null,
+    tailTarget: kindSupportsTail(kind) ? overlay.tailTarget : null,
+  };
+}
+
+export function presetPreviewPlan(
+  kind: BubbleKind,
+  options: Parameters<typeof presetOverlay>[4] & {
+    dialogueLanguage: string;
+    gutterBandWidth: number;
+  },
+) {
+  const overlay = presetOverlay("preview", 0, kind, { x: 0.5, y: 0.4 }, options);
+  return layoutBubble(
+    { ...overlay, id: `preset-${kind}`, ...(kind === "sfx" ? { text: "Aa", fontSize: 72 } : {}) },
+    options.width,
+    options.height,
+    { dialogueLanguage: options.dialogueLanguage, gutterBandWidth: options.gutterBandWidth },
+  );
 }
