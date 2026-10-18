@@ -239,7 +239,7 @@ export function BubbleInspector({
                     onBlur={(e) => {
                       const raw = e.target.value.trim();
                       if (!raw) {
-                        onChange({ fontSize: null });
+                        if (fontSize !== null) onChange({ fontSize: null });
                         return;
                       }
                       const value = Number(raw);
