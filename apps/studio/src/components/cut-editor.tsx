@@ -233,7 +233,10 @@ export function CutEditor({
         )
       )
         return;
-      history.record({ coalesce: true, key: `${id}:${Object.keys(patch).sort().join(",")}` });
+      history.record({
+        coalesce: patch.kind === undefined,
+        key: `${id}:${Object.keys(patch).sort().join(",")}`,
+      });
       setBubbles((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
       markDirty();
     },
@@ -1374,6 +1377,12 @@ export function CutEditor({
           )}
           <div className="lettering-workspace">
             <LetteringPresets
+              dialogueLanguage={dialogueLanguage}
+              gutterBandWidth={gutterBandWidth}
+              width={art.width}
+              height={art.height}
+              referenceWidth={referenceWidth}
+              theme={theme ?? undefined}
               armed={armed}
               onArm={(kind) => {
                 setEditingId(null);
@@ -1482,18 +1491,13 @@ export function CutEditor({
           {/* The cut's own fields (#332): prompt, cast, shot, palette, shape.
               Collapsed by default so the bubble stays the inspector's subject;
               saves on its own path and never touches the render record. */}
-          <CutFieldsEditor
-            workId={workId}
-            episodeId={episodeId}
-            cutId={cutId}
-            initial={cutFields}
-            characters={characters}
-            renderRecord={renderRecord}
-          />
           {selected ? (
             <fieldset className="lettering-object-settings" disabled={Boolean(selected.locked)}>
               <BubbleInspector
                 overlay={selected}
+                artWidth={art.width}
+                artHeight={art.height}
+                gutterBandWidth={gutterBandWidth}
                 referenceWidth={referenceWidth}
                 directSelection={editingId === selected.id ? textSelection : undefined}
                 onRestoreSelection={() => inlineRef.current?.focusSelection(textSelection)}
@@ -1517,6 +1521,17 @@ export function CutEditor({
               </p>
             </div>
           )}
+          <details className="inspector-cut-context">
+            <summary>Scene details</summary>
+            <CutFieldsEditor
+              workId={workId}
+              episodeId={episodeId}
+              cutId={cutId}
+              initial={cutFields}
+              characters={characters}
+              renderRecord={renderRecord}
+            />
+          </details>
         </aside>
       </div>
     </div>

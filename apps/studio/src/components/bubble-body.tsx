@@ -4,7 +4,13 @@ import type { BubbleRender } from "@toony/render";
 import { useId } from "react";
 
 /** The common body fill, gradient and outline for every Studio SVG surface. */
-export function BubbleBody({ plan }: { plan: BubbleRender }) {
+export function BubbleBody({
+  plan,
+  thumbnail = false,
+}: {
+  plan: BubbleRender;
+  thumbnail?: boolean;
+}) {
   const id = `bubble-fill-${useId().replace(/:/g, "")}`;
   const gradient = plan.fillGradient;
   if (!plan.hasBubble) return null;
@@ -36,7 +42,8 @@ export function BubbleBody({ plan }: { plan: BubbleRender }) {
         fill={gradient ? `url(#${id})` : plan.fill}
         fillOpacity={plan.fillOpacity}
         stroke={plan.stroke}
-        strokeWidth={plan.strokeWidth}
+        strokeWidth={thumbnail && plan.strokeWidth > 0 ? 1.1 : plan.strokeWidth}
+        vectorEffect={thumbnail ? "non-scaling-stroke" : undefined}
         strokeLinejoin="round"
       />
     </>

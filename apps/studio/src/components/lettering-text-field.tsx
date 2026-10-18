@@ -10,7 +10,7 @@ import {
   reconcileLetteringText,
   styleLetteringRange,
 } from "@toony/schema";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /** Native input keeps IME ownership; only explicit selection actions add rich ranges. */
 export function LetteringTextField({
@@ -19,12 +19,14 @@ export function LetteringTextField({
   onChange,
   externalSelection,
   onRestoreSelection,
+  onSelectionActive,
 }: {
   overlay: LetteringOverlay;
   referenceWidth: number;
   onChange: (patch: Partial<LetteringOverlay>) => void;
   externalSelection?: { start: number; end: number };
   onRestoreSelection?: () => void;
+  onSelectionActive?: (active: boolean) => void;
 }) {
   const textarea = useRef<HTMLTextAreaElement>(null);
   const [localSelection, setSelection] = useState({ start: 0, end: 0 });
@@ -36,6 +38,7 @@ export function LetteringTextField({
     setSelection({ start, end });
   };
   const hasSelection = selection.end > selection.start && selection.end <= overlay.text.length;
+  useEffect(() => onSelectionActive?.(hasSelection), [hasSelection, onSelectionActive]);
   const selected = overlay.text.slice(selection.start, selection.end);
   const common = (key: "fontFamily" | "fontWeight" | "fontSize" | "fontStyle" | "textColor") => {
     const values = new Set(
@@ -96,7 +99,9 @@ export function LetteringTextField({
       {hasSelection ? (
         <fieldset className="field-group" data-testid="selection-typography">
           <legend>Selected text</legend>
-          <small>{selected}</small>
+          <small className="selection-summary" title={selected}>
+            {selected}
+          </small>
           <div className="chip-row">
             <button
               type="button"
@@ -105,7 +110,7 @@ export function LetteringTextField({
               aria-pressed={effective("fontWeight") === 700}
               onClick={() => apply({ fontWeight: effective("fontWeight") === 700 ? 400 : 700 })}
             >
-              Bold selection
+              Bold
             </button>
             <button
               type="button"
@@ -116,7 +121,7 @@ export function LetteringTextField({
                 apply({ fontStyle: effective("fontStyle") === "italic" ? "normal" : "italic" })
               }
             >
-              Italic selection
+              Italic
             </button>
             <button
               type="button"
@@ -160,7 +165,7 @@ export function LetteringTextField({
             </select>
           </label>
           <label className="field">
-            <span>Selection size (reference px)</span>
+            <span>Selection size</span>
             <input
               aria-label="Selection font size"
               type="number"
@@ -194,9 +199,7 @@ export function LetteringTextField({
           </label>
         </fieldset>
       ) : (
-        <small>
-          Select text to format individual words. Unformatted text follows the bubble style.
-        </small>
+        <small>Select words to style them separately.</small>
       )}
     </div>
   );

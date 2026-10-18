@@ -5,14 +5,17 @@ import type { LetteringOverlay } from "@toony/schema";
 export function GradientControls({
   overlay,
   onChange,
+  embedded = false,
 }: {
   overlay: LetteringOverlay;
   onChange: (patch: Partial<LetteringOverlay>) => void;
+  embedded?: boolean;
 }) {
   const gradient = overlay.fillGradient;
+  const Container = embedded ? "div" : "fieldset";
   return (
-    <fieldset className="field-group">
-      <legend>Bubble fill</legend>
+    <Container className={embedded ? "inspector-fill" : "field-group"}>
+      {!embedded && <legend>Bubble fill</legend>}
       <label className="field">
         <span>Fill type</span>
         <select
@@ -199,6 +202,6 @@ export function GradientControls({
           </button>
         </>
       )}
-    </fieldset>
+    </Container>
   );
 }

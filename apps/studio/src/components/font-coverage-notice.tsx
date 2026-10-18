@@ -4,7 +4,13 @@ import { getFontFamily } from "@toony/fonts";
 import type { RenderedTextSegment } from "@toony/render";
 
 /** Report effective faces, including failures the host's font fallback can hide. */
-export function FontCoverageNotice({ segments }: { segments: readonly RenderedTextSegment[] }) {
+export function FontCoverageNotice({
+  segments,
+  compact = false,
+}: {
+  segments: readonly RenderedTextSegment[];
+  compact?: boolean;
+}) {
   const replacements = [
     ...new Set(
       segments
@@ -17,6 +23,13 @@ export function FontCoverageNotice({ segments }: { segments: readonly RenderedTe
   ];
   const missing = [...new Set(segments.flatMap((s) => s.missingCodepoints))];
   if (!replacements.length && !missing.length) return null;
+  if (compact && !missing.length)
+    return (
+      <details className="inspector-font-notice" data-testid="font-coverage-notice">
+        <summary>Font substitution</summary>
+        <p>{replacements.join(", ")}. Your selected font is preserved.</p>
+      </details>
+    );
   return (
     <div
       className="editor-toast editor-toast-warn"
