@@ -41,9 +41,8 @@ import type { CutFields } from "@/lib/cut-fields";
 import { resolveCutStage } from "@/lib/cut-stage";
 import { persistWithGuard } from "@/lib/editor-save";
 import { newOverlay } from "@/lib/new-overlay";
-import { bubbleTextStyle } from "@/lib/overlay-text-style";
 import type { CutArt } from "@/lib/project";
-import { svgLetterSpacing, svgTextAnchor } from "@/lib/text-anchor";
+import { BubbleText } from "./bubble-text";
 import { CutFieldsEditor } from "./cut-fields-editor";
 import { CutReviewControl } from "./cut-review-control";
 import { keyboardOwnedByField, useEditHistory } from "./use-edit-history";
@@ -717,7 +716,6 @@ export function CutEditor({
                   const by = b.geometry.y * height;
                   const bw = b.geometry.width * width;
                   const bh = b.geometry.height * height;
-                  const fontSize = plan.text.fontSize;
                   const handle = Math.max(width, height) * 0.012;
                   const impact = plan.impact;
                   return (
@@ -770,33 +768,7 @@ export function CutEditor({
                           />
                         </g>
                       )}
-                      {plan.lines.map((line, i) => (
-                        <text
-                          // biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines are a positional layout output; the index is the stable identity within one layout pass.
-                          key={`${plan.id}-line-${i}`}
-                          x={line.anchorX}
-                          y={line.baselineY ?? line.y + fontSize}
-                          // The resolved face goes on as a style, not a `font-family`
-                          // attribute: an SVG presentation attribute loses to any
-                          // author stylesheet rule (#229).
-                          style={bubbleTextStyle(plan)}
-                          fontSize={fontSize}
-                          fontWeight={plan.fontWeight}
-                          textAnchor={svgTextAnchor(plan.textAlign)}
-                          letterSpacing={svgLetterSpacing(plan.letterSpacing, fontSize)}
-                          fill={plan.textColor}
-                          // SFX outline width comes from the render plan (single
-                          // source: `textOutlineWidth`, >0 ⟺ SFX) so the editor,
-                          // preview, and export stroke it identically (#112).
-                          stroke={plan.textOutlineWidth > 0 ? plan.stroke : undefined}
-                          strokeWidth={
-                            plan.textOutlineWidth > 0 ? plan.textOutlineWidth : undefined
-                          }
-                          paintOrder="stroke"
-                        >
-                          {line.text}
-                        </text>
-                      ))}
+                      <BubbleText plan={plan} />
 
                       {/* Selection chrome + interaction handles. */}
                       <rect
@@ -916,23 +888,7 @@ export function CutEditor({
                           strokeLinejoin="round"
                         />
                       )}
-                      {plan.lines.map((line, i) => (
-                        <text
-                          // biome-ignore lint/suspicious/noArrayIndexKey: positional layout output.
-                          key={`${plan.id}-eline-${i}`}
-                          x={line.anchorX}
-                          y={line.baselineY ?? line.y + plan.text.fontSize}
-                          // Same reason as the art-bearing stage above (#229).
-                          style={bubbleTextStyle(plan)}
-                          fontSize={plan.text.fontSize}
-                          fontWeight={plan.fontWeight}
-                          textAnchor={svgTextAnchor(plan.textAlign)}
-                          letterSpacing={svgLetterSpacing(plan.letterSpacing, plan.text.fontSize)}
-                          fill={plan.textColor}
-                        >
-                          {line.text}
-                        </text>
-                      ))}
+                      <BubbleText plan={plan} />
                       <rect
                         x={bx}
                         y={by}

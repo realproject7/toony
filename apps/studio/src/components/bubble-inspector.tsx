@@ -51,6 +51,7 @@ import {
 } from "@toony/schema";
 import { clamp } from "@/lib/clamp";
 import { ColorPicker } from "./color-picker";
+import { LetteringTextField } from "./lettering-text-field";
 import { TextLayoutControls } from "./text-layout-controls";
 
 /** Font-size quick presets (px), within the schema's 6..200 bounds. */
@@ -162,15 +163,12 @@ export function BubbleInspector({
         </select>
       </label>
 
-      <label className="field">
-        <span>Text</span>
-        <textarea
-          rows={3}
-          value={overlay.text}
-          onChange={(e) => onChange({ text: e.target.value })}
-          data-testid="field-text"
-        />
-      </label>
+      <LetteringTextField
+        key={overlay.id}
+        overlay={overlay}
+        referenceWidth={referenceWidth}
+        onChange={onChange}
+      />
 
       {/* --- Craft (#93/#98/#99) -------------------------------------------- */}
       <fieldset className="field-group" data-testid="group-craft">

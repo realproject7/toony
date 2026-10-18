@@ -44,6 +44,7 @@ import {
   outlineDecorationFor,
   resolveCaptionPlate,
 } from "./style.js";
+import { layoutStyledText, type StyledTextSegment } from "./styled-text.js";
 import {
   type BubbleTextLayout,
   defaultBubbleFontRange,
@@ -54,7 +55,12 @@ import {
 } from "./text.js";
 
 /** A positioned line of wrapped body text, in the caller's pixel space. */
+export interface RenderedTextSegment extends StyledTextSegment {
+  baselineY: number;
+}
+
 export interface RenderedTextLine {
+  segments?: RenderedTextSegment[];
   text: string;
   /** Baseline-independent top-left x of this line's own column. */
   x: number;
@@ -472,7 +478,7 @@ export function layoutBubble(
   const padY = policy === undefined ? Math.max(2, oh * 0.08) : oh * policy.paddingY;
   // Fit in canonical reference units so different output widths cannot choose
   // different wrap points or half-pixel auto-fit steps. Legacy units stay exact.
-  const referenceText = layoutBubbleText(measure, renderText, ow / unitScale, oh / unitScale, {
+  const textOptions = {
     minFontSize: policy?.minFontSize ?? gutterFloor * style.fontScale,
     maxFontSize: policy?.maxFontSize ?? maxFontSize * style.fontScale,
     fontSize: overlay.fontSize ?? undefined,
@@ -483,7 +489,18 @@ export function layoutBubble(
     paddingX: padX / unitScale,
     paddingY: padY / unitScale,
     cornerRadius: drawsOutline ? radius / unitScale : 0,
-  });
+  };
+  const rich =
+    policy !== undefined && overlay.textRanges !== undefined
+      ? layoutStyledText(measure, renderText, overlay.textRanges, ow / unitScale, oh / unitScale, {
+          ...textOptions,
+          textColor,
+          fontFamily,
+        })
+      : undefined;
+  const referenceText =
+    rich?.layout ??
+    layoutBubbleText(measure, renderText, ow / unitScale, oh / unitScale, textOptions);
   const text =
     policy === undefined
       ? referenceText
@@ -523,12 +540,14 @@ export function layoutBubble(
         });
   const firstAscent = ink?.[0]?.ascent ?? 0;
   const blockHeight =
-    ink === undefined
-      ? text.lines.length * text.lineHeight
-      : Math.max(
-          0,
-          (text.lines.length - 1) * text.lineHeight + firstAscent + (ink.at(-1)?.descent ?? 0),
-        );
+    rich !== undefined
+      ? ((rich.lines.at(-1)?.baseline ?? 0) + (rich.lines.at(-1)?.descent ?? 0)) * unitScale
+      : ink === undefined
+        ? text.lines.length * text.lineHeight
+        : Math.max(
+            0,
+            (text.lines.length - 1) * text.lineHeight + firstAscent + (ink.at(-1)?.descent ?? 0),
+          );
   const vOffset =
     verticalAlign === "middle"
       ? Math.max(0, (innerHeight - blockHeight) / 2)
@@ -558,6 +577,38 @@ export function layoutBubble(
         textAlign === "left" ? lineLeft : textAlign === "right" ? ox + ow - padX - inset : centerX,
     };
   });
+
+  if (rich) {
+    lines.splice(
+      0,
+      lines.length,
+      ...rich.lines.map((line, i) => {
+        const inset = text.lineInsets[i] ?? 0;
+        const left =
+          textAlign === "left"
+            ? ox + padX + inset
+            : textAlign === "right"
+              ? ox + ow - padX - inset - line.width * unitScale
+              : centerX - (line.width * unitScale) / 2;
+        const baselineY = textOriginY + line.baseline * unitScale;
+        return {
+          text: line.text,
+          x: left,
+          y: baselineY - line.ascent * unitScale,
+          baselineY,
+          centerX,
+          anchorX: left,
+          segments: line.segments.map((segment) => ({
+            ...segment,
+            x: left + segment.x * unitScale,
+            width: segment.width * unitScale,
+            fontSize: segment.fontSize * unitScale,
+            baselineY,
+          })),
+        };
+      }),
+    );
+  }
 
   // Stored style overrides per-kind defaults. A stored border width is authored
   // in px; otherwise fall back to a height-relative base scaled per kind so the

@@ -38,6 +38,7 @@ export type {
   LayoutOptions,
   Rect,
   RenderedTextLine,
+  RenderedTextSegment,
 } from "./layout.js";
 export {
   ARTLESS_CUT_FILL,

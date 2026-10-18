@@ -24,13 +24,20 @@ import { GUTTER_BAND_WIDTH_DEFAULT } from "@toony/schema";
  * stays platform-independent.
  */
 export interface MeasureWidth {
-  (text: string, fontSize: number, fontWeight?: 400 | 700, fontFamily?: string): number;
+  (
+    text: string,
+    fontSize: number,
+    fontWeight?: 400 | 700,
+    fontFamily?: string,
+    mode?: "css",
+  ): number;
   /** Optional glyph ink metrics for reference-layout vertical alignment. */
   metrics?: (
     text: string,
     fontSize: number,
     fontWeight?: 400 | 700,
     fontFamily?: string,
+    mode?: "css",
   ) => { ascent: number; descent: number };
 }
 

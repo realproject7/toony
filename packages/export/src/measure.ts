@@ -27,11 +27,13 @@ export function createCanvasMeasure(): MeasureWidth {
     fontSize: number,
     fontWeight: 400 | 700 = 400,
     fontFamily?: string,
+    mode?: "css",
   ) => {
     // `fontFamily` is the render plan's already-resolved family id, so a direct
     // registry lookup is enough — no per-kind fallback needed here.
     const family = fontFamily ? getFontFamily(fontFamily) : undefined;
     const name = family ? canvasFamilyName(family, fontWeight) : FONT_FAMILY;
+    scratch.fontVariationSettings = mode === "css" ? `"wght" ${fontWeight}` : "normal";
     scratch.font = `${cssFaceWeight(fontWeight)} ${fontSize}px "${name}"`;
     return scratch.measureText(text);
   };

@@ -19,13 +19,11 @@ import {
 import type { LetteringOverlay } from "@toony/schema";
 import { useMemo } from "react";
 import { useBrowserMeasure } from "@/lib/browser-measure";
-import { bubbleTextStyle } from "@/lib/overlay-text-style";
 import type { CutArt } from "@/lib/project";
-import { svgLetterSpacing, svgTextAnchor } from "@/lib/text-anchor";
+import { BubbleText } from "./bubble-text";
 
 /** One bubble drawn as SVG from its geometry-core render plan. */
 function Bubble({ plan }: { plan: BubbleRender }) {
-  const fontSize = plan.text.fontSize;
   const impact = plan.impact;
   return (
     <g data-bubble-id={plan.id} data-overflow={plan.overflow ? "true" : undefined}>
@@ -64,30 +62,7 @@ function Bubble({ plan }: { plan: BubbleRender }) {
           />
         </g>
       )}
-      {plan.lines.map((line, i) => (
-        <text
-          // biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines are a positional, read-only layout output — the index is the stable identity within a single layout pass.
-          key={`${plan.id}-line-${i}`}
-          x={line.anchorX}
-          y={line.baselineY ?? line.y + fontSize}
-          // The resolved face goes on as a style, not a `font-family` attribute:
-          // an SVG presentation attribute loses to any author stylesheet rule (#229).
-          style={bubbleTextStyle(plan)}
-          fontSize={fontSize}
-          fontWeight={plan.fontWeight}
-          textAnchor={svgTextAnchor(plan.textAlign)}
-          letterSpacing={svgLetterSpacing(plan.letterSpacing, fontSize)}
-          fill={plan.textColor}
-          // SFX bare text is outlined so it reads on any background. Width comes
-          // from the render plan (single source: `textOutlineWidth`, >0 ⟺ SFX),
-          // so the SVG preview and the export raster stroke it identically (#112).
-          stroke={plan.textOutlineWidth > 0 ? plan.stroke : undefined}
-          strokeWidth={plan.textOutlineWidth > 0 ? plan.textOutlineWidth : undefined}
-          paintOrder="stroke"
-        >
-          {line.text}
-        </text>
-      ))}
+      <BubbleText plan={plan} />
     </g>
   );
 }

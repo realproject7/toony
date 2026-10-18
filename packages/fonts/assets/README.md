@@ -35,8 +35,11 @@ build time rather than shipping the full multi-megabyte fonts:
   full hiragana and katakana, and ~2,300 frequency-ordered common kanji. This
   covers the Jōyō range and ordinary prose.
 
-Variable source fonts (Noto Sans KR/JP, Nunito) are instanced to static weight
-files (400 and 700) before subsetting. Glyphs outside the subset fall back to the
+The Noto Sans KR/JP files are static weight instances. The current Nunito 400/700
+files contain identical variable data with a default weight of 200; their names
+alone do not select a static instance. Range-aware lettering explicitly selects
+the requested weight axis during raster measurement and drawing, matching CSS.
+Legacy rendering retains its previous behavior for compatibility. Glyphs outside the subset fall back to the
 registry's generic `sans-serif` fallback in the stack, both in the browser and in
 the canvas, so text never disappears.
 

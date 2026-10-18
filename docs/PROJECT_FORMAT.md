@@ -474,3 +474,49 @@ alignment; a selected theme can still provide explicit style overrides.
 Use an updated editor/export engine for this extension. Styled text ranges,
 italic font capabilities and gradient fill are separate contract work; this
 object does not imply those capabilities or copy the private prototype format.
+
+## Selected text styles
+
+Overlays with explicit `textLayout` may add `textRanges`. The plain `text` remains
+authoritative. Ranges use UTF-16 offsets with exclusive ends, aligned to complete
+graphemes. They must be ordered, non-overlapping and contain a supported override.
+There may be at most 2,048 ranges. For example, this emphasizes the first word:
+
+```json
+{
+  "text": "Hello there",
+  "textRanges": [
+    { "start": 0, "end": 5, "style": { "fontWeight": 700, "textColor": "#c62828" } }
+  ]
+}
+```
+
+Supported overrides are curated `fontFamily`, `fontWeight` (400/500/600/700),
+`fontSize` (6..200 reference pixels), and six- or eight-digit hex `textColor`.
+Absent properties inherit the bubble's resolved style. Line height, alignment and
+tracking apply to the whole bubble. Italic and gradient fill are separate work.
+
+A range size is authored at the bubble's fixed size or maximum auto-fit size.
+Auto-fit scales it with the body size, stopping at the smaller of its authored
+size and the layout's minimum. It does not keep large emphasized words fixed
+while shrinking only their neighbors. A mixed-size line advances by its tallest
+font/ink metrics. Explicit newlines and blank lines survive; long words wrap only
+at grapheme boundaries. Mixed-height rows use conservative corner clearance.
+Line baselines use the bundled fonts' shared OpenType typographic metrics, rather
+than platform-specific glyph ink rounding. PNG explicitly selects the weight axis
+of variable fonts. The shared plan contains positioned, resolved segments consumed
+by Studio and PNG.
+Existing overlays without `textRanges` retain their previous text-layout path.
+An explicit empty array retains range-aware wrapping after styles are cleared.
+
+The schema exports common selection/edit operations. Applying a style splits and
+merges intervals; a null patch restores inheritance. Insertion inherits the
+preceding grapheme (the first following one at offset zero); replacement inherits
+the first selected grapheme. Deletion preserves surviving styles. Native input
+updates reconcile their changed interval on grapheme boundaries, including IME
+composition and combining characters. Newly joined graphemes take the style at
+their start. These rules apply to literal text, never HTML or markup.
+
+Use an updated engine for this extension. Studio's initial selection controls
+live beside the native text field; direct artwork typing is a later interaction
+integration. Stored ranges and shared rendering do not imply that UI is complete.

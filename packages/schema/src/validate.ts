@@ -19,6 +19,7 @@ import {
   isString,
 } from "./guards.js";
 import { validateLetteringTextLayout } from "./lettering-layout.js";
+import { validateLetteringTextRanges } from "./lettering-ranges.js";
 import { foldingFilesystems, foldPathSafeId, isPathSafeId } from "./path-safe-id.js";
 import { validateGutterBandWidth } from "./presets.js";
 import {
@@ -812,6 +813,14 @@ function validateLetteringStyle(
   c: IssueCollector,
 ): void {
   validateLetteringTextLayout(value.textLayout, joinPath(path, "textLayout"), c);
+  validateLetteringTextRanges(
+    value.textRanges,
+    typeof value.text === "string" ? value.text : "",
+    joinPath(path, "textRanges"),
+    c,
+  );
+  if (value.textRanges !== undefined && value.textLayout === undefined)
+    c.add(path, "text-ranges.layout", "textRanges requires explicit textLayout units.");
   // fontFamily (#56): when present, must be one of the curated family ids. Absent
   // is valid and resolves to the per-kind default in @toony/render / @toony/export,
   // so projects written before this field existed keep validating and rendering.

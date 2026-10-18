@@ -1,3 +1,4 @@
+import type { LetteringTextRange } from "./lettering-ranges.js";
 // Shared schema definitions for Toony projects.
 //
 // This package owns the canonical structural model consumed by the preview
@@ -373,6 +374,8 @@ export interface LetteringOverlay {
   fontSize?: number | null;
   /** Versioned width-based typography; absent preserves legacy pixel/height fitting. */
   textLayout?: LetteringTextLayout;
+  /** Grapheme-aligned style overrides; requires explicit textLayout. */
+  textRanges?: LetteringTextRange[];
   /** Body font weight; absent → per-kind default (700 for shout/sfx). */
   fontWeight?: FontWeight;
   /** Line advance as a multiple of font size (0.8–2.5); absent → 1.2. */

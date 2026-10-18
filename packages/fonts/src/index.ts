@@ -26,3 +26,5 @@ export {
 // @toony/render and the studio's client components. Import them from
 // "@toony/fonts/node" in Node-only code (e.g. @toony/export's canvas
 // registration).
+
+export { fontTypography } from "./typography.js";

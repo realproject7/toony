@@ -32,6 +32,7 @@ export function createBrowserMeasure(): MeasureWidth | null {
     fontSize: number,
     fontWeight: 400 | 700 = 400,
     fontFamily?: string,
+    _mode?: "css",
   ) => {
     const key = `${fontFamily ?? ""}|${fontWeight}|${fontSize}`;
     let font = fontCache.get(key);
