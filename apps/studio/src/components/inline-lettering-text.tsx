@@ -29,7 +29,8 @@ export interface InlineTextHandle {
 function readText(root: Node): string {
   if (root.nodeType === Node.TEXT_NODE) return root.textContent ?? "";
   if (!(root instanceof HTMLElement)) return [...root.childNodes].map(readText).join("");
-  if (root.dataset.caretMarker !== undefined || root.dataset.placeholder !== undefined) return "";
+  if (root.dataset.caretMarker !== undefined || root.dataset.emptyLineBreak !== undefined)
+    return "";
   if (root.tagName === "BR") return "\n";
   const before = root.dataset.before;
   const blockBreak =
@@ -59,7 +60,8 @@ function restoreOffsets(root: HTMLElement, selection: TextSelection) {
   const points: { node: Node; start: number; end: number }[] = [];
   const visit = (node: Node) => {
     if (node instanceof HTMLElement) {
-      if (node.dataset.caretMarker !== undefined || node.dataset.placeholder !== undefined) return;
+      if (node.dataset.caretMarker !== undefined || node.dataset.emptyLineBreak !== undefined)
+        return;
       offset += (node.dataset.before ?? "").length;
     }
     if (node.nodeType === Node.TEXT_NODE) {
@@ -193,7 +195,7 @@ export function InlineLetteringText({
       if (!div.childNodes.length) {
         const span = document.createElement("span"),
           br = document.createElement("br");
-        br.dataset.placeholder = "";
+        br.dataset.emptyLineBreak = "";
         span.append(document.createTextNode(""), br);
         const marker = document.createElement("span");
         marker.dataset.caretMarker = "";
