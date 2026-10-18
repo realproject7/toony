@@ -119,6 +119,24 @@ function drawBubble(ctx: SKRSContext2D, b: BubbleRender): void {
 
   ctx.font = `${fontWeight} ${b.text.fontSize}px "${family}"`;
   for (const line of b.lines) {
+    if (line.segments) {
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
+      for (const segment of line.segments) {
+        const segmentFamily = canvasFontFamily(segment.fontFamily, segment.fontWeight, b.kind);
+        ctx.fontVariationSettings = `"wght" ${segment.fontWeight}`;
+        ctx.font = `${segment.fontWeight} ${segment.fontSize}px "${segmentFamily}"`;
+        ctx.fillStyle = segment.textColor;
+        if (!b.hasBubble) {
+          ctx.lineWidth = b.textOutlineWidth;
+          ctx.strokeStyle = b.stroke;
+          ctx.lineJoin = "round";
+          ctx.strokeText(segment.text, segment.x, segment.baselineY);
+        }
+        ctx.fillText(segment.text, segment.x, segment.baselineY);
+      }
+      continue;
+    }
     ctx.textBaseline = line.baselineY === undefined ? "top" : "alphabetic";
     const textY = line.baselineY ?? line.y;
     if (b.hasBubble) {
@@ -137,6 +155,7 @@ function drawBubble(ctx: SKRSContext2D, b: BubbleRender): void {
     }
   }
   ctx.letterSpacing = "0px";
+  ctx.fontVariationSettings = "normal";
 }
 
 export interface ComposeCutOptions {

@@ -3,6 +3,17 @@ export {
   type LetteringTextLayout,
   validateLetteringTextLayout,
 } from "./lettering-layout.js";
+export {
+  type LetteringRangeStyle,
+  type LetteringStylePatch,
+  type LetteringTextDocument,
+  type LetteringTextRange,
+  letteringGraphemeBoundaries,
+  reconcileLetteringText,
+  replaceLetteringText,
+  styleLetteringRange,
+  validateLetteringTextRanges,
+} from "./lettering-ranges.js";
 // Public API for @toony/schema: the shared structural model, its validators,
 // and canonical serialization for Toony projects.
 
