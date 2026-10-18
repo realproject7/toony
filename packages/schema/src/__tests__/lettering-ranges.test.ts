@@ -68,6 +68,66 @@ test("formatting splits, merges and clears overrides without changing plain text
   assert.throws(() => styleLetteringRange(a, 0, 1, { fontSize: NaN }));
 });
 
+test("italic range inheritance and bounded transparent gradients round trip without changing text", () => {
+  const project = cloneValidProject(),
+    overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  Object.assign(overlay, {
+    textLayout: defaultLetteringTextLayout(),
+    fontStyle: "italic",
+    ...styleLetteringRange({ text: "Hello 안녕" }, 6, 8, { fontStyle: "normal" }),
+    fillGradient: {
+      angle: 35,
+      stops: [
+        { offset: 0, color: "#ffffff00" },
+        { offset: 0.3, color: "#ddffee" },
+        { offset: 1, color: "#112233cc" },
+      ],
+    },
+  });
+  assert.equal(validateProject(project).valid, true);
+  assert.deepEqual(parseProject(serializeProject(project)), project);
+  assert.equal(
+    replaceLetteringText(overlay, 7, 8, "하세요").textRanges?.[0]?.style.fontStyle,
+    "normal",
+  );
+  delete overlay.textLayout;
+  assert.ok(validateProject(project).issues.some((i) => i.code === "style.font-style-layout"));
+});
+
+test("invalid gradient coordinates, stops, colors and text styles are rejected", () => {
+  const project = cloneValidProject(),
+    overlay = project.episodes[0]?.lettering[0];
+  assert.ok(overlay);
+  const stop = { offset: 0, color: "#ffffff" },
+    last = { offset: 1, color: "#222222" };
+  for (const gradient of [
+    false,
+    {},
+    { angle: NaN, stops: [stop, last] },
+    { angle: 360, stops: [stop, last] },
+    { angle: -1, stops: [stop, last] },
+    { angle: 0, stops: [stop] },
+    { angle: 0, stops: Array(9).fill(stop) },
+    { angle: 0, stops: [last, stop] },
+    { angle: 0, stops: [{ offset: -0.1, color: "#ffffff" }, last] },
+    { angle: 0, stops: [stop, { offset: 1.1, color: "#ffffff" }] },
+    { angle: 0, stops: [stop, { offset: 1, color: "url(file)" }] },
+  ]) {
+    Object.assign(overlay, { fillGradient: gradient });
+    assert.equal(validateProject(project).valid, false, JSON.stringify(gradient));
+  }
+  Object.assign(overlay, {
+    fillGradient: null,
+    fontStyle: "oblique",
+    textLayout: defaultLetteringTextLayout(),
+  });
+  assert.equal(validateProject(project).valid, false);
+  assert.throws(() =>
+    styleLetteringRange({ text: "abc" }, 0, 1, { fontStyle: "invalid" } as never),
+  );
+});
+
 test("insert, replace and delete preserve unaffected ranges and defined inheritance", () => {
   const doc = {
     text: "ab CD",

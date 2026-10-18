@@ -76,3 +76,100 @@ test("range measurement selects the variable weight axis without changing legacy
     "CSS mode must reset before a legacy call",
   );
 });
+
+test("bundled Korean fallback draws identically to explicitly selecting the effective face", async () => {
+  const base = { ...fixture, text: "안녕하세요", textRanges: [], fontFamily: "bangers" as const };
+  const fallback = await composeCut([base], null, 800, { panelAspect: 1 });
+  const explicit = await composeCut([{ ...base, fontFamily: "noto-sans-kr" }], null, 800, {
+    panelAspect: 1,
+  });
+  assert.deepEqual(fallback.canvas.toBuffer("image/png"), explicit.canvas.toBuffer("image/png"));
+  const plan = layoutBubble(base, 800, 800, { measure: createCanvasMeasure() });
+  assert.deepEqual(
+    plan.lines.flatMap((line) => line.segments ?? []).map((run) => run.fontFamily),
+    ["noto-sans-kr"],
+  );
+});
+
+test("geometric italic changes actual raster ink and an upright range restores the original", async () => {
+  const base = { ...fixture, text: "Hello", textRanges: [], fontFamily: "nunito" as const };
+  const upright = await composeCut([base], null, 800, { panelAspect: 1 });
+  const italic = await composeCut([{ ...base, fontStyle: "italic" }], null, 800, {
+    panelAspect: 1,
+  });
+  assert.notDeepEqual(italic.canvas.toBuffer("image/png"), upright.canvas.toBuffer("image/png"));
+  const cleared = await composeCut(
+    [
+      {
+        ...base,
+        fontStyle: "italic",
+        textRanges: [{ start: 0, end: 5, style: { fontStyle: "normal" } }],
+      },
+    ],
+    null,
+    800,
+    { panelAspect: 1 },
+  );
+  assert.deepEqual(cleared.canvas.toBuffer("image/png"), upright.canvas.toBuffer("image/png"));
+});
+
+test("linear bubble fill uses resolved stops and alpha without leaking into another bubble", async () => {
+  const b = {
+    ...fixture,
+    text: "",
+    border: { width: 0, color: "#000000" },
+    cornerRadius: 0,
+    fillGradient: {
+      angle: 0,
+      stops: [
+        { offset: 0, color: "#ff0000" },
+        { offset: 1, color: "#0000ff" },
+      ],
+    },
+  };
+  const out = await composeCut([b], null, 800, { panelAspect: 1 });
+  const ctx = out.canvas.getContext("2d");
+  const left = ctx.getImageData(90, 160, 1, 1).data,
+    right = ctx.getImageData(710, 160, 1, 1).data;
+  assert.ok((left[0] ?? 0) > 230 && (left[2] ?? 255) < 25);
+  assert.ok((right[2] ?? 0) > 230 && (right[0] ?? 255) < 25);
+  const second = {
+    ...b,
+    id: "solid-after-gradient",
+    fillGradient: null,
+    fill: "#00ff00",
+    geometry: { x: 0.1, y: 0.75, width: 0.8, height: 0.1 },
+  };
+  const mixed = await composeCut([b, second], null, 800, { panelAspect: 1 });
+  assert.deepEqual(
+    [...mixed.canvas.getContext("2d").getImageData(400, 640, 1, 1).data],
+    [0, 255, 0, 255],
+  );
+  const alpha = await composeCut(
+    [
+      {
+        ...b,
+        opacity: 0.5,
+        fillGradient: {
+          angle: 0,
+          stops: [
+            { offset: 0, color: "#ff000080" },
+            { offset: 1, color: "#ff000080" },
+          ],
+        },
+      },
+    ],
+    null,
+    800,
+    { panelAspect: 1 },
+  );
+  const alphaCtx = alpha.canvas.getContext("2d"),
+    background = alphaCtx.getImageData(0, 0, 1, 1).data;
+  const pixel = alphaCtx.getImageData(400, 160, 1, 1).data;
+  for (let channel = 0; channel < 3; channel++) {
+    const expected =
+      (((channel === 0 ? 255 : 0) * 128) / 255) * 0.5 +
+      (background[channel] ?? 0) * (1 - (128 / 255) * 0.5);
+    assert.ok(Math.abs((pixel[channel] ?? 0) - expected) <= 1);
+  }
+});

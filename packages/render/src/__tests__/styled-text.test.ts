@@ -124,3 +124,63 @@ test("wrapping keeps closing punctuation with the preceding grapheme", () => {
   assert.ok(p.text.lines.length > 1);
   assert.ok(p.text.lines.every((line) => !/^[.!?]/u.test(line)));
 });
+
+test("fallback faces participate in measurement and missing clusters remain inspectable", () => {
+  const seen = new Set<string>();
+  const faceAware: MeasureWidth = (text, size, _weight, family) => {
+    seen.add(family ?? "");
+    return [...text].length * size * (family === "noto-sans-kr" ? 1 : 0.5);
+  };
+  const p = layoutBubble(
+    { ...fixture, text: "안녕👩‍🚀", textRanges: [], fontFamily: "bangers" },
+    800,
+    1000,
+    { measure: faceAware },
+  );
+  const runs = p.lines.flatMap((line) => line.segments ?? []);
+  assert.ok(seen.has("noto-sans-kr"));
+  assert.equal(runs[0]?.fontFamily, "noto-sans-kr");
+  assert.equal(runs[0]?.requestedFontFamily, "bangers");
+  assert.equal(runs[0]?.width, 40);
+  assert.equal(runs.at(-1)?.text, "👩‍🚀");
+  assert.deepEqual(runs.at(-1)?.missingCodepoints, [0x1f469, 0x1f680]);
+});
+
+test("geometric oblique reserves overhang, scales and can be cleared within an italic body", () => {
+  const b = {
+    ...fixture,
+    text: "Hello world",
+    fontStyle: "italic" as const,
+    textRanges: [{ start: 6, end: 11, style: { fontStyle: "normal" as const } }],
+  };
+  const p = layoutBubble(b, 800, 1000, { measure });
+  const runs = p.lines[0]?.segments ?? [];
+  assert.ok((runs[0]?.skew ?? 0) > 0);
+  assert.ok((runs[0]?.textOffsetX ?? 0) > 0);
+  assert.equal(runs[1]?.skew, 0);
+  assert.ok((runs[0]?.width ?? 0) > measure("Hello ", 20));
+  const small = layoutBubble(b, 400, 500, { measure }).lines[0]?.segments?.[0];
+  assert.equal((small?.textOffsetX ?? 0) * 2, runs[0]?.textOffsetX);
+  assert.equal(small?.skew, runs[0]?.skew);
+});
+
+test("linear gradient endpoints use body coordinates and preserve legacy solid plans", () => {
+  const b = {
+    ...fixture,
+    fillGradient: {
+      angle: 90,
+      stops: [
+        { offset: 0, color: "#ffffff00" },
+        { offset: 1, color: "#000000" },
+      ],
+    },
+  };
+  const p = layoutBubble(b, 800, 1000, { measure });
+  const g = p.fillGradient;
+  assert.ok(g);
+  assert.ok(Math.abs(g.x1 - (p.box.x + p.box.width / 2)) < 1e-6);
+  assert.equal(g.y1, p.box.y);
+  assert.equal(g.y2, p.box.y + p.box.height);
+  assert.deepEqual(g.stops, b.fillGradient.stops);
+  assert.equal(layoutBubble(fixture, 800, 1000, { measure }).fillGradient, undefined);
+});

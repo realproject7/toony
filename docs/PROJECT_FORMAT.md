@@ -492,6 +492,7 @@ There may be at most 2,048 ranges. For example, this emphasizes the first word:
 ```
 
 Supported overrides are curated `fontFamily`, `fontWeight` (400/500/600/700),
+`fontStyle` (`normal` or `italic`),
 `fontSize` (6..200 reference pixels), and six- or eight-digit hex `textColor`.
 Absent properties inherit the bubble's resolved style. Line height, alignment and
 tracking apply to the whole bubble. Italic and gradient fill are separate work.
@@ -506,7 +507,35 @@ Line baselines use the bundled fonts' shared OpenType typographic metrics, rathe
 than platform-specific glyph ink rounding. PNG explicitly selects the weight axis
 of variable fonts. The shared plan contains positioned, resolved segments consumed
 by Studio and PNG.
-Existing overlays without `textRanges` retain their previous text-layout path.
+Existing overlays without `textRanges` and without an explicit `fontStyle` retain
+their previous text-layout path. Newly created Studio bubbles write an empty range
+array to use the shared range layout and bundled font fallback.
+
+The optional body `fontStyle` also requires `textLayout`. `italic` is a shared
+12-degree geometric oblique transform of the registered upright face, not a
+separate italic font asset or platform font synthesis. A range may explicitly set
+`normal` within an italic body. Layout reserves the slanted ink's overhang before
+wrapping; Studio and PNG apply the identical baseline transform.
+
+Range layout checks actual bundled cmap coverage for each complete grapheme.
+When the requested face lacks it, resolution tries Nunito, Noto Sans KR, Noto Sans
+JP, then remaining registry families in display order. Requested style and literal
+text stay saved. Studio reports effective fallback faces. If no bundled face
+covers a cluster, Studio shows its unresolved codepoints; host font fallback can
+then differ between preview and export. Cmap availability does not guarantee
+complex-script shaping or emoji sequence support. Legacy host fallback stays
+unchanged until the user explicitly enables the new layout/range path.
+
+A body may also set `fillGradient` to `{ "angle": 90, "stops": [
+{ "offset": 0, "color": "#ffffff" }, { "offset": 1, "color": "#d9e4ef80" }
+] }`. Angles are finite in 0..<360, clockwise from left-to-right. Two to eight
+stops use nondecreasing offsets in 0..1 and six/eight-digit hex colors. Equal
+positions allow hard color changes. The first/last stop extend to the endpoints.
+Coordinates span the body's projection along the angle and are shared by SVG
+and Canvas, including the connected tail. Body `opacity` multiplies stop alpha;
+text and border keep their existing opacity semantics. Absent/null gradient uses
+solid `fill`. Bare SFX has no body fill. Authored gradient colors need their own
+contrast check; they do not inherit the solid narration plate's contrast guarantee.
 An explicit empty array retains range-aware wrapping after styles are cleared.
 
 The schema exports common selection/edit operations. Applying a style splits and

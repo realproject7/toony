@@ -812,6 +812,46 @@ function validateLetteringStyle(
   path: string,
   c: IssueCollector,
 ): void {
+  if (value.fontStyle !== undefined) {
+    if (value.fontStyle !== "normal" && value.fontStyle !== "italic")
+      c.add(joinPath(path, "fontStyle"), "style.font-style", "fontStyle must be normal or italic.");
+    if (value.textLayout === undefined)
+      c.add(path, "style.font-style-layout", "fontStyle requires explicit textLayout units.");
+  }
+  if (value.fillGradient !== undefined && value.fillGradient !== null) {
+    const gradient = value.fillGradient;
+    const p = joinPath(path, "fillGradient");
+    if (
+      !isPlainObject(gradient) ||
+      !isFiniteNumber(gradient.angle) ||
+      gradient.angle < 0 ||
+      gradient.angle >= 360 ||
+      !Array.isArray(gradient.stops) ||
+      gradient.stops.length < 2 ||
+      gradient.stops.length > 8
+    ) {
+      c.add(p, "style.gradient", "Gradient needs angle in 0..<360 and 2..8 stops.");
+    } else {
+      let previous = -1;
+      for (const stop of gradient.stops) {
+        if (
+          !isPlainObject(stop) ||
+          !isFiniteNumber(stop.offset) ||
+          stop.offset < 0 ||
+          stop.offset > 1 ||
+          stop.offset < previous ||
+          typeof stop.color !== "string" ||
+          !/^#[\da-f]{6}(?:[\da-f]{2})?$/i.test(stop.color)
+        )
+          c.add(
+            p,
+            "style.gradient-stop",
+            "Stops must be ordered offsets in 0..1 with six/eight-digit hex colors.",
+          );
+        if (isPlainObject(stop) && isFiniteNumber(stop.offset)) previous = stop.offset;
+      }
+    }
+  }
   validateLetteringTextLayout(value.textLayout, joinPath(path, "textLayout"), c);
   validateLetteringTextRanges(
     value.textRanges,

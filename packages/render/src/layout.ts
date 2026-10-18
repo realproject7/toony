@@ -36,6 +36,7 @@ import {
   speechTailGeometry,
   type TailGeometry,
 } from "./geometry.js";
+import { type LetteringGradient, resolveLetteringGradient } from "./lettering-fill.js";
 import { approximateMeasure } from "./measure.js";
 import {
   bubbleKindStyle,
@@ -112,6 +113,7 @@ export interface BubbleRender {
    * `fillOpacity` composites exactly what the contrast floor was proven against.
    */
   fill: string;
+  fillGradient?: LetteringGradient | null;
   stroke: string;
   textColor: string;
   /** Stroke width in pixels. */
@@ -491,12 +493,20 @@ export function layoutBubble(
     cornerRadius: drawsOutline ? radius / unitScale : 0,
   };
   const rich =
-    policy !== undefined && overlay.textRanges !== undefined
-      ? layoutStyledText(measure, renderText, overlay.textRanges, ow / unitScale, oh / unitScale, {
-          ...textOptions,
-          textColor,
-          fontFamily,
-        })
+    policy !== undefined && (overlay.textRanges !== undefined || overlay.fontStyle !== undefined)
+      ? layoutStyledText(
+          measure,
+          renderText,
+          overlay.textRanges ?? [],
+          ow / unitScale,
+          oh / unitScale,
+          {
+            ...textOptions,
+            textColor,
+            fontFamily,
+            fontStyle: overlay.fontStyle,
+          },
+        )
       : undefined;
   const referenceText =
     rich?.layout ??
@@ -603,6 +613,7 @@ export function layoutBubble(
             x: left + segment.x * unitScale,
             width: segment.width * unitScale,
             fontSize: segment.fontSize * unitScale,
+            textOffsetX: segment.textOffsetX * unitScale,
             baselineY,
           })),
         };
@@ -656,6 +667,16 @@ export function layoutBubble(
     pathD,
     tail,
     fill,
+    ...(overlay.fillGradient
+      ? {
+          fillGradient: resolveLetteringGradient(overlay.fillGradient, {
+            x: ox,
+            y: oy,
+            width: ow,
+            height: oh,
+          }),
+        }
+      : {}),
     stroke,
     textColor,
     strokeWidth,

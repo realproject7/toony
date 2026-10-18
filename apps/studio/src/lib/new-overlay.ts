@@ -35,6 +35,7 @@ export function newOverlay(
     text: "New bubble",
     verticalAlign: "middle",
     textLayout: defaultLetteringTextLayout(referenceWidth),
+    textRanges: [],
     fill: bubbleKindStyle("speech").fill,
     opacity: 1,
     border: null,

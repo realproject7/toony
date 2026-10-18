@@ -378,6 +378,10 @@ export interface LetteringOverlay {
   textRanges?: LetteringTextRange[];
   /** Body font weight; absent → per-kind default (700 for shout/sfx). */
   fontWeight?: FontWeight;
+  /** Explicit 12-degree geometric oblique; requires textLayout. Absent keeps existing appearance. */
+  fontStyle?: "normal" | "italic";
+  /** Optional linear body fill. Solid fill remains the fallback; opacity applies to either. */
+  fillGradient?: { angle: number; stops: { offset: number; color: string }[] } | null;
   /** Line advance as a multiple of font size (0.8–2.5); absent → 1.2. */
   lineHeight?: number;
   /** Horizontal text alignment; absent → "center". */

@@ -22,26 +22,29 @@ all import it so the SAME face renders in the SVG preview and the exported raste
 
 ## Subset approach (why the bundle stays light)
 
-The Latin faces are subset to ASCII plus common typographic punctuation. The CJK
-faces are the expensive ones, so they are subset to a curated glyph coverage at
-build time rather than shipping the full multi-megabyte fonts:
+The files are subsets; a family's script label is a browsing aid, not proof that
+any particular character is present. Coverage differs between the Korean faces,
+and the bundled Anton subset lacks many basic Latin letters. Do not infer glyph
+availability from a filename or the family name.
 
-- **Korean** faces (`noto-sans-kr`, `gaegu`, `nanum-pen`): 4,941 codepoints —
-  ASCII + punctuation, the modern Hangul jamo, and the everyday Hangul syllable
-  block composed from the 19 leading consonants × 21 vowels × the common final
-  consonants. This covers virtually all everyday Korean text while leaving out
-  the rare-syllable long tail that bloats the full block (11,172 syllables).
-- **Japanese** faces (`noto-sans-jp`): 2,606 codepoints — ASCII + punctuation,
-  full hiragana and katakana, and ~2,300 frequency-ordered common kanji. This
-  covers the Jōyō range and ordinary prose.
+`../src/coverage-data.ts` records each file's SHA-256 and actual cmap intervals.
+Tests tie this metadata to the bundled bytes. Regenerate from the repository root
+with `python3 scripts/font-coverage.py` (local FontTools and Node are required),
+then format that generated file with Biome. This maintenance step downloads
+nothing. Runtime code and normal builds do not need Python.
+
+New range layout resolves each complete grapheme to a supporting bundled face
+and reports the effective fallback in Studio. If no bundled face supports it,
+the text is preserved and Studio reports unresolved codepoints. System fallback
+in that case is not preview/export parity evidence. Cmap coverage alone is not a
+complex-script shaping guarantee. Existing legacy lettering retains its original
+host fallback until explicitly converted.
 
 The Noto Sans KR/JP files are static weight instances. The current Nunito 400/700
 files contain identical variable data with a default weight of 200; their names
-alone do not select a static instance. Range-aware lettering explicitly selects
-the requested weight axis during raster measurement and drawing, matching CSS.
-Legacy rendering retains its previous behavior for compatibility. Glyphs outside the subset fall back to the
-registry's generic `sans-serif` fallback in the stack, both in the browser and in
-the canvas, so text never disappears.
+alone do not select a static instance. Range-aware lettering selects the requested
+weight axis during raster measurement and drawing, matching CSS. Legacy rendering
+retains its previous behavior for compatibility.
 
 Subsetting was done with `fonttools` (`fontTools.subset` + `fontTools.varLib.
 instancer`) producing `woff2`. `@napi-rs/canvas` registers these same `woff2`
