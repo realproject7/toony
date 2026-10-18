@@ -18,7 +18,7 @@
 // interaction — it never bakes a default onto a bubble that never had one.
 
 import { defaultFontFamilyForKind, FONT_FAMILIES, type FontFamilyId } from "@toony/fonts";
-import { kindSupportsTail } from "@toony/render";
+import { kindSupportsTail, type RenderedTextSegment } from "@toony/render";
 import {
   BUBBLE_KINDS,
   BUBBLE_TONES,
@@ -26,6 +26,7 @@ import {
   type BubbleTone,
   CORNER_RADIUS_MAX_PX,
   CORNER_RADIUS_MIN_PX,
+  defaultLetteringTextLayout,
   FONT_SIZE_MAX_PX,
   FONT_SIZE_MIN_PX,
   FONT_WEIGHTS,
@@ -51,6 +52,8 @@ import {
 } from "@toony/schema";
 import { clamp } from "@/lib/clamp";
 import { ColorPicker } from "./color-picker";
+import { FontCoverageNotice } from "./font-coverage-notice";
+import { GradientControls } from "./gradient-controls";
 import { LetteringTextField } from "./lettering-text-field";
 import { TextLayoutControls } from "./text-layout-controls";
 
@@ -68,6 +71,7 @@ export interface BubbleInspectorProps {
   overlay: LetteringOverlay;
   overflow: boolean;
   referenceWidth: number;
+  fontSegments?: readonly RenderedTextSegment[];
   onChange: (patch: Partial<LetteringOverlay>) => void;
   /** z-order helpers wired by the editor (re-stack the selected bubble). */
   onBringForward: () => void;
@@ -97,6 +101,7 @@ export function BubbleInspector({
   projectPalette,
   dialogueLanguage,
   referenceWidth,
+  fontSegments = [],
 }: BubbleInspectorProps) {
   const supportsTail = kindSupportsTail(overlay.kind);
 
@@ -125,6 +130,13 @@ export function BubbleInspector({
   return (
     <div className="inspector-form" data-testid="bubble-inspector">
       <h2 className="card-title">Bubble</h2>
+      <FontCoverageNotice segments={fontSegments} />
+      {overlay.textLayout && overlay.textRanges === undefined && (
+        <button type="button" className="btn btn-chip" onClick={() => onChange({ textRanges: [] })}>
+          Use bundled font fallback
+        </button>
+      )}
+      {overlay.kind !== "sfx" && <GradientControls overlay={overlay} onChange={onChange} />}
 
       {overflow && (
         <div className="editor-toast editor-toast-warn" data-testid="inspector-overflow">
@@ -356,7 +368,9 @@ export function BubbleInspector({
         <TextLayoutControls
           layout={overlay.textLayout}
           referenceWidth={referenceWidth}
-          onChange={(textLayout) => onChange({ textLayout })}
+          onChange={(textLayout) =>
+            onChange({ textLayout, ...(!overlay.textLayout ? { textRanges: [] } : {}) })
+          }
         />
         <div className="field">
           <span>Size</span>
@@ -406,6 +420,19 @@ export function BubbleInspector({
         </div>
 
         <div className="field">
+          <button
+            type="button"
+            className="btn btn-chip"
+            aria-pressed={overlay.fontStyle === "italic"}
+            onClick={() =>
+              onChange({
+                fontStyle: overlay.fontStyle === "italic" ? "normal" : "italic",
+                textLayout: overlay.textLayout ?? defaultLetteringTextLayout(referenceWidth),
+              })
+            }
+          >
+            Italic · 12° oblique
+          </button>
           <span>Weight</span>
           <div className="chip-row">
             {FONT_WEIGHTS.map((weight) => (

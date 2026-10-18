@@ -1,15 +1,15 @@
 {
   "sourceCommit": "3fff337c07bb96f96e874dec1317f664dddecab5",
-  "evidence": "Full Node 20 and 24 gate of main at 3fff337 (PR #338) on 2026-10-13: 1130 passed in these 10 packages and 42 verification controls. Later PRs on the same day raised floors with their tests: #339 (schema 136, project-io 143, cli 241), #340 (cli 255), #341 (studio 78), #342 (studio 88). The #327 PR adds schema +3, packs +2, providers +5 and cli +5 (139, 34, 82, 260). The #328/#329 PR adds schema +1, project-io +2, cli +1 and studio +6 (140, 145, 261, 94). The #334-#336 PR adds schema +3, packs +3, project-io +1, studio +1 and cli +5, so those floors are 143, 37, 146, 95 and 266. Floors are raised in the PR that adds tests and are never lowered from the candidate run. The #346 PR adds packs +1, project-io +1 and cli +1, so those floors are 38, 147 and 267. The #314 PR adds cli +1, the sixty-cut scale fixture, so that floor is 268. The #351 PR adds cli +1, so that floor is 269. The #349/#350 PR adds providers +7, export +3 and cli +2, raising those floors to 89, 179 and 271. The cut-lettering save fix adds five persistence regression tests, raising studio to 100. Generation preflight adds schema +1 and cli +7, raising floors to 144 and 278. Reference-width lettering adds schema +2, render +4, export +2 and studio +1, raising their floors to 146, 172, 181 and 101. Selected text ranges add six schema, six render and three export regressions, raising those floors to 152, 178 and 184.",
+  "evidence": "Full Node 20 and 24 gate of main at 3fff337 (PR #338) on 2026-10-13: 1130 passed in these 10 packages and 42 verification controls. Later PRs on the same day raised floors with their tests: #339 (schema 136, project-io 143, cli 241), #340 (cli 255), #341 (studio 78), #342 (studio 88). The #327 PR adds schema +3, packs +2, providers +5 and cli +5 (139, 34, 82, 260). The #328/#329 PR adds schema +1, project-io +2, cli +1 and studio +6 (140, 145, 261, 94). The #334-#336 PR adds schema +3, packs +3, project-io +1, studio +1 and cli +5, so those floors are 143, 37, 146, 95 and 266. Floors are raised in the PR that adds tests and are never lowered from the candidate run. The #346 PR adds packs +1, project-io +1 and cli +1, so those floors are 38, 147 and 267. The #314 PR adds cli +1, the sixty-cut scale fixture, so that floor is 268. The #351 PR adds cli +1, so that floor is 269. The #349/#350 PR adds providers +7, export +3 and cli +2, raising those floors to 89, 179 and 271. The cut-lettering save fix adds five persistence regression tests, raising studio to 100. Generation preflight adds schema +1 and cli +7, raising floors to 144 and 278. Reference-width lettering adds schema +2, render +4, export +2 and studio +1, raising their floors to 146, 172, 181 and 101. Selected text ranges add six schema, six render and three export regressions, raising those floors to 152, 178 and 184. Font coverage, geometric italic and linear fill add four fonts, two schema, three render and three export regressions, raising floors to 20, 154, 181 and 187.",
   "packages": {
-    "@toony/schema": 152,
+    "@toony/schema": 154,
     "@toony/providers": 89,
-    "@toony/fonts": 16,
+    "@toony/fonts": 20,
     "@toony/packs": 38,
     "@toony/project-io": 147,
-    "@toony/render": 178,
+    "@toony/render": 181,
     "@toony/studio": 101,
-    "@toony/export": 184,
+    "@toony/export": 187,
     "@toony/lint": 94,
     "toony-cli": 278
   },

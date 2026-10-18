@@ -33,6 +33,7 @@ test("a new bubble seeds required data and explicit middle-aligned width-based t
     "tail",
     "text",
     "textLayout",
+    "textRanges",
     "verticalAlign",
   ]);
   assert.equal(created.cutId, "cut-004");

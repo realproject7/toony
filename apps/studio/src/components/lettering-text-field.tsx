@@ -31,7 +31,7 @@ export function LetteringTextField({
   };
   const hasSelection = selection.end > selection.start && selection.end <= overlay.text.length;
   const selected = overlay.text.slice(selection.start, selection.end);
-  const common = (key: "fontFamily" | "fontWeight" | "fontSize" | "textColor") => {
+  const common = (key: "fontFamily" | "fontWeight" | "fontSize" | "fontStyle" | "textColor") => {
     const values = new Set(
       letteringGraphemeBoundaries(overlay.text)
         .filter((b) => b >= selection.start && b < selection.end)
@@ -86,8 +86,25 @@ export function LetteringTextField({
               type="button"
               className="btn btn-chip"
               onMouseDown={(e) => e.preventDefault()}
+              aria-pressed={common("fontStyle") === "italic"}
               onClick={() =>
-                apply({ fontFamily: null, fontSize: null, fontWeight: null, textColor: null })
+                apply({ fontStyle: common("fontStyle") === "italic" ? "normal" : "italic" })
+              }
+            >
+              Italic selection
+            </button>
+            <button
+              type="button"
+              className="btn btn-chip"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() =>
+                apply({
+                  fontFamily: null,
+                  fontSize: null,
+                  fontWeight: null,
+                  fontStyle: null,
+                  textColor: null,
+                })
               }
             >
               Use bubble style

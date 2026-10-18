@@ -14,6 +14,8 @@ export interface LetteringRangeStyle {
   /** Reference-width pixels at the auto-fit target, scaled with the rest of the text. */
   fontSize?: number;
   fontWeight?: FontWeight;
+  /** Shared geometric oblique, not a host-synthesized font face. */
+  fontStyle?: "normal" | "italic";
   textColor?: string;
 }
 
@@ -33,7 +35,7 @@ export type LetteringStylePatch = {
   [K in keyof LetteringRangeStyle]?: LetteringRangeStyle[K] | null;
 };
 const segmenter = new Intl.Segmenter("und", { granularity: "grapheme" });
-const styleKeys = new Set(["fontFamily", "fontSize", "fontWeight", "textColor"]);
+const styleKeys = new Set(["fontFamily", "fontSize", "fontWeight", "fontStyle", "textColor"]);
 
 export function letteringGraphemeBoundaries(text: string): number[] {
   return [...segmenter.segment(text)].map((part) => part.index).concat(text.length);
@@ -88,6 +90,8 @@ export function validateLetteringTextRanges(
       if (!styleKeys.has(key))
         c.add(joinPath(p, `style.${key}`), "text-ranges.style-key", "unsupported text style.");
     const s = range.style;
+    if (s.fontStyle !== undefined && s.fontStyle !== "normal" && s.fontStyle !== "italic")
+      c.add(p, "text-ranges.font-style", "fontStyle must be normal or italic.");
     if (
       s.fontFamily !== undefined &&
       !(FONT_FAMILY_IDS as readonly unknown[]).includes(s.fontFamily)

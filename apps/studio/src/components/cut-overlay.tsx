@@ -20,6 +20,7 @@ import type { LetteringOverlay } from "@toony/schema";
 import { useMemo } from "react";
 import { useBrowserMeasure } from "@/lib/browser-measure";
 import type { CutArt } from "@/lib/project";
+import { BubbleBody } from "./bubble-body";
 import { BubbleText } from "./bubble-text";
 
 /** One bubble drawn as SVG from its geometry-core render plan. */
@@ -27,16 +28,7 @@ function Bubble({ plan }: { plan: BubbleRender }) {
   const impact = plan.impact;
   return (
     <g data-bubble-id={plan.id} data-overflow={plan.overflow ? "true" : undefined}>
-      {plan.hasBubble && (
-        <path
-          d={plan.pathD}
-          fill={plan.fill}
-          fillOpacity={plan.fillOpacity}
-          stroke={plan.stroke}
-          strokeWidth={plan.strokeWidth}
-          strokeLinejoin="round"
-        />
-      )}
+      <BubbleBody plan={plan} />
       {/* impact_band SFX (#99): speed-lines + burst behind the text, from the
           SAME pure-segment plan the export canvas traces → pixel parity. */}
       {impact && (

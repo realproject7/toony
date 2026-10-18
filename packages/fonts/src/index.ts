@@ -27,4 +27,5 @@ export {
 // "@toony/fonts/node" in Node-only code (e.g. @toony/export's canvas
 // registration).
 
+export { type FontCoverageRun, fontHasCodepoint, resolveFontRuns } from "./coverage.js";
 export { fontTypography } from "./typography.js";

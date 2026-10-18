@@ -1,4 +1,4 @@
-import { fontTypography, resolveFontFamily } from "@toony/fonts";
+import { fontTypography, resolveFontFamily, resolveFontRuns } from "@toony/fonts";
 import type { FontFamilyId, FontWeight, LetteringTextRange } from "@toony/schema";
 import {
   type BubbleTextLayout,
@@ -10,6 +10,12 @@ import {
 export interface StyledTextSegment {
   text: string;
   fontFamily: FontFamilyId;
+  requestedFontFamily: FontFamilyId;
+  missingCodepoints: number[];
+  /** Positive shear slants the top to the right about the alphabetic baseline. */
+  skew: number;
+  /** Space reserved for the left descender overhang of geometric oblique. */
+  textOffsetX: number;
   fontStack: string;
   fontWeight: FontWeight;
   fontSize: number;
@@ -38,7 +44,11 @@ export function layoutStyledText(
   ranges: LetteringTextRange[],
   boxWidth: number,
   boxHeight: number,
-  opts: BubbleTextOptions & { fontFamily: FontFamilyId; textColor: string },
+  opts: BubbleTextOptions & {
+    fontFamily: FontFamilyId;
+    textColor: string;
+    fontStyle?: "normal" | "italic";
+  },
 ): { layout: BubbleTextLayout; lines: StyledTextLine[] } {
   const padX = opts.paddingX ?? 0,
     padY = opts.paddingY ?? 0;
@@ -49,37 +59,56 @@ export function layoutStyledText(
   const target = opts.fontSize ?? opts.maxFontSize;
   const spacing = opts.letterSpacing ?? 0;
   const lineFactor = opts.lineHeightFactor ?? 1.2;
+  const boundaries = [
+    ...new Set([0, text.length, ...ranges.flatMap((r) => [r.start, r.end])]),
+  ].sort((a, b) => a - b);
+  // Resolve once, outside the fit/wrap loop. Repeated candidate widths must not
+  // repeatedly inspect every font's cmap or break clusters at a wrap boundary.
+  const sources = boundaries.slice(0, -1).flatMap((a, i) => {
+    const end = boundaries[i + 1] ?? text.length;
+    const style = ranges.find((r) => r.start <= a && a < r.end)?.style ?? {};
+    const requested = style.fontFamily ?? opts.fontFamily;
+    const weight = matchFaceWeight(style.fontWeight ?? opts.fontWeight ?? 400);
+    return resolveFontRuns(text.slice(a, end), requested, weight).map((run) => ({
+      ...run,
+      start: a + run.start,
+      end: a + run.end,
+      style,
+      weight,
+    }));
+  });
   const fragments = (start: number, end: number, base: number): StyledTextSegment[] => {
-    const cuts = new Set([start, end]);
-    for (const r of ranges)
-      if (r.start < end && r.end > start) {
-        cuts.add(Math.max(start, r.start));
-        cuts.add(Math.min(end, r.end));
-      }
-    const points = [...cuts].sort((a, b) => a - b);
     const result: StyledTextSegment[] = [];
     let x = 0;
-    for (let i = 0; i < points.length - 1; i++) {
-      const a = points[i] ?? start,
-        b = points[i + 1] ?? end;
-      if (a === b) continue;
-      const style = ranges.find((r) => r.start <= a && a < r.end)?.style ?? {};
-      const family = resolveFontFamily(style.fontFamily ?? opts.fontFamily, "speech");
+    for (const source of sources) {
+      const a = Math.max(start, source.start),
+        b = Math.min(end, source.end);
+      if (a >= b) continue;
+      const style = source.style;
+      const family = resolveFontFamily(source.fontFamily, "speech");
       const fontSize =
         style.fontSize === undefined
           ? base
           : Math.max(Math.min(style.fontSize, opts.minFontSize), (style.fontSize * base) / target);
-      const fontWeight = matchFaceWeight(style.fontWeight ?? opts.fontWeight ?? 400);
+      const fontWeight = source.weight;
       const piece = text.slice(a, b);
+      const skew = (style.fontStyle ?? opts.fontStyle) === "italic" ? Math.tan(Math.PI / 15) : 0;
+      const metrics = fontTypography(family.id);
+      const textOffsetX = skew * metrics.descent * fontSize;
       const glyphs = [...graphemes.segment(piece)].length;
       // Account for the tracking gap BETWEEN runs exactly once.
       if (result.length) x += spacing * base;
       const width =
         measure(piece, fontSize, fontWeight, family.id, "css") +
-        Math.max(0, glyphs - 1) * spacing * base;
+        Math.max(0, glyphs - 1) * spacing * base +
+        skew * (metrics.ascent + metrics.descent) * fontSize;
       result.push({
         text: piece,
         fontFamily: family.id,
+        requestedFontFamily: source.requestedFontFamily,
+        missingCodepoints: source.missingCodepoints,
+        skew,
+        textOffsetX,
         fontStack: family.stack,
         fontWeight,
         fontSize,

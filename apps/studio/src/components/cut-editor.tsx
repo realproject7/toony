@@ -42,6 +42,7 @@ import { resolveCutStage } from "@/lib/cut-stage";
 import { persistWithGuard } from "@/lib/editor-save";
 import { newOverlay } from "@/lib/new-overlay";
 import type { CutArt } from "@/lib/project";
+import { BubbleBody } from "./bubble-body";
 import { BubbleText } from "./bubble-text";
 import { CutFieldsEditor } from "./cut-fields-editor";
 import { CutReviewControl } from "./cut-review-control";
@@ -732,16 +733,7 @@ export function CutEditor({
                           opacity={isSelected ? 0.8 : 0}
                         />
                       )}
-                      {plan.hasBubble && (
-                        <path
-                          d={plan.pathD}
-                          fill={plan.fill}
-                          fillOpacity={plan.fillOpacity}
-                          stroke={plan.stroke}
-                          strokeWidth={plan.strokeWidth}
-                          strokeLinejoin="round"
-                        />
-                      )}
+                      <BubbleBody plan={plan} />
                       {/* impact_band SFX (#99/#110): speed-lines + burst behind the
                           text, from the SAME pure-segment plan the preview and
                           export trace → the editor surface matches what renders. */}
@@ -878,16 +870,7 @@ export function CutEditor({
                   const bh = b.geometry.height * height;
                   return (
                     <g key={plan.id} data-bubble-id={plan.id}>
-                      {plan.hasBubble && (
-                        <path
-                          d={plan.pathD}
-                          fill={plan.fill}
-                          fillOpacity={plan.fillOpacity}
-                          stroke={plan.stroke}
-                          strokeWidth={plan.strokeWidth}
-                          strokeLinejoin="round"
-                        />
-                      )}
+                      <BubbleBody plan={plan} />
                       <BubbleText plan={plan} />
                       <rect
                         x={bx}
@@ -927,6 +910,7 @@ export function CutEditor({
               overlay={selected}
               referenceWidth={referenceWidth}
               overflow={selectedPlan?.overflow ?? false}
+              fontSegments={selectedPlan?.lines.flatMap((line) => line.segments ?? [])}
               onChange={(patch) => update(selected.id, patch)}
               onBringForward={bringForward}
               onSendBackward={sendBackward}

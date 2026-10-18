@@ -68,6 +68,12 @@ function drawBubble(ctx: SKRSContext2D, b: BubbleRender): void {
     traceOutline(ctx, b.outline);
     ctx.globalAlpha = b.fillOpacity;
     ctx.fillStyle = b.fill;
+    if (b.fillGradient) {
+      const g = b.fillGradient;
+      const gradient = ctx.createLinearGradient(g.x1, g.y1, g.x2, g.y2);
+      for (const stop of g.stops) gradient.addColorStop(stop.offset, stop.color);
+      ctx.fillStyle = gradient;
+    }
     ctx.fill();
     ctx.globalAlpha = 1;
     if (b.strokeWidth > 0) {
@@ -127,13 +133,17 @@ function drawBubble(ctx: SKRSContext2D, b: BubbleRender): void {
         ctx.fontVariationSettings = `"wght" ${segment.fontWeight}`;
         ctx.font = `${segment.fontWeight} ${segment.fontSize}px "${segmentFamily}"`;
         ctx.fillStyle = segment.textColor;
+        ctx.save();
+        ctx.translate(segment.x + segment.textOffsetX, segment.baselineY);
+        ctx.transform(1, 0, -segment.skew, 1, 0, 0);
         if (!b.hasBubble) {
           ctx.lineWidth = b.textOutlineWidth;
           ctx.strokeStyle = b.stroke;
           ctx.lineJoin = "round";
-          ctx.strokeText(segment.text, segment.x, segment.baselineY);
+          ctx.strokeText(segment.text, 0, 0);
         }
-        ctx.fillText(segment.text, segment.x, segment.baselineY);
+        ctx.fillText(segment.text, 0, 0);
+        ctx.restore();
       }
       continue;
     }
