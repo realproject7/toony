@@ -2889,9 +2889,20 @@ button.transition-block {
     grid-template-columns: minmax(0, 1fr) 290px;
   }
 }
-.inspector-organized .field-inline { display: flex; }
-.bubble-kind-options { border: 0; margin: 0; padding-inline: 0; min-width: 0; }
-.inspector-fill { display: flex; flex-direction: column; gap: 12px; }
+.inspector-organized .field-inline {
+  display: flex;
+}
+.bubble-kind-options {
+  border: 0;
+  margin: 0;
+  padding-inline: 0;
+  min-width: 0;
+}
+.inspector-fill {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 .inspector-panel .btn[aria-pressed="true"] {
   background: var(--color-accent);
   border-color: var(--color-accent);
