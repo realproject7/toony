@@ -55,6 +55,9 @@ export function InspectorNumberField({
               if (automatic && value !== null) onCommit(null);
               return;
             }
+            // Existing documents may carry more precision than the editing step.
+            // Focusing or cancelling an input must not rewrite those values.
+            if (Number(raw) === value) return;
             const precision = String(step).split(".")[1]?.length ?? 0;
             const next = clamp(Number(Number(raw).toFixed(precision)), min, max);
             event.currentTarget.value = String(next);
