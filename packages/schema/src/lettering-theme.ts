@@ -10,6 +10,8 @@ import type { IssueCollector, ValidationResult } from "./errors.js";
 import { IssueCollector as Collector, joinPath } from "./errors.js";
 import { isFiniteNumber, isNonEmptyString, isOneOf, isPlainObject } from "./guards.js";
 import {
+  BALLOON_SHAPES,
+  type BalloonShape,
   BUBBLE_KINDS,
   type BubbleBorder,
   type BubbleKind,
@@ -29,6 +31,7 @@ export const LETTERING_THEME_FORMAT_VERSION = 1;
 
 /** The defaults a theme states for one bubble kind. Every field is optional. */
 export interface LetteringThemeKind {
+  balloonShape?: BalloonShape;
   fontFamily?: FontFamilyId;
   fontWeight?: FontWeight;
   /** Bubble fill, a CSS colour. */
@@ -53,6 +56,7 @@ export interface LetteringTheme {
 
 const THEME_KEYS = ["themeFormat", "name", "kinds", "sfxMode"] as const;
 const KIND_KEYS = [
+  "balloonShape",
   "fontFamily",
   "fontWeight",
   "fill",
@@ -80,6 +84,9 @@ function validateKind(value: unknown, path: string, c: IssueCollector): void {
     return;
   }
   allowlist(value, KIND_KEYS, path, c);
+  if (value.balloonShape !== undefined && !isOneOf(value.balloonShape, BALLOON_SHAPES)) {
+    c.add(joinPath(path, "balloonShape"), "theme.balloon-shape", "Unknown balloon shape.");
+  }
   if (value.fontFamily !== undefined && !isOneOf(value.fontFamily, FONT_FAMILY_IDS)) {
     c.add(
       joinPath(path, "fontFamily"),
@@ -206,6 +213,7 @@ export function applyLetteringTheme(
     if (defaults.border !== undefined)
       next.border = defaults.border === null ? null : { ...defaults.border };
     if (defaults.cornerRadius !== undefined) next.cornerRadius = defaults.cornerRadius;
+    if (defaults.balloonShape !== undefined) next.balloonShape = defaults.balloonShape;
     if (defaults.opacity !== undefined) next.opacity = defaults.opacity;
   }
   if (overlay.kind === "sfx" && theme.sfxMode !== undefined) next.sfxMode = theme.sfxMode;

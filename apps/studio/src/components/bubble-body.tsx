@@ -43,6 +43,7 @@ export function BubbleBody({
         fillOpacity={plan.fillOpacity}
         stroke={plan.stroke}
         strokeWidth={thumbnail && plan.strokeWidth > 0 ? 1.1 : plan.strokeWidth}
+        strokeDasharray={plan.strokeDash?.join(" ")}
         vectorEffect={thumbnail ? "non-scaling-stroke" : undefined}
         strokeLinejoin="round"
       />

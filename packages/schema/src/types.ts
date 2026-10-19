@@ -311,11 +311,16 @@ export const LETTERING_STYLE_DEFAULTS = {
  * tail means the bubble is tailless (e.g. narration boxes). Consumers therefore
  * never re-derive tail positions from an enum.
  */
+export const BALLOON_SHAPES = ["oval", "rounded", "cloud", "burst"] as const;
+export type BalloonShape = (typeof BALLOON_SHAPES)[number];
+
 export interface LetteringOverlay {
   id: string;
   cutId: string;
   speaker: string;
   kind: BubbleKind;
+  /** Explicit silhouette. Absent preserves the legacy kind/tone outline exactly. */
+  balloonShape?: BalloonShape;
   text: string;
   fill: string;
   opacity: number;

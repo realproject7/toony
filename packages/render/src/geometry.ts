@@ -36,6 +36,9 @@ export interface TailGeometry {
 export type BalloonCommand =
   | { k: "M"; x: number; y: number }
   | { k: "L"; x: number; y: number }
+  | { k: "C"; x1: number; y1: number; x2: number; y2: number; x: number; y: number }
+  | { k: "Q"; cx: number; cy: number; x: number; y: number }
+  | { k: "Z" }
   | { k: "A"; cornerX: number; cornerY: number; x: number; y: number; r: number };
 
 export function clamp(value: number, min: number, max: number): number {
@@ -400,9 +403,12 @@ export function balloonOutline(
  * does from the same command list.
  */
 export function balloonPathD(commands: BalloonCommand[]): string {
-  const parts = commands.map((c) =>
-    c.k === "A" ? `A ${c.r} ${c.r} 0 0 1 ${c.x} ${c.y}` : `${c.k} ${c.x} ${c.y}`,
-  );
-  parts.push("Z");
+  const parts = commands.map((c) => {
+    if (c.k === "Z") return "Z";
+    if (c.k === "C") return `C ${c.x1} ${c.y1} ${c.x2} ${c.y2} ${c.x} ${c.y}`;
+    if (c.k === "Q") return `Q ${c.cx} ${c.cy} ${c.x} ${c.y}`;
+    return c.k === "A" ? `A ${c.r} ${c.r} 0 0 1 ${c.x} ${c.y}` : `${c.k} ${c.x} ${c.y}`;
+  });
+  if (parts.at(-1) !== "Z") parts.push("Z");
   return parts.join(" ");
 }

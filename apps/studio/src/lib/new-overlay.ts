@@ -7,6 +7,7 @@
 import { bubbleKindStyle, kindSupportsTail, layoutBubble } from "@toony/render";
 import {
   applyLetteringTheme,
+  type BalloonShape,
   type BubbleKind,
   defaultLetteringTextLayout,
   type LetteringOverlay,
@@ -33,6 +34,7 @@ export function newOverlay(
     cutId,
     speaker: "",
     kind: "speech",
+    balloonShape: "oval",
     text: "New bubble",
     verticalAlign: "middle",
     textLayout: defaultLetteringTextLayout(referenceWidth),
@@ -64,7 +66,8 @@ export function presetOverlay(
     0.8,
     Math.max(
       0.04,
-      (((kind === "narration" ? 100 : 140) / options.referenceWidth) * options.width) /
+      (((kind === "narration" ? 100 : kind === "shout" ? 180 : 168) / options.referenceWidth) *
+        options.width) /
         options.height,
     ),
   );
@@ -73,12 +76,16 @@ export function presetOverlay(
   const overlay: LetteringOverlay = {
     ...base,
     kind,
+    balloonShape: balloonShapeForKind(kind),
     ...(kind === "shout" ? { tone: "aggressive" as const } : {}),
     text: "",
     fill: bubbleKindStyle(kind).fill,
     geometry: { x, y, width, height },
-    tail: kindSupportsTail(kind)
-      ? { x: Math.min(1, x + width * 0.7), y: Math.min(1, y + height + 0.05) }
+    tail: kindSupportsTail(kind, balloonShapeForKind(kind))
+      ? {
+          x: Math.min(0.98, x + width * 0.7),
+          y: y + height * 1.35 <= 0.98 ? y + height * 1.35 : Math.max(0.02, y - height * 0.35),
+        }
       : null,
     ...(kind === "narration" ? { cornerRadius: 0 } : {}),
   };
@@ -97,6 +104,11 @@ export const bubbleKindLabel = (kind: BubbleKind) =>
   BUBBLE_PRESETS.find((preset) => preset.kind === kind)?.label ??
   (kind === "beat" ? "Silent beat" : "Ambient");
 
+export function balloonShapeForKind(kind: BubbleKind): BalloonShape | undefined {
+  if (kind === "sfx") return undefined;
+  return kind === "shout" ? "burst" : kind === "narration" ? "rounded" : "oval";
+}
+
 /** An explicit type change keeps authored content, geometry, colors and text styles. */
 export function bubbleKindPatch(
   overlay: LetteringOverlay,
@@ -106,15 +118,19 @@ export function bubbleKindPatch(
   const { x, y, width, height } = overlay.geometry;
   return {
     kind,
+    balloonShape: balloonShapeForKind(kind),
     tone: kind === "shout" ? "aggressive" : "neutral",
     cornerRadius: kind === "narration" ? 0 : undefined,
-    tail: kindSupportsTail(kind)
+    tail: kindSupportsTail(kind, balloonShapeForKind(kind))
       ? (overlay.tail ?? {
           x: Math.min(1, x + width * 0.7),
-          y: y + height < 0.98 ? Math.min(1, y + height + 0.05) : Math.max(0, y - 0.05),
+          y: y + height * 1.35 <= 0.98 ? y + height * 1.35 : Math.max(0.02, y - height * 0.35),
         })
       : null,
-    tailTarget: kindSupportsTail(kind) ? overlay.tailTarget : null,
+    tailTarget:
+      kindSupportsTail(kind, balloonShapeForKind(kind)) && kind !== "thought"
+        ? overlay.tailTarget
+        : null,
   };
 }
 

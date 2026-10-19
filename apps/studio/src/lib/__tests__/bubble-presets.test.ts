@@ -89,9 +89,10 @@ test("an explicit new kind clears incompatible silhouette and off-panel tail ove
   const thought = { ...source, ...bubbleKindPatch(source, "thought") };
   assert.equal(thought.tone, "neutral");
   assert.equal(thought.cornerRadius, undefined);
-  assert.equal(thought.tail, null);
+  assert.ok(thought.tail);
   assert.equal(thought.tailTarget, null);
-  assert.equal(layoutBubble(thought, 832, 1496).tail, null);
+  assert.ok(layoutBubble(thought, 832, 1496).tail);
+  assert.equal(thought.balloonShape, "oval");
   const speech = { ...thought, ...bubbleKindPatch(thought, "speech") };
   assert.ok(layoutBubble(speech, 832, 1496).tail);
   assert.notEqual(layoutBubble(speech, 832, 1496).pathD, layoutBubble(thought, 832, 1496).pathD);

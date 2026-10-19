@@ -20,6 +20,8 @@
 import { defaultFontFamilyForKind, FONT_FAMILIES, type FontFamilyId } from "@toony/fonts";
 import { bubbleKindStyle, kindSupportsTail, type RenderedTextSegment } from "@toony/render";
 import {
+  BALLOON_SHAPES,
+  type BalloonShape,
   BUBBLE_TONES,
   type BubbleTone,
   CORNER_RADIUS_MAX_PX,
@@ -120,7 +122,7 @@ export function BubbleInspector({
   useEffect(() => {
     if (selectionEnd > selectionStart) setTab("text");
   }, [selectionStart, selectionEnd]);
-  const supportsTail = kindSupportsTail(overlay.kind);
+  const supportsTail = kindSupportsTail(overlay.kind, overlay.balloonShape);
 
   // Resolved-for-display values: show the renderer's effective default until the
   // user sets the field, but only write the field on an explicit change.
@@ -426,6 +428,35 @@ export function BubbleInspector({
           <p className="field-hint">Free text has no bubble background or tail.</p>
         ) : (
           <>
+            {overlay.kind !== "narration" && (
+              <label className="field">
+                <span>Shape</span>
+                <select
+                  aria-label="Balloon shape"
+                  value={overlay.balloonShape ?? "legacy"}
+                  onChange={(e) =>
+                    onChange({
+                      balloonShape:
+                        e.target.value === "legacy" ? undefined : (e.target.value as BalloonShape),
+                    })
+                  }
+                >
+                  <option value="legacy">Original outline</option>
+                  {BALLOON_SHAPES.map((shape) => (
+                    <option key={shape} value={shape}>
+                      {
+                        {
+                          oval: "Oval",
+                          rounded: "Soft rectangle",
+                          cloud: "Thought cloud",
+                          burst: "Burst",
+                        }[shape]
+                      }
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <fieldset className="field-group" data-testid="group-color">
               <legend>Appearance</legend>
               <GradientControls overlay={overlay} onChange={onChange} embedded />
@@ -503,33 +534,35 @@ export function BubbleInspector({
                   </label>
                 )}
 
-                <label className="field field-inline">
-                  <span>Corner radius</span>
-                  <input
-                    type="number"
-                    min={CORNER_RADIUS_MIN_PX}
-                    max={CORNER_RADIUS_MAX_PX}
-                    step={1}
-                    value={overlay.cornerRadius ?? ""}
-                    placeholder="Default"
-                    onChange={(e) => {
-                      const raw = e.target.value;
-                      // Empty input clears the override → per-kind default radius.
-                      if (raw === "") {
-                        onChange({ cornerRadius: undefined });
-                        return;
-                      }
-                      onChange({
-                        cornerRadius: clamp(
-                          Number(raw),
-                          CORNER_RADIUS_MIN_PX,
-                          CORNER_RADIUS_MAX_PX,
-                        ),
-                      });
-                    }}
-                    data-testid="field-corner-radius"
-                  />
-                </label>
+                {(!overlay.balloonShape || overlay.balloonShape === "rounded") && (
+                  <label className="field field-inline">
+                    <span>Corner radius</span>
+                    <input
+                      type="number"
+                      min={CORNER_RADIUS_MIN_PX}
+                      max={CORNER_RADIUS_MAX_PX}
+                      step={1}
+                      value={overlay.cornerRadius ?? ""}
+                      placeholder="Default"
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        // Empty input clears the override → per-kind default radius.
+                        if (raw === "") {
+                          onChange({ cornerRadius: undefined });
+                          return;
+                        }
+                        onChange({
+                          cornerRadius: clamp(
+                            Number(raw),
+                            CORNER_RADIUS_MIN_PX,
+                            CORNER_RADIUS_MAX_PX,
+                          ),
+                        });
+                      }}
+                      data-testid="field-corner-radius"
+                    />
+                  </label>
+                )}
 
                 <div className="field">
                   <span>Tail</span>
@@ -540,13 +573,14 @@ export function BubbleInspector({
                         className="btn"
                         onClick={() =>
                           onChange({
+                            tailTarget: null,
                             tail: overlay.tail
                               ? null
                               : {
                                   // Default tip just below the box center, inside the image.
                                   x: clamp(overlay.geometry.x + overlay.geometry.width / 2, 0, 1),
                                   y: clamp(
-                                    overlay.geometry.y + overlay.geometry.height + 0.06,
+                                    overlay.geometry.y + overlay.geometry.height * 1.35,
                                     0,
                                     1,
                                   ),
@@ -569,26 +603,30 @@ export function BubbleInspector({
                 </div>
               </fieldset>
 
-              <div className="field">
-                <span>Tone</span>
-                <div className="chip-row">
-                  {BUBBLE_TONES.map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={tone === value ? "btn btn-chip btn-chip-active" : "btn btn-chip"}
-                      aria-pressed={tone === value}
-                      // tone refines the outline SHAPE (scalloped/jagged); the renderer
-                      // reads it from the overlay. "neutral" clears the override.
-                      onClick={() => onChange({ tone: value })}
-                      data-testid={`field-tone-${value}`}
-                    >
-                      {value}
-                    </button>
-                  ))}
+              {!overlay.balloonShape && (
+                <div className="field">
+                  <span>Tone</span>
+                  <div className="chip-row">
+                    {BUBBLE_TONES.map((value) => (
+                      <button
+                        key={value}
+                        type="button"
+                        className={tone === value ? "btn btn-chip btn-chip-active" : "btn btn-chip"}
+                        aria-pressed={tone === value}
+                        // tone refines the outline SHAPE (scalloped/jagged); the renderer
+                        // reads it from the overlay. "neutral" clears the override.
+                        onClick={() => onChange({ tone: value })}
+                        data-testid={`field-tone-${value}`}
+                      >
+                        {value}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="field-hint">
+                    Refines the bubble silhouette to encode emotion.
+                  </span>
                 </div>
-                <span className="field-hint">Refines the bubble silhouette to encode emotion.</span>
-              </div>
+              )}
             </details>
           </>
         )}

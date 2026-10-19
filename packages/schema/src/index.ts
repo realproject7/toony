@@ -110,6 +110,7 @@ export {
   validateStyleLexiconValue,
 } from "./style-lexicon.js";
 export type {
+  BalloonShape,
   BubbleBorder,
   BubbleGeometry,
   BubbleKind,
@@ -144,6 +145,7 @@ export type {
   Webtoon,
 } from "./types.js";
 export {
+  BALLOON_SHAPES,
   BUBBLE_KINDS,
   BUBBLE_TONES,
   CORNER_RADIUS_MAX_PX,

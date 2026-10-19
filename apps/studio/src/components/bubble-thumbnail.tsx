@@ -6,7 +6,14 @@ import { BubbleText } from "./bubble-text";
 
 /** The actual render plan, cropped to the body/tail. No second icon geometry. */
 export function BubbleThumbnail({ plan }: { plan: BubbleRender }) {
-  const points = plan.outline.map((command) => ({ x: command.x, y: command.y }));
+  const points = plan.outline.flatMap((command) => {
+    if (command.k === "Z") return [];
+    const end = { x: command.x, y: command.y };
+    if (command.k === "C")
+      return [end, { x: command.x1, y: command.y1 }, { x: command.x2, y: command.y2 }];
+    if (command.k === "Q") return [end, { x: command.cx, y: command.cy }];
+    return [end];
+  });
   const { x, y, width, height } = plan.box;
   let left = Math.min(x, ...points.map((point) => point.x)) - 14;
   let top = Math.min(y, ...points.map((point) => point.y)) - 14;
