@@ -425,25 +425,59 @@ failed draft and offers copy/reload. Legacy API callers may omit the revision;
 this is not a multi-process lock or a guarantee against unconditional external
 writers. The one-external-writer project rule remains.
 
-Explicit bubble copy stores a clipboard envelope in the tab session,
-which survives reloads and cut navigation. Paste validates the envelope, inserts new objects and never
-replaces existing lettering automatically. Native system paste is handled through
-the clipboard event; text fields keep their normal text paste. Reload/discard
+Explicit bubble copy writes a clipboard envelope to the system clipboard and to
+the tab session, which survives reloads and cut navigation. Paste reads the system
+clipboard when it holds copied bubbles and falls back to the tab copy; it validates
+the envelope, inserts new objects and never replaces existing lettering
+automatically. Native system paste is handled through the clipboard event; text
+fields keep their normal text paste. Reload/discard
 confirmation stays inside the editor so its focus, recovery and cancellation
 remain accessible without a blocking browser dialog.
 
 The selected-object inspector groups text, bubble appearance and layout separately.
-Advanced spacing, placement and review controls use explicit disclosures. A native
-text selection exposes range formatting in place of whole-bubble typography.
-The type picker stays above these groups and preserves content, position, colors
-and text ranges when explicitly changing a kind; incompatible tails and shape
-overrides are reset. New or explicitly selected shout presets use a sharp outline.
+Rare text options and exact positions use explicit disclosures. A native text
+selection exposes range formatting in place of whole-bubble typography. The Bubble
+tab's type choice (speech, thought, shout, whisper, narration, free text) preserves
+content, position, colors and text ranges when explicitly changing a kind;
+incompatible tails and shape overrides are reset. New or explicitly selected shout presets use a sharp outline.
 Saved overlays are never restyled automatically.
 
 Palette and type-picker thumbnails consume the same preset/type-change factories,
 render plans and SVG body as the artwork. Thumbnail strokes use a fixed display
 weight for legibility; the body/tail path and themed colors are shared. No separate
 illustrative icon geometry represents a different generated silhouette.
+
+## Human workspace
+
+The left side of Studio is for checking results and for the craft a person does
+best: lettering and the rhythm between cuts. Everything else is reachable by
+asking the agent, so the pages read calmly and carry few controls.
+
+- Rail: Library, then the open webtoon's Story, Characters and Episodes, then
+  Settings. The last opened webtoon is remembered per browser, so the rail keeps it
+  on Settings and the library offers "Continue". The theme follows the system
+  unless chosen in Settings; a head script applies it before the first paint.
+- Pages report what the person is looking at (page, episode, cut or transition,
+  selected bubbles) to the agent panel through the shared focus store.
+- Every write goes through the guarded routes and the single write path, so it is
+  journaled and undoable. Episode create, rename and delete, cut add, remove and
+  move, and one-character cast edits (`POST /api/cast`, merged by id so a stale
+  page never overwrites another character) answer with a change id the page
+  offers as Undo.
+- The episode editor follows the live feed. A clean editor picks up saved changes
+  in place: the cut editor is keyed by the lettering revision it started from
+  (its own saves keep the key, so undo history survives), and the transition
+  editor adopts a new saved revision. An editor with unsaved work shows a banner,
+  "Reload it" or "Keep editing"; keeping edits leaves the save to the existing
+  revision check (HTTP 409).
+- A cut without artwork shows its scene text and takes an image by upload or
+  drop (`POST /api/artwork`). "Mark as final" is the person's sign-off on a cut's
+  artwork; the agent never sets it. Scene text is read-only here; the agent edits
+  it.
+- New dialogue bubbles start with a speaker (the last one used, a character the
+  cut names, or the only cast member), and the editor points at a bubble that
+  still has none before it saves.
+
 ## Connected creative workspace
 
 Studio keeps a project conversation beside the human workspace. Story, characters,
