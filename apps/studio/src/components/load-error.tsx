@@ -1,27 +1,26 @@
-// Shared load-failure notice. Project IO problems surface here with the concrete
-// reason so the operator can fix the on-disk project.
+// A webtoon that cannot be opened. The reason stays behind "Details" and never
+// names a file on this computer.
 
 import Link from "next/link";
+import { redactPaths } from "@/lib/redact";
 
 export function LoadError({ reason }: { reason: string }) {
   return (
-    <section
-      className="notice notice-danger empty-state"
-      role="alert"
-      data-testid="studio-load-error"
-    >
-      <h1 className="page-title">Could not load project</h1>
-      <p className="page-meta">
-        This project could not be opened. Return to your library to choose another project, or check
-        the details below.
+    <section className="state-page" role="alert" data-testid="studio-load-error">
+      <h1 className="page-title">This webtoon could not be opened</h1>
+      <p className="page-lede">
+        One of its files could not be read. Ask your agent to check the project, or open another
+        webtoon.
       </p>
-      <details>
-        <summary>Error details</summary>
-        <pre>{reason}</pre>
+      <details className="disclosure">
+        <summary>Details</summary>
+        <p className="page-meta">{redactPaths(reason)}</p>
       </details>
-      <Link href="/" className="btn">
-        Back to library
-      </Link>
+      <div className="state-actions">
+        <Link href="/" className="btn btn-primary">
+          Library
+        </Link>
+      </div>
     </section>
   );
 }
