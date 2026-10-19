@@ -172,7 +172,17 @@ export async function runStudio(args: string[], io: StudioIo): Promise<number> {
     return await new Promise<number>((resolveExit) => {
       const child = spawn(
         "pnpm",
-        ["--filter", "@toony/studio", "exec", "next", "dev", "--port", String(port)],
+        [
+          "--filter",
+          "@toony/studio",
+          "exec",
+          "next",
+          "dev",
+          "--hostname",
+          "127.0.0.1",
+          "--port",
+          String(port),
+        ],
         {
           cwd: repoRoot,
           stdio: "inherit",

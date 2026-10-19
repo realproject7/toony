@@ -7,10 +7,10 @@
     "copy-fonts": "node scripts/copy-fonts.mjs",
     "gen-fonts-css": "node scripts/gen-studio-fonts-css.mjs",
     "predev": "node scripts/copy-fonts.mjs && node scripts/gen-studio-fonts-css.mjs",
-    "dev": "next dev",
+    "dev": "next dev --hostname 127.0.0.1",
     "prebuild": "node scripts/copy-fonts.mjs && node scripts/gen-studio-fonts-css.mjs",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --hostname 127.0.0.1",
     "pretypecheck": "next typegen",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsc -p tsconfig.test.json && node ../../scripts/run-tests.mjs dist-test"

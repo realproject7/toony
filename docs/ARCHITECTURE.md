@@ -452,7 +452,8 @@ checked before inference. Other versions fail closed until verified.
 
 `POST /api/agent` requires a loopback host, matching browser origin, a custom JSON
 header and a strict HTTP-only local session cookie. Run Studio bound to loopback.
-Do not expose this local account adapter through a public proxy. Native output is
+The development scripts and CLI launcher bind to loopback by default. Do not
+override that binding or expose this local account adapter through a public proxy. Native output is
 bounded and validated as events arrive; prohibited actions stop the process
 group. Raw diagnostic output is never sent to the browser. Timeout, cancellation
 and disconnect reject late responses.
