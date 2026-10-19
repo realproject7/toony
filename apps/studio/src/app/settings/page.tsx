@@ -1,73 +1,119 @@
-// Workspace settings (issue #52).
-//
-// Studio v2 is workspace-scoped: generation settings live ONCE per workspace, not
-// per work, so this page sits at the workspace level (`/settings`). It reads the
-// shared config (`.toony/config.json`) server-side and hands it to a client form
-// that persists edits through `/api/config` (the same file the CLI and agents
-// resolve from; env vars still override it). The page also runs an initial
-// connection probe so the status badge is populated on first paint.
-//
-// No path input is accepted anywhere — the config is always the workspace root's,
-// resolved server-side by `@/lib/workspace`.
+// Settings for this workspace: the agent, where webtoons are saved, the look of
+// Studio, the optional artwork generator and installed packs.
 
+import { loadPacks } from "@toony/packs";
 import { defaultConfig, readConfig, type ToonyConfig } from "@toony/project-io";
-import { AgentConnectionButton } from "@/components/ask-agent";
 import { SettingsForm } from "@/components/settings-form";
+import { AgentStatusCard, CopyText, ThemePicker } from "@/components/settings-panels";
+import { RouteFocus } from "@/components/work-presence";
 import { probeComfyui } from "@/lib/comfyui-probe";
+import { redactPaths } from "@/lib/redact";
 import { workspaceDisplayPath, workspaceRoot } from "@/lib/workspace";
 
 // The config is read from disk per request; never cache it.
 export const dynamic = "force-dynamic";
+export const metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
+  const root = workspaceRoot();
   // A settings file that cannot be read must not take the page down: show the
   // defaults and say so; saving writes a valid file over it.
   let config: ToonyConfig;
   let configUnreadable = false;
   try {
-    config = await readConfig(workspaceRoot());
+    config = await readConfig(root);
   } catch {
     config = defaultConfig();
     configUnreadable = true;
   }
-  // Single-sourced probe (#154), so the first-paint badge matches /api/config
-  // exactly — including the http/https SSRF guard the settings page now adopts.
-  const connection = await probeComfyui(config.comfyui.endpoint);
+  const [connection, packs] = await Promise.all([
+    probeComfyui(config.comfyui.endpoint),
+    loadPacks(root, process.env).catch(() => null),
+  ]);
+  const displayPath = workspaceDisplayPath(root);
 
   return (
-    <div data-testid="studio-settings">
+    <div className="page settings-page" data-testid="studio-settings">
+      <RouteFocus route="settings" />
       <header className="page-head">
-        <div>
-          <p className="page-eyebrow">Workspace</p>
-          <h1 className="page-title">Settings</h1>
-          <p className="page-meta">Manage your agent connection and optional artwork tools.</p>
-          <p className="page-meta" data-testid="workspace-path">
-            Webtoons are saved in {workspaceDisplayPath()}
-          </p>
-        </div>
+        <h1 className="page-title">Settings</h1>
       </header>
-      {configUnreadable ? (
-        <p className="notice notice-danger" role="alert" data-testid="settings-config-error">
-          The artwork settings file could not be read. Saving below replaces it.
-        </p>
-      ) : null}
 
-      <section className="card settings-card settings-agent">
-        <div>
-          <h2>Your agent</h2>
-          <p>
-            Connect Claude or Codex with your own account. Choose project context and conversation
-            storage in the connection panel.
-          </p>
-        </div>
-        <AgentConnectionButton />
+      <section className="settings-section" aria-labelledby="settings-agent">
+        <h2 id="settings-agent">Agent</h2>
+        <AgentStatusCard />
       </section>
-      <details className="settings-generation">
-        <summary>
-          Artwork generation settings <span>Optional</span>
-        </summary>
-        <SettingsForm initialConfig={config} initialConnection={connection} />
-      </details>
+
+      <section className="settings-section" aria-labelledby="settings-workspace">
+        <h2 id="settings-workspace">Workspace</h2>
+        <div className="settings-row">
+          <div>
+            <p className="settings-status">Your webtoons are saved in</p>
+            <p className="path-text" data-testid="workspace-path">
+              {displayPath}
+            </p>
+          </div>
+          <CopyText text={displayPath} label="Copy location" />
+        </div>
+      </section>
+
+      <section className="settings-section" aria-labelledby="settings-appearance">
+        <h2 id="settings-appearance">Appearance</h2>
+        <div className="settings-row">
+          <p className="settings-status">Theme</p>
+          <ThemePicker />
+        </div>
+      </section>
+
+      <section className="settings-section" aria-labelledby="settings-artwork">
+        <h2 id="settings-artwork">Artwork generator</h2>
+        <details className="disclosure">
+          <summary>ComfyUI connection for the command line tools (optional)</summary>
+          {configUnreadable && (
+            <p className="form-error" role="alert" data-testid="settings-config-error">
+              The settings file could not be read. Saving replaces it.
+            </p>
+          )}
+          <SettingsForm initialConfig={config} initialConnection={connection} />
+        </details>
+      </section>
+
+      <section className="settings-section" aria-labelledby="settings-packs">
+        <h2 id="settings-packs">Packs</h2>
+        {packs === null ? (
+          <p className="page-meta">Toony could not read the installed packs.</p>
+        ) : packs.packs.length === 0 && packs.issues.length === 0 ? (
+          <p className="page-meta">
+            No packs installed. Packs add genres, lettering themes and export presets.
+          </p>
+        ) : (
+          <>
+            {packs.packs.length > 0 && (
+              <ul className="pack-list">
+                {packs.packs.map((pack) => (
+                  <li key={pack.id}>{pack.name}</li>
+                ))}
+              </ul>
+            )}
+            {packs.issues.length > 0 && (
+              <details className="disclosure" data-testid="pack-warnings">
+                <summary>
+                  {packs.issues.length === 1
+                    ? "One pack item could not be loaded"
+                    : `${packs.issues.length} pack items could not be loaded`}
+                </summary>
+                <ul className="plain-list">
+                  {[...new Set(packs.issues.map((issue) => redactPaths(issue.message)))].map(
+                    (text) => (
+                      <li key={text}>{text}</li>
+                    ),
+                  )}
+                </ul>
+              </details>
+            )}
+          </>
+        )}
+      </section>
     </div>
   );
 }

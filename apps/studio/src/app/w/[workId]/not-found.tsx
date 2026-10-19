@@ -1,21 +1,19 @@
 import Link from "next/link";
 
-// Shared not-found for the per-work subtree: an unknown work id, or an unknown
-// episode/cut within a work. `notFound()` does not carry the matched route
-// params, so this links back to the library, which lists every resolvable work.
+// An unknown webtoon, episode or cut. `notFound()` does not carry the route
+// params, so this links back to the library, which lists every webtoon.
 export default function WorkNotFound() {
   return (
-    <section className="notice empty-state" data-testid="work-not-found">
+    <section className="state-page" data-testid="work-not-found">
       <h1 className="page-title">This page is unavailable</h1>
-      <p className="page-meta">
-        No matching work, episode, or cut exists in this workspace. It may have been renamed or
-        removed.
+      <p className="page-lede">
+        This webtoon, episode or cut is not in your workspace. It may have been renamed or removed.
       </p>
-      <p>
-        <Link href="/" className="btn">
-          Back to library
+      <div className="state-actions">
+        <Link href="/" className="btn btn-primary">
+          Library
         </Link>
-      </p>
+      </div>
     </section>
   );
 }

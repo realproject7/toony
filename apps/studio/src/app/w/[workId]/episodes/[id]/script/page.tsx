@@ -1,23 +1,41 @@
-// Per-work, per-episode Script page (#330, #331).
-//
-// The agreement a person and an agent reach before any art exists lives in two
-// authored files: the production brief and the episode script. This page shows
-// the script as the shipped reader reports it, with its warnings beside the
-// field they concern, and the episode's draft with the same diff `toony draft
-// show` prints and one Apply action behind `/api/draft`. The episode may not
-// exist yet: a draft for a new episode is reviewed here and apply creates it.
+// The episode's script (advanced): the plan the agent wrote before any art,
+// read as a screenplay, plus the proposed changes compiled from it with one
+// Apply. Reached from the episode menu as "Script (advanced)". Ids, revisions
+// and the record-level diff stay behind "Details".
 
 import type { ScriptCut } from "@toony/schema";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AskAgent } from "@/components/ask-agent";
 import { DraftPanel } from "@/components/draft-panel";
 import { LoadError } from "@/components/load-error";
-import { findEpisodeBundle, loadWork, ProjectIoError } from "@/lib/project";
+import { StudioIcon } from "@/components/studio-icon";
+import { transitionLabel } from "@/lib/episode-editing";
+import { routeParam, workPageData } from "@/lib/page-data";
+import { findEpisodeBundle } from "@/lib/project";
 import { loadDraftView, loadScriptView } from "@/lib/script-view";
-import { resolveWork } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
+
+const SHOT_LABELS: Record<string, string> = {
+  establishing_wide: "Wide shot",
+  medium: "Medium shot",
+  close_up: "Close-up",
+  impact_splash: "Splash",
+  small_centered: "Small inset",
+};
+
+type Params = { params: Promise<{ workId: string; id: string }> };
+
+export async function generateMetadata({ params }: Params): Promise<Metadata> {
+  const { workId, id } = await params;
+  const data = await workPageData(workId);
+  if (data.kind !== "ok") return { title: "Script" };
+  const bundle = findEpisodeBundle(data.loaded, routeParam(id));
+  return {
+    title: `Script · ${bundle?.episode.title ?? "Episode"} · ${data.loaded.project.webtoon.title}`,
+  };
+}
 
 function Line({
   speaker,
@@ -30,35 +48,36 @@ function Line({
   kind?: string;
   names: Map<string, string>;
 }) {
-  const label = speaker === null ? "narration" : (names.get(speaker) ?? speaker);
+  const label = speaker === null ? "Narration" : (names.get(speaker) ?? speaker);
   return (
     <p className="script-line">
       <span
         className={speaker === null ? "script-speaker script-speaker-narration" : "script-speaker"}
       >
         {label}
-        {kind && kind !== "speech" && kind !== "narration" ? ` · ${kind}` : ""}
+        {kind && kind !== "speech" && kind !== "narration" ? ` (${kind})` : ""}
       </span>
       <span className="script-text">{text}</span>
     </p>
   );
 }
 
-function Cut({ cut, names }: { cut: ScriptCut; names: Map<string, string> }) {
+function Cut({
+  cut,
+  number,
+  names,
+}: {
+  cut: ScriptCut;
+  number: number;
+  names: Map<string, string>;
+}) {
   return (
     <article className="script-cut" data-testid={`script-cut-${cut.id}`}>
       <div className="script-cut-head">
-        <code className="script-cut-id">{cut.id}</code>
-        {cut.shotType && <span className="chip">{cut.shotType}</span>}
-        {cut.palette && (
-          <span className="chip">
-            <span
-              className="script-swatch"
-              style={{ background: cut.palette }}
-              aria-hidden="true"
-            />
-            {cut.palette}
-          </span>
+        <b className="script-cut-number">Cut {number}</b>
+        {cut.shotType && <span className="chip">{SHOT_LABELS[cut.shotType] ?? cut.shotType}</span>}
+        {cut.palette && /^#[0-9a-f]{3,8}$/i.test(cut.palette) && (
+          <span className="script-swatch" style={{ background: cut.palette }} title="Color" />
         )}
         {(cut.characters ?? []).map((id) => (
           <span className="chip chip-accent" key={id}>
@@ -75,36 +94,23 @@ function Cut({ cut, names }: { cut: ScriptCut; names: Map<string, string> }) {
       {cut.letteringIntent && <p className="script-lettering">Lettering: {cut.letteringIntent}</p>}
       {cut.transitionAfter && (
         <p className="script-gap" data-testid={`script-gap-${cut.id}`}>
-          ↓ {cut.transitionAfter.type}
-          {cut.transitionAfter.gutterHeight !== undefined
-            ? ` · ${cut.transitionAfter.gutterHeight}px`
-            : ""}
-          {cut.transitionAfter.text ? ` · “${cut.transitionAfter.text}”` : ""}
+          Then: {transitionLabel(cut.transitionAfter.type)}
+          {cut.transitionAfter.text ? `, “${cut.transitionAfter.text}”` : ""}
         </p>
       )}
     </article>
   );
 }
 
-export default async function EpisodeScriptPage({
-  params,
-}: {
-  params: Promise<{ workId: string; id: string }>;
-}) {
+export default async function EpisodeScriptPage({ params }: Params) {
   const { workId, id } = await params;
-  const work = await resolveWork(decodeURIComponent(workId));
-  if (!work) notFound();
-  const episodeId = decodeURIComponent(id);
+  const data = await workPageData(workId);
+  if (data.kind === "missing") notFound();
+  if (data.kind === "error") return <LoadError reason={data.reason} />;
+  const { work, loaded } = data;
+  const episodeId = routeParam(id);
   const base = `/w/${encodeURIComponent(work.id)}`;
   const episodeHref = `${base}/episodes/${encodeURIComponent(episodeId)}`;
-
-  let loaded: Awaited<ReturnType<typeof loadWork>>;
-  try {
-    loaded = await loadWork(work.root);
-  } catch (cause) {
-    const reason = cause instanceof ProjectIoError ? cause.message : String(cause);
-    return <LoadError reason={reason} />;
-  }
 
   // The episode may not exist yet: a draft for a new episode is reviewed here.
   const bundle = findEpisodeBundle(loaded, episodeId) ?? null;
@@ -121,106 +127,72 @@ export default async function EpisodeScriptPage({
   const cutCount = beats.reduce((sum, beat) => sum + beat.cuts.length, 0);
   const draft = draftView.draft?.draft ?? null;
 
+  const episodeTitles = new Map(
+    loaded.project.episodes.map((b) => [b.episode.id, b.episode.title]),
+  );
+  let cutNumber = 0;
+
   return (
-    <div data-testid="studio-episode-script">
+    <div className="page" data-testid="studio-episode-script">
       <header className="page-head">
         <div>
-          <p className="page-eyebrow">{loaded.project.webtoon.title}</p>
-          <h1 className="page-title">{bundle?.episode.title ?? scriptBody?.title ?? episodeId}</h1>
-          <div className="page-meta">
-            <span>
-              id <code>{episodeId}</code>
-            </span>
-            {bundle === null && <span className="chip chip-warn">episode not created yet</span>}
-            {scriptBody && (
-              <span>
-                <b>{beats.length}</b> {beats.length === 1 ? "beat" : "beats"}, <b>{cutCount}</b>{" "}
-                scripted {cutCount === 1 ? "cut" : "cuts"}
-              </span>
-            )}
-          </div>
+          <h1 className="page-title">
+            {bundle?.episode.title ?? scriptBody?.title ?? "New episode"}
+          </h1>
+          <p className="page-lede">
+            Script
+            {scriptBody
+              ? ` · ${beats.length} ${beats.length === 1 ? "scene" : "scenes"}, ${cutCount} ${cutCount === 1 ? "cut" : "cuts"}`
+              : ""}
+            {bundle === null && " · not in your story yet"}
+          </p>
         </div>
-        <div className="editor-actions">
-          <nav className="reader-toggle" aria-label="View mode">
-            {bundle !== null ? (
-              <>
-                <Link href={episodeHref} className="btn btn-ghost" data-testid="back-to-edit-link">
-                  Edit
-                </Link>
-                <Link href={`${episodeHref}/read`} className="btn btn-ghost">
-                  Preview
-                </Link>
-                <Link href={`${episodeHref}/export`} className="btn btn-ghost">
-                  Export
-                </Link>
-              </>
-            ) : (
-              <Link href={`${base}/episodes`} className="btn btn-ghost">
-                Episodes
-              </Link>
-            )}
-            <span className="btn btn-primary" aria-current="page" data-testid="script-mode-active">
-              Script
-            </span>
-          </nav>
-        </div>
+        <Link
+          href={bundle !== null ? episodeHref : base}
+          className="btn btn-ghost"
+          data-testid="back-to-edit-link"
+        >
+          <StudioIcon name="arrow" rotate={180} /> {bundle !== null ? "Back to editor" : "Story"}
+        </Link>
       </header>
 
       <div className="script-layout">
         <section className="script-column" data-testid="script-view">
-          <h2 className="card-title">Episode script</h2>
           {scriptView.unreadable.includes("script") && (
-            <p className="notice notice-danger">
-              The script file exists but is not valid JSON. Fix{" "}
-              <code>script/episodes/{episodeId}.json</code>.
+            <p className="form-error">
+              The script file could not be read. Ask the agent to repair it.
             </p>
           )}
           {script?.absent && (
-            <div className="empty-state" data-testid="script-empty">
-              <h3>Plan the next scene</h3>
-              <p>
-                Discuss the episode beats, character choices and dialogue with your agent. Saved
-                scripts appear here for review.
-              </p>
-              <AskAgent message="Help me outline this episode, including the story beats and dialogue.">
-                Discuss this episode
-              </AskAgent>
-              <p className="field-hint">
-                Chat helps you plan. Applying its proposals to the project is not available yet.
-              </p>
-              <details>
-                <summary>Working with script files</summary>
-                <p>
-                  Authored scripts are read from <code>script/episodes/{episodeId}.json</code>.
-                </p>
-              </details>
-            </div>
+            <p className="empty-note" data-testid="script-empty">
+              No script for this episode yet. Ask the agent to write one; it appears here.
+            </p>
           )}
           {script && !script.absent && !script.validation.valid && (
-            <div className="notice notice-danger" data-testid="script-invalid">
-              <p>The script does not validate:</p>
-              <ul>
-                {script.validation.issues.map((issue) => (
-                  <li key={`${issue.path}-${issue.code}`}>
-                    <code>{issue.path}</code> {issue.message}
-                  </li>
-                ))}
-              </ul>
+            <div data-testid="script-invalid">
+              <p className="form-error">The script has problems. Ask the agent to fix them.</p>
+              <details className="disclosure">
+                <summary>Details</summary>
+                <ul className="plain-list">
+                  {script.validation.issues.map((issue) => (
+                    <li key={`${issue.path}-${issue.code}`}>{issue.message}</li>
+                  ))}
+                </ul>
+              </details>
             </div>
           )}
           {script && script.warnings.length > 0 && (
             <ul className="script-warnings" data-testid="script-warnings">
               {script.warnings.map((warning) => (
-                <li key={`${warning.path}-${warning.code}`} className="notice">
-                  <span className="chip chip-warn">{warning.code}</span> {warning.message}
-                </li>
+                <li key={`${warning.path}-${warning.code}`}>{warning.message}</li>
               ))}
             </ul>
           )}
           {scriptBody?.continuity && (
-            <p className="notice script-continuity" data-testid="script-continuity">
-              Continues from <code>{scriptBody.continuity.previousEpisodeId}</code>: “
-              {scriptBody.continuity.startsFrom}”
+            <p className="script-continuity" data-testid="script-continuity">
+              Continues from{" "}
+              {episodeTitles.get(scriptBody.continuity.previousEpisodeId) ?? "the previous episode"}
+              : “{scriptBody.continuity.startsFrom}”
             </p>
           )}
           {scriptBody && (
@@ -231,10 +203,7 @@ export default async function EpisodeScriptPage({
                   key={beat.id}
                   data-testid={`script-beat-${beat.id}`}
                 >
-                  <div className="script-beat-head">
-                    <code className="script-cut-id">{beat.id}</code>
-                    <p className="script-purpose">{beat.purpose}</p>
-                  </div>
+                  <h2 className="script-purpose">{beat.purpose}</h2>
                   {(beat.goals ?? []).length > 0 && (
                     <ul className="script-goals">
                       {(beat.goals ?? []).map((goal) => (
@@ -244,9 +213,10 @@ export default async function EpisodeScriptPage({
                       ))}
                     </ul>
                   )}
-                  {beat.cuts.map((cut) => (
-                    <Cut key={cut.id} cut={cut} names={names} />
-                  ))}
+                  {beat.cuts.map((cut) => {
+                    cutNumber += 1;
+                    return <Cut key={cut.id} cut={cut} number={cutNumber} names={names} />;
+                  })}
                 </section>
               ))}
             </div>
@@ -274,7 +244,7 @@ export default async function EpisodeScriptPage({
             }
             draftIssues={
               draftView.draft !== null && !draftView.draft.absent && draftView.draft.draft === null
-                ? draftView.draft.validation.issues.map((i) => `${i.path}: ${i.message}`)
+                ? draftView.draft.validation.issues.map((i) => i.message)
                 : []
             }
             unreadable={draftView.unreadable}
@@ -282,19 +252,6 @@ export default async function EpisodeScriptPage({
             conflicts={draftView.conflicts}
             fingerprint={draftView.fingerprint}
           />
-          {scriptView.brief && !scriptView.brief.absent && (
-            <section className="card" data-testid="script-brief-note">
-              <h2 className="card-title">Brief</h2>
-              {scriptView.brief.brief ? (
-                <p className="script-scene">{scriptView.brief.brief.intent}</p>
-              ) : (
-                <p className="notice notice-danger">The brief does not validate.</p>
-              )}
-              <Link href={base} className="inspector-back">
-                Full brief on the dashboard →
-              </Link>
-            </section>
-          )}
         </aside>
       </div>
     </div>

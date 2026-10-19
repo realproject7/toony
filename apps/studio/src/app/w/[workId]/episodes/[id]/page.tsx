@@ -1,50 +1,47 @@
+// The episode editor page: loads the episode once and hands every cut's saved
+// lettering, artwork and scene to the client editor.
+
 import { resolveGutterBandWidth, resolveReferenceWidth } from "@toony/schema";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import type { CutEditorProps } from "@/components/cut-editor";
 import { EpisodeEditor } from "@/components/episode-editor";
 import { LoadError } from "@/components/load-error";
-import { cutFieldsOf } from "@/lib/cut-fields";
 import { cutLetteringRevision } from "@/lib/lettering-save";
 import { discoverStudioPacks } from "@/lib/packs";
-import {
-  assetUrl,
-  findEpisodeBundle,
-  loadWork,
-  ProjectIoError,
-  resolveCutReviewArtwork,
-} from "@/lib/project";
+import { routeParam, workPageData } from "@/lib/page-data";
+import { findEpisodeBundle, resolveCutReviewArtwork } from "@/lib/project";
+import { cutNumberIn } from "@/lib/sequence-order";
 import { transitionRevision } from "@/lib/transition-save";
-import { resolveWork } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-export default async function EpisodeEditorPage({
-  params,
-  searchParams,
-}: {
+type Params = {
   params: Promise<{ workId: string; id: string }>;
   searchParams: Promise<{ item?: string; transitions?: string }>;
-}) {
+};
+
+export async function generateMetadata({ params }: Params): Promise<Metadata> {
+  const { workId, id } = await params;
+  const data = await workPageData(workId);
+  if (data.kind !== "ok") return { title: "Episode" };
+  const bundle = findEpisodeBundle(data.loaded, routeParam(id));
+  return { title: `${bundle?.episode.title ?? "Episode"} · ${data.loaded.project.webtoon.title}` };
+}
+
+export default async function EpisodeEditorPage({ params, searchParams }: Params) {
   const { workId, id } = await params;
   const query = await searchParams;
-  const work = await resolveWork(decodeURIComponent(workId));
-  if (!work) notFound();
-  let loaded: Awaited<ReturnType<typeof loadWork>>;
-  try {
-    loaded = await loadWork(work.root);
-  } catch (cause) {
-    return <LoadError reason={cause instanceof ProjectIoError ? cause.message : String(cause)} />;
-  }
-  const bundle = findEpisodeBundle(loaded, decodeURIComponent(id));
+  const data = await workPageData(workId);
+  if (data.kind === "missing") notFound();
+  if (data.kind === "error") return <LoadError reason={data.reason} />;
+  const { work, loaded } = data;
+  const bundle = findEpisodeBundle(loaded, routeParam(id));
   if (!bundle) notFound();
   const { webtoon } = loaded.project;
   const packs = await discoverStudioPacks(work.root);
   const episodeId = bundle.episode.id;
   const referenceWidth = resolveReferenceWidth(webtoon.referenceWidth);
-  const base = `/w/${encodeURIComponent(work.id)}/episodes/${encodeURIComponent(episodeId)}`;
-  const navigation = bundle.episode.sequence
-    .filter((item) => item.type === "cut")
-    .map((item) => ({ id: item.id, href: `${base}?item=${encodeURIComponent(`cut:${item.id}`)}` }));
   const cuts: CutEditorProps[] = await Promise.all(
     bundle.cuts.map(async (cut) => {
       const { art, artworkRevision } = await resolveCutReviewArtwork(work.id, work.root, cut);
@@ -52,24 +49,20 @@ export default async function EpisodeEditorPage({
       return {
         workId: work.id,
         episodeId,
-        episodeTitle: bundle.episode.title,
-        webtoonTitle: webtoon.title,
         cutId: cut.id,
+        cutNumber: cutNumberIn(bundle.episode.sequence, cut.id),
         art,
+        hasArtwork: art.src !== null,
         artworkRevision,
         initialBubbles: bubbles,
         initialLetteringRevision: cutLetteringRevision(bubbles),
-        cutNavigation: navigation,
-        initialReviewStatus: cut.reviewStatus,
+        ...(cut.reviewStatus === undefined ? {} : { reviewStatus: cut.reviewStatus }),
         dialogueLanguage: webtoon.languages.dialogueLanguage,
         referenceWidth,
         gutterBandWidth: resolveGutterBandWidth(webtoon.gutterBandWidth),
-        cutFields: cutFieldsOf(cut),
+        scene: cut.imagePrompt,
+        cutCharacterIds: [...(cut.characters ?? [])],
         characters: webtoon.characters ?? [],
-        renderRecord: {
-          ...(cut.imageSeed === undefined ? {} : { imageSeed: cut.imageSeed }),
-          ...(cut.imageWorkflow === undefined ? {} : { imageWorkflow: cut.imageWorkflow }),
-        },
         theme: packs.letteringTheme(webtoon.letteringTheme),
         themeId: webtoon.letteringTheme ?? null,
       };
@@ -92,9 +85,6 @@ export default async function EpisodeEditorPage({
             ? `transition:${firstTransition.id}`
             : undefined
       }
-      imageUrls={Object.fromEntries(
-        bundle.transitions.map((t) => [t.id, assetUrl(work.id, work.root, t.image)]),
-      )}
       referenceWidth={referenceWidth}
     />
   );

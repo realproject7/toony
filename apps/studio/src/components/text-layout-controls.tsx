@@ -90,8 +90,8 @@ export function TextLayoutControls({
   return (
     <div className="field">
       <small>
-        Sizes use a {layout.referenceWidth} px artwork width. Auto fit stops at the minimum. Enlarge
-        the bubble if text does not fit.
+        Auto size shrinks the text to fit, down to the minimum. Make the bubble bigger if the text
+        still does not fit.
       </small>
       <div className="text-layout-grid">
         <label htmlFor={`${baseId}-min`}>

@@ -10,10 +10,15 @@
  *   - Teal  #014C63  → primary (--color-accent): nav, links, primary actions
  *   - Pink  #FC0E4C  → accent-2: emphasis actions (Export/Publish) + danger
  *   - Gold  #F4CE42  → highlight: active nav pill, highlights, secondary CTAs
- * Surfaces are white on a warm cream canvas. Type is a modern sans (Inter).
+ * Surfaces are white on a warm cream canvas. Type is the system sans unless
+ * Inter is installed.
  *
- * Every semantic alias name the v2 studio referenced is preserved so the reskin
- * is token-driven; only the values changed.
+ * Theme: Studio follows the system light/dark preference unless the person
+ * chose one in Settings. A head script sets `data-theme` before the first paint
+ * (see lib/theme.ts), so the dark tokens below apply without a light flash.
+ *
+ * Text colors are measured against WCAG AA (4.5:1) on canvas, surface and
+ * sunken surfaces in both themes; re-measure when changing one.
  */
 
 :root {
@@ -85,8 +90,8 @@
   --color-ink: #2b2b2b;
   --color-ink-strong: #14120c;
   --color-muted: #6b655a;
-  /* Faint text still meaningful → keep ≥4.5:1 on white/cream (was #aaa494, 2.49:1). */
-  --color-faint: #7a7468;
+  /* Faint text still meaningful: 5.53 on white, 5.26 on canvas, 4.82 on sunken. */
+  --color-faint: #6e685c;
   --color-line: #ece7db;
   --color-line-strong: #ddd6c7;
 
@@ -98,9 +103,8 @@
   /* -----------------------------------------------------------------------
      4. STATE COLORS
      ----------------------------------------------------------------------- */
-  /* Draft chip text must stay ≥4.5:1 on --state-draft-soft (#f4efe4). --neutral-400
-     (#b3ad9f) was only 1.95:1; --neutral-600 (#6b655a) measures ~5.03:1. Neither
-     this token nor its neutrals are dark-overridden, so this fixes both themes. */
+  /* Draft chip text must stay ≥4.5:1 on --state-draft-soft (#f4efe4): --neutral-600
+     (#6b655a) measures ~5.03:1. The dark theme overrides both below. */
   --state-draft: var(--neutral-600);
   --state-draft-soft: var(--neutral-100);
   /* Edited/pending chip text must stay ≥4.5:1 on --state-edited-soft (#fdf4d2).
@@ -122,7 +126,8 @@
   --state-pending: #8a6a00;
   --state-pending-soft: var(--color-highlight-soft);
 
-  --color-success: var(--teal-500);
+  /* Success TEXT uses the deep teal (5.81:1 on white); --teal-500 measured 2.97. */
+  --color-success: #0a7266;
   --color-success-soft: #d7f6f1;
   /* Darkened so warning TEXT clears ≥4.5:1 on white (was #c79400, 2.74:1). */
   --color-warning: #8a6a00;
@@ -200,6 +205,8 @@
   --shadow-accent: 0 6px 18px rgba(1, 76, 99, 0.25);
   --shadow-focus: 0 0 0 3px rgba(1, 76, 99, 0.3);
   --shadow-panel: var(--shadow-2);
+  /* Behind modal dialogs, in both themes. */
+  --color-backdrop: rgba(20, 18, 12, 0.45);
 
   /* -----------------------------------------------------------------------
      9. MOTION (subtle)
@@ -222,10 +229,23 @@
   --cut-gutter: 0.75rem;
 
   --color-transition: var(--color-accent);
+
+  /* Control heights: default, compact (inspectors, toolbars), segmented. */
+  --control-h: 2.25rem;
+  --control-h-sm: 2rem;
+  --control-h-xs: 1.75rem;
+
+  /* Layers, lowest first. */
+  --z-raised: 2;
+  --z-sticky: 10;
+  --z-menu: 40;
+  --z-toast: 60;
+  --z-dialog: 110;
 }
 
 /* ===========================================================================
-   DARK MODE — opt-in via [data-theme="dark"].
+   DARK MODE: applied as [data-theme="dark"], following the system unless the
+   person chose a theme in Settings.
    =========================================================================== */
 [data-theme="dark"] {
   color-scheme: dark;
@@ -238,7 +258,8 @@
   --color-ink: #f4efe4;
   --color-ink-strong: #ffffff;
   --color-muted: #b3ad9f;
-  --color-faint: #857f72;
+  /* 5.62:1 on surface, 4.98 on raised (was #857f72, 4.26). */
+  --color-faint: #9a9487;
   --color-line: rgba(255, 255, 255, 0.09);
   --color-line-strong: rgba(255, 255, 255, 0.16);
 
@@ -266,6 +287,8 @@
   --color-scroll-page: #2a2620;
   --color-gutter: #141210;
 
+  --state-draft: var(--neutral-400);
+  --state-draft-soft: rgba(255, 255, 255, 0.06);
   --state-final: var(--teal-400);
   --state-final-soft: rgba(15, 168, 150, 0.16);
   --state-connected: var(--teal-400);
@@ -286,6 +309,10 @@
   --color-info: var(--sky-400);
   --color-info-soft: rgba(58, 160, 255, 0.16);
 
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 1px 3px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.25);
+  --shadow-3: 0 4px 14px rgba(0, 0, 0, 0.4), 0 14px 34px rgba(0, 0, 0, 0.35);
+  --shadow-focus: 0 0 0 3px rgba(74, 163, 189, 0.45);
   --shadow-canvas: 0 8px 24px rgba(0, 0, 0, 0.5), 0 24px 64px rgba(0, 0, 0, 0.5);
   --shadow-accent: 0 6px 24px rgba(74, 163, 189, 0.4);
   --color-transition: var(--color-accent);
@@ -297,6 +324,19 @@
     --dur-base: 0ms;
     --dur-slow: 0ms;
   }
+}
+
+/* Visually hidden, still read aloud. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 * {

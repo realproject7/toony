@@ -1,27 +1,19 @@
 "use client";
 
-// Pro-lettering inspector for the focused cut editor (issue #55).
-//
-// This is the editor-only control surface for ONE selected bubble: typography
-// (font family, size, weight, line-height, alignment, letter-spacing), color
-// (text / fill / border via the lightweight ColorPicker + fill opacity), bubble
-// styling (border width, corner radius, tail), arrangement (z-order, nudge), and
-// review status. Every control binds to a `LetteringOverlay` field defined by the
-// #54/#56 schema and the bounds it ships; nothing here invents geometry — the
-// canvas continues to render through `@toony/render`. It lives in its own module
-// so the editor route can lazy-load it (and its ColorPicker dependency) as an
-// editor-only chunk, keeping the library/reader bundles lean.
+// The bubble inspector for the cut editor: Text, Bubble and Layout tabs for ONE
+// selected bubble. Text holds who says it, the words and the type; Bubble holds
+// the balloon (type, shape, tail, colors); Layout holds stacking, gutter
+// placement and exact numbers. Rare controls sit behind "More" disclosures.
 //
 // Persistence note (from the schema's LETTERING_STYLE_DEFAULTS doc): a style
-// field is written only when the user actually changes it. Each control therefore
-// shows the resolved default as its starting value but only sets the field on
-// interaction — it never bakes a default onto a bubble that never had one.
+// field is written only when the person actually changes it. Each control shows
+// the resolved default but only sets the field on interaction; it never bakes a
+// default onto a bubble that never had one.
 
 import { defaultFontFamilyForKind, FONT_FAMILIES, type FontFamilyId } from "@toony/fonts";
 import { bubbleKindStyle, type RenderedTextSegment } from "@toony/render";
 import {
-  BUBBLE_TONES,
-  type BubbleTone,
+  type BubbleKind,
   CORNER_RADIUS_MAX_PX,
   CORNER_RADIUS_MIN_PX,
   defaultLetteringTextLayout,
@@ -39,8 +31,6 @@ import {
   PLACEMENTS,
   type Placement,
   type PlacementSide,
-  REVIEW_STATUSES,
-  type ReviewStatus,
   SFX_MODES,
   type SfxMode,
   TEXT_ALIGNS,
@@ -49,7 +39,8 @@ import {
   type VerticalAlign,
 } from "@toony/schema";
 import { useEffect, useState } from "react";
-import { clamp } from "@/lib/clamp";
+import { BUBBLE_PRESETS, bubbleKindPatch } from "@/lib/new-overlay";
+import { needsSpeaker } from "@/lib/speaker";
 import { AlignmentSymbol } from "./alignment-symbol";
 import { BalloonControls } from "./balloon-controls";
 import { ColorPicker } from "./color-picker";
@@ -58,16 +49,32 @@ import { GeometryControls } from "./geometry-controls";
 import { GradientControls } from "./gradient-controls";
 import { InspectorNumberField } from "./inspector-number-field";
 import { LetteringTextField } from "./lettering-text-field";
-import { StudioIcon } from "./studio-icon";
+import { SpeakerField } from "./speaker-field";
 import { TextLayoutControls } from "./text-layout-controls";
 
-/** Per-weight human labels for the weight selector. */
 const WEIGHT_LABELS: Record<FontWeight, string> = {
   400: "Regular",
   500: "Medium",
   600: "Semibold",
   700: "Bold",
 };
+
+const ALIGN_LABELS: Record<TextAlign | VerticalAlign, string> = {
+  left: "Left",
+  center: "Center",
+  right: "Right",
+  top: "Top",
+  middle: "Middle",
+  bottom: "Bottom",
+};
+
+const SFX_LABELS: Record<SfxMode, string> = {
+  typeset: "Typeset",
+  hand_lettered: "Hand-lettered",
+  impact_band: "Impact band",
+};
+
+export type InspectorTab = "text" | "bubble" | "layout";
 
 export interface BubbleInspectorProps {
   overlay: LetteringOverlay;
@@ -80,20 +87,21 @@ export interface BubbleInspectorProps {
   directSelection?: { start: number; end: number };
   onRestoreSelection?: () => void;
   onChange: (patch: Partial<LetteringOverlay>) => void;
-  /** z-order helpers wired by the editor (re-stack the selected bubble). */
+  /** Re-stack the selected bubble. */
   onBringForward: () => void;
   onSendBackward: () => void;
   onBringToFront: () => void;
   onSendToBack: () => void;
-  /** Nudge the selected bubble by the given normalized delta. */
-  onNudge: (dx: number, dy: number) => void;
-  /** Distinct colors used by other bubbles in this cut (the project palette). */
+  /** Distinct colors used by other bubbles in this cut. */
   projectPalette: readonly string[];
-  /**
-   * The project's declared dialogue language. The "Default (…)" option must name
-   * the face the renderer will actually resolve, and that follows this (#213).
-   */
+  /** Picks the default dialogue face the renderer resolves (#213). */
   dialogueLanguage: string;
+  /** Names to offer as speakers: the cut's characters first. */
+  speakerChoices: readonly string[];
+  /** The speaker a bubble gets when it becomes a dialogue kind without one. */
+  defaultSpeaker: string;
+  /** Open a tab from outside (for example to point at a missing speaker). */
+  requestTab?: { tab: InspectorTab; nonce: number } | null;
 }
 
 export function BubbleInspector({
@@ -104,7 +112,6 @@ export function BubbleInspector({
   onSendBackward,
   onBringToFront,
   onSendToBack,
-  onNudge,
   projectPalette,
   dialogueLanguage,
   referenceWidth,
@@ -114,36 +121,46 @@ export function BubbleInspector({
   fontSegments = [],
   directSelection,
   onRestoreSelection,
+  speakerChoices,
+  defaultSpeaker,
+  requestTab,
 }: BubbleInspectorProps) {
-  const [tab, setTab] = useState<"text" | "bubble" | "layout">("text");
+  const [tab, setTab] = useState<InspectorTab>("text");
   const selectionStart = directSelection?.start ?? 0;
   const selectionEnd = directSelection?.end ?? 0;
   const [rangeSelected, setRangeSelected] = useState(false);
   useEffect(() => {
     if (selectionEnd > selectionStart) setTab("text");
   }, [selectionStart, selectionEnd]);
+  useEffect(() => {
+    if (requestTab) setTab(requestTab.tab);
+  }, [requestTab]);
 
-  // Resolved-for-display values: show the renderer's effective default until the
-  // user sets the field, but only write the field on an explicit change.
   const fontSize = overlay.fontSize ?? null;
   const fontWeight: FontWeight = overlay.fontWeight ?? bubbleKindStyle(overlay.kind).fontWeight;
   const lineHeight = overlay.lineHeight ?? LETTERING_STYLE_DEFAULTS.lineHeight;
   const textAlign: TextAlign = overlay.textAlign ?? LETTERING_STYLE_DEFAULTS.textAlign;
-  // Vertical anchoring within the bubble box (#115); absent → "top" (the render
-  // default, preserving legacy layout).
   const verticalAlign: VerticalAlign = overlay.verticalAlign ?? "top";
   const letterSpacing = overlay.letterSpacing ?? LETTERING_STYLE_DEFAULTS.letterSpacing;
   const textColor = overlay.textColor ?? bubbleKindStyle(overlay.kind).text;
-  const zIndex = overlay.zIndex ?? LETTERING_STYLE_DEFAULTS.zIndex;
-  // v3 craft fields (#93/#98/#99): show the renderer's effective default until
-  // the user sets the field. tone → "neutral"; placement → "in_panel" with side
-  // "right"; sfxMode → "typeset" (only meaningful for kind=sfx).
-  const tone: BubbleTone = overlay.tone ?? "neutral";
   const placement: Placement = overlay.placement ?? "in_panel";
   const placementSide: PlacementSide = overlay.placementSide ?? "right";
   const sfxMode: SfxMode = overlay.sfxMode ?? "typeset";
   const isSfx = overlay.kind === "sfx";
-  const NUDGE = 0.01;
+  const defaultFace = defaultFontFamilyForKind(overlay.kind, dialogueLanguage);
+  const defaultFaceName =
+    FONT_FAMILIES.find((family) => family.id === defaultFace)?.name ?? "Default";
+  const kindChoices = BUBBLE_PRESETS.some((preset) => preset.kind === overlay.kind)
+    ? BUBBLE_PRESETS
+    : [...BUBBLE_PRESETS, { kind: overlay.kind, label: "Other" }];
+
+  const changeKind = (kind: BubbleKind) => {
+    const patch = bubbleKindPatch(overlay, kind);
+    if (needsSpeaker(kind) && overlay.speaker.trim() === "" && defaultSpeaker) {
+      patch.speaker = defaultSpeaker;
+    }
+    onChange(patch);
+  };
 
   return (
     <div className="inspector-form inspector-organized" data-testid="bubble-inspector">
@@ -163,23 +180,18 @@ export function BubbleInspector({
         </nav>
       </header>
       {overflow && (
-        <details className="inspector-overflow" data-testid="inspector-overflow">
-          <summary>Text doesn’t fit in this bubble</summary>
-          <p>Enlarge the bubble, reduce the font size, or shorten the text.</p>
-        </details>
+        <p className="inspector-overflow" data-testid="inspector-overflow">
+          The text does not fit. Make the bubble bigger, the text smaller, or the words shorter.
+        </p>
       )}
 
       <section className="inspector-panel" hidden={tab !== "text"} aria-label="Text properties">
-        {(overlay.kind !== "narration" || overlay.speaker) && (
-          <label className="field inspector-property-row">
-            <span>Speaker</span>
-            <input
-              type="text"
-              value={overlay.speaker}
-              onChange={(e) => onChange({ speaker: e.target.value })}
-              data-testid="field-speaker"
-            />
-          </label>
+        {needsSpeaker(overlay.kind) && (
+          <SpeakerField
+            value={overlay.speaker}
+            choices={speakerChoices}
+            onChange={(speaker) => onChange({ speaker })}
+          />
         )}
         <LetteringTextField
           key={overlay.id}
@@ -192,24 +204,18 @@ export function BubbleInspector({
         />
         {!rangeSelected && (
           <fieldset className="field-group inspector-typography" data-testid="group-typography">
-            <legend>Typography</legend>
-
+            <legend>Type</legend>
             <label className="field inspector-font-family">
-              <span className="sr-only">Font family</span>
+              <span className="sr-only">Font</span>
               <select
                 value={overlay.fontFamily ?? ""}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  // Empty option clears the override so the bubble resolves to the
-                  // per-kind default family (back-compatible with overlays that never
-                  // set one). A non-empty value is always a curated family id.
+                onChange={(event) => {
+                  const value = event.target.value;
                   onChange({ fontFamily: value === "" ? undefined : (value as FontFamilyId) });
                 }}
                 data-testid="field-font-family"
               >
-                <option value="">
-                  Default ({defaultFontFamilyForKind(overlay.kind, dialogueLanguage)})
-                </option>
+                <option value="">{defaultFaceName} (default)</option>
                 {FONT_FAMILIES.map((family) => (
                   <option key={family.id} value={family.id} style={{ fontFamily: family.stack }}>
                     {family.name}
@@ -217,7 +223,6 @@ export function BubbleInspector({
                 ))}
               </select>
             </label>
-
             <div className="inspector-type-style">
               <label className="field">
                 <span className="sr-only">Weight</span>
@@ -249,7 +254,6 @@ export function BubbleInspector({
                 <i aria-hidden="true">I</i> Italic
               </button>
             </div>
-
             <div className="inspector-type-metrics">
               <InspectorNumberField
                 label="Size"
@@ -271,28 +275,7 @@ export function BubbleInspector({
                   </button>
                 }
               />
-              <InspectorNumberField
-                label="Line height"
-                value={lineHeight}
-                min={LINE_HEIGHT_MIN}
-                max={LINE_HEIGHT_MAX}
-                step={0.05}
-                unit="×"
-                testId="field-line-height"
-                onCommit={(value) => value !== null && onChange({ lineHeight: value })}
-              />
-              <InspectorNumberField
-                label="Tracking"
-                value={letterSpacing}
-                min={LETTER_SPACING_MIN_EM}
-                max={LETTER_SPACING_MAX_EM}
-                step={0.01}
-                unit="em"
-                testId="field-letter-spacing"
-                onCommit={(value) => value !== null && onChange({ letterSpacing: value })}
-              />
             </div>
-
             <div className="field">
               <span>Alignment</span>
               <div className="chip-row inspector-segmented inspector-alignment">
@@ -304,37 +287,16 @@ export function BubbleInspector({
                       textAlign === align ? "btn btn-chip btn-chip-active" : "btn btn-chip"
                     }
                     aria-pressed={textAlign === align}
+                    aria-label={`Align text ${align}`}
+                    title={ALIGN_LABELS[align]}
                     onClick={() => onChange({ textAlign: align })}
                     data-testid={`field-align-${align}`}
                   >
                     <AlignmentSymbol mode={align} />
-                    {align}
                   </button>
                 ))}
               </div>
             </div>
-
-            <div className="field">
-              <span className="sr-only">Vertical alignment</span>
-              <div className="chip-row inspector-segmented inspector-alignment">
-                {VERTICAL_ALIGNS.map((align) => (
-                  <button
-                    key={align}
-                    type="button"
-                    className={
-                      verticalAlign === align ? "btn btn-chip btn-chip-active" : "btn btn-chip"
-                    }
-                    aria-pressed={verticalAlign === align}
-                    onClick={() => onChange({ verticalAlign: align })}
-                    data-testid={`field-valign-${align}`}
-                  >
-                    <AlignmentSymbol mode={align} vertical />
-                    {align}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             <ColorPicker
               label="Text color"
               value={textColor}
@@ -345,7 +307,50 @@ export function BubbleInspector({
               testId="field-text-color"
             />
             <details className="inspector-disclosure">
-              <summary>Auto-fit &amp; padding</summary>
+              <summary>More text options</summary>
+              <div className="inspector-type-metrics">
+                <InspectorNumberField
+                  label="Line height"
+                  value={lineHeight}
+                  min={LINE_HEIGHT_MIN}
+                  max={LINE_HEIGHT_MAX}
+                  step={0.05}
+                  unit="×"
+                  testId="field-line-height"
+                  onCommit={(value) => value !== null && onChange({ lineHeight: value })}
+                />
+                <InspectorNumberField
+                  label="Letter spacing"
+                  value={letterSpacing}
+                  min={LETTER_SPACING_MIN_EM}
+                  max={LETTER_SPACING_MAX_EM}
+                  step={0.01}
+                  unit="em"
+                  testId="field-letter-spacing"
+                  onCommit={(value) => value !== null && onChange({ letterSpacing: value })}
+                />
+              </div>
+              <div className="field">
+                <span>Vertical position</span>
+                <div className="chip-row inspector-segmented inspector-alignment">
+                  {VERTICAL_ALIGNS.map((align) => (
+                    <button
+                      key={align}
+                      type="button"
+                      className={
+                        verticalAlign === align ? "btn btn-chip btn-chip-active" : "btn btn-chip"
+                      }
+                      aria-pressed={verticalAlign === align}
+                      aria-label={`Place text at the ${align}`}
+                      title={ALIGN_LABELS[align]}
+                      onClick={() => onChange({ verticalAlign: align })}
+                      data-testid={`field-valign-${align}`}
+                    >
+                      <AlignmentSymbol mode={align} vertical />
+                    </button>
+                  ))}
+                </div>
+              </div>
               <TextLayoutControls
                 layout={overlay.textLayout}
                 referenceWidth={referenceWidth}
@@ -357,17 +362,23 @@ export function BubbleInspector({
           </fieldset>
         )}
         <FontCoverageNotice segments={fontSegments} compact />
-        {overlay.textLayout && overlay.textRanges === undefined && (
-          <button
-            type="button"
-            className="btn btn-chip"
-            onClick={() => onChange({ textRanges: [] })}
-          >
-            Use bundled font fallback
-          </button>
-        )}
       </section>
+
       <section className="inspector-panel" hidden={tab !== "bubble"} aria-label="Bubble appearance">
+        <label className="field">
+          <span>Bubble type</span>
+          <select
+            value={overlay.kind}
+            onChange={(event) => changeKind(event.target.value as BubbleKind)}
+            data-testid="field-kind"
+          >
+            {kindChoices.map((preset) => (
+              <option key={preset.kind} value={preset.kind}>
+                {preset.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <BalloonControls
           overlay={overlay}
           onChange={onChange}
@@ -377,7 +388,20 @@ export function BubbleInspector({
           gutterBandWidth={gutterBandWidth}
         />
         {isSfx ? (
-          <p className="field-hint">Free text has no bubble background or tail.</p>
+          <label className="field">
+            <span>Lettering style</span>
+            <select
+              value={sfxMode}
+              onChange={(event) => onChange({ sfxMode: event.target.value as SfxMode })}
+              data-testid="field-sfx-mode"
+            >
+              {SFX_MODES.map((value) => (
+                <option key={value} value={value}>
+                  {SFX_LABELS[value]}
+                </option>
+              ))}
+            </select>
+          </label>
         ) : (
           <>
             <fieldset className="field-group" data-testid="group-color">
@@ -411,10 +435,10 @@ export function BubbleInspector({
               </div>
             </fieldset>
             <fieldset className="field-group" data-testid="group-styling">
-              <legend>Border</legend>
+              <legend>Outline</legend>
               <div className="inspector-paint-row">
                 <ColorPicker
-                  label="Border color"
+                  label="Outline color"
                   value={overlay.border?.color ?? bubbleKindStyle(overlay.kind).stroke}
                   projectPalette={projectPalette}
                   onChange={(hex) =>
@@ -446,326 +470,152 @@ export function BubbleInspector({
                   }
                 />
               </div>
-              {overlay.border !== null && (
-                <button
-                  type="button"
-                  className="inspector-inline-action inspector-reset"
-                  onClick={() => onChange({ border: null })}
-                >
-                  Reset border to default
-                </button>
-              )}
             </fieldset>
             {(!overlay.balloonShape || overlay.balloonShape === "rounded") && (
-              <details className="inspector-disclosure">
-                <summary>Shape details</summary>
-                <fieldset className="field-group" aria-label="Outline controls">
-                  {(!overlay.balloonShape || overlay.balloonShape === "rounded") && (
-                    <label className="field field-inline">
-                      <span>Corner radius</span>
-                      <input
-                        type="number"
-                        min={CORNER_RADIUS_MIN_PX}
-                        max={CORNER_RADIUS_MAX_PX}
-                        step={1}
-                        value={overlay.cornerRadius ?? ""}
-                        placeholder="Default"
-                        onChange={(e) => {
-                          const raw = e.target.value;
-                          // Empty input clears the override → per-kind default radius.
-                          if (raw === "") {
-                            onChange({ cornerRadius: undefined });
-                            return;
-                          }
-                          onChange({
-                            cornerRadius: clamp(
-                              Number(raw),
-                              CORNER_RADIUS_MIN_PX,
-                              CORNER_RADIUS_MAX_PX,
-                            ),
-                          });
-                        }}
-                        data-testid="field-corner-radius"
-                      />
-                    </label>
-                  )}
-                </fieldset>
-
-                {!overlay.balloonShape && (
-                  <div className="field">
-                    <span>Tone</span>
-                    <div className="chip-row">
-                      {BUBBLE_TONES.map((value) => (
-                        <button
-                          key={value}
-                          type="button"
-                          className={
-                            tone === value ? "btn btn-chip btn-chip-active" : "btn btn-chip"
-                          }
-                          aria-pressed={tone === value}
-                          // tone refines the outline SHAPE (scalloped/jagged); the renderer
-                          // reads it from the overlay. "neutral" clears the override.
-                          onClick={() => onChange({ tone: value })}
-                          data-testid={`field-tone-${value}`}
-                        >
-                          {value}
-                        </button>
-                      ))}
-                    </div>
-                    <span className="field-hint">
-                      Refines the bubble silhouette to encode emotion.
-                    </span>
-                  </div>
-                )}
-              </details>
+              <InspectorNumberField
+                label="Corner radius"
+                value={overlay.cornerRadius ?? null}
+                min={CORNER_RADIUS_MIN_PX}
+                max={CORNER_RADIUS_MAX_PX}
+                unit="px"
+                automatic
+                testId="field-corner-radius"
+                onCommit={(value) => onChange({ cornerRadius: value ?? undefined })}
+              />
             )}
           </>
         )}
       </section>
+
       <section className="inspector-panel" hidden={tab !== "layout"} aria-label="Bubble layout">
-        <GeometryControls overlay={overlay} onChange={onChange} />
-
-        {/* --- Arrangement ---------------------------------------------------- */}
         <fieldset className="field-group" data-testid="group-arrangement">
-          <legend>Arrangement</legend>
-
-          <div className="field">
-            <span>Stacking order (z {zIndex})</span>
-            <div className="chip-row inspector-segmented inspector-stacking">
-              <button
-                type="button"
-                className="btn btn-chip"
-                onClick={onSendToBack}
-                data-testid="field-z-send-to-back"
-              >
-                To back
-              </button>
-              <button
-                type="button"
-                className="btn btn-chip"
-                onClick={onSendBackward}
-                data-testid="field-z-send-backward"
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                className="btn btn-chip"
-                onClick={onBringForward}
-                data-testid="field-z-bring-forward"
-              >
-                Forward
-              </button>
-              <button
-                type="button"
-                className="btn btn-chip"
-                onClick={onBringToFront}
-                data-testid="field-z-bring-to-front"
-              >
-                To front
-              </button>
-            </div>
-          </div>
-
-          <div className="field">
-            <span>Nudge</span>
-            <div className="nudge-pad inspector-nudge-row">
-              <button
-                type="button"
-                className="btn btn-chip nudge-up"
-                onClick={() => onNudge(0, -NUDGE)}
-                aria-label="Nudge up"
-                data-testid="field-nudge-up"
-              >
-                <StudioIcon name="arrow" rotate={-90} />
-              </button>
-              <button
-                type="button"
-                className="btn btn-chip nudge-left"
-                onClick={() => onNudge(-NUDGE, 0)}
-                aria-label="Nudge left"
-                data-testid="field-nudge-left"
-              >
-                <StudioIcon name="arrow" rotate={180} />
-              </button>
-              <button
-                type="button"
-                className="btn btn-chip nudge-right"
-                onClick={() => onNudge(NUDGE, 0)}
-                aria-label="Nudge right"
-                data-testid="field-nudge-right"
-              >
-                <StudioIcon name="arrow" rotate={0} />
-              </button>
-              <button
-                type="button"
-                className="btn btn-chip nudge-down"
-                onClick={() => onNudge(0, NUDGE)}
-                aria-label="Nudge down"
-                data-testid="field-nudge-down"
-              >
-                <StudioIcon name="arrow" rotate={90} />
-              </button>
-            </div>
+          <legend>Stacking</legend>
+          <div className="chip-row inspector-segmented inspector-stacking">
+            <button
+              type="button"
+              className="btn btn-chip"
+              onClick={onSendToBack}
+              data-testid="field-z-send-to-back"
+            >
+              To back
+            </button>
+            <button
+              type="button"
+              className="btn btn-chip"
+              onClick={onSendBackward}
+              data-testid="field-z-send-backward"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              className="btn btn-chip"
+              onClick={onBringForward}
+              data-testid="field-z-bring-forward"
+            >
+              Forward
+            </button>
+            <button
+              type="button"
+              className="btn btn-chip"
+              onClick={onBringToFront}
+              data-testid="field-z-bring-to-front"
+            >
+              To front
+            </button>
           </div>
         </fieldset>
-
-        <details className="inspector-disclosure">
-          <summary>Panel placement</summary>
-          {/* --- Craft (#93/#98/#99) -------------------------------------------- */}
-          <fieldset
-            className="field-group"
-            data-testid="group-craft"
-            aria-label="Panel placement controls"
-          >
-            {isSfx && (
-              <label className="field">
-                <span>SFX mode</span>
-                <select
-                  value={sfxMode}
-                  onChange={(e) => onChange({ sfxMode: e.target.value as SfxMode })}
-                  data-testid="field-sfx-mode"
+        <fieldset className="field-group" data-testid="group-craft">
+          <legend>Placement</legend>
+          <div className="chip-row">
+            {PLACEMENTS.map((value) => (
+              <button
+                key={value}
+                type="button"
+                className={placement === value ? "btn btn-chip btn-chip-active" : "btn btn-chip"}
+                aria-pressed={placement === value}
+                onClick={() => onChange({ placement: value })}
+                data-testid={`field-placement-${value}`}
+              >
+                {value === "in_panel" ? "On the art" : "Beside the art"}
+              </button>
+            ))}
+          </div>
+          {placement === "gutter" && (
+            <div className="chip-row">
+              {PLACEMENT_SIDES.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={
+                    placementSide === value ? "btn btn-chip btn-chip-active" : "btn btn-chip"
+                  }
+                  aria-pressed={placementSide === value}
+                  onClick={() => onChange({ placementSide: value })}
+                  data-testid={`field-placement-side-${value}`}
                 >
-                  {SFX_MODES.map((value) => (
-                    <option key={value} value={value}>
-                      {value}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            <div className="field">
-              <span>Placement</span>
-              <div className="chip-row">
-                {PLACEMENTS.map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={
-                      placement === value ? "btn btn-chip btn-chip-active" : "btn btn-chip"
-                    }
-                    aria-pressed={placement === value}
-                    onClick={() => onChange({ placement: value })}
-                    data-testid={`field-placement-${value}`}
-                  >
-                    {value === "in_panel" ? "In panel" : "Gutter"}
-                  </button>
-                ))}
-              </div>
+                  {value === "left" ? "Left side" : "Right side"}
+                </button>
+              ))}
             </div>
-
-            {placement === "gutter" && (
-              <div className="field">
-                <span>Gutter side</span>
-                <div className="chip-row">
-                  {PLACEMENT_SIDES.map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={
-                        placementSide === value ? "btn btn-chip btn-chip-active" : "btn btn-chip"
-                      }
-                      aria-pressed={placementSide === value}
-                      onClick={() => onChange({ placementSide: value })}
-                      data-testid={`field-placement-side-${value}`}
-                    >
-                      {value === "left" ? "Left" : "Right"}
-                    </button>
-                  ))}
+          )}
+        </fieldset>
+        <details className="inspector-disclosure">
+          <summary>Exact position</summary>
+          <GeometryControls overlay={overlay} onChange={onChange} />
+          <div className="field">
+            <span>Speaker outside the cut</span>
+            {overlay.tailTarget ? (
+              <>
+                <div className="geometry-controls">
+                  <InspectorNumberField
+                    label="Across"
+                    value={overlay.tailTarget.x}
+                    min={-4}
+                    max={5}
+                    step={0.05}
+                    testId="field-tail-target-x"
+                    onCommit={(value) =>
+                      value !== null &&
+                      onChange({ tailTarget: { x: value, y: overlay.tailTarget?.y ?? 0 } })
+                    }
+                  />
+                  <InspectorNumberField
+                    label="Down"
+                    value={overlay.tailTarget.y}
+                    min={-4}
+                    max={5}
+                    step={0.05}
+                    testId="field-tail-target-y"
+                    onCommit={(value) =>
+                      value !== null &&
+                      onChange({ tailTarget: { x: overlay.tailTarget?.x ?? 0, y: value } })
+                    }
+                  />
                 </div>
-                <span className="field-hint">
-                  The bubble sits in a reserved strip on this side; its tail crosses into the art
-                  via the off-panel target below.
-                </span>
-              </div>
-            )}
-
-            {/* Off-panel speaker target (#93): an art-space point that MAY lie outside
-            [0,1] (the speaker is off-panel). Editable as two numbers; the toggle
-            adds/clears it. */}
-            <div className="field">
-              <span>Off-panel tail target</span>
-              {overlay.tailTarget ? (
-                <>
-                  <div className="geometry-controls">
-                    <label className="field">
-                      <span>X</span>
-                      <input
-                        type="number"
-                        step={0.05}
-                        value={overlay.tailTarget.x}
-                        onChange={(e) =>
-                          onChange({
-                            tailTarget: {
-                              x: Number(e.target.value),
-                              y: overlay.tailTarget?.y ?? 0,
-                            },
-                          })
-                        }
-                        data-testid="field-tail-target-x"
-                      />
-                    </label>
-                    <label className="field">
-                      <span>Y</span>
-                      <input
-                        type="number"
-                        step={0.05}
-                        value={overlay.tailTarget.y}
-                        onChange={(e) =>
-                          onChange({
-                            tailTarget: {
-                              x: overlay.tailTarget?.x ?? 0,
-                              y: Number(e.target.value),
-                            },
-                          })
-                        }
-                        data-testid="field-tail-target-y"
-                      />
-                    </label>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-chip"
-                    onClick={() => onChange({ tailTarget: null })}
-                    data-testid="field-tail-target-clear"
-                  >
-                    Clear target
-                  </button>
-                  <span className="field-hint">
-                    Art-space point; may lie outside 0–1 for an off-panel speaker. The drawn tip
-                    clamps to the art edge.
-                  </span>
-                </>
-              ) : (
                 <button
                   type="button"
                   className="btn btn-chip"
-                  onClick={() => onChange({ tailTarget: { x: -0.1, y: 0.5 } })}
-                  data-testid="field-tail-target-add"
+                  onClick={() => onChange({ tailTarget: null })}
+                  data-testid="field-tail-target-clear"
                 >
-                  Add off-panel target
+                  Point inside the cut
                 </button>
-              )}
-            </div>
-          </fieldset>
-        </details>
-        <details className="inspector-disclosure">
-          <summary>Lettering review status</summary>
-          <label className="field">
-            <span>Review status</span>
-            <select
-              value={overlay.reviewStatus}
-              onChange={(e) => onChange({ reviewStatus: e.target.value as ReviewStatus })}
-              data-testid="field-review"
-            >
-              {REVIEW_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {{ draft: "Draft", "human-edited": "Edited", final: "Final" }[status]}
-                </option>
-              ))}
-            </select>
-          </label>
+                <span className="field-hint">
+                  0 to 1 is inside the art. Smaller or larger values point past its edge.
+                </span>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-chip"
+                onClick={() => onChange({ tailTarget: { x: -0.1, y: 0.5 } })}
+                data-testid="field-tail-target-add"
+              >
+                Point the tail outside the cut
+              </button>
+            )}
+          </div>
         </details>
       </section>
     </div>
