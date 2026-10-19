@@ -15,7 +15,10 @@ export function GeometryControls({
       <div className="geometry-controls">
         {(["x", "y", "width", "height"] as const).map((key) => (
           <label className="field" key={key}>
-            <span>{key} %</span>
+            <span>
+              {{ x: "X", y: "Y", width: "Width", height: "Height" }[key]}{" "}
+              <span className="field-unit">%</span>
+            </span>
             <input
               key={`${overlay.id}-${key}-${overlay.geometry[key]}`}
               aria-label={`Bubble ${key} percent`}
@@ -50,7 +53,9 @@ export function GeometryControls({
         <div className="geometry-controls">
           {(["x", "y"] as const).map((key) => (
             <label className="field" key={key}>
-              <span>Tail {key} %</span>
+              <span>
+                Tail {key.toUpperCase()} <span className="field-unit">%</span>
+              </span>
               <input
                 aria-label={`Tail ${key} percent`}
                 type="number"

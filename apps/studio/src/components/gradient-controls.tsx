@@ -47,8 +47,8 @@ export function GradientControls({
       </label>
       {gradient && (
         <>
-          <label className="field">
-            <span>Gradient angle</span>
+          <label className="field field-inline">
+            <span>Angle</span>
             <input
               aria-label="Gradient angle"
               type="range"
@@ -59,38 +59,43 @@ export function GradientControls({
                 onChange({ fillGradient: { ...gradient, angle: Number(e.target.value) } })
               }
             />
-            {gradient.angle}°
+            <output>{gradient.angle}°</output>
           </label>
-          {gradient.stops.map((stop, index) => (
-            <div
-              className="gradient-stop-controls"
-              // biome-ignore lint/suspicious/noArrayIndexKey: controls edit the ordered stop at this position.
-              key={index}
-            >
-              <input
-                aria-label={`Stop ${index + 1} color`}
-                type="color"
-                value={stop.color.slice(0, 7)}
-                onInput={(e) =>
-                  onChange({
-                    fillGradient: {
-                      ...gradient,
-                      stops: gradient.stops.map((s, i) =>
-                        i === index
-                          ? {
-                              ...s,
-                              color:
-                                e.currentTarget.value +
-                                (s.color.length === 9 ? s.color.slice(7) : ""),
-                            }
-                          : s,
-                      ),
-                    },
-                  })
-                }
-              />
-              <label>
-                Position %
+          <div className="gradient-stops">
+            <div className="gradient-stop-headings" aria-hidden="true">
+              <span>Color</span>
+              <span>Position %</span>
+              <span>Opacity %</span>
+              <span />
+            </div>
+            {gradient.stops.map((stop, index) => (
+              <div
+                className="gradient-stop-controls"
+                // biome-ignore lint/suspicious/noArrayIndexKey: controls edit the ordered stop at this position.
+                key={index}
+              >
+                <input
+                  aria-label={`Stop ${index + 1} color`}
+                  type="color"
+                  value={stop.color.slice(0, 7)}
+                  onInput={(e) =>
+                    onChange({
+                      fillGradient: {
+                        ...gradient,
+                        stops: gradient.stops.map((s, i) =>
+                          i === index
+                            ? {
+                                ...s,
+                                color:
+                                  e.currentTarget.value +
+                                  (s.color.length === 9 ? s.color.slice(7) : ""),
+                              }
+                            : s,
+                        ),
+                      },
+                    })
+                  }
+                />
                 <input
                   aria-label={`Stop ${index + 1} position`}
                   type="number"
@@ -118,9 +123,6 @@ export function GradientControls({
                       });
                   }}
                 />
-              </label>
-              <label>
-                Alpha %
                 <input
                   aria-label={`Stop ${index + 1} alpha`}
                   type="number"
@@ -152,28 +154,29 @@ export function GradientControls({
                       });
                   }}
                 />
-              </label>
-              <button
-                type="button"
-                className="btn btn-chip"
-                aria-label={`Remove gradient stop ${index + 1}`}
-                disabled={gradient.stops.length <= 2}
-                onClick={() =>
-                  onChange({
-                    fillGradient: {
-                      ...gradient,
-                      stops: gradient.stops.filter((_, i) => i !== index),
-                    },
-                  })
-                }
-              >
-                Remove
-              </button>
-            </div>
-          ))}
+                <button
+                  type="button"
+                  className="btn gradient-stop-remove"
+                  title={`Remove stop ${index + 1}`}
+                  aria-label={`Remove gradient stop ${index + 1}`}
+                  disabled={gradient.stops.length <= 2}
+                  onClick={() =>
+                    onChange({
+                      fillGradient: {
+                        ...gradient,
+                        stops: gradient.stops.filter((_, i) => i !== index),
+                      },
+                    })
+                  }
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
+            ))}
+          </div>
           <button
             type="button"
-            className="btn btn-chip"
+            className="btn gradient-stop-add"
             disabled={gradient.stops.length >= 8}
             onClick={() => {
               let index = 0;
@@ -198,7 +201,7 @@ export function GradientControls({
                 });
             }}
           >
-            Add gradient stop
+            + Add color stop
           </button>
         </>
       )}

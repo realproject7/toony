@@ -97,12 +97,12 @@ export function LetteringTextField({
         />
       </label>
       {hasSelection ? (
-        <fieldset className="field-group" data-testid="selection-typography">
+        <fieldset className="field-group selection-typography" data-testid="selection-typography">
           <legend>Selected text</legend>
           <small className="selection-summary" title={selected}>
             {selected}
           </small>
-          <div className="chip-row">
+          <div className="chip-row inspector-selection-actions">
             <button
               type="button"
               className="btn btn-chip"
