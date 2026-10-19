@@ -196,6 +196,29 @@ function episodeTarget(workId: string, episodeId: string, label: string): AgentT
 function cutTarget(workId: string, episodeId: string, cutId: string, label: string): AgentTarget {
   return { type: "cut", workId, episodeId, cutId, label, href: cutHref(workId, episodeId, cutId) };
 }
+/**
+ * Where a cut edit can be opened: each cut it updated, moved or added (up to
+ * three), else the episode. Removed cuts have nowhere to open.
+ */
+function editedCutTargets(
+  workId: string,
+  episodeId: string,
+  episodeLabel: string,
+  loaded: LoadedProject | null,
+  operations: ReturnType<typeof A.editCutsArgs>["operations"],
+  edited?: { added: string[] },
+): AgentTarget[] {
+  const ids = [
+    ...operations.flatMap((op) => (op.op === "update" || op.op === "move" ? [op.cutId] : [])),
+    ...(edited?.added ?? []),
+  ];
+  const unique = [...new Set(ids)].slice(0, 3);
+  const bundle = loaded ? findBundle(loaded, episodeId) : undefined;
+  const present = unique.filter((id) => bundle?.cuts.some((cut) => cut.id === id));
+  if (present.length === 0) return [episodeTarget(workId, episodeId, episodeLabel)];
+  return present.map((id) => cutTarget(workId, episodeId, id, cutLabelOf(loaded, episodeId, id)));
+}
+
 function exportTarget(workId: string, episodeId: string, label: string): AgentTarget {
   return {
     type: "export",
@@ -551,7 +574,7 @@ const WRITES: Record<string, WriteTool> = {
             )
             .join("\n"),
         },
-        targets: [episodeTarget(work.id, args.episodeId, label)],
+        targets: editedCutTargets(work.id, args.episodeId, label, loaded, args.operations),
         scopes: [{ kind: "episode", episodeId: args.episodeId }],
       };
     },
@@ -568,7 +591,7 @@ const WRITES: Record<string, WriteTool> = {
           changeId: edited.change?.changeId ?? null,
         },
         changes: [edited.change],
-        targets: [episodeTarget(work.id, args.episodeId, label)],
+        targets: editedCutTargets(work.id, args.episodeId, label, loaded, args.operations, edited),
         detail: `${label} · ${edited.cuts.length} cuts`,
       };
     },

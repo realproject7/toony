@@ -333,7 +333,7 @@ test("editCuts removes a cut with its lettering and transition and validates", a
   );
   assert.equal(bundle?.cuts[1]?.imagePrompt, "Mira runs.");
   assert.equal(bundle?.cuts[1]?.reviewStatus, undefined, "an edit leaves the review mark alone");
-  assert.match(result.change?.summary ?? "", /Removed a cut, updated a cut in Fog/);
+  assert.match(result.change?.summary ?? "", /Removed a cut, updated Cut 2 in Fog/);
 });
 
 test("dialogue letters an empty cut but only proposes replacing existing lettering", async (t) => {

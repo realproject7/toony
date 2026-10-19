@@ -277,8 +277,16 @@ export async function editCuts(
           `removed ${edited.removed.length === 1 ? "a cut" : `${edited.removed.length} cuts`}`,
         );
       }
-      const updates = operations.filter((o) => o.op === "update").length;
-      if (updates > 0) parts.push(updates === 1 ? "updated a cut" : `updated ${updates} cuts`);
+      const updated = [
+        ...new Set(operations.flatMap((o) => (o.op === "update" ? [o.cutId] : []))),
+      ].map((id) => cutNumber(edited.bundle, id));
+      if (updated.length > 0) {
+        parts.push(
+          updated.length <= 3 && updated.every((n) => n > 0)
+            ? `updated Cut ${updated.join(", ")}`
+            : `updated ${updated.length} cuts`,
+        );
+      }
       if (operations.some((o) => o.op === "move")) parts.push("reordered cuts");
       const sentence = parts.join(", ");
       tx.setSummary(`${sentence.charAt(0).toUpperCase()}${sentence.slice(1)} in ${label}`);
