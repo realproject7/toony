@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { SOCIAL_FRAMES } from "../defaults.js";
 import {
+  evenParts,
   type LayoutBand,
   type LayoutPlan,
   packSlices,
@@ -180,11 +181,12 @@ test("a tall cut splits into rows by default and fits whole when it stays legibl
   const bands = [cut(0, 1.4)];
   const split = planSocial(bands, { frame: frame.id, tallCuts: "split", referenceWidth: 800 });
   assert.equal(split.files.length, 2);
+  // Split evenly, so no frame carries a sliver: 1361 rows become 681 + 680.
   assert.deepEqual(
     split.files.map((f) => [f.pieces[0]?.top, f.pieces[0]?.height, f.pieces[0]?.width]),
     [
-      [0, 1242, 972],
-      [1242, 1361 - 1242, 972],
+      [0, 681, 972],
+      [681, 680, 972],
     ],
   );
   assert.deepEqual(
@@ -206,6 +208,48 @@ test("a tall cut splits into rows by default and fits whole when it stays legibl
     tower.warnings.map((w) => w.code),
     ["social.fit-too-small", "social.split"],
   );
+});
+
+test("even parts cover every row once, never exceed the cap and differ by at most one row", () => {
+  for (const [height, max] of [
+    [1361, 1242],
+    [2916, 1242],
+    [1242, 1242],
+    [5, 2],
+    [10_001, 900],
+  ] as const) {
+    const parts = evenParts(height, max);
+    assert.equal(parts.length, Math.ceil(height / max));
+    let top = 0;
+    for (const part of parts) {
+      assert.equal(part.top, top);
+      assert.ok(part.height <= max && part.height > 0);
+      top += part.height;
+    }
+    assert.equal(top, height);
+    const sizes = parts.map((part) => part.height);
+    assert.ok(Math.max(...sizes) - Math.min(...sizes) <= 1);
+  }
+});
+
+test("a text card taller than the frame is fitted whole even when cuts split", () => {
+  // A card 880 rows tall at the 1440 px X content box (810 rows high).
+  const card: LayoutBand = {
+    index: 0,
+    type: "transition",
+    id: "tr-card",
+    role: "card",
+    heightAt: (width) => Math.round((width * 880) / 1440),
+  };
+  const plan = planSocial([card, cut(1, 0.4)], {
+    frame: "x-landscape",
+    tallCuts: "split",
+    referenceWidth: 800,
+  });
+  const pieces = plan.files.flatMap((file) => file.pieces.filter((piece) => piece.band === 0));
+  assert.equal(pieces.length, 1);
+  assert.ok((pieces[0]?.width ?? 0) < 1440 && (pieces[0]?.height ?? 0) <= 810);
+  assert.deepEqual(plan.warnings, []);
 });
 
 test("frames are grouped into posts: up to 20 for Instagram, 4 for X", () => {

@@ -2,7 +2,7 @@
 // source image, safe decode, and the raster budget. Every output and the craft
 // measurement start here, so they compose from identical inputs.
 
-import { open } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 import { loadProject } from "@toony/project-io";
 import { type Cut, type EpisodeBundle, type Project, resolveReferenceWidth } from "@toony/schema";
 import type { ComposeCutOptions } from "./compose.js";
@@ -222,8 +222,12 @@ export async function episodeInputsHash(root: string, episodeId: string): Promis
   for (const cut of bundle.cuts) {
     const ref = artRef(cut);
     if (ref === null) continue;
+    // Plain stat + readFile: this runs while pages render, and a file handle
+    // is not a value to keep alive across a render.
     try {
-      artHashes.set(cut.id, sha256Hex(await readBounded(`${root}/${ref}`, cut.id)));
+      const path = `${root}/${ref}`;
+      if ((await stat(path)).size > IMAGE_FILE_BYTES_MAX) throw new Error("too large");
+      artHashes.set(cut.id, sha256Hex(await readFile(path)));
     } catch {
       artHashes.set(cut.id, "unreadable");
     }

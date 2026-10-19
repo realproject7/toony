@@ -73,22 +73,24 @@ for (const frame of Object.values(SOCIAL_FRAMES)) {
 test("a tall cut split across frames shows each of its rows exactly once", async () => {
   const root = await sequenceProject();
   const out = await exportSocial(root, "ep-001", { frame: "instagram-portrait" });
-  // cut-004 is 3x as tall as wide: 2916 rows at the 972 px content width.
+  // cut-004 is 3x as tall as wide: 2916 rows at the 972 px content width,
+  // split evenly into three frames of 972 rows.
   const pieces = out.manifest.files.flatMap((file) =>
     file.items.filter((item) => item.id === "cut-004").map((item) => ({ file, item })),
   );
   assert.deepEqual(
     pieces.map(({ item }) => [item.top, item.height]),
     [
-      [0, 1242],
-      [1242, 1242],
-      [2484, 432],
+      [0, 972],
+      [972, 972],
+      [1944, 972],
     ],
   );
   assert.ok(
     out.manifest.warnings.some((w) => w.code === "social.split" && w.items.includes("cut-004")),
   );
-  // The pixels of the middle frame are the compositor's rows 1242..2484 of the cut.
+  // The pixels of the middle frame are the compositor's rows 972..1944 of the cut,
+  // centred vertically in the content box.
   const loaded = await loadEpisode(root, "ep-001");
   const cut = loaded.bundle.cuts.find((c) => c.id === "cut-004");
   assert.ok(cut);
@@ -101,9 +103,10 @@ test("a tall cut split across frames shows each of its rows exactly once", async
   const middle = pieces[1]?.file;
   assert.ok(middle);
   const decoded = await decodePixels(await readFile(join(root, middle.path)));
+  const top = 54 + Math.floor((1242 - 972) / 2);
   assertSamePixels(
-    crop(decoded, 54, 54, 972, 1242),
-    regionPixels(raster.canvas, 0, 1242, 972, 1242),
+    crop(decoded, 54, top, 972, 972),
+    regionPixels(raster.canvas, 0, 972, 972, 972),
     "rows",
   );
 });

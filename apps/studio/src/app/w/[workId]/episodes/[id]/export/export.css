@@ -159,6 +159,11 @@
   color: var(--color-danger);
 }
 
+.export-field input[type="number"]:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .export-field input[aria-invalid="true"] {
   border-color: var(--color-danger);
 }

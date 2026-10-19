@@ -224,8 +224,37 @@ function sum(units: readonly { height: number }[]): number {
   return units.reduce((total, unit) => total + unit.height, 0);
 }
 
-function cutLabel(band: LayoutBand): string {
-  return band.type === "cut" ? `Cut ${band.cutNumber ?? "?"}` : "A text card";
+/** How a band is named to people: "Cut 3", or a card by the cut before it. */
+function bandLabel(bands: readonly LayoutBand[], band: LayoutBand): string {
+  if (band.type === "cut") return `Cut ${band.cutNumber ?? "?"}`;
+  const at = bands.indexOf(band);
+  for (let i = at - 1; i >= 0; i--) {
+    const previous = bands[i];
+    if (previous?.type === "cut") return `the card after Cut ${previous.cutNumber ?? "?"}`;
+  }
+  return "the opening card";
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * Split `height` rows into the fewest parts no taller than `maxHeight`, as even
+ * as whole rows allow, so no frame carries a sliver.
+ */
+export function evenParts(height: number, maxHeight: number): { top: number; height: number }[] {
+  const count = Math.ceil(height / maxHeight);
+  const base = Math.floor(height / count);
+  const extra = height - base * count;
+  const parts: { top: number; height: number }[] = [];
+  let top = 0;
+  for (let i = 0; i < count; i++) {
+    const rows = base + (i < extra ? 1 : 0);
+    parts.push({ top, height: rows });
+    top += rows;
+  }
+  return parts;
 }
 
 /** List names in a sentence: "Cut 2, Cut 5 and Cut 9". Long lists are shortened. */
@@ -242,7 +271,7 @@ export function artlessWarning(bands: readonly LayoutBand[]): LayoutWarning | nu
   const artless = bands.filter((band) => band.type === "cut" && band.hasArt === false);
   const ids = [...new Set(artless.map((band) => band.id))];
   if (ids.length === 0) return null;
-  const names = [...new Set(artless.map(cutLabel))];
+  const names = [...new Set(artless.map((band) => bandLabel(bands, band)))];
   return {
     code: "artless-cuts",
     message:
@@ -360,6 +389,8 @@ export interface SocialLayoutOptions {
  * frame's content box and packed whole into frames; spacers that would start or
  * end a frame are dropped. A band taller than the box is split into rows, or with
  * `tallCuts: "fit"` composed narrower so it fits whole, when that stays legible.
+ * A text card taller than the box is always fitted when legible, never split
+ * through its words.
  * Frames are grouped into posts of the frame's post size.
  */
 export function planSocial(bands: readonly LayoutBand[], options: SocialLayoutOptions): LayoutPlan {
@@ -381,7 +412,9 @@ export function planSocial(bands: readonly LayoutBand[], options: SocialLayoutOp
       return;
     }
     if (spacer) return;
-    if (options.tallCuts === "fit") {
+    // A text card always tries to fit whole: split rows would cut its words in
+    // half. Cuts fit only when asked.
+    if (options.tallCuts === "fit" || band.role === "card") {
       const width = fitWidth(band, box.width, box.height);
       if (width !== null && width / options.referenceWidth >= SOCIAL_FIT_MIN_SCALE) {
         units.push({ band: index, width, top: 0, height: band.heightAt(width), spacer });
@@ -389,9 +422,10 @@ export function planSocial(bands: readonly LayoutBand[], options: SocialLayoutOp
       }
       tooSmall.push(band);
     }
-    const parts = splitTallBands([height], box.width, box.height).map((unit) => ({
-      ...unit,
+    const parts = evenParts(height, box.height).map((part) => ({
+      ...part,
       band: index,
+      width: box.width,
       spacer,
     }));
     split.push({ band, parts: parts.length });
@@ -443,7 +477,7 @@ export function planSocial(bands: readonly LayoutBand[], options: SocialLayoutOp
   if (tooSmall.length > 0) {
     warnings.push({
       code: "social.fit-too-small",
-      message: `${listNames(tooSmall.map(cutLabel))} would be too small to read if fitted whole, so ${tooSmall.length === 1 ? "it is" : "they are"} split into rows.`,
+      message: `${capitalize(listNames(tooSmall.map((band) => bandLabel(bands, band))))} would be too small to read if fitted whole, so ${tooSmall.length === 1 ? "it is" : "they are"} split into rows.`,
       items: tooSmall.map((band) => band.id),
     });
   }
@@ -452,8 +486,8 @@ export function planSocial(bands: readonly LayoutBand[], options: SocialLayoutOp
       code: "social.split",
       message:
         split.length === 1
-          ? `${cutLabel(split[0]?.band as LayoutBand)} is split across ${split[0]?.parts} images.`
-          : `${split.length} tall panels are split across images: ${listNames(split.map(({ band, parts }) => `${cutLabel(band)} (${parts})`))}.`,
+          ? `${capitalize(bandLabel(bands, split[0]?.band as LayoutBand))} is split across ${split[0]?.parts} images.`
+          : `${split.length} tall panels are split across images: ${listNames(split.map(({ band, parts }) => `${bandLabel(bands, band)} (${parts})`))}.`,
       items: split.map(({ band }) => band.id),
     });
   }

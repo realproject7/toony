@@ -7,7 +7,7 @@
 // symlink) whose bytes still match the manifest's size and SHA-256.
 
 import { constants } from "node:fs";
-import { lstat, open, realpath } from "node:fs/promises";
+import { lstat, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { type ExportManifest, MANIFEST_FILE, sha256Hex, validateManifest } from "@toony/export";
 import { episodeExportRelDir, LEGACY_EXPORT_DIRS } from "@toony/project-io";
@@ -52,25 +52,19 @@ export function assertLocalRead(request: Request): void {
   }
 }
 
-/** Read a regular file without following a symlink, bounded by `maxBytes`. */
+/**
+ * Read a regular file without following a symlink, bounded by `maxBytes`.
+ *
+ * `readFile` with `O_NOFOLLOW` rather than a held file handle: the export page
+ * reads manifests while it renders, and a file handle is not a value to keep
+ * alive across a server render.
+ */
 async function readRegular(path: string, maxBytes: number): Promise<Buffer | null> {
   try {
-    if (!(await lstat(path)).isFile()) return null;
-    const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-    try {
-      const stat = await file.stat();
-      if (!stat.isFile() || stat.size > maxBytes) return null;
-      const bytes = Buffer.alloc(stat.size + 1);
-      let length = 0;
-      while (length < bytes.length) {
-        const { bytesRead } = await file.read(bytes, length, bytes.length - length, length);
-        if (bytesRead === 0) break;
-        length += bytesRead;
-      }
-      return length === stat.size ? bytes.subarray(0, length) : null;
-    } finally {
-      await file.close();
-    }
+    const info = await lstat(path);
+    if (!info.isFile() || info.size > maxBytes) return null;
+    const bytes = await readFile(path, { flag: constants.O_RDONLY | constants.O_NOFOLLOW });
+    return bytes.length === info.size ? bytes : null;
   } catch {
     return null;
   }

@@ -245,7 +245,13 @@ export function ExportPanel({ workId, episodeId, referenceWidth, items, saved }:
           </div>
         </section>
 
-        {result ? <Results result={result} running={running} /> : null}
+        {result ? (
+          <Results
+            result={result}
+            running={running}
+            shownNotes={new Set(plan.warnings.map((warning) => warning.message))}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -486,6 +492,10 @@ function LayoutPreview({
     [items],
   );
   const shown = plan.files.slice(0, PREVIEW_FILES_MAX);
+  // One scale for every file of the plan, so parts and frames compare at a glance.
+  const wide = plan.files.length > 0 && plan.files.every((file) => file.width > file.height);
+  const widest = Math.max(1, ...plan.files.map((file) => file.width));
+  const scale = (wide ? THUMB_WIDE : THUMB_WIDTH) / widest;
   return (
     <figure className="export-preview" data-testid="export-preview">
       <figcaption className="field-hint">
@@ -496,8 +506,16 @@ function LayoutPreview({
       ) : (
         <div className="export-preview-strip">
           {shown.map((file, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: preview files have no identity beyond their position.
-            <PreviewFile key={index} file={file} bands={bands} art={art} index={index} />
+            <PreviewFile
+              // Each file starts at a different band row, which names it.
+              key={`${file.pieces[0]?.band ?? "none"}:${file.pieces[0]?.top ?? 0}`}
+              file={file}
+              scale={scale}
+              bands={bands}
+              art={art}
+              index={index}
+              posts={plan.files.at(-1)?.post ?? 1}
+            />
           ))}
           {plan.files.length > shown.length ? (
             <span className="export-preview-more">+{plan.files.length - shown.length} more</span>
@@ -510,17 +528,22 @@ function LayoutPreview({
 
 function PreviewFile({
   file,
+  scale,
   bands,
   art,
   index,
+  posts,
 }: {
   file: LayoutFile;
+  /** Preview px per output px. */
+  scale: number;
   bands: readonly LayoutBand[];
   art: ReadonlyMap<string, string>;
   index: number;
+  /** How many posts the whole plan needs. */
+  posts: number;
 }) {
-  const width = file.width > file.height ? THUMB_WIDE : THUMB_WIDTH;
-  const scale = width / file.width;
+  const width = Math.max(4, Math.round(file.width * scale));
   const height = Math.max(4, Math.round(file.height * scale));
   const clipped = height > THUMB_HEIGHT_MAX;
   return (
@@ -570,7 +593,7 @@ function PreviewFile({
         })}
       </div>
       <span className="export-thumb-label">
-        {file.post !== undefined ? `Post ${file.post} · ` : ""}
+        {file.post !== undefined && posts > 1 ? `Post ${file.post} · ` : ""}
         {index + 1}
       </span>
     </div>
@@ -596,8 +619,8 @@ function Progress({ job }: { job: ExportJobView }) {
     <div className="export-progress" role="status" data-testid="export-progress">
       <progress max={Math.max(1, total)} value={done} />
       <span>
-        {job.state === "queued"
-          ? "Waiting for another export to finish…"
+        {job.state === "queued" && job.message
+          ? job.message
           : total > 0
             ? `Rendering ${done} of ${total} steps`
             : "Starting…"}
@@ -606,7 +629,18 @@ function Progress({ job }: { job: ExportJobView }) {
   );
 }
 
-function Results({ result, running }: { result: Result; running: boolean }) {
+const EXPORTED_AT = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" });
+
+function Results({
+  result,
+  running,
+  shownNotes,
+}: {
+  result: Result;
+  running: boolean;
+  /** Notes the setup card already shows; the results do not repeat them. */
+  shownNotes: ReadonlySet<string>;
+}) {
   const files = result.files ?? [];
   const total = files.reduce((sum, file) => sum + file.bytes, 0);
   const posts = new Map<number, typeof files>();
@@ -614,7 +648,8 @@ function Results({ result, running }: { result: Result; running: boolean }) {
     const post = file.post ?? 0;
     posts.set(post, [...(posts.get(post) ?? []), file]);
   }
-  const when = result.finishedAt ? new Date(result.finishedAt) : null;
+  const when = result.finishedAt ? EXPORTED_AT.format(new Date(result.finishedAt)) : null;
+  const notes = (result.warnings ?? []).filter((warning) => !shownNotes.has(warning.message));
   return (
     <section
       className="card export-results"
@@ -626,9 +661,9 @@ function Results({ result, running }: { result: Result; running: boolean }) {
           <h2 className="section-title" id="export-results-title">
             Files
           </h2>
-          <p className="field-hint">
+          <p className="field-hint" suppressHydrationWarning>
             {files.length} {files.length === 1 ? "image" : "images"}, {formatBytes(total)}
-            {when ? ` · exported ${when.toLocaleString()}` : ""}
+            {when ? ` · exported ${when}` : ""}
           </p>
         </div>
         <div className="export-results-actions">
@@ -651,9 +686,9 @@ function Results({ result, running }: { result: Result; running: boolean }) {
         </div>
       </div>
 
-      {result.warnings && result.warnings.length > 0 ? (
+      {notes.length > 0 ? (
         <ul className="export-notes">
-          {result.warnings.map((warning) => (
+          {notes.map((warning) => (
             <li key={warning.code} data-tone={warning.code === "artless-cuts" ? "warning" : "info"}>
               {warning.message}
             </li>

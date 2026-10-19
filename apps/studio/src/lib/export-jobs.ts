@@ -127,6 +127,7 @@ async function run(
 ): Promise<ExportJobView> {
   const view = record.view;
   view.state = "running";
+  delete view.message;
   view.startedAt = new Date().toISOString();
   publish(record);
   try {
@@ -184,6 +185,9 @@ export async function startExportJob(
     }
   }
   const reg = registry();
+  const waiting = [...jobs.values()].some(
+    (job) => job.view.state === "queued" || job.view.state === "running",
+  );
   const record: JobRecord = {
     view: {
       id: randomUUID(),
@@ -192,6 +196,7 @@ export async function startExportJob(
       output: preset.id,
       state: "queued",
       progress: { done: 0, total: 0 },
+      ...(waiting ? { message: "Waiting for another export to finish." } : {}),
     },
     listeners: new Set(onProgress ? [onProgress] : []),
     // Runs after every earlier job has finished, whatever its outcome.
