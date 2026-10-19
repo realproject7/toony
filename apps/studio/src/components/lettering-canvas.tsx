@@ -5,7 +5,6 @@ import {
   IMPACT_BURST_FILL,
   IMPACT_BURST_STROKE,
   IMPACT_RAY_COLOR,
-  kindSupportsTail,
 } from "@toony/render";
 import type { LetteringOverlay } from "@toony/schema";
 import type { PointerEvent, Ref } from "react";
@@ -176,20 +175,20 @@ export function LetteringCanvas({
                       onPointerDown={(e) => onResize(e, b, p.c)}
                     />
                   ))}
-                  {kindSupportsTail(b.kind, b.balloonShape) && b.tail && (
+                  {plan.tail && (
                     <>
                       <line
                         x1={g.x + g.width / 2}
                         y1={g.y + g.height / 2}
-                        x2={b.tail.x * width}
-                        y2={b.tail.y * height}
+                        x2={plan.tail.tip.x}
+                        y2={plan.tail.tip.y}
                         stroke="var(--color-accent)"
                         strokeDasharray="4 4"
                         pointerEvents="none"
                       />
                       <circle
-                        cx={b.tail.x * width}
-                        cy={b.tail.y * height}
+                        cx={plan.tail.tip.x}
+                        cy={plan.tail.tip.y}
                         r={handle + 1}
                         fill="#fff"
                         stroke="var(--color-accent)"

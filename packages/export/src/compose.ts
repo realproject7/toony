@@ -89,6 +89,13 @@ function drawBubble(ctx: SKRSContext2D, b: BubbleRender): void {
     }
   }
 
+  if (b.accents?.length) {
+    traceOutline(ctx, b.accents);
+    ctx.fillStyle = b.stroke;
+    ctx.globalAlpha = 1;
+    ctx.fill();
+  }
+
   // impact_band SFX (#99): radial speed-lines + a burst star behind the text,
   // traced from the render plan's pure straight segments so the raster matches the
   // studio SVG exactly. Drawn before the bare text so the lettering reads on top.

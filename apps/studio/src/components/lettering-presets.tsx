@@ -1,7 +1,7 @@
 "use client";
 
-import type { BubbleKind, LetteringTheme } from "@toony/schema";
-import { BUBBLE_PRESETS, presetPreviewPlan } from "@/lib/new-overlay";
+import type { LetteringTheme } from "@toony/schema";
+import { BALLOON_LIBRARY, libraryPreview } from "@/lib/new-overlay";
 import { BubbleThumbnail } from "./bubble-thumbnail";
 
 export const LETTERING_PRESET_MIME = "application/x-toony-lettering-preset";
@@ -16,8 +16,8 @@ export function LetteringPresets({
   dialogueLanguage,
   gutterBandWidth,
 }: {
-  armed: BubbleKind | null;
-  onArm: (kind: BubbleKind | null) => void;
+  armed: string | null;
+  onArm: (kind: string | null) => void;
   width: number;
   height: number;
   referenceWidth: number;
@@ -26,23 +26,24 @@ export function LetteringPresets({
   gutterBandWidth: number;
 }) {
   return (
-    <fieldset className="lettering-presets" aria-label="Bubble presets">
-      {BUBBLE_PRESETS.map(({ kind, label }) => (
+    <fieldset className="lettering-presets" aria-label="Bubble library">
+      <legend>Bubble library</legend>
+      {BALLOON_LIBRARY.map(({ id, label }) => (
         <button
           type="button"
           className="btn lettering-preset"
-          key={kind}
-          aria-pressed={armed === kind}
+          key={id}
+          aria-pressed={armed === id}
           draggable
           onDragStart={(event) => {
-            event.dataTransfer.setData(LETTERING_PRESET_MIME, kind);
+            event.dataTransfer.setData(LETTERING_PRESET_MIME, id);
             event.dataTransfer.effectAllowed = "copy";
           }}
-          onClick={() => onArm(armed === kind ? null : kind)}
+          onClick={() => onArm(armed === id ? null : id)}
           title={`Click then place, or drag ${label.toLowerCase()} onto artwork`}
         >
           <BubbleThumbnail
-            plan={presetPreviewPlan(kind, {
+            plan={libraryPreview(id, {
               width,
               height,
               referenceWidth,

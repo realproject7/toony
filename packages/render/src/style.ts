@@ -131,6 +131,7 @@ export function kindHasBubble(kind: BubbleKind): boolean {
 
 /** Whether a kind renders a speech tail when a tail point is present. */
 export function kindSupportsTail(kind: BubbleKind, shape?: BalloonShape): boolean {
+  if (shape !== undefined) return kind !== "sfx";
   return (
     kind === "speech" ||
     kind === "shout" ||

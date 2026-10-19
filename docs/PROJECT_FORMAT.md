@@ -613,3 +613,23 @@ and resets artwork review to draft. It preserves old image bytes, all lettering
 and other cuts. A changed source, character registry, story bible or adjacent cut
 invalidates the request. This local workflow requires one writer per work and an
 editing-capable agent tool; it does not add source-image editing to generation.
+
+The authored balloon library adds `soft`, `rectangle`, `wobble`, `burst-box`,
+`spikes`, `radial` and `electric` silhouettes alongside `oval`, `rounded`, `cloud`
+and `burst`. A semantic kind (speech, thought, narration, etc.) does not force a
+particular silhouette or tail in an authored preset.
+
+`tailStyle` is optional: `none`, `straight`, `curved` or `beads`. Explicit `none`
+suppresses both `tail` and `tailTarget`, while retaining their coordinates for
+restoration. Other styles require one of those target points. `tailWidth`
+(0.04..0.5) controls the mouth width relative to the smaller body dimension;
+`tailBend` (-1..1) controls a curved pointer's signed bend. With an explicit tail
+style, rounded corners use reference-width units and shape-specific defaults.
+Records without these choices retain their earlier rendering. Radial accents
+share the same deterministic geometry in Studio and raster export.
+
+Studio's visual library applies body/ink defaults explicitly and retains project
+font choices. Changing only Shape or Tail preserves the text, styled ranges,
+position and colors. No-tail choices survive semantic type changes. These are
+single text-frame balloons; joining several independently lettered bodies,
+textured brush borders, glows and ornamental frames are not implemented.

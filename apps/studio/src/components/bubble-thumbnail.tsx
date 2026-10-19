@@ -6,7 +6,7 @@ import { BubbleText } from "./bubble-text";
 
 /** The actual render plan, cropped to the body/tail. No second icon geometry. */
 export function BubbleThumbnail({ plan }: { plan: BubbleRender }) {
-  const points = plan.outline.flatMap((command) => {
+  const points = [...plan.outline, ...(plan.accents ?? [])].flatMap((command) => {
     if (command.k === "Z") return [];
     const end = { x: command.x, y: command.y };
     if (command.k === "C")
