@@ -19,7 +19,8 @@ function sameFocus(a: AgentFocus, b: AgentFocus): boolean {
     a.cutId === b.cutId &&
     a.transitionId === b.transitionId &&
     a.characterId === b.characterId &&
-    (a.bubbleIds ?? []).join(",") === (b.bubbleIds ?? []).join(",")
+    (a.bubbleIds ?? []).join(",") === (b.bubbleIds ?? []).join(",") &&
+    JSON.stringify(a.labels ?? {}) === JSON.stringify(b.labels ?? {})
   );
 }
 
