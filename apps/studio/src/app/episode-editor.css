@@ -344,9 +344,11 @@
   .episode-transition-body {
     grid-template-columns: minmax(0, 1fr);
     align-content: start;
+    grid-auto-rows: max-content;
   }
   .episode-transition-stage {
     min-height: 160px;
+    overflow: visible;
   }
   .episode-transition-properties {
     overflow: visible;
@@ -362,13 +364,32 @@
   }
   .episode-edit-body {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .episode-edit-body[data-sequence-open="false"] {
+    grid-template-rows: minmax(0, 1fr);
   }
   .episode-sequence-rail {
-    position: absolute;
-    inset: 0 auto 0 0;
-    z-index: 20;
-    width: 142px;
-    box-shadow: var(--shadow-2);
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-line);
+    overflow-x: auto;
+  }
+  .episode-sequence-rail h2 {
+    display: none;
+  }
+  .episode-sequence-rail > div {
+    flex: 0 0 96px;
+  }
+  .episode-sequence-item img {
+    height: 36px;
+  }
+  .episode-sequence-item.is-transition {
+    margin: 0;
+    height: 100%;
+    justify-content: center;
   }
   .episode-heading h1 {
     white-space: normal;
@@ -419,6 +440,15 @@
     width: 100%;
   }
   .episode-editor-head .editor-actions {
-    margin-left: auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 32px;
+    width: 100%;
+  }
+  .episode-editor-head .editor-actions .btn {
+    padding: 8px;
+    white-space: nowrap;
+  }
+  .human-workspace .episode-editor .integrated-cut {
+    padding: 12px;
   }
 }

@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Keep development controls from covering the workspace navigation.
+  devIndicators: false,
   // Emit a self-contained server under `.next/standalone` (its own minimal
   // `node_modules` + `server.js`). The Toony CLI bundles this output so
   // `toony studio` launches the web app from a single global install with no

@@ -766,7 +766,7 @@ export function CutEditor({
     const fit = () =>
       setZoom(
         Math.max(
-          0.25,
+          0.05,
           Math.min(
             2.5,
             (element.clientWidth - 32) / referenceWidth,
@@ -1469,7 +1469,7 @@ export function CutEditor({
               type="button"
               onClick={() => {
                 setFitMode(false);
-                setZoom((z) => Math.max(0.25, z - 0.1));
+                setZoom((z) => Math.max(0.05, z - 0.1));
               }}
               aria-label="Zoom out"
             >
@@ -1673,6 +1673,19 @@ export function CutEditor({
           data-testid="editor-inspector"
           aria-label="Lettering properties"
         >
+          {!wideWorkspace && (
+            <div className="inspector-drawer-heading">
+              <span>Properties</span>
+              <button
+                type="button"
+                className="btn btn-icon"
+                aria-label="Close properties"
+                onClick={() => setInspectorPreference(false)}
+              >
+                <StudioIcon name="close" />
+              </button>
+            </div>
+          )}
           {/* The cut's own fields (#332): prompt, cast, shot, palette, shape.
               Collapsed by default so the bubble stays the inspector's subject;
               saves on its own path and never touches the render record. */}

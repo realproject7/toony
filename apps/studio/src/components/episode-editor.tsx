@@ -49,7 +49,17 @@ export function EpisodeEditor({
   const [selection, setSelection] = useState(() =>
     episodeSelection(initialRhythm.sequence, initialItem),
   );
-  const [sequenceOpen, setSequenceOpen] = useState(true);
+  const editorRoot = useRef<HTMLElement>(null);
+  const [compact, setCompact] = useState(true);
+  const [sequencePreference, setSequencePreference] = useState<boolean | null>(null);
+  const sequenceOpen = sequencePreference ?? !compact;
+  useEffect(() => {
+    const root = editorRoot.current;
+    if (!root) return;
+    const observer = new ResizeObserver(() => setCompact(root.clientWidth <= 600));
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
   const [savedCuts, setSavedCuts] = useState<Record<string, SavedCut>>({});
   const history = useEditHistory(rhythm);
   const [dirty, setDirty] = useState(false);
@@ -123,6 +133,7 @@ export function EpisodeEditor({
 
   const choose = (item: SequenceItem | null) => {
     setSelection(item);
+    if (compact) setSequencePreference(false);
     const suffix = item ? `?item=${encodeURIComponent(`${item.type}:${item.id}`)}` : "";
     // Let the app router synchronize its canonical URL and search state.
     window.history.replaceState(null, "", href + suffix);
@@ -267,7 +278,12 @@ export function EpisodeEditor({
   const cutCount = rhythm.sequence.filter((item) => item.type === "cut").length;
 
   return (
-    <section className="episode-editor" aria-label="Episode editor" data-testid="episode-editor">
+    <section
+      ref={editorRoot}
+      className="episode-editor"
+      aria-label="Episode editor"
+      data-testid="episode-editor"
+    >
       <header className="episode-editor-head">
         <div className="episode-heading">
           <Link href={`/w/${encodeURIComponent(workId)}/episodes`}>Episodes</Link>
@@ -282,7 +298,7 @@ export function EpisodeEditor({
             type="button"
             className="btn"
             aria-pressed={sequenceOpen}
-            onClick={() => setSequenceOpen(!sequenceOpen)}
+            onClick={() => setSequencePreference(!sequenceOpen)}
           >
             <StudioIcon name="sequence" /> Sequence
           </button>
@@ -347,6 +363,7 @@ export function EpisodeEditor({
                   onClick={() => {
                     if (selection?.type !== item.type || selection.id !== item.id)
                       request(() => choose(item), item.type === "transition");
+                    else if (compact) setSequencePreference(false);
                   }}
                   data-testid={`select-${item.type}-${item.id}`}
                 >
