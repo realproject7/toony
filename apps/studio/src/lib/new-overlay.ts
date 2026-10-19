@@ -130,11 +130,19 @@ export function bubbleKindPatch(
             y: y + height * 1.35 <= 0.98 ? y + height * 1.35 : Math.max(0.02, y - height * 0.35),
           })
         : null,
-    ...(overlay.tailStyle === undefined ? {} : { tailStyle: overlay.tailStyle }),
     tailTarget:
       kindSupportsTail(kind, balloonShapeForKind(kind)) && kind !== "thought"
         ? overlay.tailTarget
         : null,
+    // Authored tail choices are compatible with every body kind. Keep even a
+    // hidden target when switching to free text so switching back restores it.
+    ...(overlay.tailStyle === undefined
+      ? {}
+      : {
+          tailStyle: overlay.tailStyle,
+          tail: overlay.tail,
+          tailTarget: overlay.tailTarget,
+        }),
   };
 }
 

@@ -58,12 +58,22 @@ test("no-tail keeps a precisely aimed normal or off-panel target across save and
   }
 });
 
-test("a semantic type change respects an explicitly tailless choice", () => {
-  const source = libraryOverlay("sample", 0, "floating", { x: 0.5, y: 0.4 }, options);
-  for (const kind of ["thought", "shout", "whisper", "narration"] as const) {
-    const b = { ...source, ...bubbleKindPatch(source, kind) };
-    assert.equal(b.tailStyle, "none");
-    assert.equal(layoutBubble(b, 800, 1200).tail, null);
+test("semantic type changes preserve authored tail style and both remembered targets", () => {
+  for (const tailStyle of ["none", "straight", "curved", "beads"] as const) {
+    const source = {
+      ...libraryOverlay("sample", 0, "dialogue", { x: 0.5, y: 0.4 }, options),
+      tailStyle,
+      tailTarget: { x: -0.2, y: 0.8 },
+    };
+    for (const kind of ["thought", "shout", "whisper", "narration", "sfx"] as const) {
+      const b = { ...source, ...bubbleKindPatch(source, kind) };
+      assert.equal(b.tailStyle, tailStyle);
+      assert.deepEqual(b.tail, source.tail);
+      assert.deepEqual(b.tailTarget, source.tailTarget);
+      const plan = layoutBubble(b, 800, 1200);
+      if (kind === "sfx" || tailStyle === "none") assert.equal(plan.tail, null);
+      else assert.deepEqual(plan.tail?.tip, { x: 0, y: 960 });
+    }
   }
 });
 
