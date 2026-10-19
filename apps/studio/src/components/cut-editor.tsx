@@ -29,15 +29,18 @@ import {
 } from "@toony/schema";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBrowserMeasure } from "@/lib/browser-measure";
 import { clamp } from "@/lib/clamp";
 import type { CutFields } from "@/lib/cut-fields";
 import { resolveCutStage } from "@/lib/cut-stage";
+import { decodeEditorDraft, encodeEditorDraft } from "@/lib/editor-draft";
 import { persistWithGuard } from "@/lib/editor-save";
 import { letteringClipboard, parseLetteringClipboard } from "@/lib/lettering-clipboard";
 import { BALLOON_LIBRARY, libraryOverlay, newOverlay, tailDragPatch } from "@/lib/new-overlay";
 import type { CutArt } from "@/lib/project";
+import { useAgentWorkspace } from "./agent-workspace";
 import { AlignmentSymbol } from "./alignment-symbol";
 import { ArtRevisions } from "./art-revisions";
 import { CutFieldsEditor } from "./cut-fields-editor";
@@ -132,19 +135,30 @@ export function CutEditor({
   theme,
   themeId,
 }: CutEditorProps) {
+  const router = useRouter();
+  const { ask } = useAgentWorkspace();
   const [bubbles, setBubbles] = useState<LetteringOverlay[]>(initialBubbles);
   // Undo and redo over the bubble set (#333). Every mutation records the state
   // it is about to replace; a drag records once at its start.
   const history = useEditHistory<LetteringOverlay[]>(bubbles);
   const [selectedId, setSelectedId] = useState<string | null>(initialBubbles[0]?.id ?? null);
-  const editorRoot = useRef<HTMLDivElement>(null);
+  const editorRoot = useRef<HTMLElement>(null);
   const confirmationRef = useRef<HTMLDivElement>(null);
   const [pendingNavigation, setPendingNavigation] = useState<
     { href: string } | { reload: true } | null
   >(null);
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(true), []);
-  const [focusMode, setFocusMode] = useState(true);
+  const [inspectorPreference, setInspectorPreference] = useState<boolean | null>(null);
+  const [wideWorkspace, setWideWorkspace] = useState(false);
+  const inspectorOpen = inspectorPreference ?? wideWorkspace;
+  useEffect(() => {
+    const root = editorRoot.current;
+    if (!root) return;
+    const observer = new ResizeObserver(() => setWideWorkspace(root.clientWidth >= 940));
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
   const [additionalIds, setAdditionalIds] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [legacyRequest, setLegacyRequest] = useState<string | null>(null);
@@ -164,6 +178,47 @@ export function CutEditor({
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+
+  const draftKey = `toony-lettering:${workId}/${episodeId}/${cutId}`;
+  const draftReady = useRef(false);
+  const clearDraft = useCallback(() => {
+    try {
+      sessionStorage.removeItem(draftKey);
+    } catch {
+      /* Storage may be disabled. */
+    }
+  }, [draftKey]);
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(draftKey);
+      const restored = raw ? decodeEditorDraft(raw, cutId) : null;
+      if (restored) {
+        revisionRef.current = restored.revision;
+        setBubbles(restored.bubbles);
+        setSelectedId(restored.bubbles[0]?.id ?? null);
+        setDirty(true);
+        setMessage({
+          kind: "ok",
+          text: "Your unsaved lettering draft was restored. Save when ready.",
+        });
+      }
+    } catch {
+      /* The normal leave-page guard still protects the editor. */
+    }
+    draftReady.current = true;
+  }, [draftKey, cutId]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a settled save changes the draft base revision even when the bubbles are unchanged.
+  useEffect(() => {
+    if (!draftReady.current || !dirty) return;
+    try {
+      sessionStorage.setItem(draftKey, encodeEditorDraft(revisionRef.current, bubbles));
+    } catch {
+      setMessage({
+        kind: "error",
+        text: "Draft recovery is unavailable. Save before leaving this cut.",
+      });
+    }
+  }, [bubbles, dirty, draftKey, saving]);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragRef = useRef<DragMode | null>(null);
@@ -616,6 +671,12 @@ export function CutEditor({
   }, [insertCopied]);
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        !(event.target instanceof Node) ||
+        !editorRoot.current?.contains(event.target)
+      )
+        return;
       if (keyboardOwnedByField(event)) return;
       const text = event.clipboardData?.getData("text/plain");
       if (!text) return;
@@ -714,6 +775,35 @@ export function CutEditor({
     };
     window.addEventListener("beforeunload", unload);
     return () => window.removeEventListener("beforeunload", unload);
+  }, [dirty]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const guard = (event: MouseEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey ||
+        !(event.target instanceof Element)
+      )
+        return;
+      const link = event.target.closest<HTMLAnchorElement>("a[href]");
+      if (!link || link.target === "_blank" || link.hasAttribute("download")) return;
+      const url = new URL(link.href, window.location.href);
+      if (
+        url.origin !== window.location.origin ||
+        (url.pathname === location.pathname && url.search === location.search)
+      )
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPendingNavigation({ href: url.pathname + url.search + url.hash });
+    };
+    document.addEventListener("click", guard, true);
+    return () => document.removeEventListener("click", guard, true);
   }, [dirty]);
 
   // --- Arrangement: z-order + nudge ---------------------------------------
@@ -820,8 +910,8 @@ export function CutEditor({
   }, [bubbles]);
 
   useEffect(() => {
-    const editor = confirmationRef.current ?? editorRoot.current;
-    if ((!focusMode && !pendingNavigation) || !ready || !editor) return;
+    const editor = confirmationRef.current;
+    if (!pendingNavigation || !ready || !editor) return;
     const previous = document.activeElement;
     const fields = () =>
       Array.from(
@@ -857,7 +947,7 @@ export function CutEditor({
       window.removeEventListener("keydown", trap, true);
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
     };
-  }, [focusMode, ready, pendingNavigation]);
+  }, [ready, pendingNavigation]);
 
   const save = useCallback(async () => {
     if (saving || !dirty) return;
@@ -892,13 +982,16 @@ export function CutEditor({
         // Do NOT write the snapshot back into state — an edit made during the
         // await would be reverted. Only clear dirty when no edit landed mid-save.
         if (outcome.revision) revisionRef.current = outcome.revision;
-        if (outcome.clean) setDirty(false);
-        setMessage({ kind: "ok", text: "Saved to lettering.json." });
+        if (outcome.clean) {
+          setDirty(false);
+          clearDraft();
+        }
+        setMessage({ kind: "ok", text: "Lettering saved." });
       }
     } finally {
       setSaving(false);
     }
-  }, [bubbles, plans, workId, episodeId, cutId, saving, dirty]);
+  }, [bubbles, plans, workId, episodeId, cutId, saving, dirty, clearDraft]);
 
   // Keyboard (#333): arrows nudge the selected bubble (Shift for a larger
   // step), Delete removes it, Cmd/Ctrl+D duplicates it, Cmd/Ctrl+Z undoes and
@@ -906,7 +999,13 @@ export function CutEditor({
   // keys, so typing in the inspector never moves or deletes a bubble.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.isComposing) return;
+      if (
+        event.isComposing ||
+        event.defaultPrevented ||
+        !(event.target instanceof Node) ||
+        !editorRoot.current?.contains(event.target)
+      )
+        return;
       if (pendingNavigation) {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -961,7 +1060,6 @@ export function CutEditor({
         return;
       }
       if (event.key === "Escape") {
-        if (!armed && !editingId) setFocusMode(false);
         setArmed(null);
         setEditingId(null);
         return;
@@ -1024,20 +1122,18 @@ export function CutEditor({
     bubbles,
     copyBubbles,
     startEditing,
-    armed,
-    editingId,
     pendingNavigation,
   ]);
 
   return (
-    <div
+    <section
       ref={editorRoot}
       inert={!ready}
       aria-busy={!ready}
-      role="dialog"
-      aria-modal={focusMode}
       aria-label="Lettering editor"
-      className={focusMode ? "editor editor-focus" : "editor"}
+      className="editor editor-focus"
+      data-inspector-open={inspectorOpen}
+      data-workspace-wide={wideWorkspace}
       data-testid={`cut-editor-${cutId}`}
     >
       {pendingNavigation && (
@@ -1063,8 +1159,9 @@ export function CutEditor({
                 className="btn btn-danger"
                 onClick={() => {
                   allowUnloadRef.current = true;
+                  clearDraft();
                   if ("reload" in pendingNavigation) window.location.reload();
-                  else window.location.assign(pendingNavigation.href);
+                  else router.push(pendingNavigation.href);
                 }}
               >
                 Discard and continue
@@ -1076,7 +1173,7 @@ export function CutEditor({
       <header className="page-head">
         <div>
           <p className="page-eyebrow">{webtoonTitle}</p>
-          <h1 className="page-title">Edit cut lettering</h1>
+          <h1 className="page-title">Lettering</h1>
           <div className="page-meta">
             <span>
               {episodeTitle} · cut <code>{cutId}</code>
@@ -1100,7 +1197,7 @@ export function CutEditor({
               disabled={dirty}
               onChange={(event) => {
                 const target = cutNavigation.find((c) => c.id === event.target.value);
-                if (target) window.location.assign(target.href);
+                if (target) router.push(target.href);
               }}
             >
               {cutNavigation.map((c) => (
@@ -1110,8 +1207,25 @@ export function CutEditor({
               ))}
             </select>
           </label>
-          <button type="button" className="btn btn-ghost" onClick={() => setFocusMode((f) => !f)}>
-            {focusMode ? "Exit focus" : "Focus editor"}
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() =>
+              ask(
+                "Help me improve this cut. Discuss the scene and dialogue before proposing changes.",
+                { episodeId, cutId },
+              )
+            }
+          >
+            Ask agent
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            aria-pressed={inspectorOpen}
+            onClick={() => setInspectorPreference(!inspectorOpen)}
+          >
+            Properties
           </button>
           <Link
             href={`/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}`}
@@ -1125,7 +1239,7 @@ export function CutEditor({
               }
             }}
           >
-            Cancel
+            Episode
           </Link>
           <button
             type="button"
@@ -1174,26 +1288,6 @@ export function CutEditor({
 
       <div className="editor-layout">
         <div className="editor-stage-wrap">
-          <details className="lettering-art-review">
-            <summary>Artwork review</summary>
-            <CutReviewControl
-              workId={workId}
-              episodeId={episodeId}
-              cutId={cutId}
-              initialReviewStatus={initialReviewStatus}
-              artworkRevision={artworkRevision}
-            />
-          </details>
-          <ArtRevisions
-            workId={workId}
-            episodeId={episodeId}
-            cutId={cutId}
-            sourceDigest={
-              art.src ? new URL(art.src, "http://local.invalid").searchParams.get("revision") : null
-            }
-            characters={characters}
-            dirty={dirty}
-          />
           <div className="editor-toolbar">
             <button
               type="button"
@@ -1513,7 +1607,12 @@ export function CutEditor({
           </div>
         </div>
 
-        <aside className="editor-inspector" data-testid="editor-inspector">
+        <aside
+          className="editor-inspector"
+          hidden={!inspectorOpen}
+          data-testid="editor-inspector"
+          aria-label="Lettering properties"
+        >
           {/* The cut's own fields (#332): prompt, cast, shot, palette, shape.
               Collapsed by default so the bubble stays the inspector's subject;
               saves on its own path and never touches the render record. */}
@@ -1547,6 +1646,26 @@ export function CutEditor({
               </p>
             </div>
           )}
+          <details className="lettering-art-review">
+            <summary>Artwork review</summary>
+            <CutReviewControl
+              workId={workId}
+              episodeId={episodeId}
+              cutId={cutId}
+              initialReviewStatus={initialReviewStatus}
+              artworkRevision={artworkRevision}
+            />
+          </details>
+          <ArtRevisions
+            workId={workId}
+            episodeId={episodeId}
+            cutId={cutId}
+            sourceDigest={
+              art.src ? new URL(art.src, "http://local.invalid").searchParams.get("revision") : null
+            }
+            characters={characters}
+            dirty={dirty}
+          />
           <details className="inspector-cut-context">
             <summary>Scene details</summary>
             <CutFieldsEditor
@@ -1560,6 +1679,6 @@ export function CutEditor({
           </details>
         </aside>
       </div>
-    </div>
+    </section>
   );
 }

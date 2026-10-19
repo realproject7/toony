@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
-import { Sidebar } from "@/components/sidebar";
+import { AgentWorkspace } from "@/components/agent-workspace";
 import "./tokens.css";
 import "./studio.css";
+import "./agent-workspace.css";
 // Self-hosted @font-face for the curated lettering faces (served from
 // /public/fonts, no CDN). Generated from the @toony/fonts registry so the SVG
 // preview/editor render the SAME faces the export canvas registers (#56).
@@ -25,10 +26,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <div className="app-frame">
-          <Sidebar />
-          <main className="content">{children}</main>
-        </div>
+        <AgentWorkspace>{children}</AgentWorkspace>
       </body>
     </html>
   );

@@ -7,6 +7,7 @@
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AskAgent } from "@/components/ask-agent";
 import { BriefCard } from "@/components/brief-card";
 import { EpisodeList } from "@/components/episode-list";
 import { LoadError } from "@/components/load-error";
@@ -35,110 +36,61 @@ export default async function WorkDashboardPage({
 
   const { project, validation } = loaded;
   const { webtoon } = project;
-  const { languages, imageProviders } = webtoon;
+  const { languages } = webtoon;
   const episodes = overviewEpisodes(loaded);
   const briefView = await loadBriefView(work.root);
   const characters = webtoon.characters ?? [];
 
   const totalCuts = episodes.reduce((sum, ep) => sum + ep.cutCount, 0);
-  const totalTransitions = episodes.reduce((sum, ep) => sum + ep.transitionCount, 0);
-  const totalBubbles = episodes.reduce((sum, ep) => sum + ep.letteringCount, 0);
 
   return (
     <div data-testid="studio-dashboard">
       <header className="page-head">
         <div>
-          <p className="page-eyebrow">Project</p>
+          <p className="page-eyebrow">Story</p>
           <h1 className="page-title" data-testid="project-title">
             {webtoon.title}
           </h1>
           <div className="page-meta">
             <span>
-              id <code>{webtoon.projectId}</code>
+              {episodes.length} episodes · {totalCuts} cuts · {characters.length} characters
             </span>
             <span data-testid="validation-status">
-              {validation.valid ? (
-                <span className="chip chip-ok">Valid</span>
-              ) : (
+              {validation.valid ? null : (
                 <span className="chip chip-danger">{validation.issues.length} issue(s)</span>
               )}
             </span>
           </div>
         </div>
         <div className="editor-actions">
+          <AskAgent message="Help me develop this story. Start with the central conflict and the character motivations.">
+            Develop with agent
+          </AskAgent>
           <Link href="/" className="btn btn-ghost" data-testid="back-to-library">
             &larr; Library
           </Link>
         </div>
       </header>
 
-      <section className="card-grid">
-        <article className="card">
-          <h2 className="card-title">Language</h2>
-          <div className="stat-row">
-            <span>Default</span>
-            <b>{languages.defaultLanguage}</b>
-          </div>
-          <div className="stat-row">
-            <span>Supported</span>
-            <b>{languages.supportedLanguages.join(", ")}</b>
-          </div>
-          <div className="stat-row">
-            <span>Dialogue</span>
-            <b>{languages.dialogueLanguage}</b>
-          </div>
-          <div className="stat-row">
-            <span>Prompt</span>
-            <b>{languages.promptLanguage}</b>
-          </div>
-        </article>
-
-        <article className="card">
-          <h2 className="card-title">Production</h2>
-          <div className="stat-row">
-            <span>Episodes</span>
-            <b>{episodes.length}</b>
-          </div>
-          <div className="stat-row">
-            <span>Cuts</span>
-            <b>{totalCuts}</b>
-          </div>
-          <div className="stat-row">
-            <span>Transitions</span>
-            <b>{totalTransitions}</b>
-          </div>
-          <div className="stat-row">
-            <span>Bubbles</span>
-            <b>{totalBubbles}</b>
-          </div>
-          <div className="stat-row" data-testid="character-count">
-            <Link href={`/w/${encodeURIComponent(work.id)}/characters`} className="inspector-back">
-              Characters &rarr;
-            </Link>
-            <b>{characters.length}</b>
-          </div>
-          <div className="stat-row" data-testid="character-references">
-            <span>With reference sheet</span>
-            <b>{characters.filter((c) => (c.references?.length ?? 0) > 0).length}</b>
-          </div>
-        </article>
-
-        <article className="card">
-          <h2 className="card-title">Generation</h2>
-          <div className="stat-row">
-            <span>Default provider</span>
-            <b>{imageProviders.defaultProvider}</b>
-          </div>
-          <div className="stat-row">
-            <span>Configured</span>
-            <b>{imageProviders.providers.length}</b>
-          </div>
-          <div className="stat-row">
-            <span>Schema version</span>
-            <b>{webtoon.schemaVersion}</b>
-          </div>
-        </article>
-      </section>
+      <div className="story-overview">
+        <Link href={`/w/${encodeURIComponent(work.id)}/characters`} data-testid="character-count">
+          <span>Cast</span>
+          <strong>{characters.length} characters</strong>
+          <small data-testid="character-references">
+            {characters.filter((c) => (c.references?.length ?? 0) > 0).length} with reference sheets
+          </small>
+        </Link>
+        <Link href={`/w/${encodeURIComponent(work.id)}/episodes`}>
+          <span>Episodes</span>
+          <strong>{episodes.length} in this story</strong>
+          <small>{totalCuts} cuts to shape and letter</small>
+        </Link>
+        <div>
+          <span>Dialogue</span>
+          <strong>{languages.dialogueLanguage}</strong>
+          <small>Your words, in every scene</small>
+        </div>
+      </div>
 
       <section className="card-grid" data-testid="brief-section">
         <BriefCard

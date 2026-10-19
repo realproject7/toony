@@ -59,6 +59,7 @@ export default async function CutEditorPage({
   // Cut review and cut fields are narrow, independent writes beside lettering.
   return (
     <CutEditor
+      key={`${work.id}/${episodeId}/${cut.id}`}
       workId={work.id}
       episodeId={episodeId}
       episodeTitle={bundle.episode.title}

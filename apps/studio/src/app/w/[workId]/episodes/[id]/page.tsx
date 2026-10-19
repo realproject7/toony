@@ -86,10 +86,7 @@ export default async function EpisodePreviewPage({
           <h1 className="page-title">{episode.title}</h1>
           <div className="page-meta">
             <span>
-              id <code>{episode.id}</code>
-            </span>
-            <span>
-              <b>{episode.sequence.length}</b> sequence items
+              {cutCount} cuts · {transitionCount} transitions
             </span>
           </div>
         </div>
@@ -211,11 +208,14 @@ export default async function EpisodePreviewPage({
               <b>{lettering.length}</b>
             </div>
           </div>
-          <PlannedGeometryReport
-            bands={packs.craftBandOptions}
-            selectedBandId={selectedBandId}
-            {...plannedGeometry}
-          />
+          <details className="episode-details">
+            <summary>Composition details</summary>
+            <PlannedGeometryReport
+              bands={packs.craftBandOptions}
+              selectedBandId={selectedBandId}
+              {...plannedGeometry}
+            />
+          </details>
         </aside>
       </div>
     </div>

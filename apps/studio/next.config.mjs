@@ -22,6 +22,11 @@ const nextConfig = {
   // requires it at runtime instead of trying to bundle the binary.
   serverExternalPackages: ["@napi-rs/canvas"],
   webpack: (config, { isServer }) => {
+    // Shared server helpers also compile to ESM for the Node test runner.
+    config.resolve.extensionAlias = {
+      ...config.resolve.extensionAlias,
+      ".js": [".ts", ".tsx", ".js"],
+    };
     if (isServer) {
       // The native binary is resolved at runtime through `js-binding.js`'s
       // dynamic require; mark the whole package (and the resolved platform

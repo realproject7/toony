@@ -356,7 +356,7 @@ input[type="radio"] {
 }
 
 .chip-accent {
-  color: var(--color-accent-press);
+  color: var(--color-accent-strong);
   background: var(--color-accent-soft);
   border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
 }
@@ -832,7 +832,7 @@ input[type="radio"] {
 
 .btn:hover:not(:disabled) {
   border-color: var(--color-accent);
-  color: var(--color-accent-press);
+  color: var(--color-accent-strong);
 }
 
 .btn:focus-visible {
@@ -1983,7 +1983,7 @@ button.transition-block {
 
 .script-speaker {
   font-weight: var(--weight-semibold);
-  color: var(--color-accent-press);
+  color: var(--color-accent-strong);
 }
 
 .script-speaker-narration {
@@ -2769,7 +2769,7 @@ button.transition-block {
 .inspector-organized .btn[aria-pressed="true"],
 .inspector-organized .btn-chip-active {
   border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-line));
-  color: var(--color-accent-press);
+  color: var(--color-accent-strong);
   background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
   box-shadow: none;
 }
@@ -2952,7 +2952,7 @@ button.transition-block {
 }
 .inspector-organized .inspector-inline-action:hover,
 .inspector-organized .inspector-inline-action[aria-pressed="true"] {
-  color: var(--color-accent-press);
+  color: var(--color-accent-strong);
 }
 .inspector-organized .inspector-reset {
   align-self: flex-end;
@@ -2995,7 +2995,7 @@ button.transition-block {
 }
 .inspector-organized .inspector-segmented .btn[aria-pressed="true"] {
   background: var(--color-surface-raised);
-  color: var(--color-accent-press);
+  color: var(--color-accent-strong);
   box-shadow: var(--shadow-1);
 }
 .inspector-organized .inspector-alignment {
@@ -3195,7 +3195,7 @@ button.transition-block {
   padding: 9px 10px;
   border-radius: 6px;
   font-size: 11px;
-  color: var(--color-warn, #8a630b);
+  color: var(--color-warning);
   background: color-mix(in srgb, #ad861b 10%, var(--color-surface));
   line-height: 1.5;
 }
