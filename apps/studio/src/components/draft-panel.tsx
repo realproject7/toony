@@ -147,10 +147,19 @@ export function DraftPanel({
             </ul>
           </div>
         ) : (
-          <p className="empty" data-testid="draft-empty">
-            No draft for this episode. The agent compiles one from the script with{" "}
-            <code>toony draft compile --episode {episodeId}</code>; it appears here for review.
-          </p>
+          <div className="empty-state" data-testid="draft-empty">
+            <h3>No proposed changes</h3>
+            <p>
+              When a draft is prepared, compare it with this episode before applying any changes.
+            </p>
+            <details>
+              <summary>Preparing a draft</summary>
+              <p>
+                Compile the saved script with <code>toony draft compile --episode {episodeId}</code>
+                .
+              </p>
+            </details>
+          </div>
         )}
         {draftIssues.length > 0 && (
           <div className="draft-actions">
@@ -175,11 +184,17 @@ export function DraftPanel({
     <section className="card draft-panel" data-testid="draft-panel">
       <div className="draft-head">
         <h2 className="card-title">Draft</h2>
-        <span className="chip" data-testid="draft-revision">
+        <span className={`chip ${blocked ? "chip-warn" : "chip-accent"}`}>
+          {blocked ? "Needs attention" : "Ready to review"}
+        </span>
+      </div>
+      <details className="draft-source">
+        <summary>Source revisions</summary>{" "}
+        <span className="field-hint" data-testid="draft-revision">
           script {draft.scriptRevision.slice(0, 12)}
           {draft.briefRevision ? ` · brief ${draft.briefRevision.slice(0, 12)}` : ""}
         </span>
-      </div>
+      </details>
       {draft.continuity && (
         <p className="draft-continuity" data-testid="draft-continuity">
           Continues from <code>{draft.continuity.previousEpisodeId}</code>
@@ -188,47 +203,50 @@ export function DraftPanel({
         </p>
       )}
       <p className="draft-summary">
-        {draft.records.cuts} cut(s), {draft.records.transitions} transition(s),{" "}
-        {draft.records.overlays} bubble(s).{" "}
+        {draft.records.cuts} {draft.records.cuts === 1 ? "cut" : "cuts"},{" "}
+        {draft.records.transitions} {draft.records.transitions === 1 ? "transition" : "transitions"}
+        , {draft.records.overlays} {draft.records.overlays === 1 ? "bubble" : "bubbles"}.{" "}
         {diff?.episodeExists
           ? "Compared with the episode as the project holds it now."
           : "The episode does not exist yet; applying creates it."}
       </p>
 
       {diff && (
-        <table className="draft-counts" data-testid="draft-counts">
-          <thead>
-            <tr>
-              <th>Kind</th>
-              <th>Added</th>
-              <th>Changed</th>
-              <th>Removed</th>
-              <th>Unchanged</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(["cut", "transition", "overlay"] as const).map((kind) => (
-              <tr key={kind}>
-                <td>{kind}s</td>
-                <td>{diff.counts[kind].added}</td>
-                <td>{diff.counts[kind].changed}</td>
-                <td>{diff.counts[kind].removed}</td>
-                <td>{diff.counts[kind].unchanged}</td>
+        <div className="draft-table-scroll">
+          <table className="draft-counts" data-testid="draft-counts">
+            <thead>
+              <tr>
+                <th>Kind</th>
+                <th>Added</th>
+                <th>Changed</th>
+                <th>Removed</th>
+                <th>Unchanged</th>
               </tr>
-            ))}
-            <tr>
-              <td>sequence</td>
-              <td colSpan={4} data-testid="draft-sequence">
-                {diff.sequence.status}
-                {diff.sequence.added > 0 ? `, ${diff.sequence.added} added` : ""}
-                {diff.sequence.removed.length > 0
-                  ? `, drops ${diff.sequence.removed.join(", ")}`
-                  : ""}
-                {diff.sequence.reordered ? ", reorders existing entries" : ""}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {(["cut", "transition", "overlay"] as const).map((kind) => (
+                <tr key={kind}>
+                  <td>{kind}s</td>
+                  <td>{diff.counts[kind].added}</td>
+                  <td>{diff.counts[kind].changed}</td>
+                  <td>{diff.counts[kind].removed}</td>
+                  <td>{diff.counts[kind].unchanged}</td>
+                </tr>
+              ))}
+              <tr>
+                <td>sequence</td>
+                <td colSpan={4} data-testid="draft-sequence">
+                  {diff.sequence.status}
+                  {diff.sequence.added > 0 ? `, ${diff.sequence.added} added` : ""}
+                  {diff.sequence.removed.length > 0
+                    ? `, drops ${diff.sequence.removed.join(", ")}`
+                    : ""}
+                  {diff.sequence.reordered ? ", reorders existing entries" : ""}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       )}
 
       {diff?.title && (

@@ -149,11 +149,9 @@ export function SettingsForm({ initialConfig, initialConnection }: SettingsFormP
     <section className="card settings-card" data-testid="settings-comfyui">
       <div className="settings-card-head">
         <div>
-          <h2 className="card-title">Generation — ComfyUI</h2>
+          <h2 className="card-title">Artwork connection</h2>
           <p className="field-hint">
-            Toony is provider-neutral. Point it at your own ComfyUI install; these settings are
-            saved to the workspace and shared with the CLI and agents. Environment variables (e.g.{" "}
-            <code>TOONY_COMFYUI_URL</code>) override this file when set.
+            Configure your artwork server for this workspace. Environment settings take precedence.
           </p>
         </div>
         <span
@@ -183,17 +181,14 @@ export function SettingsForm({ initialConfig, initialConnection }: SettingsFormP
             }}
             data-testid="settings-endpoint"
           />
-          <span className="field-hint">
-            The base URL of your ComfyUI server (its documented default is
-            <code> http://127.0.0.1:8188</code>).
-          </span>
+          <span className="field-hint">The address of your artwork server.</span>
         </label>
 
         <label className="field">
           <span>Checkpoint</span>
           <input
             type="text"
-            placeholder="e.g. sd_xl_base_1.0.safetensors"
+            placeholder="Model filename (optional)"
             value={checkpoint}
             disabled={busy !== null}
             onChange={(e) => {
@@ -234,10 +229,10 @@ export function SettingsForm({ initialConfig, initialConnection }: SettingsFormP
           type="button"
           className="btn btn-primary"
           onClick={save}
-          disabled={busy !== null}
+          disabled={busy !== null || !dirty}
           data-testid="settings-save"
         >
-          {busy === "save" ? "Saving…" : "Save settings"}
+          {busy === "save" ? "Saving…" : dirty ? "Save settings" : "Saved"}
         </button>
         <button
           type="button"

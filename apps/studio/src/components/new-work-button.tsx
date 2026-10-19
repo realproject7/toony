@@ -9,10 +9,12 @@
 // write outside the workspace or over an existing folder.
 
 import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useId, useState } from "react";
+import { StudioIcon } from "./studio-icon";
 
 export function NewWorkButton({ genres }: { genres: readonly { id: string; title: string }[] }) {
   const router = useRouter();
+  const formId = useId();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [genre, setGenre] = useState("");
@@ -56,57 +58,76 @@ export function NewWorkButton({ genres }: { genres: readonly { id: string; title
         onClick={() => setOpen(true)}
         data-testid="new-work-open"
       >
-        + New webtoon
+        <StudioIcon name="plus" /> New webtoon
       </button>
     );
   }
 
   return (
-    <div className="new-work-form" data-testid="new-work-form">
-      <input
-        type="text"
-        className="new-work-input"
-        placeholder="Webtoon title"
-        aria-label="Webtoon title"
-        value={name}
-        disabled={busy}
-        onChange={(e) => {
-          setName(e.target.value);
-          setError(null);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") submit();
-          if (e.key === "Escape") setOpen(false);
-        }}
-        data-testid="new-work-name"
-      />
-      <select
-        className="new-work-input"
-        aria-label="Starter (optional)"
-        data-testid="new-work-genre"
-        value={genre}
-        disabled={busy}
-        onChange={(event) => {
-          setGenre(event.target.value);
-          setError(null);
-        }}
-      >
-        <option value="">Bare default (no genre)</option>
-        {genre && !genres.some((entry) => entry.id === genre) && (
-          <option value={genre} disabled>
-            {genre} (unavailable)
-          </option>
-        )}
-        {genres.map((entry) => (
-          <option key={entry.id} value={entry.id}>
-            {entry.title}
-          </option>
-        ))}
-      </select>
+    <form
+      className="new-work-form"
+      data-testid="new-work-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
+      <label className="field">
+        <span>Webtoon title</span>
+        <input
+          type="text"
+          className="new-work-input"
+          placeholder="Webtoon title"
+          aria-label="Webtoon title"
+          aria-invalid={!!error}
+          aria-describedby={error ? `${formId}-error` : undefined}
+          value={name}
+          disabled={busy}
+          onChange={(e) => {
+            setName(e.target.value);
+            setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) {
+              if (e.key === "Enter") e.preventDefault();
+              return;
+            }
+            if (e.key === "Escape") setOpen(false);
+          }}
+          data-testid="new-work-name"
+        />
+      </label>
+      <label className="field">
+        <span>
+          Starter <small>(optional)</small>
+        </span>
+        <select
+          className="new-work-input"
+          aria-label="Starter (optional)"
+          data-testid="new-work-genre"
+          value={genre}
+          disabled={busy}
+          onChange={(event) => {
+            setGenre(event.target.value);
+            setError(null);
+          }}
+        >
+          <option value="">Blank story</option>
+          {genre && !genres.some((entry) => entry.id === genre) && (
+            <option value={genre} disabled>
+              {genre} (unavailable)
+            </option>
+          )}
+          {genres.map((entry) => (
+            <option key={entry.id} value={entry.id}>
+              {entry.title}
+            </option>
+          ))}
+        </select>
+      </label>
       <button
-        type="button"
+        type="submit"
         className="btn btn-primary"
-        onClick={submit}
         disabled={busy}
         data-testid="new-work-create"
       >
@@ -125,10 +146,15 @@ export function NewWorkButton({ genres }: { genres: readonly { id: string; title
         Cancel
       </button>
       {error && (
-        <span className="new-work-error" role="alert" data-testid="new-work-error">
+        <span
+          id={`${formId}-error`}
+          className="new-work-error"
+          role="alert"
+          data-testid="new-work-error"
+        >
           {error}
         </span>
       )}
-    </div>
+    </form>
   );
 }

@@ -34,7 +34,7 @@ export default async function EpisodesPage({ params }: { params: Promise<{ workI
         </div>
         <div className="page-meta">
           <Link href={`/w/${encodeURIComponent(work.id)}`} className="inspector-back">
-            &larr; Dashboard
+            &larr; Story
           </Link>
           <span>
             <b>{episodes.length}</b> in this project

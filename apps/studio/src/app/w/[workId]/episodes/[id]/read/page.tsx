@@ -69,12 +69,12 @@ export default async function EpisodeReaderPage({
           </p>
         </div>
         <nav className="reader-toggle" aria-label="View mode">
-          <Link href={editHref} className="btn btn-ghost" data-testid="reader-edit-toggle">
+          <Link href={editHref} className="btn" data-testid="reader-edit-toggle">
             Back to editor
           </Link>
           <Link
             href={`${episodeHref}/export`}
-            className="btn btn-ghost"
+            className="btn btn-primary"
             data-testid="reader-export-toggle"
           >
             Export

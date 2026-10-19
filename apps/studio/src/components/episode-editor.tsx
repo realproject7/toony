@@ -14,6 +14,7 @@ import {
 } from "@/lib/episode-editing";
 import { planTransitionInsert } from "@/lib/transition-insert";
 import { CutEditor, type CutEditorProps } from "./cut-editor";
+import { StudioIcon } from "./studio-icon";
 import { TransitionBlock } from "./transition-block";
 import { TransitionInspector } from "./transition-inspector";
 import { keyboardOwnedByField, useEditHistory } from "./use-edit-history";
@@ -123,7 +124,8 @@ export function EpisodeEditor({
   const choose = (item: SequenceItem | null) => {
     setSelection(item);
     const suffix = item ? `?item=${encodeURIComponent(`${item.type}:${item.id}`)}` : "";
-    window.history.replaceState(window.history.state, "", href + suffix);
+    // Let the app router synchronize its canonical URL and search state.
+    window.history.replaceState(null, "", href + suffix);
   };
   const request = (next: () => void, staysInTransitions = false) => {
     if (dirty && !staysInTransitions) setPending(() => next);
@@ -280,22 +282,32 @@ export function EpisodeEditor({
             aria-pressed={sequenceOpen}
             onClick={() => setSequenceOpen(!sequenceOpen)}
           >
-            Sequence
+            <StudioIcon name="sequence" /> Sequence
           </button>
           <Link
             className="btn btn-primary"
             href={`${href}/read?item=${encodeURIComponent(itemKey)}`}
             data-testid="episode-preview"
           >
-            Preview
+            <StudioIcon name="eye" /> Preview
           </Link>
           <details className="episode-more">
-            <summary className="btn" aria-label="More episode actions">
-              •••
+            <summary
+              className="btn btn-icon"
+              aria-label="More episode actions"
+              title="More episode actions"
+            >
+              <StudioIcon name="more" />
             </summary>
             <div>
-              <Link href={`${href}/export`}>Export</Link>
-              <Link href={`${href}/script`}>Script &amp; draft</Link>
+              <Link href={`${href}/export`}>
+                <StudioIcon name="export" />
+                Export
+              </Link>
+              <Link href={`${href}/script`}>
+                <StudioIcon name="text" />
+                Script &amp; draft
+              </Link>
             </div>
           </details>
         </div>
@@ -398,7 +410,7 @@ export function EpisodeEditor({
                       ? transitionLabel(selectedTransition.type)
                       : "Episode transitions"}
                   </h2>
-                  <span>{dirty ? "Unsaved changes" : "Saved"}</span>
+                  <span>{dirty ? "Unsaved changes" : "Between the surrounding cuts"}</span>
                 </div>
                 <div className="editor-actions">
                   <button
@@ -407,7 +419,7 @@ export function EpisodeEditor({
                     onClick={() => travel("undo")}
                     disabled={!history.canUndo}
                   >
-                    Undo
+                    <StudioIcon name="undo" /> Undo
                   </button>
                   <button
                     className="btn"
@@ -415,7 +427,7 @@ export function EpisodeEditor({
                     onClick={() => travel("redo")}
                     disabled={!history.canRedo}
                   >
-                    Redo
+                    <StudioIcon name="redo" /> Redo
                   </button>
                   <button
                     className="btn btn-primary"
@@ -483,14 +495,17 @@ export function EpisodeEditor({
       <dialog
         ref={dialog}
         className="episode-leave-dialog"
-        onCancel={() => setPending(null)}
+        onCancel={(event) => {
+          if (saving) event.preventDefault();
+          else setPending(null);
+        }}
         aria-labelledby="episode-leave-title"
       >
         <h2 id="episode-leave-title">Save your transition changes?</h2>
         <p>Save your changes before continuing, or discard this draft.</p>
         {notice?.error && <p role="alert">{notice.text}</p>}
         <div className="editor-actions">
-          <button className="btn" type="button" onClick={() => setPending(null)}>
+          <button className="btn" type="button" disabled={saving} onClick={() => setPending(null)}>
             Keep editing
           </button>
           <button
@@ -518,7 +533,7 @@ export function EpisodeEditor({
               }
             }}
           >
-            Save and continue
+            {saving ? "Saving…" : "Save and continue"}
           </button>
         </div>
       </dialog>

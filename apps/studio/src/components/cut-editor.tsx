@@ -48,6 +48,7 @@ import { CutReviewControl } from "./cut-review-control";
 import type { InlineTextHandle, TextSelection } from "./inline-lettering-text";
 import { LetteringCanvas } from "./lettering-canvas";
 import { LETTERING_PRESET_MIME, LetteringPresets } from "./lettering-presets";
+import { StudioIcon } from "./studio-icon";
 import { keyboardOwnedByField, useEditHistory } from "./use-edit-history";
 
 // The pro-lettering inspector (typography/color/styling/arrangement) and its
@@ -1176,7 +1177,12 @@ export function CutEditor({
             <p>Your changes are still on this cut. Save them, or discard them to continue.</p>
             {message?.kind === "error" && <p role="alert">{message.text}</p>}
             <div className="chip-row">
-              <button type="button" className="btn" onClick={() => setPendingNavigation(null)}>
+              <button
+                type="button"
+                className="btn"
+                disabled={saving}
+                onClick={() => setPendingNavigation(null)}
+              >
                 Keep editing
               </button>
               <button
@@ -1195,7 +1201,7 @@ export function CutEditor({
                   if (await save()) continueNavigation();
                 }}
               >
-                Save and continue
+                {saving ? "Saving…" : "Save and continue"}
               </button>
             </div>
           </div>
@@ -1324,25 +1330,39 @@ export function CutEditor({
 
       <div className="editor-layout">
         <div className="editor-stage-wrap">
-          <div className="editor-toolbar">
+          <fieldset className="editor-toolbar" aria-label="Bubble tools">
             <button
               type="button"
-              className="btn"
+              aria-label="Copy"
+              title="Copy"
+              className="btn btn-icon"
               disabled={!activeIds.length}
               onClick={() => void copyBubbles()}
             >
-              Copy
+              <StudioIcon name="copy" />
             </button>
             <button
               type="button"
-              className="btn"
+              aria-label="Paste"
+              className="btn btn-icon"
               title="Paste bubbles copied in this tab. Cmd/Ctrl+V uses the system clipboard."
               onClick={() => void pasteBubbles()}
             >
-              Paste
+              <StudioIcon name="paste" />
             </button>
-            <button type="button" className="btn" disabled={!activeIds.length} onClick={toggleLock}>
-              {bubbles.some((b) => activeIds.includes(b.id) && b.locked) ? "Unlock" : "Lock"}
+            <button
+              type="button"
+              className="btn btn-icon"
+              disabled={!activeIds.length}
+              onClick={toggleLock}
+              aria-label={
+                bubbles.some((b) => activeIds.includes(b.id) && b.locked) ? "Unlock" : "Lock"
+              }
+              title="Lock or unlock selection"
+            >
+              <StudioIcon
+                name={bubbles.some((b) => activeIds.includes(b.id) && b.locked) ? "unlock" : "lock"}
+              />
             </button>
             <button
               type="button"
@@ -1350,50 +1370,54 @@ export function CutEditor({
               disabled={!selected || selected.locked}
               onClick={() => selected && startEditing(selected.id)}
             >
-              Edit text
+              <StudioIcon name="text" /> Edit text
             </button>
             <button
               type="button"
-              className="btn"
+              aria-label="Undo"
+              className="btn btn-icon"
               onClick={undo}
               disabled={!history.canUndo}
               title="Undo (Cmd/Ctrl+Z)"
               data-testid="editor-undo"
             >
-              Undo
+              <StudioIcon name="undo" />
             </button>
             <button
               type="button"
-              className="btn"
+              aria-label="Redo"
+              className="btn btn-icon"
               onClick={redo}
               disabled={!history.canRedo}
               title="Redo (Shift+Cmd/Ctrl+Z)"
               data-testid="editor-redo"
             >
-              Redo
+              <StudioIcon name="redo" />
             </button>
             <button type="button" className="btn" onClick={addBubble} data-testid="editor-add">
-              + Add bubble
+              <StudioIcon name="plus" /> Add bubble
             </button>
             <button
               type="button"
-              className="btn"
+              aria-label="Duplicate"
+              className="btn btn-icon"
               onClick={duplicateSelected}
               disabled={!hasEditableSelection}
               title="Duplicate (Cmd/Ctrl+D)"
               data-testid="editor-duplicate"
             >
-              Duplicate
+              <StudioIcon name="duplicate" />
             </button>
             <button
               type="button"
-              className="btn btn-danger"
+              aria-label="Delete"
+              className="btn btn-icon btn-danger"
               onClick={deleteSelected}
               disabled={!hasEditableSelection}
               title="Delete (Delete key)"
               data-testid="editor-delete"
             >
-              Delete
+              <StudioIcon name="trash" />
             </button>
             {themeId !== null && (!integrated || theme !== null) && (
               <button
@@ -1411,7 +1435,7 @@ export function CutEditor({
                 Apply theme{theme === null ? " (not installed)" : ""}
               </button>
             )}
-          </div>
+          </fieldset>
 
           <details className="lettering-alignment-menu" aria-disabled={!activeIds.length}>
             <summary>Align objects</summary>
@@ -1449,7 +1473,7 @@ export function CutEditor({
               }}
               aria-label="Zoom out"
             >
-              −
+              <StudioIcon name="minus" />
             </button>
             <output>{Math.round(zoom * 100)}%</output>
             <button
@@ -1461,7 +1485,7 @@ export function CutEditor({
               }}
               aria-label="Zoom in"
             >
-              +
+              <StudioIcon name="plus" />
             </button>
             <button
               className="btn btn-chip"

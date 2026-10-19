@@ -95,10 +95,9 @@ export function TransitionInspector({
 
       {COLOR_AWARE_TYPES.has(transition.type) && (
         <div className="field">
-          <span>Band color</span>
           <div className="field-inline">
             <ColorPicker
-              label="Fill"
+              label="Band color"
               value={transition.color ?? "#101010"}
               onChange={(hex) => onChange({ color: hex })}
               testId="field-color"
@@ -162,6 +161,7 @@ export function TransitionInspector({
               key={name}
               type="button"
               className="btn btn-chip"
+              aria-pressed={transition.gutterHeight === SPACING_PRESETS[name]}
               onClick={() => onChange({ gutterHeight: SPACING_PRESETS[name] })}
               data-testid={`spacing-${name}`}
             >

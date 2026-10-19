@@ -43,7 +43,7 @@
 .episode-more > summary {
   list-style: none;
   cursor: pointer;
-  letter-spacing: 2px;
+  letter-spacing: normal;
 }
 .episode-more > summary::-webkit-details-marker {
   display: none;
@@ -63,6 +63,9 @@
   box-shadow: var(--shadow-2);
 }
 .episode-more a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 10px;
   border-radius: 6px;
   font-size: 13px;
@@ -207,7 +210,7 @@
 }
 .episode-transition-stage {
   overflow: auto;
-  padding: 24px;
+  padding: 20px;
   background: var(--color-surface);
   border: 1px solid var(--color-line);
   border-radius: 10px;
@@ -251,10 +254,10 @@
   background: var(--color-canvas);
   color: var(--color-ink);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
 }
 .episode-transition-properties .field > span:first-child {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
 }
 .episode-transition-properties .preset-row {
@@ -265,7 +268,7 @@
 .episode-transition-properties .preset-row .btn {
   white-space: normal;
   min-height: 32px;
-  font-size: 10px;
+  font-size: 11px;
   padding: 6px 8px;
 }
 .transition-details {
@@ -375,4 +378,47 @@
 
 .integrated-cut > .lettering-status[hidden] {
   display: none;
+}
+
+.episode-transition-stage {
+  align-self: start;
+}
+.episode-transition-properties .field-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.episode-transition-properties .field-inline .color-picker {
+  flex: 1;
+}
+.episode-editor-head .btn[aria-pressed="true"] {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+  border-color: var(--color-accent-soft);
+}
+.episode-transition-properties .preset-row .btn[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+.episode-editor-head > .editor-actions {
+  flex-shrink: 0;
+}
+
+.episode-notice {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+@container (max-width: 520px) {
+  .episode-editor-head {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px;
+  }
+  .episode-editor-head .episode-heading {
+    width: 100%;
+  }
+  .episode-editor-head .editor-actions {
+    margin-left: auto;
+  }
 }

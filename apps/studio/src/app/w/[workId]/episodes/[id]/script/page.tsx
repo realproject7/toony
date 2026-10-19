@@ -10,6 +10,7 @@
 import type { ScriptCut } from "@toony/schema";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AskAgent } from "@/components/ask-agent";
 import { DraftPanel } from "@/components/draft-panel";
 import { LoadError } from "@/components/load-error";
 import { findEpisodeBundle, loadWork, ProjectIoError } from "@/lib/project";
@@ -174,10 +175,25 @@ export default async function EpisodeScriptPage({
             </p>
           )}
           {script?.absent && (
-            <p className="empty" data-testid="script-empty">
-              No script yet. The agent writes <code>script/episodes/{episodeId}.json</code> after
-              agreeing the episode with you; it appears here for review.
-            </p>
+            <div className="empty-state" data-testid="script-empty">
+              <h3>Plan the next scene</h3>
+              <p>
+                Discuss the episode beats, character choices and dialogue with your agent. Saved
+                scripts appear here for review.
+              </p>
+              <AskAgent message="Help me outline this episode, including the story beats and dialogue.">
+                Discuss this episode
+              </AskAgent>
+              <p className="field-hint">
+                Chat helps you plan. Applying its proposals to the project is not available yet.
+              </p>
+              <details>
+                <summary>Working with script files</summary>
+                <p>
+                  Authored scripts are read from <code>script/episodes/{episodeId}.json</code>.
+                </p>
+              </details>
+            </div>
           )}
           {script && !script.absent && !script.validation.valid && (
             <div className="notice notice-danger" data-testid="script-invalid">

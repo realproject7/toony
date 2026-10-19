@@ -53,7 +53,8 @@ export default async function WorkDashboardPage({
           </h1>
           <div className="page-meta">
             <span>
-              {episodes.length} episodes · {totalCuts} cuts · {characters.length} characters
+              {episodes.length} {episodes.length === 1 ? "episode" : "episodes"} · {totalCuts} cuts
+              · {characters.length} characters
             </span>
             <span data-testid="validation-status">
               {validation.valid ? null : (

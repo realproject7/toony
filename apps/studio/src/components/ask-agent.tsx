@@ -8,3 +8,12 @@ export function AskAgent({ message, children }: { message: string; children: Rea
     </button>
   );
 }
+
+export function AgentConnectionButton() {
+  const { openConnection } = useAgentWorkspace();
+  return (
+    <button type="button" className="btn btn-primary" onClick={openConnection}>
+      Manage agent connection
+    </button>
+  );
+}

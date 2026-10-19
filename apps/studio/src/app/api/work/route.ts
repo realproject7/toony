@@ -61,7 +61,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (await exists(target)) {
-    return badRequest(`a work named "${id}" already exists`);
+    return badRequest("A webtoon with this title already exists. Choose a different title.");
   }
 
   try {
@@ -71,7 +71,7 @@ export async function POST(request: Request): Promise<Response> {
     const project = await buildStudioProject(name, payload.genre, packs.content);
     if (!project) {
       return badRequest(
-        `Starter "${payload.genre}" is no longer available. Choose another starter or the bare default.`,
+        `Starter "${payload.genre}" is no longer available. Choose another starter or Blank story.`,
       );
     }
     // First-run: the workspace root (e.g. ~/Documents/Toony) may not exist yet.

@@ -19,6 +19,7 @@ import type {
   AgentView,
 } from "@/lib/agent/types";
 import { Sidebar } from "./sidebar";
+import { StudioIcon } from "./studio-icon";
 
 let bootstrap: Promise<void> | null = null;
 async function callAgent(
@@ -73,9 +74,10 @@ function routeContext(pathname: string) {
   }
   return { workId, focus };
 }
-const AgentWorkspaceContext = createContext<{ ask: (message: string, focus?: AgentFocus) => void }>(
-  { ask: () => {} },
-);
+const AgentWorkspaceContext = createContext<{
+  ask: (message: string, focus?: AgentFocus) => void;
+  openConnection: () => void;
+}>({ ask: () => {}, openConnection: () => {} });
 export const useAgentWorkspace = () => useContext(AgentWorkspaceContext);
 const EMPTY: AgentView = { settings: null, conversation: null, turn: null };
 const DEFAULT: AgentSettings = {
@@ -366,7 +368,7 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
     unavailable: "Could not check installation",
   };
   return (
-    <AgentWorkspaceContext.Provider value={{ ask }}>
+    <AgentWorkspaceContext.Provider value={{ ask, openConnection: openSettings }}>
       <div
         className="app-frame agent-workspace"
         data-agent-mode={mode}
@@ -684,7 +686,11 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
                     </button>
                   ))
                 ) : (
-                  <p>No conversations for this project yet.</p>
+                  <div className="agent-empty">
+                    <Icon name="history" />
+                    <h3>No conversations yet</h3>
+                    <p>Conversations you save on this computer will appear here.</p>
+                  </div>
                 )}
               </section>
             ) : (
@@ -694,14 +700,10 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
                     <div className="agent-welcome-mark">
                       <Icon name="chat" />
                     </div>
-                    <h2>
-                      Make something
-                      <br />
-                      worth reading.
-                    </h2>
+                    <h2>Your creative partner</h2>
                     <p>
-                      Develop your story, explore your characters, and work through the next scene
-                      together.
+                      Shape your story and characters together. Use the editor to refine every
+                      scene.
                     </p>
                     {!view.settings ? (
                       <button
@@ -710,7 +712,8 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
                         disabled={loading}
                         onClick={openSettings}
                       >
-                        Connect Claude or Codex
+                        <StudioIcon name="chat" />{" "}
+                        {loading ? "Loading connection…" : "Connect Claude or Codex"}
                       </button>
                     ) : (
                       <div className="agent-starters">
@@ -779,7 +782,19 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
               </button>
             </div>
           )}
-          <div className="agent-composer" hidden={settingsOpen}>
+          {!view.settings && !settingsOpen && (
+            <div className="agent-offline-note">
+              <StudioIcon name="chat" />
+              <div>
+                <strong>Ready when you are</strong>
+                <p>
+                  Connect your own account to start a conversation. You can keep editing while
+                  disconnected.
+                </p>
+              </div>
+            </div>
+          )}
+          <div className="agent-composer" hidden={settingsOpen || !view.settings || !!history}>
             <div className="agent-context">
               <span title="Only saved text is shared">
                 {view.settings?.projectContext && workId
@@ -841,7 +856,7 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
                     className={view.settings ? "agent-status-dot connected" : "agent-status-dot"}
                   />
                   {view.settings ? providerName(view.settings.provider) : "Connect agent"}
-                  <span>⌄</span>
+                  <StudioIcon name="chevron" />
                 </button>
                 {running ? (
                   <button
@@ -851,7 +866,7 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
                     title="Stop response"
                     onClick={() => void action("cancel", { conversationId: view.conversation?.id })}
                   >
-                    ■
+                    <StudioIcon name="stop" />
                   </button>
                 ) : (
                   <button
