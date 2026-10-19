@@ -8,6 +8,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import { deflateSync } from "node:zlib";
 import {
   GENRES,
+  LEGACY_EXPORT_DIRS,
   loadProject,
   readEpisodeScript,
   writeBrief,
@@ -130,9 +131,9 @@ test("every genre scaffold draws the transition bucket it declares (#273)", asyn
 
 test("lint flags an export manifest whose declared file is missing", async () => {
   const dir = await scaffold();
-  assert.equal(await runExport(["platform", dir, "--episode", "ep-001"], capture().io), EXIT_OK);
+  assert.equal(await runExport(["ep-001", dir, "--output", "cuts"], capture().io), EXIT_OK);
 
-  const manifestPath = join(dir, "episodes/ep-001/exports/platform/manifest.json");
+  const manifestPath = join(dir, "episodes/ep-001/exports/cuts/manifest.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   await unlink(join(dir, manifest.files[0].path));
 
@@ -144,12 +145,23 @@ test("lint flags an export manifest whose declared file is missing", async () =>
 
 test("lint flags an unparseable manifest", async () => {
   const dir = await scaffold();
-  assert.equal(await runExport(["platform", dir, "--episode", "ep-001"], capture().io), EXIT_OK);
-  await writeFile(join(dir, "episodes/ep-001/exports/platform/manifest.json"), "{ not json");
+  assert.equal(await runExport(["ep-001", dir, "--output", "cuts"], capture().io), EXIT_OK);
+  await writeFile(join(dir, "episodes/ep-001/exports/cuts/manifest.json"), "{ not json");
 
   const c = capture();
   assert.equal(await runLint([dir], c.io), EXIT_VALIDATION);
   assert.match(c.out.join("\n"), /manifest\/invalid/);
+});
+
+test("lint leaves export folders from earlier versions alone", async () => {
+  const dir = await scaffold();
+  for (const legacy of LEGACY_EXPORT_DIRS) {
+    await mkdir(join(dir, "episodes/ep-001/exports", legacy), { recursive: true });
+    await writeFile(join(dir, "episodes/ep-001/exports", legacy, "manifest.json"), "{ not json");
+  }
+  const c = capture();
+  assert.equal(await runLint([dir], c.io), EXIT_OK, c.out.join("\n"));
+  assert.doesNotMatch(c.out.join("\n"), /manifest\//);
 });
 
 test("lint-episode scopes to one episode", async () => {

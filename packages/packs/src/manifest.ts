@@ -13,7 +13,7 @@
 // a JSON data file the manifest points at, by a project-relative path inside the
 // pack directory. Resolution reads local files only; nothing here can name a URL.
 
-import type { ExportTargetKind } from "@toony/schema";
+import type { ExportTargetName, SocialFrameId, TallCutMode } from "@toony/schema";
 
 /** The manifest format version a pack must declare. */
 export const PACK_FORMAT_VERSION = 1;
@@ -111,6 +111,12 @@ export interface PackExportOptions {
   width?: number;
   format?: PackPresetFormat;
   quality?: number;
+  sliceHeight?: number;
+  maxBytes?: number;
+  margin?: number;
+  textCards?: boolean;
+  frame?: SocialFrameId;
+  tallCuts?: TallCutMode;
 }
 
 /**
@@ -122,8 +128,8 @@ export interface PackExportOptions {
 export interface PackExportPreset {
   /** The id `toony export <id>` selects. */
   id: string;
-  /** Which built-in export engine runs. */
-  target: ExportTargetKind;
+  /** Which built-in export engine runs: strip, cuts or social (or the alias stitched or platform). */
+  target: ExportTargetName;
   options: PackExportOptions;
 }
 

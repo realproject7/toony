@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { exportStitched } from "@toony/export";
+import { exportStrip } from "@toony/export";
 import {
   buildInitialProject,
   ingestImageAsset,
@@ -135,7 +135,7 @@ test("legacy no-field projects keep load, render, and actual PNG export bytes", 
   await writeProject(root, project);
   const cutsPath = join(root, "episodes/ep-001/cuts.yaml");
   const cutsBefore = await readFile(cutsPath);
-  const before = await exportStitched(root, "ep-001", { width: 320, format: "png" });
+  const before = await exportStrip(root, "ep-001", { width: 320, format: "png" });
   const pngBefore = await readFile(join(before.outDir, "episode.png"));
   const plansBefore = layoutCut(bundle.lettering, 320, 400);
 
@@ -147,13 +147,13 @@ test("legacy no-field projects keep load, render, and actual PNG export bytes", 
   await writeCuts(root, "ep-001", loadedBundle.cuts);
   assert.deepEqual(await readFile(cutsPath), cutsBefore);
   assert.deepEqual(layoutCut(loadedBundle.lettering, 320, 400), plansBefore);
-  const after = await exportStitched(root, "ep-001", { width: 320, format: "png" });
+  const after = await exportStrip(root, "ep-001", { width: 320, format: "png" });
   assert.deepEqual(await readFile(join(after.outDir, "episode.png")), pngBefore);
   assert.deepEqual(after.manifest, before.manifest);
 
   // The review metadata itself must also be invisible to render/export.
   await saveCutReview(root, await payloadFor(root));
-  const reviewed = await exportStitched(root, "ep-001", { width: 320, format: "png" });
+  const reviewed = await exportStrip(root, "ep-001", { width: 320, format: "png" });
   assert.deepEqual(await readFile(join(reviewed.outDir, "episode.png")), pngBefore);
   assert.deepEqual(reviewed.manifest, before.manifest);
 });

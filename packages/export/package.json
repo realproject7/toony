@@ -13,6 +13,10 @@
     "./defaults": {
       "types": "./dist/defaults.d.ts",
       "import": "./dist/defaults.js"
+    },
+    "./layout": {
+      "types": "./dist/layout.d.ts",
+      "import": "./dist/layout.js"
     }
   },
   "files": [

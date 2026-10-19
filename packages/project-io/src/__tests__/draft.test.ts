@@ -470,7 +470,7 @@ test("apply creates an absent episode with its folders and leaves every other fi
   const draft = (await readDraft(root, "ep-002")).draft;
   assert.ok(draft);
   assert.deepEqual(bundle, draft.bundle);
-  for (const dir of ["assets/clean", "assets/final", "exports/plotlink", "logs"]) {
+  for (const dir of ["assets/clean", "assets/final", "exports", "logs"]) {
     const entries = await readdir(join(episodeDir(root, "ep-002"), dir));
     assert.deepEqual(entries, []);
   }

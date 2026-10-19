@@ -109,15 +109,19 @@ choice of its own.
    installed, then export:
 
    ```sh
-   toony export platform --episode <id>
-   toony export stitched --episode <id>
-   toony export plotlink --episode <id>
+   toony export <id> --output strip                       # one tall image
+   toony export <id> --output strip --slice-height 1280   # parts that restack exactly
+   toony export <id> --output cuts --margin 40            # one image per cut
+   toony export <id> --output instagram                   # 1080 x 1350 carousel frames
+   toony export <id> --output x                           # 1600 x 900, 4 per post
+   toony export <id> --output webtoon                     # 800 px JPEG parts
    ```
 
-   Measurement and stitched export default to the project's `referenceWidth`
-   (800 px when absent). An explicit `--width` or export preset width wins.
-   Studio opens the stitched width control at the same project width. The raster
-   memory limit still applies; reduce width or split an episode that exceeds it.
+   Files land in `episodes/<id>/exports/<output>/` with a manifest. Cuts without
+   artwork export as plain panels and are listed as a note. Measurement and the
+   strip default to the project's `referenceWidth` (800 px when absent); an
+   explicit `--width` or preset width wins. A flag that does not apply to the
+   output is a usage error. Toony never posts anything.
 
 ## Files you write, files you never touch
 

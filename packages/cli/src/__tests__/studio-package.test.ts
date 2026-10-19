@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,8 +10,15 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { createCanvas } from "@napi-rs/canvas";
-import { composeCut, type ExportManifest } from "@toony/export";
+import { composeCut } from "@toony/export";
 import { buildInitialProject, writeProject } from "@toony/project-io";
+
+/** The job shape `GET /api/export/jobs/<id>` returns (Studio's ExportJobView). */
+interface ExportJobView {
+  state: "queued" | "running" | "completed" | "failed";
+  message?: string;
+  files?: Array<{ name: string; href: string }>;
+}
 
 async function freePort(): Promise<number> {
   const socket = createServer();
@@ -136,25 +143,42 @@ test("relocated Studio serves the workspace and exports identical native font pi
     }
     assert.equal(home?.status, 200, diagnostics);
     assert.ok((await home.text()).includes('data-testid="work-package-fixture"'));
+    // Export runs as a background job: start it with a guarded POST, follow it,
+    // then download the file it wrote.
     const response = await fetch(`${origin}/api/export`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-toony-agent": "1", origin },
       body: JSON.stringify({
         workId: "package-fixture",
         episodeId: "ep-001",
-        target: "platform",
-        width: 320,
-        format: "png",
+        output: "cuts",
+        options: { width: 320 },
       }),
       signal: AbortSignal.timeout(30_000),
     });
-    const result = (await response.json()) as { ok: boolean; manifest: ExportManifest };
+    const run = (await response.json()) as { ok: boolean; jobId: string };
     assert.equal(response.status, 200, diagnostics);
-    assert.equal(result.ok, true);
-    assert.equal(result.manifest.files.length, 1);
-    const file = result.manifest.files[0];
-    assert.ok(file);
-    assert.deepEqual(await readFile(join(root, file.path)), expected.canvas.toBuffer("image/png"));
+    assert.equal(run.ok, true);
+    let job: ExportJobView | undefined;
+    const jobDeadline = Date.now() + 60_000;
+    while (Date.now() < jobDeadline) {
+      const view = await fetch(`${origin}/api/export/jobs/${run.jobId}`, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      job = ((await view.json()) as { job: ExportJobView }).job;
+      if (job.state === "completed" || job.state === "failed") break;
+      await delay(200);
+    }
+    assert.equal(job?.state, "completed", `${job?.message ?? ""} ${diagnostics}`);
+    assert.equal(job.files?.length, 1);
+    const href = job.files?.[0]?.href;
+    assert.ok(href);
+    const download = await fetch(`${origin}${href}`, { signal: AbortSignal.timeout(10_000) });
+    assert.equal(download.status, 200);
+    assert.deepEqual(
+      Buffer.from(await download.arrayBuffer()),
+      expected.canvas.toBuffer("image/png"),
+    );
   } finally {
     await stop?.();
     await rm(dir, { recursive: true, force: true });

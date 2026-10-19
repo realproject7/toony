@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
-import { episodeDir } from "../paths.js";
+import { episodeDir, episodeExportDir, episodeExportRelDir, LEGACY_EXPORT_DIRS } from "../paths.js";
 import { buildInitialProject } from "../scaffold.js";
 import { writeCuts, writeProject } from "../writer.js";
 
@@ -27,6 +27,22 @@ test("episodeDir refuses an unsafe episode id (#74)", () => {
 
 test("episodeDir accepts a normal episode id", () => {
   assert.equal(episodeDir(dir, "ep-001"), join(dir, "episodes", "ep-001"));
+});
+
+test("export folders stay one safe segment under the episode's exports folder", () => {
+  assert.equal(episodeExportRelDir("ep-001", "webtoon"), "episodes/ep-001/exports/webtoon");
+  assert.equal(
+    episodeExportDir(dir, "ep-001", "strip"),
+    join(dir, "episodes", "ep-001", "exports", "strip"),
+  );
+  for (const bad of ["..", "a/b", "/abs", ""]) {
+    assert.throws(() => episodeExportRelDir("ep-001", bad), /unsafe export output id/);
+    assert.throws(() => episodeExportRelDir(bad, "strip"), /unsafe episode id/);
+  }
+  // Folders from earlier versions are left alone: no output may write into them.
+  for (const legacy of LEGACY_EXPORT_DIRS) {
+    assert.throws(() => episodeExportRelDir("ep-001", legacy), /unsafe export output id/);
+  }
 });
 
 test("writeCuts refuses to write through an unsafe episode id (#74)", async () => {

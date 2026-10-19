@@ -16,7 +16,6 @@ import {
   BAND_FONT_ID,
   type BalloonCommand,
   type BubbleRender,
-  cutHeightAt,
   cutPlacementFrame,
   GUTTER_MARGIN_FILL,
   IMPACT_BURST_FILL,
@@ -32,11 +31,11 @@ import {
   resolveBandDivider,
   resolveBandFade,
   resolveBandHeight,
-  resolveCutAspect,
   type TransitionRender,
 } from "@toony/render";
 import type { LetteringOverlay, Transition } from "@toony/schema";
 import { canvasFontFamily, registerToonyFonts } from "./fonts.js";
+import { cutRasterHeight } from "./layout.js";
 import { createCanvasMeasure } from "./measure.js";
 import { assertRasterSize, prepareImage } from "./raster-safety.js";
 
@@ -270,16 +269,9 @@ export async function composeCut(
   return { canvas, width, height };
 }
 
-/** The same height is used for allocation preflight and actual composition. */
-export function cutRasterHeight(
-  width: number,
-  panelAspect: number | undefined,
-  image: { width: number; height: number } | null,
-): number {
-  return image
-    ? Math.max(1, Math.round((image.height * width) / image.width))
-    : cutHeightAt(width, resolveCutAspect(panelAspect, null).aspect);
-}
+// The same height is used for allocation preflight, layout plans and actual
+// composition; it lives with the pure layout planner so the browser can use it.
+export { cutRasterHeight };
 
 function drawBandText(
   ctx: SKRSContext2D,

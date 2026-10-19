@@ -1,358 +1,774 @@
 "use client";
 
-// Export panel for the export screen (issue #53).
-//
-// Drives the existing headless export engine through `/api/export`: the operator
-// picks a target (platform / stitched / PlotLink-ready), sets width / format /
-// quality where the target supports them, and runs it. The panel then renders the
-// engine's OWN manifest (files, dimensions, byte sizes, checksums) and the
-// constraint/pre-flight results the route derives from that manifest — it does
-// not recompute any constraint. A re-export button re-runs the current target,
-// and the engine's actionable errors (e.g. PlotLink markdown too short) are shown
-// verbatim. No state is persisted here; the engine writes the real output on disk.
+// Export panel: a list of outputs on the left; for the chosen one, a few
+// options, a layout preview of the files it will write, the Export button with
+// progress, and the resulting files with downloads. The export itself runs in
+// the background on the server (`POST /api/export`), and this panel follows
+// the job (`GET /api/export/jobs/<id>`).
 
-import type { ExportManifest, ManifestFile } from "@toony/export";
-// Browser-safe subpath: plain constants with no Node/canvas imports (#154), so
-// the client bundle single-sources them without pulling in the export engine.
+import type { LayoutBand, LayoutFile, LayoutPlan } from "@toony/export/layout";
+import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { StudioIcon } from "@/components/studio-icon";
+import type { ExportJobView } from "@/lib/agent/protocol";
 import {
-  DEFAULT_JPEG_QUALITY,
-  PLATFORM_DEFAULT_WIDTH,
-  PLOTLINK_DEFAULT_WIDTH,
-} from "@toony/export/defaults";
-import { useCallback, useMemo, useState } from "react";
-import { type ConstraintCheck, formatBytes } from "@/lib/export-view";
+  choiceForOutput,
+  defaultSettings,
+  exportRequest,
+  formatBytes,
+  OUTPUT_CHOICES,
+  type OutputChoice,
+  type OutputSettings,
+  type PreviewItem,
+  planSummary,
+  previewBands,
+  previewPlan,
+} from "@/lib/export-view";
+import { studioFetch } from "@/lib/studio-fetch";
 
-type TargetKind = "platform" | "stitched" | "plotlink";
-
-interface TargetSpec {
-  kind: TargetKind;
-  title: string;
-  blurb: string;
-  /** Whether the PNG/JPEG format selector applies to this target. */
-  supportsFormat: boolean;
-  /**
-   * Whether a quality value is sent to (and honored by) the engine for this
-   * target. Platform/stitched honor it only for JPEG; PlotLink always encodes
-   * WebP and honors quality as the encode's starting quality. PNG ignores it.
-   */
-  supportsQuality: boolean;
-  /** null selects the project's reference column. */
-  defaultWidth: number | null;
-}
-
-// Per-target defaults come from the export engine (#154 single-source), so the
-// controls open at exactly the values the engine would otherwise apply.
-const TARGETS = [
-  {
-    kind: "platform",
-    title: "Platform sequence",
-    blurb: "One image per cut, in reading order.",
-    supportsFormat: true,
-    supportsQuality: true,
-    defaultWidth: PLATFORM_DEFAULT_WIDTH,
-  },
-  {
-    kind: "stitched",
-    title: "Stitched strip",
-    blurb: "A single tall image: cuts, gutters, transitions, lettering.",
-    supportsFormat: true,
-    supportsQuality: true,
-    defaultWidth: null,
-  },
-  {
-    kind: "plotlink",
-    title: "PlotLink-ready",
-    blurb: "WebP package (≤20 images, ≤1 MB each) plus generated markdown.",
-    supportsFormat: false,
-    supportsQuality: true,
-    defaultWidth: PLOTLINK_DEFAULT_WIDTH,
-  },
-] as const satisfies readonly TargetSpec[];
-
-interface SuccessResult {
-  manifest: ExportManifest;
-  checks: ConstraintCheck[];
-  outDir: string;
-}
-
-interface ApiResponse {
-  ok: boolean;
-  error?: string;
-  code?: string;
-  manifest?: ExportManifest;
-  checks?: ConstraintCheck[];
-  outDir?: string;
+/** A finished export shown when the page opens. */
+export interface SavedExportView extends ExportJobView {
+  outOfDate: boolean;
 }
 
 export interface ExportPanelProps {
   workId: string;
   episodeId: string;
   referenceWidth: number;
+  items: PreviewItem[];
+  saved: Record<string, SavedExportView>;
 }
 
-export function ExportPanel({ workId, episodeId, referenceWidth }: ExportPanelProps) {
-  const [target, setTarget] = useState<TargetKind>("platform");
-  const [width, setWidth] = useState<number>(PLATFORM_DEFAULT_WIDTH);
-  const [format, setFormat] = useState<"png" | "jpeg">("png");
-  const [quality, setQuality] = useState<number>(DEFAULT_JPEG_QUALITY);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<{ message: string; code?: string } | null>(null);
-  const [result, setResult] = useState<SuccessResult | null>(null);
+type Result = ExportJobView & { outOfDate?: boolean };
 
-  const spec: TargetSpec = useMemo(
-    () => TARGETS.find((t) => t.kind === target) ?? TARGETS[0],
-    [target],
+const POLL_MS = 400;
+const PREVIEW_FILES_MAX = 24;
+
+/** Problems with the typed numbers, by field. Export waits until they are fixed. */
+function settingsProblems(choice: OutputChoice, settings: OutputSettings): Record<string, string> {
+  const problems: Record<string, string> = {};
+  const whole = (value: number, min: number, max: number) =>
+    Number.isInteger(value) && value >= min && value <= max;
+  if (choice === "strip") {
+    if (!whole(settings.strip.width, 1, 100000)) problems.width = "Use 1 to 100000 px.";
+    if (settings.strip.split && !whole(settings.strip.partHeight, 64, 100000)) {
+      problems.partHeight = "Use 64 to 100000 px.";
+    }
+  }
+  if (choice === "cuts") {
+    if (!whole(settings.cuts.width, 1, 100000)) problems.width = "Use 1 to 100000 px.";
+    else if (
+      !whole(settings.cuts.margin, 0, 10000) ||
+      settings.cuts.margin * 2 >= settings.cuts.width
+    ) {
+      problems.margin = `Use 0 to ${Math.max(0, Math.ceil(settings.cuts.width / 2) - 1)} px.`;
+    }
+  }
+  return problems;
+}
+
+export function ExportPanel({ workId, episodeId, referenceWidth, items, saved }: ExportPanelProps) {
+  const [choice, setChoice] = useState<OutputChoice>(() => {
+    const first = Object.keys(saved)
+      .map(choiceForOutput)
+      .find((value): value is OutputChoice => value !== null);
+    return first ?? "strip";
+  });
+  const [settings, setSettings] = useState<OutputSettings>(() => {
+    const initial = defaultSettings(referenceWidth);
+    if (saved["instagram-square"] && !saved.instagram) initial.instagram.shape = "square";
+    return initial;
+  });
+  const [results, setResults] = useState<Record<string, Result>>(saved);
+  const [job, setJob] = useState<ExportJobView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const poll = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const bands = useMemo(() => previewBands(items, referenceWidth), [items, referenceWidth]);
+  const request = useMemo(() => exportRequest(choice, settings), [choice, settings]);
+  const plan = useMemo(
+    () => previewPlan(bands, request, referenceWidth),
+    [bands, request, referenceWidth],
   );
+  const problems = settingsProblems(choice, settings);
+  const running = job !== null && (job.state === "queued" || job.state === "running");
+  const result = results[request.output];
 
-  // Quality is meaningful (and honored by the engine) for PlotLink's WebP encode
-  // and for JPEG on the platform/stitched targets. PNG ignores it, so the control
-  // is hidden — and never sent — when it would have no effect.
-  const qualityApplies = useMemo(
-    () => spec.supportsQuality && (target === "plotlink" || format === "jpeg"),
-    [spec, target, format],
-  );
-
-  const selectTarget = useCallback(
-    (next: TargetSpec) => {
-      setTarget(next.kind);
-      setWidth(next.defaultWidth ?? referenceWidth);
-      setResult(null);
-      setError(null);
+  useEffect(
+    () => () => {
+      if (poll.current) clearTimeout(poll.current);
     },
-    [referenceWidth],
+    [],
   );
 
-  const run = useCallback(async () => {
-    setBusy(true);
+  const follow = useCallback((id: string) => {
+    const tick = async () => {
+      try {
+        const response = await fetch(`/api/export/jobs/${encodeURIComponent(id)}`, {
+          cache: "no-store",
+        });
+        const data = (await response.json()) as {
+          ok: boolean;
+          job?: ExportJobView;
+          error?: string;
+        };
+        if (!response.ok || !data.job) {
+          setJob(null);
+          setError(data.error ?? "Lost track of the export. Try again.");
+          return;
+        }
+        const next = data.job;
+        setJob(next);
+        if (next.state === "completed") {
+          setResults((current) => ({ ...current, [next.output]: { ...next, outOfDate: false } }));
+          setJob(null);
+          return;
+        }
+        if (next.state === "failed") {
+          setError(next.message ?? "The export failed.");
+          setJob(null);
+          return;
+        }
+      } catch {
+        // A missed poll is retried; the job keeps running on the server.
+      }
+      poll.current = setTimeout(tick, POLL_MS);
+    };
+    poll.current = setTimeout(tick, POLL_MS);
+  }, []);
+
+  const start = useCallback(async () => {
     setError(null);
     try {
-      const body: Record<string, unknown> = { workId, episodeId, target, width };
-      if (spec.supportsFormat) body.format = format;
-      // Send quality only when it actually affects the output (PlotLink WebP, or
-      // JPEG on platform/stitched). For PNG the engine ignores it, so it is not
-      // sent — the control matches behavior (#86).
-      if (qualityApplies) body.quality = quality;
-      const response = await fetch("/api/export", {
+      const response = await studioFetch("/api/export", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ workId, episodeId, ...request }),
       });
-      const data = (await response.json()) as ApiResponse;
-      if (!response.ok || !data.ok || !data.manifest || !data.checks || data.outDir === undefined) {
-        setResult(null);
-        setError({ message: data.error ?? "Export failed.", code: data.code });
+      const data = (await response.json()) as { ok: boolean; job?: ExportJobView; error?: string };
+      if (!response.ok || !data.job) {
+        setError(data.error ?? "Could not start the export.");
         return;
       }
-      setResult({ manifest: data.manifest, checks: data.checks, outDir: data.outDir });
-    } catch (cause) {
-      setResult(null);
-      setError({ message: cause instanceof Error ? cause.message : String(cause) });
-    } finally {
-      setBusy(false);
+      setJob(data.job);
+      follow(data.job.id);
+    } catch {
+      setError("Could not reach Toony. Check that it is still running.");
     }
-  }, [workId, episodeId, target, width, format, quality, spec, qualityApplies]);
+  }, [workId, episodeId, request, follow]);
+
+  const update = <K extends keyof OutputSettings>(key: K, patch: Partial<OutputSettings[K]>) =>
+    setSettings((current) => ({ ...current, [key]: { ...current[key], ...patch } }));
+
+  const info = OUTPUT_CHOICES.find((entry) => entry.id === choice) ?? OUTPUT_CHOICES[0];
 
   return (
-    <section className="export-panel" data-testid="export-panel">
-      <div className="card export-card">
-        <h2 className="card-title">Format &amp; target</h2>
-        <div className="export-targets" role="radiogroup" aria-label="Export target">
-          {TARGETS.map((t) => (
+    <div className="export-layout" data-testid="export-panel">
+      <fieldset className="export-outputs" disabled={running}>
+        <legend className="card-title">Outputs</legend>
+        {OUTPUT_CHOICES.map((entry) => {
+          const has =
+            entry.id === "instagram"
+              ? (results.instagram ?? results["instagram-square"])
+              : results[entry.id];
+          return (
+            <label
+              key={entry.id}
+              className="export-output"
+              data-selected={entry.id === choice}
+              data-testid={`output-${entry.id}`}
+            >
+              <input
+                type="radio"
+                name="export-output"
+                value={entry.id}
+                checked={entry.id === choice}
+                onChange={() => {
+                  setChoice(entry.id);
+                  setError(null);
+                }}
+              />
+              <span className="export-output-text">
+                <span className="export-output-title">
+                  {entry.title}
+                  {has ? (
+                    <span className="export-output-done" title="Exported">
+                      <StudioIcon name="check" />
+                    </span>
+                  ) : null}
+                </span>
+                <span className="export-output-description">{entry.description}</span>
+              </span>
+            </label>
+          );
+        })}
+      </fieldset>
+
+      <div className="export-main">
+        <section className="card export-setup" aria-labelledby="export-setup-title">
+          <div className="export-setup-head">
+            <h2 className="section-title" id="export-setup-title">
+              {info?.title}
+            </h2>
+            <span className="export-summary" data-testid="export-plan-summary">
+              {planSummary(plan)}
+            </span>
+          </div>
+
+          <OutputOptions
+            choice={choice}
+            settings={settings}
+            problems={problems}
+            disabled={running}
+            update={update}
+          />
+
+          <LayoutPreview plan={plan} bands={bands} items={items} />
+
+          <Notes plan={plan} />
+
+          <div className="export-actions">
             <button
               type="button"
-              key={t.kind}
-              className={`export-target ${t.kind === target ? "export-target-active" : ""}`}
-              aria-pressed={t.kind === target}
-              onClick={() => selectTarget(t)}
-              disabled={busy}
-              data-testid={`target-${t.kind}`}
+              className="btn btn-primary"
+              onClick={start}
+              disabled={running || Object.keys(problems).length > 0 || plan.files.length === 0}
+              data-testid="run-export"
             >
-              <span className="export-target-title">{t.title}</span>
-              <span className="export-target-blurb">{t.blurb}</span>
+              <StudioIcon name="export" />
+              {running ? "Exporting…" : result ? "Export again" : "Export"}
             </button>
-          ))}
-        </div>
+            {running && job ? <Progress job={job} /> : null}
+            {error ? (
+              <p className="export-error" role="alert" data-testid="export-error">
+                {error}
+              </p>
+            ) : null}
+          </div>
+        </section>
 
-        <div className="export-options">
-          <label className="field">
-            <span>Width (px)</span>
-            <input
-              type="number"
-              min={1}
-              max={100000}
-              step={50}
-              value={width}
-              disabled={busy}
-              onChange={(e) => setWidth(Number(e.target.value))}
-              data-testid="export-width"
-            />
-          </label>
-
-          {spec.supportsFormat ? (
-            <label className="field">
-              <span>Format</span>
-              <select
-                value={format}
-                disabled={busy}
-                onChange={(e) => setFormat(e.target.value === "jpeg" ? "jpeg" : "png")}
-                data-testid="export-format"
-              >
-                <option value="png">PNG (lossless)</option>
-                <option value="jpeg">JPEG</option>
-              </select>
-            </label>
-          ) : (
-            <label className="field">
-              <span>Format</span>
-              <input
-                type="text"
-                value="WebP (fixed)"
-                disabled
-                readOnly
-                data-testid="export-format-fixed"
-              />
-            </label>
-          )}
-
-          {qualityApplies ? (
-            <label className="field">
-              <span>Quality (0–100)</span>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={quality}
-                disabled={busy}
-                onChange={(e) => setQuality(Number(e.target.value))}
-                data-testid="export-quality"
-              />
-            </label>
-          ) : null}
-        </div>
-
-        <div className="editor-actions export-actions">
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={run}
-            disabled={busy}
-            data-testid="run-export"
-          >
-            {busy ? "Exporting…" : result ? "Re-export" : "Export episode"}
-          </button>
-          {error && (
-            <span className="new-work-error" role="alert" data-testid="export-error">
-              {error.code ? `${error.code}: ` : ""}
-              {error.message}
-            </span>
-          )}
-        </div>
+        {result ? (
+          <Results
+            result={result}
+            running={running}
+            shownNotes={new Set(plan.warnings.map((warning) => warning.message))}
+          />
+        ) : null}
       </div>
-
-      {result && <ExportResult result={result} workId={workId} />}
-    </section>
+    </div>
   );
 }
 
-function ExportResult({ result, workId }: { result: SuccessResult; workId: string }) {
-  const { manifest, checks, outDir } = result;
+function OutputOptions({
+  choice,
+  settings,
+  problems,
+  disabled,
+  update,
+}: {
+  choice: OutputChoice;
+  settings: OutputSettings;
+  problems: Record<string, string>;
+  disabled: boolean;
+  update: <K extends keyof OutputSettings>(key: K, patch: Partial<OutputSettings[K]>) => void;
+}) {
+  const ids = useId();
+  const number = (value: string) => (value.trim() === "" ? Number.NaN : Number(value));
+  const field = (label: string, key: string, control: ReactNode, hint?: string) => (
+    <div className="field export-field">
+      <label htmlFor={`${ids}-${key}`}>{label}</label>
+      {control}
+      {problems[key] ? (
+        <small className="export-field-problem">{problems[key]}</small>
+      ) : hint ? (
+        <small className="field-hint">{hint}</small>
+      ) : null}
+    </div>
+  );
+  const tall = (value: "split" | "fit", onChange: (next: "split" | "fit") => void) => (
+    <Segmented
+      label="Tall cuts"
+      value={value}
+      disabled={disabled}
+      options={[
+        { value: "split", label: "Split into rows" },
+        { value: "fit", label: "Fit whole" },
+      ]}
+      onChange={onChange}
+      hint={value === "fit" ? "Shrinks a tall cut to fit when its text stays readable." : undefined}
+    />
+  );
+
+  if (choice === "strip") {
+    return (
+      <div className="export-options" data-testid="export-options">
+        {field(
+          "Width (px)",
+          "width",
+          <input
+            id={`${ids}-width`}
+            type="number"
+            min={1}
+            max={100000}
+            step={10}
+            value={Number.isNaN(settings.strip.width) ? "" : settings.strip.width}
+            disabled={disabled}
+            aria-invalid={Boolean(problems.width)}
+            onChange={(e) => update("strip", { width: number(e.target.value) })}
+            data-testid="export-width"
+          />,
+        )}
+        <div className="field export-field">
+          <label className="export-check">
+            <input
+              type="checkbox"
+              checked={settings.strip.split}
+              disabled={disabled}
+              onChange={(e) => update("strip", { split: e.target.checked })}
+              data-testid="export-split"
+            />
+            <span>Split into parts</span>
+          </label>
+          <input
+            type="number"
+            min={64}
+            max={100000}
+            step={10}
+            aria-label="Part height (px)"
+            value={Number.isNaN(settings.strip.partHeight) ? "" : settings.strip.partHeight}
+            disabled={disabled || !settings.strip.split}
+            aria-invalid={Boolean(problems.partHeight)}
+            onChange={(e) => update("strip", { partHeight: number(e.target.value) })}
+            data-testid="export-part-height"
+          />
+          {problems.partHeight ? (
+            <small className="export-field-problem">{problems.partHeight}</small>
+          ) : (
+            <small className="field-hint">Part height in px. Parts break between cuts.</small>
+          )}
+        </div>
+      </div>
+    );
+  }
+  if (choice === "cuts") {
+    return (
+      <div className="export-options" data-testid="export-options">
+        {field(
+          "Width (px)",
+          "width",
+          <input
+            id={`${ids}-width`}
+            type="number"
+            min={1}
+            max={100000}
+            step={10}
+            value={Number.isNaN(settings.cuts.width) ? "" : settings.cuts.width}
+            disabled={disabled}
+            aria-invalid={Boolean(problems.width)}
+            onChange={(e) => update("cuts", { width: number(e.target.value) })}
+            data-testid="export-width"
+          />,
+        )}
+        {field(
+          "Margin (px)",
+          "margin",
+          <input
+            id={`${ids}-margin`}
+            type="number"
+            min={0}
+            max={10000}
+            step={2}
+            value={Number.isNaN(settings.cuts.margin) ? "" : settings.cuts.margin}
+            disabled={disabled}
+            aria-invalid={Boolean(problems.margin)}
+            onChange={(e) => update("cuts", { margin: number(e.target.value) })}
+            data-testid="export-margin"
+          />,
+          "White space around each cut.",
+        )}
+        <div className="field export-field">
+          <span>Text cards</span>
+          <label className="export-check">
+            <input
+              type="checkbox"
+              checked={settings.cuts.textCards}
+              disabled={disabled}
+              onChange={(e) => update("cuts", { textCards: e.target.checked })}
+              data-testid="export-text-cards"
+            />
+            <span>Include as their own images</span>
+          </label>
+        </div>
+      </div>
+    );
+  }
+  if (choice === "instagram") {
+    return (
+      <div className="export-options" data-testid="export-options">
+        <Segmented
+          label="Shape"
+          value={settings.instagram.shape}
+          disabled={disabled}
+          options={[
+            { value: "portrait", label: "Portrait 4:5" },
+            { value: "square", label: "Square 1:1" },
+          ]}
+          onChange={(shape) => update("instagram", { shape })}
+        />
+        {tall(settings.instagram.tallCuts, (tallCuts) => update("instagram", { tallCuts }))}
+      </div>
+    );
+  }
+  if (choice === "x") {
+    return (
+      <div className="export-options" data-testid="export-options">
+        {tall(settings.x.tallCuts, (tallCuts) => update("x", { tallCuts }))}
+      </div>
+    );
+  }
   return (
-    <div className="card export-result" data-testid="export-result">
-      <p className="export-success" role="status">
-        Your episode files are ready.
-      </p>
-      <div className="export-result-head">
-        <h2 className="card-title">Export complete</h2>
-        <span className="chip chip-ok" data-testid="export-target-kind">
-          {manifest.target}
-        </span>
+    <p className="field-hint export-fixed" data-testid="export-options">
+      800 px wide, cut into parts of up to 1280 px between cuts. JPEG, quality 90.
+    </p>
+  );
+}
+
+function Segmented<T extends string>({
+  label,
+  value,
+  options,
+  disabled,
+  onChange,
+  hint,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string }[];
+  disabled: boolean;
+  onChange: (value: T) => void;
+  hint?: string;
+}) {
+  return (
+    <fieldset className="field export-field export-segmented" disabled={disabled}>
+      <legend>{label}</legend>
+      <div className="export-segments">
+        {options.map((option) => (
+          <label key={option.value} data-selected={option.value === value}>
+            <input
+              type="radio"
+              name={`export-${label}`}
+              value={option.value}
+              checked={option.value === value}
+              onChange={() => onChange(option.value)}
+            />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </div>
+      {hint ? <small className="field-hint">{hint}</small> : null}
+    </fieldset>
+  );
+}
+
+const THUMB_WIDTH = 92;
+const THUMB_WIDE = 148;
+const THUMB_HEIGHT_MAX = 300;
+
+/** A small drawing of each file the export will write: art, panels and cards in place. */
+function LayoutPreview({
+  plan,
+  bands,
+  items,
+}: {
+  plan: LayoutPlan;
+  bands: readonly LayoutBand[];
+  items: readonly PreviewItem[];
+}) {
+  const art = useMemo(
+    () =>
+      new Map(
+        items.flatMap((item) =>
+          item.type === "cut" && item.art ? [[item.id, item.art.src] as const] : [],
+        ),
+      ),
+    [items],
+  );
+  const shown = plan.files.slice(0, PREVIEW_FILES_MAX);
+  // One scale for every file of the plan, so parts and frames compare at a glance.
+  const wide = plan.files.length > 0 && plan.files.every((file) => file.width > file.height);
+  const widest = Math.max(1, ...plan.files.map((file) => file.width));
+  const scale = (wide ? THUMB_WIDE : THUMB_WIDTH) / widest;
+  return (
+    <figure className="export-preview" data-testid="export-preview">
+      <figcaption className="field-hint">
+        Layout preview. Lettering appears in the files.
+      </figcaption>
+      {plan.files.length === 0 ? (
+        <p className="empty">This episode has no cuts to export yet.</p>
+      ) : (
+        <div className="export-preview-strip">
+          {shown.map((file, index) => (
+            <PreviewFile
+              // Each file starts at a different band row, which names it.
+              key={`${file.pieces[0]?.band ?? "none"}:${file.pieces[0]?.top ?? 0}`}
+              file={file}
+              scale={scale}
+              bands={bands}
+              art={art}
+              index={index}
+              posts={plan.files.at(-1)?.post ?? 1}
+            />
+          ))}
+          {plan.files.length > shown.length ? (
+            <span className="export-preview-more">+{plan.files.length - shown.length} more</span>
+          ) : null}
+        </div>
+      )}
+    </figure>
+  );
+}
+
+function PreviewFile({
+  file,
+  scale,
+  bands,
+  art,
+  index,
+  posts,
+}: {
+  file: LayoutFile;
+  /** Preview px per output px. */
+  scale: number;
+  bands: readonly LayoutBand[];
+  art: ReadonlyMap<string, string>;
+  index: number;
+  /** How many posts the whole plan needs. */
+  posts: number;
+}) {
+  const width = Math.max(4, Math.round(file.width * scale));
+  const height = Math.max(4, Math.round(file.height * scale));
+  const clipped = height > THUMB_HEIGHT_MAX;
+  return (
+    <div className="export-thumb-wrap">
+      <div
+        className="export-thumb"
+        data-clipped={clipped}
+        style={{ width, height: Math.min(height, THUMB_HEIGHT_MAX) }}
+      >
+        {file.pieces.map((piece, i) => {
+          const band = bands[piece.band];
+          if (!band || band.role === "spacer") return null;
+          const src = band.type === "cut" ? art.get(band.id) : undefined;
+          const top = piece.y * scale;
+          if (top > THUMB_HEIGHT_MAX) return null;
+          return (
+            <div
+              // biome-ignore lint/suspicious/noArrayIndexKey: pieces are positional.
+              key={i}
+              className="export-thumb-piece"
+              data-role={band.role}
+              data-art={src ? "yes" : "no"}
+              style={{
+                left: piece.x * scale,
+                top,
+                width: piece.width * scale,
+                height: Math.max(1, piece.height * scale),
+              }}
+            >
+              {src ? (
+                // biome-ignore lint/performance/noImgElement: local artwork served by /api/asset.
+                <img
+                  src={src}
+                  alt=""
+                  loading="lazy"
+                  style={{
+                    top: -piece.top * scale,
+                    width: piece.width * scale,
+                    height: band.heightAt(piece.width) * scale,
+                  }}
+                />
+              ) : band.type === "cut" && piece.height * scale >= 14 ? (
+                <span>Cut {band.cutNumber}</span>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <span className="export-thumb-label">
+        {file.post !== undefined && posts > 1 ? `Post ${file.post} · ` : ""}
+        {index + 1}
+      </span>
+    </div>
+  );
+}
+
+function Notes({ plan }: { plan: LayoutPlan }) {
+  if (plan.warnings.length === 0) return null;
+  return (
+    <ul className="export-notes" data-testid="export-notes">
+      {plan.warnings.map((warning) => (
+        <li key={warning.code} data-tone={warning.code === "artless-cuts" ? "warning" : "info"}>
+          {warning.message}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Progress({ job }: { job: ExportJobView }) {
+  const { done, total } = job.progress;
+  return (
+    <div className="export-progress" role="status" data-testid="export-progress">
+      <progress max={Math.max(1, total)} value={done} />
+      <span>
+        {job.state === "queued" && job.message
+          ? job.message
+          : total > 0
+            ? `Rendering ${done} of ${total} steps`
+            : "Starting…"}
+      </span>
+    </div>
+  );
+}
+
+const EXPORTED_AT = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" });
+
+function Results({
+  result,
+  running,
+  shownNotes,
+}: {
+  result: Result;
+  running: boolean;
+  /** Notes the setup card already shows; the results do not repeat them. */
+  shownNotes: ReadonlySet<string>;
+}) {
+  const files = result.files ?? [];
+  const total = files.reduce((sum, file) => sum + file.bytes, 0);
+  const posts = new Map<number, typeof files>();
+  for (const file of files) {
+    const post = file.post ?? 0;
+    posts.set(post, [...(posts.get(post) ?? []), file]);
+  }
+  const when = result.finishedAt ? EXPORTED_AT.format(new Date(result.finishedAt)) : null;
+  const notes = (result.warnings ?? []).filter((warning) => !shownNotes.has(warning.message));
+  return (
+    <section
+      className="card export-results"
+      data-testid="export-result"
+      aria-labelledby="export-results-title"
+    >
+      <div className="export-results-head">
+        <div>
+          <h2 className="section-title" id="export-results-title">
+            Files
+          </h2>
+          <p className="field-hint" suppressHydrationWarning>
+            {files.length} {files.length === 1 ? "image" : "images"}, {formatBytes(total)}
+            {when ? ` · exported ${when}` : ""}
+          </p>
+        </div>
+        <div className="export-results-actions">
+          {result.outOfDate ? (
+            <span className="chip chip-warn" title="The episode changed after this export.">
+              Out of date
+            </span>
+          ) : null}
+          {result.zipHref ? (
+            <a
+              className={`btn ${running ? "export-link-disabled" : ""}`}
+              href={result.zipHref}
+              download
+              data-testid="download-all"
+            >
+              <StudioIcon name="download" />
+              Download all (ZIP)
+            </a>
+          ) : null}
+        </div>
       </div>
 
-      <details className="export-technical" open={checks.some((check) => check.status !== "pass")}>
-        <summary>
-          Output checks
-          {checks.some((check) => check.status !== "pass") ? " · review needed" : " · passed"}
-        </summary>
-        <ul className="export-checks" data-testid="export-checks">
-          {checks.map((check) => (
-            <li className="export-check" key={check.id} data-status={check.status}>
-              <span className={`chip ${check.status === "pass" ? "chip-ok" : "chip-warn"}`}>
-                {check.status === "pass" ? "PASS" : "REVIEW"}
-              </span>
-              <span className="export-check-body">
-                <b>{check.label}</b>
-                <span className="export-check-detail">{check.detail}</span>
-              </span>
+      {notes.length > 0 ? (
+        <ul className="export-notes">
+          {notes.map((warning) => (
+            <li key={warning.code} data-tone={warning.code === "artless-cuts" ? "warning" : "info"}>
+              {warning.message}
             </li>
           ))}
         </ul>
-      </details>
+      ) : null}
 
-      <div className="export-output" data-testid="export-output-path">
-        <span className="field-hint">Saved to</span>
-        <code>{outDir}</code>
-      </div>
-
-      <h3 className="section-title">Exported files</h3>
-      <div className="export-files" data-testid="export-files">
-        {manifest.files.map((file) => (
-          <ManifestFileRow key={file.path} file={file} workId={workId} />
-        ))}
-      </div>
-
-      <details className="export-technical">
-        <summary>Export details</summary>
-        <div className="export-manifest-meta">
-          <span>
-            Project <code>{manifest.projectId}</code>
-          </span>
-          <span>
-            Episode <code>{manifest.episodeId}</code>
-          </span>
-          <span>
-            Width <b>{manifest.width}px</b>
-          </span>
-          <span>
-            Schema v<b>{manifest.manifestVersion}</b>
-          </span>
+      {[...posts.entries()].map(([post, group]) => (
+        <div key={post} className="export-post">
+          {post > 0 ? <h3 className="export-post-title">Post {post}</h3> : null}
+          <ul className="export-files" data-testid="export-files">
+            {group.map((file) => (
+              <li key={file.name} className="export-file">
+                <a
+                  className="export-file-image"
+                  href={file.href}
+                  download
+                  data-tall={file.height > file.width * 3}
+                  aria-label={`Download ${file.name}`}
+                >
+                  {/* biome-ignore lint/performance/noImgElement: exported file served by the local download route. */}
+                  <img src={file.href} alt="" loading="lazy" />
+                </a>
+                <div className="export-file-meta">
+                  <b>{file.name}</b>
+                  <span>
+                    {file.width} × {file.height} · {formatBytes(file.bytes)}
+                  </span>
+                </div>
+                <a className="export-file-download" href={file.href} download>
+                  <StudioIcon name="download" />
+                  Download
+                </a>
+              </li>
+            ))}
+          </ul>
         </div>
-      </details>
-      {manifest.markdown && (
-        <div className="export-markdown" data-testid="export-markdown">
-          <h3 className="section-title">Generated markdown</h3>
-          <div className="export-file-row">
-            <code className="export-file-path">{manifest.markdown.path}</code>
-            <span className="export-file-meta">{manifest.markdown.characters} chars</span>
-            <span className="export-file-sha" title={manifest.markdown.sha256}>
-              {manifest.markdown.sha256.slice(0, 12)}…
-            </span>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+      ))}
 
-function ManifestFileRow({ file, workId }: { file: ManifestFile; workId: string }) {
-  return (
-    <div className="export-file-row">
-      <a
-        className="export-file-path"
-        title={file.path}
-        download={file.path.split("/").at(-1)}
-        href={`/api/asset?${new URLSearchParams({ work: workId, path: file.path, revision: file.sha256 })}`}
-      >
-        {file.path.split("/").at(-1)}
-        <span className="field-hint"> · Download</span>
-      </a>
-      <span className="export-file-meta">
-        {file.format.toUpperCase()} · {file.width}×{file.height} · {formatBytes(file.byteSize)}
-        {file.quality !== null ? ` · q${file.quality}` : ""}
-      </span>
-      <details className="export-checksum">
-        <summary>Checksum</summary>
-        <code>{file.sha256}</code>
+      <details className="export-details" data-testid="export-details">
+        <summary>Details</summary>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">File</th>
+              <th scope="col">Size</th>
+              <th scope="col">Bytes</th>
+              <th scope="col">SHA-256</th>
+            </tr>
+          </thead>
+          <tbody>
+            {files.map((file) => (
+              <tr key={file.name}>
+                <td>{file.name}</td>
+                <td>
+                  {file.width} × {file.height}
+                </td>
+                <td>{file.bytes.toLocaleString()}</td>
+                <td>
+                  <code>{file.sha256}</code>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="field-hint">
+          {result.manifestHref ? (
+            <a href={result.manifestHref} download>
+              manifest.json
+            </a>
+          ) : null}
+          {result.inputsHash ? (
+            <>
+              {" "}
+              · Inputs <code>{result.inputsHash.slice(0, 16)}</code>
+            </>
+          ) : null}
+        </p>
       </details>
-    </div>
+    </section>
   );
 }

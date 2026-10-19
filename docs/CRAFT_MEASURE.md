@@ -18,7 +18,7 @@ Exit codes: `0` measured (and in band, when a band was given), `1` out of band,
 
 ## How it measures
 
-It composes the episode exactly the way `toony export stitched` does — the same
+It composes the episode exactly the way `toony export --output strip` does — the same
 cuts, gutters, transitions, and lettering, stacked into one page — and reads the
 **pixels** of that page. So:
 

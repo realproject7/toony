@@ -260,8 +260,29 @@ export interface ExportJobView {
   state: "queued" | "running" | "completed" | "failed";
   progress: { done: number; total: number };
   message?: string;
-  files?: Array<{ name: string; width: number; height: number; bytes: number; href: string }>;
+  files?: Array<{
+    name: string;
+    width: number;
+    height: number;
+    bytes: number;
+    href: string;
+    /** Additive: file checksum, what it shows and the post it belongs to. */
+    sha256?: string;
+    role?: "strip" | "slice" | "cut" | "card" | "frame";
+    /** Sequence item ids the file shows, top to bottom. */
+    items?: string[];
+    post?: number;
+  }>;
   zipHref?: string;
+  /** Additive fields. Path-free error code when `state` is "failed". */
+  code?: string;
+  /** Plain-language notes about the result, for example cuts without artwork. */
+  warnings?: Array<{ code: string; message: string }>;
+  manifestHref?: string;
+  /** Hash of the inputs the files were rendered from (compare to tell if they are out of date). */
+  inputsHash?: string;
+  startedAt?: string;
+  finishedAt?: string;
 }
 
 /** Body of `POST /api/agent`. The server answers `{ ok: true, ... }` or `{ ok: false, code, error }`. */

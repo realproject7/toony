@@ -18,6 +18,7 @@ const paths = {
   arrow: "M4 12h16m-6-6 6 6-6 6",
   close: "m6 6 12 12M6 18 18 6",
   export: "M12 15V3m-5 5 5-5 5 5M4 13v8h16v-8",
+  download: "M12 3v12m-5-5 5 5 5-5M4 13v8h16v-8",
   chat: "M4 4h16v12H9l-5 4V4Z",
   stop: "M6 6h12v12H6z",
 } as const;
