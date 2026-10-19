@@ -3,6 +3,7 @@ import type { ArtRevision } from "@toony/project-io";
 import type { Character } from "@toony/schema";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { studioFetch } from "@/lib/studio-fetch";
 import { useAgentWorkspace } from "./agent-workspace";
 
 type RequestView = Omit<ArtRevision, "context"> & { brief: string; stale: boolean };
@@ -61,7 +62,7 @@ export function ArtRevisions({
     if (opened) void refresh();
   }, [opened, refresh]);
   const send = async (payload: object) => {
-    const response = await fetch("/api/art-revisions", {
+    const response = await studioFetch("/api/art-revisions", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...fields, ...payload }),

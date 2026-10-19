@@ -2,6 +2,7 @@
 
 import type { ReviewStatus } from "@toony/schema";
 import { useState } from "react";
+import { studioFetch } from "@/lib/studio-fetch";
 
 /** Artwork review saves independently of lettering, including unsaved lettering. */
 export function CutReviewControl({
@@ -26,7 +27,7 @@ export function CutReviewControl({
     setSaving(true);
     setMessage(null);
     try {
-      const response = await fetch("/api/cut-review", {
+      const response = await studioFetch("/api/cut-review", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ workId, episodeId, cutId, reviewStatus: status, artworkRevision }),

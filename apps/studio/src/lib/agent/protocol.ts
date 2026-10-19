@@ -155,7 +155,13 @@ export interface TaskItem {
   status: "pending" | "in_progress" | "done";
 }
 
-export type TurnErrorCode = "auth" | "rate-limit" | "unavailable" | "timeout" | "cancelled" | "other";
+export type TurnErrorCode =
+  | "auth"
+  | "rate-limit"
+  | "unavailable"
+  | "timeout"
+  | "cancelled"
+  | "other";
 
 export interface TurnState {
   id: string;
@@ -210,6 +216,15 @@ export interface ProjectChange {
   at: string;
   /** Set when this change reverses an earlier one. */
   undoes?: string;
+  /** The conversation whose agent made the change, when an agent made it. */
+  conversationId?: string;
+  /**
+   * The browser tab that made the change (the `x-toony-client` header), so that
+   * tab can skip refreshing for its own save. Absent for agent changes.
+   */
+  clientId?: string;
+  /** False when the change cannot be undone (creating a work). Absent means undoable. */
+  undoable?: boolean;
 }
 
 /** One NDJSON line of `GET /api/live`. `seq` increases monotonically per server process. */

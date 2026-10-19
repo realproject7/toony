@@ -10,6 +10,7 @@ import { PANEL_ASPECT_MAX, PANEL_ASPECT_MIN, SHOT_TYPES, type ShotType } from "@
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import type { CutFields } from "@/lib/cut-fields";
+import { studioFetch } from "@/lib/studio-fetch";
 
 export interface CutFieldsEditorProps {
   workId: string;
@@ -66,7 +67,7 @@ export function CutFieldsEditor({
     setMessage(null);
     const payload = fields;
     try {
-      const response = await fetch("/api/cut-fields", {
+      const response = await studioFetch("/api/cut-fields", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ workId, episodeId, cutId, fields: payload }),

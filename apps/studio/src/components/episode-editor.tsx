@@ -12,6 +12,7 @@ import {
   removeEpisodeTransition,
   transitionLabel,
 } from "@/lib/episode-editing";
+import { studioFetch } from "@/lib/studio-fetch";
 import { planTransitionInsert } from "@/lib/transition-insert";
 import { CutEditor, type CutEditorProps } from "./cut-editor";
 import { StudioIcon } from "./studio-icon";
@@ -203,7 +204,7 @@ export function EpisodeEditor({
     try {
       const outcome = await persistWithGuard({
         request: () =>
-          fetch("/api/transitions", {
+          studioFetch("/api/transitions", {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({

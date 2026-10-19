@@ -22,6 +22,7 @@ import {
   isDirty,
   UNSAVED_EDITS_MESSAGE,
 } from "@/lib/settings-test-outcome";
+import { studioFetch } from "@/lib/studio-fetch";
 
 interface Connection {
   state: ConnectionState;
@@ -89,7 +90,7 @@ export function SettingsForm({ initialConfig, initialConnection }: SettingsFormP
     setTested(null);
     try {
       const body = payload();
-      const response = await fetch("/api/config", {
+      const response = await studioFetch("/api/config", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),

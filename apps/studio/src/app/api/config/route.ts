@@ -23,7 +23,9 @@
 import { readConfig, type ToonyConfig, writeConfig } from "@toony/project-io";
 import { probeComfyui } from "@/lib/comfyui-probe";
 import { safeErrorMessage } from "@/lib/errors";
-import { workspaceRoot } from "@/lib/workspace";
+import { withLock } from "@/lib/ops/lock";
+import { guardFailure, guardJsonWrite } from "@/lib/request-guard";
+import { ensureWorkspaceRoot, workspaceRoot } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
@@ -74,13 +76,17 @@ export async function GET(): Promise<Response> {
   return Response.json({ ok: true, config, connection });
 }
 
-/** Persist edited settings to the workspace `.toony/config.json`. */
+/**
+ * Persist edited settings to the workspace `.toony/config.json`. Guarded like
+ * every Studio write. The file belongs to the workspace, not to a project, so
+ * it is serialized on the workspace lock and is not journaled or undoable.
+ */
 export async function POST(request: Request): Promise<Response> {
   let payload: unknown;
   try {
-    payload = await request.json();
-  } catch {
-    return badRequest("request body must be valid JSON");
+    payload = await guardJsonWrite(request);
+  } catch (error) {
+    return guardFailure(error) ?? badRequest("request body must be valid JSON");
   }
   if (!isSavePayload(payload)) {
     return badRequest(
@@ -108,7 +114,8 @@ export async function POST(request: Request): Promise<Response> {
   };
 
   try {
-    await writeConfig(workspaceRoot(), config);
+    const root = await ensureWorkspaceRoot();
+    await withLock(`workspace:${root}`, () => writeConfig(root, config));
   } catch (cause) {
     return Response.json(
       { ok: false, error: safeErrorMessage(cause, "could not save the workspace settings") },

@@ -1,4 +1,4 @@
-import { realpath } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { projectAgentContext } from "@/lib/agent/context";
 import { nativeAnswer, probeAgent } from "@/lib/agent/native";
@@ -16,6 +16,8 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 const state = globalThis as typeof globalThis & { toonyAgentStores?: Map<string, AgentStore> };
 async function store(): Promise<AgentStore> {
+  // A fresh install has no workspace folder until something creates it.
+  await mkdir(workspaceRoot(), { recursive: true });
   const root = await realpath(workspaceRoot());
   state.toonyAgentStores ??= new Map();
   const stores = state.toonyAgentStores;

@@ -16,8 +16,9 @@
 // `workId` into a concrete root, then hand that root to the view-model helpers in
 // `@/lib/project`. No env reading or path resolution happens anywhere else.
 
+import { mkdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { listWorkspace, type WorkspaceEntry } from "@toony/project-io";
 
 /** Default workspace root when no environment override is set. */
@@ -49,6 +50,40 @@ export function workspaceRoot(): string {
     return dirname(resolve(expandHome(projectEnv)));
   }
   return resolve(expandHome(DEFAULT_WORKSPACE));
+}
+
+/**
+ * Create the workspace folder when it does not exist yet, so a fresh install
+ * works before the first webtoon is created (the agent, the live feed and the
+ * settings all live under it). Safe to call on every request.
+ */
+export async function ensureWorkspaceRoot(): Promise<string> {
+  const root = workspaceRoot();
+  await mkdir(root, { recursive: true });
+  return root;
+}
+
+/** The workspace path for display: the home folder is shown as `~`. */
+export function workspaceDisplayPath(root: string = workspaceRoot()): string {
+  const home = homedir();
+  if (root === home) return "~";
+  return root.startsWith(home + sep) ? `~${sep}${root.slice(home.length + 1)}` : root;
+}
+
+/** Where the workspace is, for pages and the settings screen. */
+export async function workspaceInfo(): Promise<{
+  path: string;
+  displayPath: string;
+  exists: boolean;
+}> {
+  const path = workspaceRoot();
+  let exists = false;
+  try {
+    exists = (await stat(path)).isDirectory();
+  } catch {
+    exists = false;
+  }
+  return { path, displayPath: workspaceDisplayPath(path), exists };
 }
 
 /**

@@ -10,17 +10,26 @@
 // No path input is accepted anywhere — the config is always the workspace root's,
 // resolved server-side by `@/lib/workspace`.
 
-import { readConfig } from "@toony/project-io";
+import { defaultConfig, readConfig, type ToonyConfig } from "@toony/project-io";
 import { AgentConnectionButton } from "@/components/ask-agent";
 import { SettingsForm } from "@/components/settings-form";
 import { probeComfyui } from "@/lib/comfyui-probe";
-import { workspaceRoot } from "@/lib/workspace";
+import { workspaceDisplayPath, workspaceRoot } from "@/lib/workspace";
 
 // The config is read from disk per request; never cache it.
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const config = await readConfig(workspaceRoot());
+  // A settings file that cannot be read must not take the page down: show the
+  // defaults and say so; saving writes a valid file over it.
+  let config: ToonyConfig;
+  let configUnreadable = false;
+  try {
+    config = await readConfig(workspaceRoot());
+  } catch {
+    config = defaultConfig();
+    configUnreadable = true;
+  }
   // Single-sourced probe (#154), so the first-paint badge matches /api/config
   // exactly — including the http/https SSRF guard the settings page now adopts.
   const connection = await probeComfyui(config.comfyui.endpoint);
@@ -32,8 +41,16 @@ export default async function SettingsPage() {
           <p className="page-eyebrow">Workspace</p>
           <h1 className="page-title">Settings</h1>
           <p className="page-meta">Manage your agent connection and optional artwork tools.</p>
+          <p className="page-meta" data-testid="workspace-path">
+            Webtoons are saved in {workspaceDisplayPath()}
+          </p>
         </div>
       </header>
+      {configUnreadable ? (
+        <p className="notice notice-danger" role="alert" data-testid="settings-config-error">
+          The artwork settings file could not be read. Saving below replaces it.
+        </p>
+      ) : null}
 
       <section className="card settings-card settings-agent">
         <div>

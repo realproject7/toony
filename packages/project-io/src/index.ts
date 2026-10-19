@@ -73,6 +73,7 @@ export {
   type AssetTarget,
   type CutAssetTarget,
   type IngestResult,
+  importedAssetPath,
   importImageBytes,
   ingestImageAsset,
   type RenderInputs,

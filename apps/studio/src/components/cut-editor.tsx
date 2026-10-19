@@ -40,6 +40,7 @@ import { persistWithGuard } from "@/lib/editor-save";
 import { letteringClipboard, parseLetteringClipboard } from "@/lib/lettering-clipboard";
 import { BALLOON_LIBRARY, libraryOverlay, newOverlay, tailDragPatch } from "@/lib/new-overlay";
 import type { CutArt } from "@/lib/project";
+import { studioFetch } from "@/lib/studio-fetch";
 import { useAgentWorkspace } from "./agent-workspace";
 import { AlignmentSymbol } from "./alignment-symbol";
 import { ArtRevisions } from "./art-revisions";
@@ -977,7 +978,7 @@ export function CutEditor({
     try {
       const outcome = await persistWithGuard({
         request: () =>
-          fetch("/api/lettering", {
+          studioFetch("/api/lettering", {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({

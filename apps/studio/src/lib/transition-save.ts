@@ -1,7 +1,17 @@
 import { createHash } from "node:crypto";
-import { realpath } from "node:fs/promises";
-import { loadProject, writeTransitions } from "@toony/project-io";
-import { type Project, type SequenceItem, type Transition, validateProject } from "@toony/schema";
+import { type LoadedProject, writeTransitions } from "@toony/project-io";
+import {
+  isPathSafeId,
+  type Project,
+  type SequenceItem,
+  type Transition,
+  validateProject,
+} from "@toony/schema";
+import type { ProjectChange } from "./agent/protocol.js";
+import { type ActorInfo, contextFor } from "./ops/context.js";
+import { episodeLabel, findEpisode } from "./ops/labels.js";
+import { episodeFiles } from "./ops/paths.js";
+import { withProjectWrite } from "./ops/write.js";
 
 export interface TransitionSavePayload {
   workId: string;
@@ -39,30 +49,52 @@ export function isTransitionSavePayload(value: unknown): value is TransitionSave
 }
 
 type SaveResult = { ok: true; revision: string } | { ok: false; error: string; conflict?: boolean };
-// One Studio process serializes its read/check/write. External writers still
-// require exclusive project ownership; this is not a cross-process lock.
-const writes = new Map<string, Promise<void>>();
+
+/**
+ * Save an episode's transitions and reading order through the project write
+ * path (lock, undo snapshot, journal, live event). The base revision check
+ * runs inside the lock, against the episode as it is on disk.
+ */
+export async function saveTransitionsChange(
+  root: string,
+  payload: TransitionSavePayload,
+  info: ActorInfo = {},
+): Promise<{ result: SaveResult; change: ProjectChange | null }> {
+  const { episodeId } = payload;
+  if (!isPathSafeId(episodeId)) {
+    return { result: { ok: false, error: `unknown episode "${episodeId}"` }, change: null };
+  }
+  const files = episodeFiles(episodeId);
+  return withProjectWrite(
+    contextFor(root, { workId: payload.workId, ...info }),
+    {
+      summary: "Updated transitions",
+      scopes: [{ kind: "sequence", episodeId }],
+      files: [files.transitions, files.episode],
+      errors: "as-is",
+    },
+    async (tx) => {
+      const label = episodeLabel(findEpisode(tx.before, episodeId), episodeId);
+      tx.setSummary(`Updated transitions in ${label}`);
+      return commit(tx.root, payload, tx.before);
+    },
+  );
+}
+
+/** Save an episode's transitions. See `saveTransitionsChange`. */
 export async function saveTransitions(
   root: string,
   payload: TransitionSavePayload,
+  info: ActorInfo = {},
 ): Promise<SaveResult> {
-  const canonicalRoot = await realpath(root);
-  const key = JSON.stringify([canonicalRoot, payload.episodeId]);
-  const pending = (writes.get(key) ?? Promise.resolve()).then(() => commit(canonicalRoot, payload));
-  const settled = pending.then(
-    () => {},
-    () => {},
-  );
-  writes.set(key, settled);
-  try {
-    return await pending;
-  } finally {
-    if (writes.get(key) === settled) writes.delete(key);
-  }
+  return (await saveTransitionsChange(root, payload, info)).result;
 }
-async function commit(root: string, payload: TransitionSavePayload): Promise<SaveResult> {
+async function commit(
+  root: string,
+  payload: TransitionSavePayload,
+  loaded: LoadedProject,
+): Promise<SaveResult> {
   const { episodeId, sequence, transitions } = payload;
-  const loaded = await loadProject(root);
   // Resolve the episode by exact id match — never join raw input into a path.
   const bundleIndex = loaded.project.episodes.findIndex(
     (bundle) => bundle.episode.id === episodeId,

@@ -7,8 +7,11 @@
 
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
-import { encodeJson, loadProject, slugify, writeWebtoon } from "@toony/project-io";
+import { encodeJson, type LoadedProject, slugify, writeWebtoon } from "@toony/project-io";
 import { type Character, isPathSafeId, type Project, validateProject } from "@toony/schema";
+import type { ProjectChange } from "./agent/protocol.js";
+import { type ActorInfo, contextFor } from "./ops/context.js";
+import { withProjectWrite } from "./ops/write.js";
 
 export interface CharacterUse {
   episodeId: string;
@@ -100,21 +103,54 @@ export function isCharactersPayload(value: unknown): value is CharactersPayload 
   );
 }
 
+type SaveCharactersResult = { ok: true; changed: boolean } | { ok: false; error: string };
+
 /**
- * Save the registry. The whole project is validated with the registry replaced
- * before any byte is written, so a duplicate id, a bad reference path or an id
- * that is not a safe folder name is refused with nothing written. Only
- * `webtoon.json` is written; every episode file stays byte-stable.
+ * Save the registry through the project write path (lock, undo snapshot,
+ * journal, live event). The whole project is validated with the registry
+ * replaced before any byte is written, so a duplicate id, a bad reference path
+ * or an id that is not a safe folder name is refused with nothing written.
+ * Only `webtoon.json` is written; every episode file stays byte-stable.
  */
+export async function saveCharactersChange(
+  root: string,
+  characters: readonly Character[],
+  info: ActorInfo = {},
+): Promise<{ result: SaveCharactersResult; change: ProjectChange | null }> {
+  for (const character of characters) {
+    if (!isPathSafeId(character.id)) {
+      return {
+        result: { ok: false, error: `character id "${character.id}" is not a safe folder name.` },
+        change: null,
+      };
+    }
+  }
+  return withProjectWrite(
+    contextFor(root, info),
+    {
+      summary: "Updated the cast",
+      scopes: [{ kind: "characters" }],
+      files: ["webtoon.json"],
+      errors: "as-is",
+    },
+    async (tx) => writeRegistry(tx.root, characters, tx.before),
+  );
+}
+
+/** Save the registry. See `saveCharactersChange`. */
 export async function saveCharacters(
   root: string,
   characters: readonly Character[],
-): Promise<{ ok: true; changed: boolean } | { ok: false; error: string }> {
-  for (const character of characters) {
-    if (!isPathSafeId(character.id)) {
-      return { ok: false, error: `character id "${character.id}" is not a safe folder name.` };
-    }
-  }
+  info: ActorInfo = {},
+): Promise<SaveCharactersResult> {
+  return (await saveCharactersChange(root, characters, info)).result;
+}
+
+async function writeRegistry(
+  root: string,
+  characters: readonly Character[],
+  loaded: LoadedProject,
+): Promise<SaveCharactersResult> {
   const normalized: Character[] = characters.map((c) => {
     const references = (c.references ?? []).map((r) => r.trim()).filter((r) => r !== "");
     return {
@@ -127,7 +163,6 @@ export async function saveCharacters(
       ...(references.length > 0 ? { references } : {}),
     };
   });
-  const loaded = await loadProject(root);
   // Compared as the file would be written (sorted keys), so key order in the
   // browser's objects never counts as a change.
   if (encodeJson(loaded.project.webtoon.characters ?? []) === encodeJson(normalized)) {

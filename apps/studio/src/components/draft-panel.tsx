@@ -14,6 +14,7 @@ import type {
 } from "@toony/project-io";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
+import { studioFetch } from "@/lib/studio-fetch";
 
 export interface DraftPanelProps {
   workId: string;
@@ -68,7 +69,7 @@ export function DraftPanel({
       setBusy(action);
       setMessage(null);
       try {
-        const response = await fetch("/api/draft", {
+        const response = await studioFetch("/api/draft", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({

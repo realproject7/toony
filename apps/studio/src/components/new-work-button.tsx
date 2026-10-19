@@ -10,6 +10,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useId, useState } from "react";
+import { studioFetch } from "@/lib/studio-fetch";
 import { StudioIcon } from "./studio-icon";
 
 export function NewWorkButton({ genres }: { genres: readonly { id: string; title: string }[] }) {
@@ -30,7 +31,7 @@ export function NewWorkButton({ genres }: { genres: readonly { id: string; title
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch("/api/work", {
+      const response = await studioFetch("/api/work", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ name: trimmed, ...(genre ? { genre } : {}) }),

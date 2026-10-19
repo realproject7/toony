@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import type { CharacterUse } from "@/lib/characters";
+import { studioFetch } from "@/lib/studio-fetch";
 
 export interface CharacterEditorRow {
   character: Character;
@@ -115,7 +116,7 @@ export function CharacterEditor({
     setMessage(null);
     const characters = rows.map((r) => r.character);
     try {
-      const response = await fetch("/api/characters", {
+      const response = await studioFetch("/api/characters", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ workId, characters }),

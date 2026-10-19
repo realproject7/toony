@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { AgentWorkspace } from "@/components/agent-workspace";
+import { LiveProvider } from "@/lib/live/provider";
 import "./tokens.css";
 import "./studio.css";
 import "./agent-workspace.css";
@@ -27,7 +28,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <AgentWorkspace>{children}</AgentWorkspace>
+        <LiveProvider>
+          <AgentWorkspace>{children}</AgentWorkspace>
+        </LiveProvider>
       </body>
     </html>
   );

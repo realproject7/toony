@@ -1,39 +1,37 @@
-// A narrow artwork review edit. Resolve every id against trusted records before
-// writing; never accept a cut snapshot or a filesystem path from the browser.
+// A narrow artwork review edit. Guarded; every id is resolved against trusted
+// records before writing; never accepts a cut snapshot or a filesystem path
+// from the browser. Runs on the project write path.
 
-import { safeErrorMessage } from "@/lib/errors";
-import { isCutReviewPayload, saveCutReview } from "@/lib/project";
+import { handleWrite, json } from "@/lib/api-route";
+import { isCutReviewPayload, saveCutReviewChange } from "@/lib/project";
 import { resolveWork } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
-    return Response.json({ ok: false, error: "request body must be valid JSON" }, { status: 400 });
-  }
-  if (!isCutReviewPayload(payload)) {
-    return Response.json(
-      {
-        ok: false,
-        error: "provide workId, episodeId, cutId, artworkRevision, and a valid reviewStatus",
-      },
-      { status: 400 },
-    );
-  }
-  const work = await resolveWork(payload.workId);
-  if (!work) {
-    return Response.json({ ok: false, error: "unknown work" }, { status: 400 });
-  }
-  try {
-    const result = await saveCutReview(work.root, payload);
-    return Response.json(result, { status: result.ok ? 200 : result.conflict ? 409 : 400 });
-  } catch (cause) {
-    return Response.json(
-      { ok: false, error: safeErrorMessage(cause, "could not save the cut review") },
-      { status: 500 },
-    );
-  }
+  return handleWrite(
+    request,
+    async ({ body, info }) => {
+      if (!isCutReviewPayload(body)) {
+        return json(
+          {
+            ok: false,
+            error: "provide workId, episodeId, cutId, artworkRevision, and a valid reviewStatus",
+          },
+          400,
+        );
+      }
+      const work = await resolveWork(body.workId);
+      if (!work) return json({ ok: false, error: "unknown work" }, 400);
+      const { result, change } = await saveCutReviewChange(work.root, body, {
+        ...info,
+        workId: work.id,
+      });
+      return json(
+        { ...result, ...(change ? { changeId: change.changeId } : {}) },
+        result.ok ? 200 : "conflict" in result && result.conflict ? 409 : 400,
+      );
+    },
+    "could not save the cut review",
+  );
 }
