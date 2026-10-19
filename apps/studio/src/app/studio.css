@@ -2986,3 +2986,69 @@ button.transition-block {
   background: var(--color-surface);
   z-index: 1;
 }
+
+.lettering-workspace {
+  grid-template-columns: 156px minmax(0, 1fr);
+}
+.lettering-workspace .lettering-presets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  padding: 0 5px 6px 0;
+}
+.lettering-presets > legend {
+  font-size: 11px;
+  color: var(--color-muted);
+  margin-bottom: 8px;
+}
+.lettering-workspace .lettering-preset {
+  min-height: 68px;
+  justify-content: center;
+  text-align: center;
+  line-height: 1.2;
+}
+.balloon-shape-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+.balloon-shape-option {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding: 5px 2px;
+  font-size: 10px;
+  min-width: 0;
+  line-height: 1.2;
+}
+.balloon-shape-option .bubble-thumbnail {
+  width: 46px;
+  height: 25px;
+}
+.balloon-shape-option[aria-pressed="true"],
+.balloon-tail-options [aria-pressed="true"] {
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+  background: var(--color-surface-sunken);
+}
+.balloon-tail-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+.balloon-tail-options .btn {
+  font-size: 12px;
+  padding: 6px 4px;
+}
+.balloon-tail-picker .field-hint {
+  margin: 6px 0 0;
+}
+@media (max-width: 900px) {
+  .lettering-workspace {
+    grid-template-columns: 106px minmax(0, 1fr);
+  }
+  .lettering-workspace .lettering-presets {
+    grid-template-columns: 1fr;
+  }
+}

@@ -18,10 +18,8 @@
 // interaction — it never bakes a default onto a bubble that never had one.
 
 import { defaultFontFamilyForKind, FONT_FAMILIES, type FontFamilyId } from "@toony/fonts";
-import { bubbleKindStyle, kindSupportsTail, type RenderedTextSegment } from "@toony/render";
+import { bubbleKindStyle, type RenderedTextSegment } from "@toony/render";
 import {
-  BALLOON_SHAPES,
-  type BalloonShape,
   BUBBLE_TONES,
   type BubbleTone,
   CORNER_RADIUS_MAX_PX,
@@ -53,6 +51,7 @@ import {
 import { useEffect, useState } from "react";
 import { clamp } from "@/lib/clamp";
 import { AlignmentSymbol } from "./alignment-symbol";
+import { BalloonControls } from "./balloon-controls";
 import { BubbleKindPicker } from "./bubble-kind-picker";
 import { ColorPicker } from "./color-picker";
 import { FontCoverageNotice } from "./font-coverage-notice";
@@ -122,7 +121,6 @@ export function BubbleInspector({
   useEffect(() => {
     if (selectionEnd > selectionStart) setTab("text");
   }, [selectionStart, selectionEnd]);
-  const supportsTail = kindSupportsTail(overlay.kind, overlay.balloonShape);
 
   // Resolved-for-display values: show the renderer's effective default until the
   // user sets the field, but only write the field on an explicit change.
@@ -178,7 +176,7 @@ export function BubbleInspector({
       )}
 
       <section className="inspector-panel" hidden={tab !== "text"} aria-label="Text properties">
-        {(supportsTail || overlay.kind === "thought" || overlay.speaker) && (
+        {(overlay.kind !== "narration" || overlay.speaker) && (
           <label className="field">
             <span>Speaker</span>
             <input
@@ -428,35 +426,14 @@ export function BubbleInspector({
           <p className="field-hint">Free text has no bubble background or tail.</p>
         ) : (
           <>
-            {overlay.kind !== "narration" && (
-              <label className="field">
-                <span>Shape</span>
-                <select
-                  aria-label="Balloon shape"
-                  value={overlay.balloonShape ?? "legacy"}
-                  onChange={(e) =>
-                    onChange({
-                      balloonShape:
-                        e.target.value === "legacy" ? undefined : (e.target.value as BalloonShape),
-                    })
-                  }
-                >
-                  <option value="legacy">Original outline</option>
-                  {BALLOON_SHAPES.map((shape) => (
-                    <option key={shape} value={shape}>
-                      {
-                        {
-                          oval: "Oval",
-                          rounded: "Soft rectangle",
-                          cloud: "Thought cloud",
-                          burst: "Burst",
-                        }[shape]
-                      }
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
+            <BalloonControls
+              overlay={overlay}
+              onChange={onChange}
+              width={artWidth}
+              height={artHeight}
+              dialogueLanguage={dialogueLanguage}
+              gutterBandWidth={gutterBandWidth}
+            />
             <fieldset className="field-group" data-testid="group-color">
               <legend>Appearance</legend>
               <GradientControls overlay={overlay} onChange={onChange} embedded />
@@ -498,7 +475,7 @@ export function BubbleInspector({
             </fieldset>
 
             <details className="inspector-disclosure">
-              <summary>Outline &amp; tail</summary>
+              <summary>Outline details</summary>
               <fieldset className="field-group" data-testid="group-styling">
                 <legend>Styling</legend>
 
@@ -563,44 +540,6 @@ export function BubbleInspector({
                     />
                   </label>
                 )}
-
-                <div className="field">
-                  <span>Tail</span>
-                  {supportsTail ? (
-                    <div className="field-inline">
-                      <button
-                        type="button"
-                        className="btn"
-                        onClick={() =>
-                          onChange({
-                            tailTarget: null,
-                            tail: overlay.tail
-                              ? null
-                              : {
-                                  // Default tip just below the box center, inside the image.
-                                  x: clamp(overlay.geometry.x + overlay.geometry.width / 2, 0, 1),
-                                  y: clamp(
-                                    overlay.geometry.y + overlay.geometry.height * 1.35,
-                                    0,
-                                    1,
-                                  ),
-                                },
-                          })
-                        }
-                        data-testid="field-tail-toggle"
-                      >
-                        {overlay.tail ? "Clear tail" : "Add tail"}
-                      </button>
-                      <span className="field-hint">
-                        {overlay.tail
-                          ? "Drag the tail handle on the canvas to aim it."
-                          : "No tail."}
-                      </span>
-                    </div>
-                  ) : (
-                    <span className="field-hint">This kind does not draw a tail.</span>
-                  )}
-                </div>
               </fieldset>
 
               {!overlay.balloonShape && (

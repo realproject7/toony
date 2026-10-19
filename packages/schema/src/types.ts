@@ -312,7 +312,21 @@ export const LETTERING_STYLE_DEFAULTS = {
  * tail means the bubble is tailless (e.g. narration boxes). Consumers therefore
  * never re-derive tail positions from an enum.
  */
-export const BALLOON_SHAPES = ["oval", "rounded", "cloud", "burst"] as const;
+export const BALLOON_SHAPES = [
+  "oval",
+  "soft",
+  "rounded",
+  "rectangle",
+  "cloud",
+  "wobble",
+  "burst",
+  "burst-box",
+  "spikes",
+  "radial",
+  "electric",
+] as const;
+export const TAIL_STYLES = ["none", "straight", "curved", "beads"] as const;
+export type TailStyle = (typeof TAIL_STYLES)[number];
 export type BalloonShape = (typeof BALLOON_SHAPES)[number];
 
 export interface LetteringOverlay {
@@ -327,6 +341,12 @@ export interface LetteringOverlay {
   opacity: number;
   border: BubbleBorder | null;
   tail: NormalizedPoint | null;
+  /** Independent from the semantic kind. None also suppresses an off-panel target. */
+  tailStyle?: TailStyle;
+  /** Pointer mouth width as a fraction of the smaller body dimension (0.04..0.5). */
+  tailWidth?: number;
+  /** Signed bend for curved pointers (-1..1). */
+  tailBend?: number;
   geometry: BubbleGeometry;
   overflow: boolean;
   reviewStatus: ReviewStatus;

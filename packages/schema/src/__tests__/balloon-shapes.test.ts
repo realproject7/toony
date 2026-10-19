@@ -32,3 +32,30 @@ test("themes carry explicit silhouettes only on intentional application", () => 
       .length > 0,
   );
 });
+
+test("tail choices and bounded geometry validate without inferring a speaker target", () => {
+  const base = cloneValidProject().episodes[0]?.lettering[0];
+  assert.ok(base);
+  for (const tailStyle of ["none", "straight", "curved", "beads", undefined]) {
+    const c = new IssueCollector();
+    validateLetteringOverlayValue(
+      { ...base, tailStyle, tailWidth: 0.14, tailBend: -0.4 },
+      "overlay",
+      c,
+    );
+    assert.deepEqual(c.result().issues, []);
+  }
+  for (const patch of [
+    { tailStyle: "triangle" },
+    { tailStyle: null },
+    { tailWidth: 0 },
+    { tailWidth: 0.6 },
+    { tailWidth: Number.NaN },
+    { tailBend: -1.01 },
+    { tailBend: Number.POSITIVE_INFINITY },
+  ]) {
+    const c = new IssueCollector();
+    validateLetteringOverlayValue({ ...base, ...patch }, "overlay", c);
+    assert.ok(c.result().issues.length > 0, JSON.stringify(patch));
+  }
+});

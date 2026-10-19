@@ -20,8 +20,6 @@
 import { layoutCut } from "@toony/render";
 import {
   applyLetteringTheme,
-  BUBBLE_KINDS,
-  type BubbleKind,
   type Character,
   defaultLetteringTextLayout,
   LETTERING_STYLE_DEFAULTS,
@@ -38,7 +36,7 @@ import type { CutFields } from "@/lib/cut-fields";
 import { resolveCutStage } from "@/lib/cut-stage";
 import { persistWithGuard } from "@/lib/editor-save";
 import { letteringClipboard, parseLetteringClipboard } from "@/lib/lettering-clipboard";
-import { newOverlay, presetOverlay } from "@/lib/new-overlay";
+import { BALLOON_LIBRARY, libraryOverlay, newOverlay, tailDragPatch } from "@/lib/new-overlay";
 import type { CutArt } from "@/lib/project";
 import { AlignmentSymbol } from "./alignment-symbol";
 import { ArtRevisions } from "./art-revisions";
@@ -151,7 +149,7 @@ export function CutEditor({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [legacyRequest, setLegacyRequest] = useState<string | null>(null);
   const [textSelection, setTextSelection] = useState<TextSelection>({ start: 0, end: 0 });
-  const [armed, setArmed] = useState<BubbleKind | null>(null);
+  const [armed, setArmed] = useState<string | null>(null);
   const [zoom, setZoom] = useState(0.75),
     [fitMode, setFitMode] = useState<false | "cut" | "width">("width");
   const [panMode, setPanMode] = useState(false),
@@ -332,7 +330,10 @@ export function CutEditor({
         setBubbles((prev) =>
           prev.map((b) => {
             if (b.id !== drag.id || b.locked) return b;
-            if (drag.kind === "tail") return { ...b, tail: { x: pt.x, y: pt.y } };
+            if (drag.kind === "tail") {
+              const art = plans.find((plan) => plan.id === b.id)?.art;
+              return art ? { ...b, ...tailDragPatch(pt, art, width, height) } : b;
+            }
             const minW = 0.04,
               minH = 0.03,
               x = clamp(Math.min(pt.x, drag.fx), 0, 1 - minW),
@@ -350,7 +351,7 @@ export function CutEditor({
         );
       markDirty();
     },
-    [pointerToNorm, history, markDirty, bubbles, snap, referenceWidth, zoom, width, height],
+    [pointerToNorm, history, markDirty, bubbles, plans, snap, referenceWidth, zoom, width, height],
   );
 
   const startEditing = useCallback(
@@ -535,8 +536,8 @@ export function CutEditor({
   }, [activeIds, bubbles, history, markDirty]);
 
   const addPreset = useCallback(
-    (kind: BubbleKind, point: { x: number; y: number }) => {
-      const created = presetOverlay(cutId, bubbles.length, kind, point, {
+    (presetId: string, point: { x: number; y: number }) => {
+      const created = libraryOverlay(cutId, bubbles.length, presetId, point, {
         width,
         height,
         referenceWidth,
@@ -1441,8 +1442,7 @@ export function CutEditor({
                 event.preventDefault();
                 const kind = event.dataTransfer.getData(LETTERING_PRESET_MIME);
                 const pt = pointerToNorm(event);
-                if (pt && (BUBBLE_KINDS as readonly string[]).includes(kind))
-                  addPreset(kind as BubbleKind, pt);
+                if (pt && BALLOON_LIBRARY.some((preset) => preset.id === kind)) addPreset(kind, pt);
               }}
               onPointerDownCapture={(event) => {
                 if ((panMode || spaceRef.current || event.button === 1) && !editingId) {

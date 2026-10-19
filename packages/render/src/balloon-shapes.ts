@@ -1,4 +1,5 @@
 import type { BalloonShape } from "@toony/schema";
+import { authoredBalloon, type TailOptions } from "./authored-balloon.js";
 import {
   type BalloonCommand,
   buildBalloonOutline,
@@ -37,7 +38,16 @@ export function shapedBalloon(
   tip: Point | null,
   thought: boolean,
   radius: number,
-): { outline: BalloonCommand[]; tail: TailGeometry | null } {
+  options?: TailOptions,
+): { outline: BalloonCommand[]; tail: TailGeometry | null; accents?: BalloonCommand[] } {
+  if (options || !["oval", "rounded", "cloud", "burst"].includes(shape))
+    return authoredBalloon(
+      box,
+      shape,
+      tip,
+      radius,
+      options ?? { style: thought ? "beads" : "curved" },
+    );
   const { x, y, width, height } = box;
   const cx = x + width / 2,
     cy = y + height / 2;

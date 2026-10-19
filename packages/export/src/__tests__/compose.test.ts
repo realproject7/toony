@@ -1047,3 +1047,44 @@ test("a cut WITH art composes at the art's shape, whatever it declares", async (
   assert.equal(declared.height, plain.height);
   assert.equal(declared.height, Math.round(480 * (336 / 240)));
 });
+
+test("explicit no-tail removes a stored off-panel pointer from actual pixels", async () => {
+  const fixture = buildSolidColorPngFixture(400, 400);
+  const base = {
+    ...topLeftOverlay(),
+    text: "",
+    balloonShape: "rectangle" as const,
+    tailStyle: "straight" as const,
+    geometry: { x: 0.2, y: 0.1, width: 0.6, height: 0.3 },
+    tail: { x: 0.5, y: 0.8 },
+    tailTarget: { x: 0.5, y: 0.8 },
+    tailWidth: 0.3,
+  };
+  const withTail = await composeCut([base], fixture, 400);
+  const withoutTail = await composeCut([{ ...base, tailStyle: "none" }], fixture, 400);
+  const pixel = (canvas: Canvas) => [...canvas.getContext("2d").getImageData(200, 210, 1, 1).data];
+  assert.deepEqual(pixel(withTail.canvas), [255, 255, 255, 255]);
+  assert.deepEqual(pixel(withoutTail.canvas), [17, 199, 83, 255]);
+});
+
+test("radial marks render outside the quiet body and survive serialized exports", async () => {
+  const fixture = buildSolidColorPngFixture(400, 400);
+  const base = {
+    ...topLeftOverlay(),
+    text: "",
+    balloonShape: "radial" as const,
+    tailStyle: "none" as const,
+    geometry: { x: 0.2, y: 0.2, width: 0.6, height: 0.6 },
+    border: { width: 2, color: "#171717" },
+  };
+  const a = await composeCut([base], fixture, 400),
+    b = await composeCut([JSON.parse(JSON.stringify(base))], fixture, 400);
+  assert.deepEqual(a.canvas.toBuffer("image/png"), b.canvas.toBuffer("image/png"));
+  const ctx = a.canvas.getContext("2d");
+  assert.deepEqual([...ctx.getImageData(200, 200, 1, 1).data], [255, 255, 255, 255]);
+  let ink = 0;
+  const strip = ctx.getImageData(285, 170, 35, 60).data;
+  for (let i = 0; i < strip.length; i += 4)
+    if ((strip[i] ?? 255) < 50 && (strip[i + 1] ?? 255) < 50 && (strip[i + 2] ?? 255) < 50) ink++;
+  assert.ok(ink > 40, "rays must be present beyond the quiet ellipse");
+});

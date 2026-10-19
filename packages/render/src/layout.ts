@@ -1,3 +1,4 @@
+import { balloonTextInset } from "./authored-balloon.js";
 // The single source of truth for laying out a cut's lettering overlays.
 //
 // `layoutCut` turns a list of schema `LetteringOverlay`s + the cut's pixel
@@ -107,6 +108,9 @@ export interface BubbleRender {
   outline: BalloonCommand[];
   /** SVG path `d` tracing the same outline. */
   pathD: string;
+  /** Filled outline-colored emphasis marks, shared with raster export. */
+  accents?: BalloonCommand[];
+  accentPathD?: string;
   /** Resolved tail triangle, or null when tailless / tip inside the box. */
   tail: TailGeometry | null;
   /**
@@ -424,12 +428,21 @@ export function layoutBubble(
     ow = impactArt.width;
   }
 
+  const selectedShape =
+    overlay.balloonShape ??
+    (overlay.tailStyle !== undefined ? (kind === "narration" ? "rectangle" : "oval") : undefined);
   // Corner radius: a stored override (clamped so arcs never overrun the body)
   // takes precedence; otherwise the per-kind default scale.
   const radius =
-    overlay.cornerRadius !== undefined && Number.isFinite(overlay.cornerRadius)
-      ? clamp(overlay.cornerRadius, 0, Math.min(ow, oh) / 2)
-      : defaultBalloonRadius(ow, oh) * style.radiusScale;
+    overlay.tailStyle !== undefined && selectedShape
+      ? clamp(
+          (overlay.cornerRadius ?? 16) * (width / (overlay.textLayout?.referenceWidth ?? width)),
+          0,
+          Math.min(ow, oh) / 2,
+        )
+      : overlay.cornerRadius !== undefined && Number.isFinite(overlay.cornerRadius)
+        ? clamp(overlay.cornerRadius, 0, Math.min(ow, oh) / 2)
+        : defaultBalloonRadius(ow, oh) * style.radiusScale;
   const hasBubble = kindHasBubble(kind);
   // Outline silhouette (#93): tone refines the shape (shout→scalloped,
   // aggressive→jagged); narration/sfx draw no balloon ("none").
@@ -440,7 +453,7 @@ export function layoutBubble(
   // normalized points. `tailTarget` MAY be off-panel, so the pixel tip is clamped
   // to the art edge before the tail geometry is built. Only tail-supporting kinds
   // with a target draw one.
-  const tailPoint = overlay.tailTarget ?? overlay.tail;
+  const tailPoint = overlay.tailStyle === "none" ? null : (overlay.tailTarget ?? overlay.tail);
   let tail: TailGeometry | null = null;
   if (hasBubble && kindSupportsTail(kind) && tailPoint) {
     // tailTarget is normalized in ART space (the whole cut for in_panel); clamp
@@ -459,11 +472,11 @@ export function layoutBubble(
   // SVG path and canvas trace stay identical (#88).
   const drawsOutline = hasBubble && decoration !== "none";
   const modern =
-    drawsOutline && overlay.balloonShape && kind !== "narration"
+    drawsOutline && selectedShape && (kind !== "narration" || overlay.tailStyle !== undefined)
       ? shapedBalloon(
           { x: ox, y: oy, width: ow, height: oh },
-          overlay.balloonShape,
-          tailPoint && kindSupportsTail(kind, overlay.balloonShape)
+          selectedShape,
+          tailPoint && kindSupportsTail(kind, selectedShape)
             ? {
                 x: clamp(art.x + tailPoint.x * art.width, art.x, art.x + art.width),
                 y: clamp(art.y + tailPoint.y * art.height, art.y, art.y + art.height),
@@ -471,6 +484,9 @@ export function layoutBubble(
             : null,
           kind === "thought",
           radius,
+          overlay.tailStyle !== undefined
+            ? { style: overlay.tailStyle, width: overlay.tailWidth, bend: overlay.tailBend }
+            : undefined,
         )
       : undefined;
   if (modern) tail = modern.tail;
@@ -501,14 +517,7 @@ export function layoutBubble(
   const unitScale = policy === undefined ? 1 : width / policy.referenceWidth;
   // A rectangular text box inscribed in the curved body prevents corner text
   // escaping an oval/cloud/burst. Authored larger padding is still respected.
-  const shapePadding =
-    !modern || overlay.balloonShape === "rounded"
-      ? 0
-      : overlay.balloonShape === "burst"
-        ? 0.23
-        : overlay.balloonShape === "cloud"
-          ? 0.2
-          : 0.18;
+  const shapePadding = modern && selectedShape ? balloonTextInset(selectedShape) : 0;
   const padX = Math.max(
     ow * shapePadding,
     policy === undefined ? Math.max(2, ow * 0.06) : ow * policy.paddingX,
@@ -529,8 +538,7 @@ export function layoutBubble(
     letterSpacing,
     paddingX: padX / unitScale,
     paddingY: padY / unitScale,
-    cornerRadius:
-      modern && overlay.balloonShape !== "rounded" ? 0 : drawsOutline ? radius / unitScale : 0,
+    cornerRadius: modern && selectedShape !== "rounded" ? 0 : drawsOutline ? radius / unitScale : 0,
   };
   const rich =
     policy !== undefined && (overlay.textRanges !== undefined || overlay.fontStyle !== undefined)
@@ -709,6 +717,9 @@ export function layoutBubble(
     hasBubble,
     outline,
     pathD,
+    ...(modern?.accents?.length
+      ? { accents: modern.accents, accentPathD: balloonPathD(modern.accents) }
+      : {}),
     tail,
     fill,
     ...(overlay.fillGradient
@@ -723,7 +734,7 @@ export function layoutBubble(
       : {}),
     stroke,
     textColor,
-    strokeWidth,
+    strokeWidth: selectedShape === "radial" && modern ? 0 : strokeWidth,
     ...(modern && kind === "whisper" ? { strokeDash: [strokeWidth * 4, strokeWidth * 3] } : {}),
     fillOpacity,
     cornerRadius: radius,

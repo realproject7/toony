@@ -47,6 +47,7 @@ export function BubbleBody({
         vectorEffect={thumbnail ? "non-scaling-stroke" : undefined}
         strokeLinejoin="round"
       />
+      {plan.accentPathD && <path d={plan.accentPathD} fill={plan.stroke} />}
     </>
   );
 }

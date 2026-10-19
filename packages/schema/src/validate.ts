@@ -55,6 +55,7 @@ import {
   SCHEMA_VERSION,
   SFX_MODES,
   SHOT_TYPES,
+  TAIL_STYLES,
   TEXT_ALIGNS,
   TRANSITION_TYPES,
   VERTICAL_ALIGNS,
@@ -759,6 +760,18 @@ export function validateLetteringOverlayValue(
   }
   validateBorder(value.border, joinPath(path, "border"), c);
   validateTail(value.tail, joinPath(path, "tail"), c);
+  if (value.tailStyle !== undefined && !isOneOf(value.tailStyle, TAIL_STYLES)) {
+    c.add(joinPath(path, "tailStyle"), "overlay.tail-style", "Unknown tail style.");
+  }
+  for (const [key, low, high] of [
+    ["tailWidth", 0.04, 0.5],
+    ["tailBend", -1, 1],
+  ] as const) {
+    const field = value[key];
+    if (field !== undefined && (!isFiniteNumber(field) || field < low || field > high))
+      c.add(joinPath(path, key), "overlay.tail-parameter", `${key} must be in ${low}..${high}.`);
+  }
+
   validateGeometry(value.geometry, joinPath(path, "geometry"), c);
   validateLetteringStyle(value, path, c);
   // Bubble grammar (#93), both OPTIONAL + back-compat.
