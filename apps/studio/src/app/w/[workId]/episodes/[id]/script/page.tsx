@@ -146,7 +146,7 @@ export default async function EpisodeScriptPage({
                   Edit
                 </Link>
                 <Link href={`${episodeHref}/read`} className="btn btn-ghost">
-                  Read
+                  Preview
                 </Link>
                 <Link href={`${episodeHref}/export`} className="btn btn-ghost">
                   Export

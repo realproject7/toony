@@ -81,7 +81,7 @@ export default async function EpisodeExportPage({
               className="btn btn-ghost"
               data-testid="open-reader-link"
             >
-              Read
+              Preview
             </Link>
             <span className="btn btn-primary" aria-current="page" data-testid="export-mode-active">
               Export

@@ -43,17 +43,16 @@ export function EpisodeList({ workId, episodes }: { workId: string; episodes: Ep
               </span>
             </div>
             <span className="episode-row-go" aria-hidden="true">
-              Open &rarr;
+              Open editor &rarr;
             </span>
           </Link>
-          {/* A direct entry into the distraction-free reader (#49), separate from
-              the row's Open link so a reader can preview without the edit chrome. */}
+          {/* Preview remains separate from the default editor entry. */}
           <Link
             href={`${base}/episodes/${encodeURIComponent(episode.id)}/read`}
             className="episode-row-read"
             data-testid={`episode-read-${episode.id}`}
           >
-            Read
+            Preview
           </Link>
           <Link
             href={`${base}/episodes/${encodeURIComponent(episode.id)}/script`}
