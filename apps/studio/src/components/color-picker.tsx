@@ -98,6 +98,8 @@ export interface ColorPickerProps {
   testId?: string;
   /** Expand in a narrow inspector instead of clipping an anchored popup. */
   inline?: boolean;
+  /** Show a directly editable color value beside the swatch. */
+  compact?: boolean;
 }
 
 /** A single clickable swatch cell. */
@@ -130,6 +132,7 @@ export function ColorPicker({
   projectPalette = [],
   testId,
   inline = false,
+  compact = false,
 }: ColorPickerProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -143,10 +146,10 @@ export function ColorPicker({
     if (open) setRecent(readRecent());
   }, [open]);
 
-  // Keep the hex draft in sync with the external value while closed.
+  // Follow explicit changes, including undo while the palette is open.
   useEffect(() => {
-    if (!open) setDraft(value);
-  }, [open, value]);
+    setDraft(value);
+  }, [value]);
 
   // Close on outside click / Escape so the popover behaves like a menu.
   useEffect(() => {
@@ -200,11 +203,12 @@ export function ColorPicker({
     const hex = normalizeHex(raw);
     if (!hex) return;
     setRecent(pushRecent(hex));
-    onChange(hex);
+    setDraft(hex);
+    if (hex !== normalizedValue) onChange(hex);
   };
 
-  const commitDraft = () => {
-    const hex = normalizeHex(draft);
+  const commitDraft = (raw = draft) => {
+    const hex = normalizeHex(raw);
     if (hex) {
       pick(hex);
       setDraft(hex);
@@ -214,20 +218,52 @@ export function ColorPicker({
   };
 
   return (
-    <div className={inline ? "color-picker color-picker-inline" : "color-picker"} ref={rootRef}>
+    <div
+      className={`color-picker${inline ? " color-picker-inline" : ""}${compact ? " color-picker-compact" : ""}`}
+      ref={rootRef}
+    >
       <span className="color-picker-label">{label}</span>
-      <button
-        type="button"
-        className="color-trigger"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls={open ? popoverId : undefined}
-        onClick={() => setOpen((v) => !v)}
-        data-testid={testId}
-      >
-        <span className="color-trigger-chip" style={{ background: value }} aria-hidden="true" />
-        <span className="color-trigger-value">{normalizedValue ?? value}</span>
-      </button>
+      <div className="color-value-row">
+        <button
+          type="button"
+          className="color-trigger"
+          aria-label={compact ? `${label} palette` : undefined}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls={open ? popoverId : undefined}
+          onClick={() => setOpen((v) => !v)}
+          data-testid={testId}
+        >
+          <span className="color-trigger-chip" style={{ background: value }} aria-hidden="true" />
+          {!compact && <span className="color-trigger-value">{normalizedValue ?? value}</span>}
+        </button>
+        {compact && (
+          <input
+            type="text"
+            className="color-hex-input"
+            value={draft}
+            spellCheck={false}
+            aria-label={`${label} hex value`}
+            placeholder="#rrggbb"
+            onChange={(event) => setDraft(event.target.value)}
+            onBlur={(event) => commitDraft(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                event.stopPropagation();
+                event.currentTarget.value = normalizedValue ?? value;
+                setDraft(normalizedValue ?? value);
+                event.currentTarget.blur();
+                setOpen(false);
+              } else if (event.key === "Enter") {
+                event.preventDefault();
+                event.currentTarget.blur();
+              }
+            }}
+            data-testid={testId ? `${testId}-hex` : undefined}
+          />
+        )}
+      </div>
 
       {open && (
         <div
@@ -235,7 +271,7 @@ export function ColorPicker({
           ref={popoverRef}
           id={popoverId}
           role="dialog"
-          aria-label={`${label} color`}
+          aria-label={label.endsWith("color") ? label : `${label} color`}
         >
           <div className="color-grid" data-testid={testId ? `${testId}-grid` : undefined}>
             {DEFAULT_SWATCHES.map((color) => (
@@ -284,23 +320,26 @@ export function ColorPicker({
               onChange={(e) => pick(e.target.value)}
               data-testid={testId ? `${testId}-native` : undefined}
             />
-            <input
-              type="text"
-              className="color-hex-input"
-              value={draft}
-              spellCheck={false}
-              aria-label={`${label} hex value`}
-              placeholder="#rrggbb"
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={commitDraft}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  commitDraft();
-                }
-              }}
-              data-testid={testId ? `${testId}-hex` : undefined}
-            />
+            {compact && <span className="field-hint">Custom color</span>}
+            {!compact && (
+              <input
+                type="text"
+                className="color-hex-input"
+                value={draft}
+                spellCheck={false}
+                aria-label={`${label} hex value`}
+                placeholder="#rrggbb"
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={() => commitDraft()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commitDraft();
+                  }
+                }}
+                data-testid={testId ? `${testId}-hex` : undefined}
+              />
+            )}
           </div>
         </div>
       )}
