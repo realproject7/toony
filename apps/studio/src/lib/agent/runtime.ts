@@ -242,6 +242,13 @@ class TurnHost implements ToolHost {
       item.kind === "question" && item.answer === undefined ? [item.prompt] : [],
     );
   }
+  userTexts(): string[] {
+    return this.record.items.flatMap((item) => {
+      if (item.kind === "user") return [item.text];
+      if (item.kind === "question" && item.answer?.other) return [item.answer.other];
+      return [];
+    });
+  }
   since(): string | null {
     return this.record.lastTurnEndedAt;
   }

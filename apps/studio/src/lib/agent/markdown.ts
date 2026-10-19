@@ -84,8 +84,38 @@ function pushText(out: MdInline[], text: string): void {
   else out.push({ type: "text", text });
 }
 
+/**
+ * Per-parse memory of delimiters known to have no match from some position on.
+ * Without it, every unmatched `*`, `_`, `~~`, `[` or backtick run rescans to the
+ * end of the text, which turns a long reply full of stray delimiters into
+ * quadratic work. Once a scan from position p finds nothing, a later scan of
+ * the same delimiter from p or after is skipped (and the text stays plain).
+ */
+interface ScanMemo {
+  noMatchFrom: Map<string, number>;
+}
+
+function knownMissing(memo: ScanMemo, key: string, from: number): boolean {
+  const at = memo.noMatchFrom.get(key);
+  return at !== undefined && from >= at;
+}
+
+function rememberMissing(memo: ScanMemo, key: string, from: number): void {
+  const at = memo.noMatchFrom.get(key);
+  if (at === undefined || from < at) memo.noMatchFrom.set(key, from);
+}
+
+function findBacktickClose(src: string, from: number, run: number, memo: ScanMemo): number {
+  const key = `tick:${run}`;
+  if (knownMissing(memo, key, from)) return -1;
+  const close = src.indexOf("`".repeat(run), from);
+  if (close === -1) rememberMissing(memo, key, from);
+  return close;
+}
+
 /** Find a closing delimiter that is not escaped, not inside a code span, and follows a non-space. */
-function findClose(src: string, from: number, delim: string): number {
+function findClose(src: string, from: number, delim: string, memo: ScanMemo): number {
+  if (knownMissing(memo, `close:${delim}`, from)) return -1;
   let i = from;
   while (i < src.length) {
     const ch = src[i];
@@ -96,7 +126,7 @@ function findClose(src: string, from: number, delim: string): number {
     if (ch === "`") {
       let run = 0;
       while (src[i + run] === "`") run += 1;
-      const close = src.indexOf("`".repeat(run), i + run);
+      const close = findBacktickClose(src, i + run, run, memo);
       if (close === -1) {
         i += run;
         continue;
@@ -118,6 +148,7 @@ function findClose(src: string, from: number, delim: string): number {
     }
     i += 1;
   }
+  rememberMissing(memo, `close:${delim}`, from);
   return -1;
 }
 
@@ -144,7 +175,8 @@ function parseLinkTarget(src: string, open: number): { end: number; href: string
   return null;
 }
 
-function findLabelEnd(src: string, open: number): number {
+function findLabelEnd(src: string, open: number, memo: ScanMemo): number {
+  if (knownMissing(memo, "label", open)) return -1;
   let depth = 0;
   for (let i = open; i < src.length; i += 1) {
     const ch = src[i];
@@ -155,7 +187,7 @@ function findLabelEnd(src: string, open: number): number {
     if (ch === "`") {
       let run = 0;
       while (src[i + run] === "`") run += 1;
-      const close = src.indexOf("`".repeat(run), i + run);
+      const close = findBacktickClose(src, i + run, run, memo);
       if (close !== -1) i = close + run - 1;
       continue;
     }
@@ -165,6 +197,7 @@ function findLabelEnd(src: string, open: number): number {
       if (depth === 0) return i;
     }
   }
+  rememberMissing(memo, "label", open);
   return -1;
 }
 
@@ -188,6 +221,10 @@ function inlineText(nodes: MdInline[]): string {
 
 /** Parse inline Markdown into tokens. Lines are joined with breaks. */
 export function parseInline(src: string, depth = 0, inLink = false): MdInline[] {
+  return parseInlineWith(src, depth, inLink, { noMatchFrom: new Map() });
+}
+
+function parseInlineWith(src: string, depth: number, inLink: boolean, memo: ScanMemo): MdInline[] {
   const out: MdInline[] = [];
   if (depth > MAX_DEPTH) {
     pushText(out, src);
@@ -209,7 +246,7 @@ export function parseInline(src: string, depth = 0, inLink = false): MdInline[] 
     if (ch === "`") {
       let run = 0;
       while (src[i + run] === "`") run += 1;
-      const close = src.indexOf("`".repeat(run), i + run);
+      const close = findBacktickClose(src, i + run, run, memo);
       if (close !== -1 && src[close + run] !== "`") {
         let text = src.slice(i + run, close).replace(/\n/g, " ");
         if (text.length > 2 && text.startsWith(" ") && text.endsWith(" ")) text = text.slice(1, -1);
@@ -222,11 +259,13 @@ export function parseInline(src: string, depth = 0, inLink = false): MdInline[] 
       continue;
     }
     if (ch === "[" && !inLink) {
-      const labelEnd = findLabelEnd(src, i);
+      const labelEnd = findLabelEnd(src, i, memo);
       if (labelEnd !== -1 && src[labelEnd + 1] === "(") {
         const target = parseLinkTarget(src, labelEnd + 1);
         if (target) {
-          const children = parseInline(src.slice(i + 1, labelEnd), depth + 1, true);
+          const children = parseInlineWith(src.slice(i + 1, labelEnd), depth + 1, true, {
+            noMatchFrom: new Map(),
+          });
           const label = inlineText(children);
           if (isInternalHref(target.href)) {
             out.push({ type: "link", href: target.href, children });
@@ -248,11 +287,13 @@ export function parseInline(src: string, depth = 0, inLink = false): MdInline[] 
       const next = src[i + 2];
       const leftOk = ch === "*" || !isWordChar(src[i - 1]);
       if (next !== undefined && !/\s/.test(next) && leftOk) {
-        const close = findClose(src, i + 2, delim);
+        const close = findClose(src, i + 2, delim, memo);
         if (close !== -1) {
           out.push({
             type: "strong",
-            children: parseInline(src.slice(i + 2, close), depth + 1, inLink),
+            children: parseInlineWith(src.slice(i + 2, close), depth + 1, inLink, {
+              noMatchFrom: new Map(),
+            }),
           });
           i = close + 2;
           continue;
@@ -262,11 +303,13 @@ export function parseInline(src: string, depth = 0, inLink = false): MdInline[] 
     if (ch === "~" && src[i + 1] === "~") {
       const next = src[i + 2];
       if (next !== undefined && !/\s/.test(next)) {
-        const close = findClose(src, i + 2, "~~");
+        const close = findClose(src, i + 2, "~~", memo);
         if (close !== -1) {
           out.push({
             type: "strike",
-            children: parseInline(src.slice(i + 2, close), depth + 1, inLink),
+            children: parseInlineWith(src.slice(i + 2, close), depth + 1, inLink, {
+              noMatchFrom: new Map(),
+            }),
           });
           i = close + 2;
           continue;
@@ -277,11 +320,13 @@ export function parseInline(src: string, depth = 0, inLink = false): MdInline[] 
       const next = src[i + 1];
       const leftOk = ch === "*" || !isWordChar(src[i - 1]);
       if (next !== undefined && !/\s/.test(next) && next !== ch && leftOk) {
-        const close = findClose(src, i + 1, ch);
+        const close = findClose(src, i + 1, ch, memo);
         if (close !== -1) {
           out.push({
             type: "em",
-            children: parseInline(src.slice(i + 1, close), depth + 1, inLink),
+            children: parseInlineWith(src.slice(i + 1, close), depth + 1, inLink, {
+              noMatchFrom: new Map(),
+            }),
           });
           i = close + 1;
           continue;

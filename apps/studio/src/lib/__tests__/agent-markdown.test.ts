@@ -235,3 +235,14 @@ test("huge or hostile input is bounded and never throws", () => {
   assert.deepEqual(parseMarkdown(""), []);
   assert.deepEqual(parseInline("plain"), [{ type: "text", text: "plain" }]);
 });
+
+test("stray delimiters in a long reply parse in linear time and stay text", () => {
+  for (const unit of ["*a ", "_b ", "~~c ", "[d ", "`e ", "**f "]) {
+    const source = unit.repeat(12_000);
+    const started = performance.now();
+    const blocks = parseMarkdown(source);
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed < 1500, `${JSON.stringify(unit)} took ${Math.round(elapsed)} ms`);
+    assert.equal(blocks.length, 1);
+  }
+});

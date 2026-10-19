@@ -14,11 +14,10 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
-import { AGENT_PANEL_EVENT, type AgentPanelRequest, openAgentPanel } from "@/lib/agent/focus-store";
+import { AGENT_PANEL_EVENT, type AgentPanelRequest } from "@/lib/agent/focus-store";
 import { type PanelStatus, STATUS_LABELS } from "@/lib/agent/panel-state";
 import { AgentPanel, type PanelRequest } from "./agent/agent-panel";
 import type { PanelMode } from "./agent/panel-header";
@@ -48,21 +47,6 @@ function writeStored(key: string, value: string): void {
   } catch {
     // The choice still holds for this tab.
   }
-}
-
-/**
- * Kept for workspace components that still offer an "Ask the agent" entry:
- * both calls open the panel through the shared request event.
- */
-export function useAgentWorkspace() {
-  return useMemo(
-    () => ({
-      ask: (message: string, _focus?: unknown) =>
-        openAgentPanel({ view: "chat", prefill: message }),
-      openConnection: () => openAgentPanel({ view: "setup" }),
-    }),
-    [],
-  );
 }
 
 const FOCUSABLE =

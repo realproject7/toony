@@ -119,6 +119,8 @@ export interface ToolHost {
   conversationTasks(): TaskItem[];
   /** Questions of this conversation still waiting for an answer. */
   openQuestions(): string[];
+  /** Text the person typed in this conversation (messages and "Other" answers). */
+  userTexts(): string[];
   /** When this conversation's previous turn ended. */
   since(): string | null;
   navigate(href: string, reason: "work-created" | "episode-created"): void;
@@ -669,6 +671,7 @@ const WRITES: Record<string, WriteTool> = {
     },
     perform: async (host, args: ReturnType<typeof A.importArtworkArgs>) => {
       const work = await requireWork(host);
+      assertPathNamedByPerson(args.path, host.userTexts());
       const bytes = await readImageFile(args.path);
       const imported = await importArtwork(
         opContext(host, work),
@@ -731,6 +734,62 @@ const WRITES: Record<string, WriteTool> = {
     },
   },
 };
+
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
+
+/**
+ * True when the person named this file, or the folder it is in, in their own
+ * words in this conversation. The agent can only import artwork the person
+ * pointed to: a path that only came from the model (for example after reading
+ * an instruction planted in a story text) is refused. Hidden files and folders
+ * and non-image extensions are always refused.
+ */
+export function pathNamedByPerson(path: string, texts: readonly string[], home: string): boolean {
+  const trimmed = path.trim();
+  if (!trimmed.startsWith("/") && !trimmed.startsWith("~/")) return false;
+  const absolute = trimmed.startsWith("~/") ? join(home, trimmed.slice(2)) : trimmed;
+  const segments = absolute.split("/").filter((segment) => segment.length > 0);
+  if (
+    segments.length === 0 ||
+    segments.some((segment) => segment.startsWith(".") || segment === "..")
+  )
+    return false;
+  const name = segments[segments.length - 1] ?? "";
+  const dot = name.lastIndexOf(".");
+  if (dot < 1 || !IMAGE_EXTENSIONS.has(name.slice(dot).toLowerCase())) return false;
+  const folder = `/${segments.slice(0, -1).join("/")}`;
+  const tilde = (value: string) =>
+    home && (value === home || value.startsWith(`${home}/`))
+      ? `~${value.slice(home.length)}`
+      : value;
+  const files = [absolute, tilde(absolute)];
+  const folders = segments.length > 1 ? [folder, tilde(folder)] : [];
+  const boundary = (char: string) => char === "" || /[\s'"`),.;:!?]/.test(char);
+  const mentions = (text: string, form: string, isFolder: boolean) => {
+    if (form === "~" || form.length < 3) return false;
+    for (let at = text.indexOf(form); at >= 0; at = text.indexOf(form, at + 1)) {
+      const next = text.charAt(at + form.length);
+      // A file must end at a boundary. A folder may also end with one "/", but a
+      // path to another file inside it does not name the folder itself.
+      if (boundary(next)) return true;
+      if (isFolder && next === "/" && boundary(text.charAt(at + form.length + 1))) return true;
+    }
+    return false;
+  };
+  return texts.some(
+    (text) =>
+      files.some((form) => mentions(text, form, false)) ||
+      folders.some((form) => mentions(text, form, true)),
+  );
+}
+
+function assertPathNamedByPerson(path: string, texts: readonly string[]): void {
+  if (!pathNamedByPerson(path, texts, homedir())) {
+    throw new ToolInputError(
+      "Ask the person for the image file first. Toony imports only a PNG, JPEG, WebP or GIF file whose path or folder the person wrote in this conversation, and never hidden files or folders.",
+    );
+  }
+}
 
 async function readImageFile(path: string): Promise<Uint8Array> {
   const absolute = path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;

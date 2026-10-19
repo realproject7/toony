@@ -8,6 +8,7 @@
 
 import Link from "next/link";
 import { useId, useRef, useState } from "react";
+import { isInternalHref } from "@/lib/agent/markdown";
 import type { AgentTarget, ConversationItem } from "@/lib/agent/protocol";
 import { errorText } from "./agent-api";
 import { PanelIcon, Spinner } from "./panel-icon";
@@ -57,10 +58,12 @@ export function TargetLinks({
   targets: AgentTarget[];
   onNavigate: () => void;
 }) {
-  if (targets.length === 0) return null;
+  // Targets come from the server, but a link only ever opens a Toony page.
+  const safe = targets.filter((target) => isInternalHref(target.href));
+  if (safe.length === 0) return null;
   return (
     <div className="agent-targets">
-      {targets.map((target) => (
+      {safe.map((target) => (
         <Link
           key={`${target.type}:${target.href}`}
           href={target.href}

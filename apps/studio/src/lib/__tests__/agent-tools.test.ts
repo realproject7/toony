@@ -13,6 +13,7 @@ import * as A from "../agent/tools/args.js";
 import { TOOL_CATALOG } from "../agent/tools/catalog.js";
 import {
   applyProposal,
+  pathNamedByPerson,
   runTool,
   type StoredProposal,
   type ToolHost,
@@ -78,8 +79,12 @@ class FakeHost implements ToolHost {
   conversationTasks() {
     return this.tasks;
   }
+  texts: string[] = [];
   openQuestions() {
     return [];
+  }
+  userTexts() {
+    return this.texts;
   }
   since() {
     return null;
@@ -427,6 +432,18 @@ test("a library chat creates a work, then every tool works on it", async (t) => 
 
   const imagePath = join(dir, "sketch.png");
   await writeFile(imagePath, PNG_FIXTURE);
+  assert.match(
+    errorText(
+      await runTool(host, "import_artwork", {
+        episodeId: "ep-001",
+        cutId: "cut-001",
+        path: imagePath,
+      }),
+    ),
+    /Ask the person for the image file first/,
+    "a path the person never wrote is refused",
+  );
+  host.texts.push(`Please use ${imagePath} for the first cut.`);
   const art = json(
     await runTool(host, "import_artwork", {
       episodeId: "ep-001",
@@ -436,6 +453,17 @@ test("a library chat creates a work, then every tool works on it", async (t) => 
   );
   assert.match(String(art.image), /^episodes\/ep-001\//);
   assert.ok(!JSON.stringify(art).includes(dir), "no absolute path in a tool result");
+  assert.match(
+    errorText(
+      await runTool(host, "import_artwork", {
+        episodeId: "ep-001",
+        cutId: "cut-001",
+        path: join(dir, "none.png"),
+      }),
+    ),
+    /Ask the person for the image file first/,
+  );
+  host.texts.push(`The other images are in ${dir} too.`);
   assert.match(
     errorText(
       await runTool(host, "import_artwork", {
@@ -579,4 +607,21 @@ test("with changes off, writes become proposals that apply later or go stale", a
   assert.ok(JSON.stringify(lettering).includes("Replaced line."));
   const again = await applyProposal(host, replacement);
   assert.equal(again.applied, false);
+});
+
+test("artwork import accepts only image paths the person wrote, never hidden ones", () => {
+  const home = "/srv/people/writer";
+  const said = ["Use ~/Pictures/toony/cut1.png please", "Everything is in /srv/art/episode one"];
+  assert.equal(pathNamedByPerson("~/Pictures/toony/cut1.png", said, home), true);
+  assert.equal(pathNamedByPerson("/srv/people/writer/Pictures/toony/cut1.png", said, home), true);
+  assert.equal(pathNamedByPerson("~/Pictures/toony/cut2.png", said, home), false);
+  assert.equal(pathNamedByPerson("/srv/art/episode one/a.png", said, home), true);
+  assert.equal(pathNamedByPerson("/srv/art/a.png", said, home), false);
+  assert.equal(pathNamedByPerson("/srv/art/b.png", ["See /srv/art/"], home), true);
+  assert.equal(pathNamedByPerson("/srv/artwork/b.png", ["See /srv/art"], home), false);
+  assert.equal(pathNamedByPerson("~/.ssh/id.png", ["~/.ssh/id.png"], home), false);
+  assert.equal(pathNamedByPerson("/srv/art/.cache/b.png", ["/srv/art/.cache"], home), false);
+  assert.equal(pathNamedByPerson("/srv/art/notes.txt", ["/srv/art/notes.txt"], home), false);
+  assert.equal(pathNamedByPerson("relative/a.png", ["relative/a.png"], home), false);
+  assert.equal(pathNamedByPerson("/a.png", ["/a.png"], home), true);
 });
