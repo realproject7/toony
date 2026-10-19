@@ -144,10 +144,25 @@ test("relocated Studio serves the workspace and exports identical native font pi
     assert.equal(home?.status, 200, diagnostics);
     assert.ok((await home.text()).includes('data-testid="work-package-fixture"'));
     // Export runs as a background job: start it with a guarded POST, follow it,
-    // then download the file it wrote.
-    const response = await fetch(`${origin}/api/export`, {
+    // then download the file it wrote. Every Studio write needs the session
+    // cookie a page gets from POST /api/session first, exactly as a browser does.
+    const session = await fetch(`${origin}/api/session`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-toony-agent": "1", origin },
+      body: "{}",
+      signal: AbortSignal.timeout(10_000),
+    });
+    assert.equal(session.status, 200, diagnostics);
+    // The response also clears an older cookie path; keep the one with a value.
+    const cookie =
+      session.headers
+        .getSetCookie()
+        .map((line) => line.split(";")[0] ?? "")
+        .find((pair) => /^toony_agent_session=[^;]+$/.test(pair)) ?? "";
+    assert.match(cookie, /^toony_agent_session=./, diagnostics);
+    const response = await fetch(`${origin}/api/export`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-toony-agent": "1", origin, cookie },
       body: JSON.stringify({
         workId: "package-fixture",
         episodeId: "ep-001",
