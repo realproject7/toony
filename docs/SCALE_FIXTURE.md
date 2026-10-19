@@ -82,11 +82,11 @@ of a run and the order of magnitude of each stage.
 | import x60 | `runImportImage`, manual provider, in process | 0 | 2 | 60 assets, 833 KB; 60 ingest log entries, every one `source: manual`; every cut `draft` |
 | lint | `toony lint --json` | 0 | 6 | 0 findings, asserted empty; 172 chars of JSON, 2 lines of text |
 | lint-episode | `toony lint-episode <id> --json` | 0 | 6 | 0 findings, asserted empty; 176 chars of JSON, 2 lines of text |
-| measure | `toony measure --episode --json` | 0 | 19 | page 800 x 71,911 px composed; gutterRatio 0.2798, gutterMedian 0.3288, panelHeightMedian 0.7613, panelHeightSpread 0.4804, panelsPerScreen 1.69 |
+| measure | `toony measure --episode --json` | 0 | 18 | page 800 x 71,911 px composed; gutterRatio 0.2798, gutterMedian 0.3288, panelHeightMedian 0.7613, panelHeightSpread 0.4804, panelsPerScreen 1.69 |
 | export strip | `toony export <episode> --output strip` | 0 | 19 | one 800 x 71,911 PNG of 608 KB plus the manifest |
 | export cuts | `toony export <episode> --output cuts` | 0 | 20 | 60 PNGs, 696 to 2340 px tall, 858 KB with the manifest |
 | export webtoon | `toony export <episode> --output webtoon` | 0 | 19 | 79 JPEG parts, 800 px wide and at most 1280 px tall, 71,911 rows in all; 3.9 MB |
-| export instagram | `toony export <episode> --output instagram` | 0 | 21 | 88 frames of 1080 x 1350 in 5 posts; 2.4 MB |
+| export instagram | `toony export <episode> --output instagram` | 0 | 21 | 92 frames of 1080 x 1350 in 5 posts; 2.4 MB |
 
 The measure and export rows are from a run on 2026-10-19, Node 24. The strip and
 the measured page use the project's 800 px reference column.
