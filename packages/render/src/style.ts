@@ -9,7 +9,7 @@
 // supplies the per-kind defaults a stored style does not specify (text color,
 // stroke, stroke weight, corner-radius scale).
 
-import type { BubbleKind, BubbleTone } from "@toony/schema";
+import type { BalloonShape, BubbleKind, BubbleTone } from "@toony/schema";
 import {
   BLACK,
   compositeOver,
@@ -130,8 +130,13 @@ export function kindHasBubble(kind: BubbleKind): boolean {
 }
 
 /** Whether a kind renders a speech tail when a tail point is present. */
-export function kindSupportsTail(kind: BubbleKind): boolean {
-  return kind === "speech" || kind === "shout" || kind === "whisper";
+export function kindSupportsTail(kind: BubbleKind, shape?: BalloonShape): boolean {
+  return (
+    kind === "speech" ||
+    kind === "shout" ||
+    kind === "whisper" ||
+    (kind === "thought" && shape !== undefined)
+  );
 }
 
 /**

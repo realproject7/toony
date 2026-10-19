@@ -58,6 +58,9 @@ function traceOutline(ctx: SKRSContext2D, outline: readonly BalloonCommand[]): v
   for (const cmd of outline) {
     if (cmd.k === "M") ctx.moveTo(cmd.x, cmd.y);
     else if (cmd.k === "L") ctx.lineTo(cmd.x, cmd.y);
+    else if (cmd.k === "C") ctx.bezierCurveTo(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.x, cmd.y);
+    else if (cmd.k === "Q") ctx.quadraticCurveTo(cmd.cx, cmd.cy, cmd.x, cmd.y);
+    else if (cmd.k === "Z") ctx.closePath();
     else ctx.arcTo(cmd.cornerX, cmd.cornerY, cmd.x, cmd.y, cmd.r);
   }
   ctx.closePath();
@@ -80,7 +83,9 @@ function drawBubble(ctx: SKRSContext2D, b: BubbleRender): void {
       ctx.lineWidth = b.strokeWidth;
       ctx.strokeStyle = b.stroke;
       ctx.lineJoin = "round";
+      ctx.setLineDash(b.strokeDash ?? []);
       ctx.stroke();
+      ctx.setLineDash([]);
     }
   }
 

@@ -25,6 +25,7 @@ import {
   type TextAlign,
   type VerticalAlign,
 } from "@toony/schema";
+import { shapedBalloon } from "./balloon-shapes.js";
 import {
   type BalloonCommand,
   balloonPathD,
@@ -120,6 +121,8 @@ export interface BubbleRender {
   textColor: string;
   /** Stroke width in pixels. */
   strokeWidth: number;
+  /** Dashed whisper outline only for explicitly selected modern shapes. */
+  strokeDash?: number[];
   /**
    * Fill opacity 0..1: the overlay's `opacity`, or for a narration caption the
    * resolved plate alpha (#186), which is that opacity raised to whatever keeps
@@ -455,7 +458,25 @@ export function layoutBubble(
   // (possibly decorated) outline; a decorated span is pure line segments so the
   // SVG path and canvas trace stay identical (#88).
   const drawsOutline = hasBubble && decoration !== "none";
-  const outline = drawsOutline ? buildBalloonOutline(ox, oy, ow, oh, tail, radius, decoration) : [];
+  const modern =
+    drawsOutline && overlay.balloonShape && kind !== "narration"
+      ? shapedBalloon(
+          { x: ox, y: oy, width: ow, height: oh },
+          overlay.balloonShape,
+          tailPoint && kindSupportsTail(kind, overlay.balloonShape)
+            ? {
+                x: clamp(art.x + tailPoint.x * art.width, art.x, art.x + art.width),
+                y: clamp(art.y + tailPoint.y * art.height, art.y, art.y + art.height),
+              }
+            : null,
+          kind === "thought",
+          radius,
+        )
+      : undefined;
+  if (modern) tail = modern.tail;
+  const outline =
+    modern?.outline ??
+    (drawsOutline ? buildBalloonOutline(ox, oy, ow, oh, tail, radius, decoration) : []);
   const pathD = drawsOutline ? balloonPathD(outline) : "";
 
   const { minFontSize, maxFontSize } = defaultBubbleFontRange(height);
@@ -478,8 +499,24 @@ export function layoutBubble(
   const renderText = kind === "beat" && overlay.text.trim().length === 0 ? "..." : overlay.text;
   const policy = overlay.textLayout;
   const unitScale = policy === undefined ? 1 : width / policy.referenceWidth;
-  const padX = policy === undefined ? Math.max(2, ow * 0.06) : ow * policy.paddingX;
-  const padY = policy === undefined ? Math.max(2, oh * 0.08) : oh * policy.paddingY;
+  // A rectangular text box inscribed in the curved body prevents corner text
+  // escaping an oval/cloud/burst. Authored larger padding is still respected.
+  const shapePadding =
+    !modern || overlay.balloonShape === "rounded"
+      ? 0
+      : overlay.balloonShape === "burst"
+        ? 0.23
+        : overlay.balloonShape === "cloud"
+          ? 0.2
+          : 0.18;
+  const padX = Math.max(
+    ow * shapePadding,
+    policy === undefined ? Math.max(2, ow * 0.06) : ow * policy.paddingX,
+  );
+  const padY = Math.max(
+    oh * shapePadding,
+    policy === undefined ? Math.max(2, oh * 0.08) : oh * policy.paddingY,
+  );
   // Fit in canonical reference units so different output widths cannot choose
   // different wrap points or half-pixel auto-fit steps. Legacy units stay exact.
   const textOptions = {
@@ -492,7 +529,8 @@ export function layoutBubble(
     letterSpacing,
     paddingX: padX / unitScale,
     paddingY: padY / unitScale,
-    cornerRadius: drawsOutline ? radius / unitScale : 0,
+    cornerRadius:
+      modern && overlay.balloonShape !== "rounded" ? 0 : drawsOutline ? radius / unitScale : 0,
   };
   const rich =
     policy !== undefined && (overlay.textRanges !== undefined || overlay.fontStyle !== undefined)
@@ -629,10 +667,12 @@ export function layoutBubble(
   // in px; otherwise fall back to a height-relative base scaled per kind so the
   // stroke reads consistently at preview and export scale.
   const stroke = overlay.border?.color ?? style.stroke;
-  const fallbackStroke = (opts.baseStrokeWidth ?? baseStroke(height)) * style.strokeScale;
+  const fallbackStroke = modern
+    ? (opts.baseStrokeWidth ?? 2) * unitScale * style.strokeScale
+    : (opts.baseStrokeWidth ?? baseStroke(height)) * style.strokeScale;
   const strokeWidth =
     overlay.border && Number.isFinite(overlay.border.width) && overlay.border.width >= 0
-      ? overlay.border.width
+      ? overlay.border.width * (modern ? unitScale : 1)
       : fallbackStroke;
   // A borderless caption's backing plate (#186). `layoutCut` never sees pixels,
   // so the renderer cannot sample the artwork under the caption; instead the plate
@@ -684,6 +724,7 @@ export function layoutBubble(
     stroke,
     textColor,
     strokeWidth,
+    ...(modern && kind === "whisper" ? { strokeDash: [strokeWidth * 4, strokeWidth * 3] } : {}),
     fillOpacity,
     cornerRadius: radius,
     textOutlineWidth,

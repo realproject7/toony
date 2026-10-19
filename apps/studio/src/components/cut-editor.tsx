@@ -152,7 +152,7 @@ export function CutEditor({
   const [textSelection, setTextSelection] = useState<TextSelection>({ start: 0, end: 0 });
   const [armed, setArmed] = useState<BubbleKind | null>(null);
   const [zoom, setZoom] = useState(0.75),
-    [fitMode, setFitMode] = useState(true);
+    [fitMode, setFitMode] = useState<false | "cut" | "width">("width");
   const [panMode, setPanMode] = useState(false),
     [snap, setSnap] = useState(true);
   const [guides, setGuides] = useState<{ x?: number; y?: number }>({});
@@ -692,7 +692,9 @@ export function CutEditor({
           Math.min(
             2.5,
             (element.clientWidth - 32) / referenceWidth,
-            (element.clientHeight - 32) / ((referenceWidth * height) / width),
+            fitMode === "cut"
+              ? (element.clientHeight - 32) / ((referenceWidth * height) / width)
+              : 2.5,
           ),
         ),
       );
@@ -1319,8 +1321,21 @@ export function CutEditor({
             >
               +
             </button>
-            <button className="btn btn-chip" type="button" onClick={() => setFitMode(true)}>
-              Fit
+            <button
+              className="btn btn-chip"
+              type="button"
+              aria-pressed={fitMode === "width"}
+              onClick={() => setFitMode("width")}
+            >
+              Fit width
+            </button>
+            <button
+              className="btn btn-chip"
+              type="button"
+              aria-pressed={fitMode === "cut"}
+              onClick={() => setFitMode("cut")}
+            >
+              Fit cut
             </button>
             <button
               className="btn btn-chip"

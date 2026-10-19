@@ -23,6 +23,7 @@ import { validateLetteringTextRanges } from "./lettering-ranges.js";
 import { foldingFilesystems, foldPathSafeId, isPathSafeId } from "./path-safe-id.js";
 import { validateGutterBandWidth } from "./presets.js";
 import {
+  BALLOON_SHAPES,
   BUBBLE_KINDS,
   BUBBLE_TONES,
   CORNER_RADIUS_MAX_PX,
@@ -752,6 +753,9 @@ export function validateLetteringOverlayValue(
   validateGeometry(value.geometry, joinPath(path, "geometry"), c);
   validateLetteringStyle(value, path, c);
   // Bubble grammar (#93), both OPTIONAL + back-compat.
+  if (value.balloonShape !== undefined && !isOneOf(value.balloonShape, BALLOON_SHAPES)) {
+    c.add(joinPath(path, "balloonShape"), "overlay.balloon-shape", "Unknown balloon shape.");
+  }
   if (value.tone !== undefined && !isOneOf(value.tone, BUBBLE_TONES)) {
     c.add(
       joinPath(path, "tone"),

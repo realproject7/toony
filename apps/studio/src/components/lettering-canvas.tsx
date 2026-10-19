@@ -176,7 +176,7 @@ export function LetteringCanvas({
                       onPointerDown={(e) => onResize(e, b, p.c)}
                     />
                   ))}
-                  {kindSupportsTail(b.kind) && b.tail && (
+                  {kindSupportsTail(b.kind, b.balloonShape) && b.tail && (
                     <>
                       <line
                         x1={g.x + g.width / 2}

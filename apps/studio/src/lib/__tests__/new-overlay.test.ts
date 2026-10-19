@@ -20,6 +20,7 @@ function issues(overlay: unknown): string[] {
 test("a new bubble seeds required data and explicit middle-aligned width-based text layout", () => {
   const created = newOverlay("cut-004", 2);
   assert.deepEqual(Object.keys(created).sort(), [
+    "balloonShape",
     "border",
     "cutId",
     "fill",

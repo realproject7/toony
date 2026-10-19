@@ -436,6 +436,17 @@ this contract and has to be handled as one.
 
 ## Reference-width text layout
 
+An overlay may explicitly select `balloonShape`: `oval`, `rounded`, `cloud`, or
+`burst`. Absence preserves the original kind/tone silhouette. New editor presets
+use oval speech/thought/whisper, burst shout and rectangular narration; loading
+an existing document never restyles it. Themes can supply the same field per kind.
+Thought shapes use three detached, diminishing tail beads. Modern whisper shapes
+use a dashed outline. Curved shapes reserve an inscribed text area; larger authored
+padding still wins. With `textLayout`, modern border widths use its reference-width
+units. SVG previews and raster exports consume the same curves and dash lengths.
+Explicit shape selection takes precedence over tone. Narration remains a caption
+plate and free text has no body. These types do not use curved balloon silhouettes.
+
 An overlay may opt into `textLayout` independently of its shape and tail:
 
 ```json

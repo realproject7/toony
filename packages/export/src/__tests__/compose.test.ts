@@ -46,6 +46,32 @@ function topLeftOverlay(): LetteringOverlay {
   };
 }
 
+test("modern oval and thought beads reach the raster with gaps and saved-shape parity", async () => {
+  const base = {
+    ...topLeftOverlay(),
+    kind: "thought" as const,
+    balloonShape: "oval" as const,
+    text: "",
+    fill: "#ffffff",
+    geometry: { x: 0.2, y: 0.1, width: 0.6, height: 0.3 },
+    tail: { x: 0.5, y: 0.7 },
+  };
+  const fixture = buildSolidColorPngFixture(400, 400);
+  const a = await composeCut([base], fixture, 400);
+  const b = await composeCut([JSON.parse(JSON.stringify(base))], fixture, 400);
+  assert.deepEqual(a.canvas.toBuffer("image/png"), b.canvas.toBuffer("image/png"));
+  const context = a.canvas.getContext("2d");
+  const pixel = (x: number, y: number) => [...context.getImageData(x, y, 1, 1).data];
+  assert.deepEqual(pixel(82, 42), [17, 199, 83, 255], "oval corners expose the source");
+  assert.deepEqual(pixel(200, 100), [255, 255, 255, 255]);
+  // Body ends at160; the beads are centered at188,234,280, with clear gaps.
+  assert.deepEqual(pixel(200, 188), [255, 255, 255, 255]);
+  assert.deepEqual(pixel(200, 210), [17, 199, 83, 255]);
+  assert.deepEqual(pixel(200, 234), [255, 255, 255, 255]);
+  assert.deepEqual(pixel(200, 260), [17, 199, 83, 255]);
+  assert.deepEqual(pixel(200, 280), [255, 255, 255, 255]);
+});
+
 test("composeCut composites the cut artwork (uncovered pixel is opaque source color)", async () => {
   const fixture = buildSolidColorPngFixture(240, 336);
   const composed = await composeCut([topLeftOverlay()], fixture, 480);
