@@ -433,3 +433,39 @@ Palette and type-picker thumbnails consume the same preset/type-change factories
 render plans and SVG body as the artwork. Thumbnail strokes use a fixed display
 weight for legibility; the body/tail path and themed colors are shared. No separate
 illustrative icon geometry represents a different generated silhouette.
+## Connected creative workspace
+
+Studio keeps a project conversation beside the human workspace. Story, characters,
+episodes and lettering share the shell. The object inspector is part of the cut
+editor. Hiding or expanding the conversation does not unmount the editor. Cut
+navigation uses client routing; unsaved lettering has a session-local recovery
+copy with its original save revision, so recovery still uses the existing save
+conflict guard.
+
+The initial agent adapter is read-only. It runs the user's installed Claude Code
+or Codex CLI from an empty private directory with native tools, hooks, plugins,
+MCP and project discovery restricted. It passes only allowlisted environment
+variables. Authentication remains with the official CLI. Toony neither collects
+credentials nor initiates login. Compatibility is currently pinned to inspected
+CLI versions: Codex 0.158.0 and Claude Code 2.1.293, with required restriction flags
+checked before inference. Other versions fail closed until verified.
+
+`POST /api/agent` requires a loopback host, matching browser origin, a custom JSON
+header and a strict HTTP-only local session cookie. Run Studio bound to loopback.
+The development scripts and CLI launcher bind to loopback by default. Do not
+override that binding or expose this local account adapter through a public proxy. Native output is
+bounded and validated as events arrive; prohibited actions stop the process
+group. Raw diagnostic output is never sent to the browser. Timeout, cancellation
+and disconnect reject late responses.
+
+Toony owns conversation IDs and replays a bounded conversation plus an allowlisted
+snapshot of saved story, character and selected-scene text. This is application
+history, not a resumed native CLI session. Images, unsaved editor changes and
+provider configuration are excluded. A context switch never redirects an admitted
+request. Saved conversation files live in `.toony-agent` under the workspace,
+outside individual projects, with private file permissions. Retention can be
+disabled for new conversations. Interrupted responses are not restarted after a
+server restart. Provider retention is separate.
+
+Project mutations, image editing and generation are not agent tools in this
+increment. Conversation results cannot automatically become project canon.

@@ -25,6 +25,7 @@ export interface EditHistoryControls<T> {
   redo: () => T | null;
   canUndo: boolean;
   canRedo: boolean;
+  reset: () => void;
 }
 
 export function useEditHistory<T>(current: T): EditHistoryControls<T> {
@@ -77,6 +78,13 @@ export function useEditHistory<T>(current: T): EditHistoryControls<T> {
     redo,
     canUndo: history.past.length > 0,
     canRedo: history.future.length > 0,
+    reset: () => {
+      const next = emptyHistory<T>();
+      historyRef.current = next;
+      setHistory(next);
+      lastRecordRef.current = 0;
+      lastKeyRef.current = undefined;
+    },
   };
 }
 

@@ -249,63 +249,74 @@ export function ExportPanel({ workId, episodeId, referenceWidth }: ExportPanelPr
         </div>
       </div>
 
-      {result && <ExportResult result={result} />}
+      {result && <ExportResult result={result} workId={workId} />}
     </section>
   );
 }
 
-function ExportResult({ result }: { result: SuccessResult }) {
+function ExportResult({ result, workId }: { result: SuccessResult; workId: string }) {
   const { manifest, checks, outDir } = result;
   return (
     <div className="card export-result" data-testid="export-result">
+      <p className="export-success" role="status">
+        Your episode files are ready.
+      </p>
       <div className="export-result-head">
-        <h2 className="card-title">Pre-flight checks</h2>
+        <h2 className="card-title">Export complete</h2>
         <span className="chip chip-ok" data-testid="export-target-kind">
           {manifest.target}
         </span>
       </div>
 
-      <ul className="export-checks" data-testid="export-checks">
-        {checks.map((check) => (
-          <li className="export-check" key={check.id} data-status={check.status}>
-            <span className={`chip ${check.status === "pass" ? "chip-ok" : "chip-warn"}`}>
-              {check.status === "pass" ? "PASS" : "REVIEW"}
-            </span>
-            <span className="export-check-body">
-              <b>{check.label}</b>
-              <span className="export-check-detail">{check.detail}</span>
-            </span>
-          </li>
-        ))}
-      </ul>
+      <details className="export-technical" open={checks.some((check) => check.status !== "pass")}>
+        <summary>
+          Output checks
+          {checks.some((check) => check.status !== "pass") ? " · review needed" : " · passed"}
+        </summary>
+        <ul className="export-checks" data-testid="export-checks">
+          {checks.map((check) => (
+            <li className="export-check" key={check.id} data-status={check.status}>
+              <span className={`chip ${check.status === "pass" ? "chip-ok" : "chip-warn"}`}>
+                {check.status === "pass" ? "PASS" : "REVIEW"}
+              </span>
+              <span className="export-check-body">
+                <b>{check.label}</b>
+                <span className="export-check-detail">{check.detail}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </details>
 
       <div className="export-output" data-testid="export-output-path">
         <span className="field-hint">Saved to</span>
         <code>{outDir}</code>
       </div>
 
-      <h3 className="section-title">Manifest</h3>
-      <div className="export-manifest-meta">
-        <span>
-          Project <code>{manifest.projectId}</code>
-        </span>
-        <span>
-          Episode <code>{manifest.episodeId}</code>
-        </span>
-        <span>
-          Width <b>{manifest.width}px</b>
-        </span>
-        <span>
-          Schema v<b>{manifest.manifestVersion}</b>
-        </span>
-      </div>
-
+      <h3 className="section-title">Exported files</h3>
       <div className="export-files" data-testid="export-files">
         {manifest.files.map((file) => (
-          <ManifestFileRow key={file.path} file={file} />
+          <ManifestFileRow key={file.path} file={file} workId={workId} />
         ))}
       </div>
 
+      <details className="export-technical">
+        <summary>Export details</summary>
+        <div className="export-manifest-meta">
+          <span>
+            Project <code>{manifest.projectId}</code>
+          </span>
+          <span>
+            Episode <code>{manifest.episodeId}</code>
+          </span>
+          <span>
+            Width <b>{manifest.width}px</b>
+          </span>
+          <span>
+            Schema v<b>{manifest.manifestVersion}</b>
+          </span>
+        </div>
+      </details>
       {manifest.markdown && (
         <div className="export-markdown" data-testid="export-markdown">
           <h3 className="section-title">Generated markdown</h3>
@@ -322,17 +333,26 @@ function ExportResult({ result }: { result: SuccessResult }) {
   );
 }
 
-function ManifestFileRow({ file }: { file: ManifestFile }) {
+function ManifestFileRow({ file, workId }: { file: ManifestFile; workId: string }) {
   return (
     <div className="export-file-row">
-      <code className="export-file-path">{file.path}</code>
+      <a
+        className="export-file-path"
+        title={file.path}
+        download={file.path.split("/").at(-1)}
+        href={`/api/asset?${new URLSearchParams({ work: workId, path: file.path, revision: file.sha256 })}`}
+      >
+        {file.path.split("/").at(-1)}
+        <span className="field-hint"> · Download</span>
+      </a>
       <span className="export-file-meta">
         {file.format.toUpperCase()} · {file.width}×{file.height} · {formatBytes(file.byteSize)}
         {file.quality !== null ? ` · q${file.quality}` : ""}
       </span>
-      <span className="export-file-sha" title={file.sha256}>
-        {file.sha256.slice(0, 12)}…
-      </span>
+      <details className="export-checksum">
+        <summary>Checksum</summary>
+        <code>{file.sha256}</code>
+      </details>
     </div>
   );
 }

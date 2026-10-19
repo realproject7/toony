@@ -1,13 +1,4 @@
-// Distraction-free reader route (#49).
-//
-// Renders the whole episode top-to-bottom exactly as a reader experiences it —
-// cut artwork + on-art bubbles + transitions in the canonical `sequence` order
-// (Production Scroll hard rule 1) — at a comfortable, centered reading width
-// with NO inspector or per-item edit affordances. The artwork/overlay/transition
-// render path is the SAME `@toony/render`-backed `CutCanvas`/`TransitionBlock`
-// the edit-chrome preview uses, so the reader stays WYSIWYG with preview and
-// export; only the editing chrome is dropped. A header toggle returns to the
-// editing preview so it is always obvious how to get back to editing.
+// Saved episode preview uses the same placement and transition renderers as export.
 
 import { resolveGutterBandWidth, resolveReferenceWidth } from "@toony/schema";
 import Link from "next/link";
@@ -28,15 +19,20 @@ export const dynamic = "force-dynamic";
 
 export default async function EpisodeReaderPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ workId: string; id: string }>;
+  searchParams: Promise<{ item?: string }>;
 }) {
   const { workId, id } = await params;
   const work = await resolveWork(decodeURIComponent(workId));
   if (!work) notFound();
   const episodeId = decodeURIComponent(id);
   const base = `/w/${encodeURIComponent(work.id)}`;
-  const editHref = `${base}/episodes/${encodeURIComponent(episodeId)}`;
+  const episodeHref = `${base}/episodes/${encodeURIComponent(episodeId)}`;
+  const query = await searchParams;
+  const editHref =
+    episodeHref + (typeof query.item === "string" ? `?item=${encodeURIComponent(query.item)}` : "");
 
   let loaded: Awaited<ReturnType<typeof loadWork>>;
   try {
@@ -66,19 +62,19 @@ export default async function EpisodeReaderPage({
     <div data-testid="studio-episode-reader" className="reader-page">
       <header className="reader-head">
         <div>
-          <p className="page-eyebrow">{loaded.project.webtoon.title}</p>
+          <p className="page-eyebrow">Episode preview</p>
           <h1 className="page-title">{episode.title}</h1>
+          <p className="preview-caption">
+            Saved artwork, lettering and transitions in output order.
+          </p>
         </div>
         <nav className="reader-toggle" aria-label="View mode">
-          <Link href={editHref} className="btn btn-ghost" data-testid="reader-edit-toggle">
-            Edit
+          <Link href={editHref} className="btn" data-testid="reader-edit-toggle">
+            Back to editor
           </Link>
-          <span className="btn btn-primary" aria-current="page" data-testid="reader-mode-active">
-            Read
-          </span>
           <Link
-            href={`${editHref}/export`}
-            className="btn btn-ghost"
+            href={`${episodeHref}/export`}
+            className="btn btn-primary"
             data-testid="reader-export-toggle"
           >
             Export

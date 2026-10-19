@@ -44,7 +44,7 @@ export default async function CharactersPage({ params }: { params: Promise<{ wor
           <h1 className="page-title">Characters</h1>
           <div className="page-meta">
             <span>
-              <b>{rows.length}</b> in the registry
+              <b>{rows.length}</b> characters
             </span>
             <span>
               <b>{rows.filter((row) => row.sheets.length > 0).length}</b> with a reference sheet
@@ -53,7 +53,7 @@ export default async function CharactersPage({ params }: { params: Promise<{ wor
         </div>
         <div className="page-meta">
           <Link href={`/w/${encodeURIComponent(work.id)}`} className="inspector-back">
-            &larr; Dashboard
+            &larr; Story
           </Link>
         </div>
       </header>

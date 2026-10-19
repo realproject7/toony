@@ -29,15 +29,18 @@ import {
 } from "@toony/schema";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBrowserMeasure } from "@/lib/browser-measure";
 import { clamp } from "@/lib/clamp";
 import type { CutFields } from "@/lib/cut-fields";
 import { resolveCutStage } from "@/lib/cut-stage";
+import { decodeEditorDraft, encodeEditorDraft } from "@/lib/editor-draft";
 import { persistWithGuard } from "@/lib/editor-save";
 import { letteringClipboard, parseLetteringClipboard } from "@/lib/lettering-clipboard";
 import { BALLOON_LIBRARY, libraryOverlay, newOverlay, tailDragPatch } from "@/lib/new-overlay";
 import type { CutArt } from "@/lib/project";
+import { useAgentWorkspace } from "./agent-workspace";
 import { AlignmentSymbol } from "./alignment-symbol";
 import { ArtRevisions } from "./art-revisions";
 import { CutFieldsEditor } from "./cut-fields-editor";
@@ -45,6 +48,7 @@ import { CutReviewControl } from "./cut-review-control";
 import type { InlineTextHandle, TextSelection } from "./inline-lettering-text";
 import { LetteringCanvas } from "./lettering-canvas";
 import { LETTERING_PRESET_MIME, LetteringPresets } from "./lettering-presets";
+import { StudioIcon } from "./studio-icon";
 import { keyboardOwnedByField, useEditHistory } from "./use-edit-history";
 
 // The pro-lettering inspector (typography/color/styling/arrangement) and its
@@ -61,6 +65,9 @@ const BubbleInspector = dynamic(() => import("./bubble-inspector").then((m) => m
 });
 
 export interface CutEditorProps {
+  integrated?: boolean;
+  registerNavigation?: (guard: ((next: () => void) => void) | null) => void;
+  onSaved?: (bubbles: LetteringOverlay[], revision: string) => void;
   workId: string;
   episodeId: string;
   episodeTitle: string;
@@ -131,27 +138,41 @@ export function CutEditor({
   renderRecord,
   theme,
   themeId,
+  integrated,
+  registerNavigation,
+  onSaved,
 }: CutEditorProps) {
+  const router = useRouter();
+  const { ask } = useAgentWorkspace();
   const [bubbles, setBubbles] = useState<LetteringOverlay[]>(initialBubbles);
   // Undo and redo over the bubble set (#333). Every mutation records the state
   // it is about to replace; a drag records once at its start.
   const history = useEditHistory<LetteringOverlay[]>(bubbles);
   const [selectedId, setSelectedId] = useState<string | null>(initialBubbles[0]?.id ?? null);
-  const editorRoot = useRef<HTMLDivElement>(null);
+  const editorRoot = useRef<HTMLElement>(null);
   const confirmationRef = useRef<HTMLDivElement>(null);
   const [pendingNavigation, setPendingNavigation] = useState<
-    { href: string } | { reload: true } | null
+    { href: string } | { reload: true } | { action: () => void } | null
   >(null);
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(true), []);
-  const [focusMode, setFocusMode] = useState(true);
+  const [inspectorPreference, setInspectorPreference] = useState<boolean | null>(null);
+  const [wideWorkspace, setWideWorkspace] = useState(false);
+  const inspectorOpen = inspectorPreference ?? wideWorkspace;
+  useEffect(() => {
+    const root = editorRoot.current;
+    if (!root) return;
+    const observer = new ResizeObserver(() => setWideWorkspace(root.clientWidth >= 940));
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
   const [additionalIds, setAdditionalIds] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [legacyRequest, setLegacyRequest] = useState<string | null>(null);
   const [textSelection, setTextSelection] = useState<TextSelection>({ start: 0, end: 0 });
   const [armed, setArmed] = useState<string | null>(null);
   const [zoom, setZoom] = useState(0.75),
-    [fitMode, setFitMode] = useState<false | "cut" | "width">("width");
+    [fitMode, setFitMode] = useState<false | "cut" | "width">(integrated ? "cut" : "width");
   const [panMode, setPanMode] = useState(false),
     [snap, setSnap] = useState(true);
   const [guides, setGuides] = useState<{ x?: number; y?: number }>({});
@@ -164,6 +185,55 @@ export function CutEditor({
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    registerNavigation?.((next) => {
+      if (dirty || saving) setPendingNavigation({ action: next });
+      else next();
+    });
+    return () => registerNavigation?.(null);
+  }, [registerNavigation, dirty, saving]);
+
+  const draftKey = `toony-lettering:${workId}/${episodeId}/${cutId}`;
+  const draftReady = useRef(false);
+  const clearDraft = useCallback(() => {
+    try {
+      sessionStorage.removeItem(draftKey);
+    } catch {
+      /* Storage may be disabled. */
+    }
+  }, [draftKey]);
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(draftKey);
+      const restored = raw ? decodeEditorDraft(raw, cutId) : null;
+      if (restored) {
+        revisionRef.current = restored.revision;
+        setBubbles(restored.bubbles);
+        setSelectedId(restored.bubbles[0]?.id ?? null);
+        setDirty(true);
+        setMessage({
+          kind: "ok",
+          text: "Your unsaved lettering draft was restored. Save when ready.",
+        });
+      }
+    } catch {
+      /* The normal leave-page guard still protects the editor. */
+    }
+    draftReady.current = true;
+  }, [draftKey, cutId]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a settled save changes the draft base revision even when the bubbles are unchanged.
+  useEffect(() => {
+    if (!draftReady.current || !dirty) return;
+    try {
+      sessionStorage.setItem(draftKey, encodeEditorDraft(revisionRef.current, bubbles));
+    } catch {
+      setMessage({
+        kind: "error",
+        text: "Draft recovery is unavailable. Save before leaving this cut.",
+      });
+    }
+  }, [bubbles, dirty, draftKey, saving]);
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const dragRef = useRef<DragMode | null>(null);
@@ -616,6 +686,12 @@ export function CutEditor({
   }, [insertCopied]);
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        !(event.target instanceof Node) ||
+        !editorRoot.current?.contains(event.target)
+      )
+        return;
       if (keyboardOwnedByField(event)) return;
       const text = event.clipboardData?.getData("text/plain");
       if (!text) return;
@@ -690,7 +766,7 @@ export function CutEditor({
     const fit = () =>
       setZoom(
         Math.max(
-          0.25,
+          0.05,
           Math.min(
             2.5,
             (element.clientWidth - 32) / referenceWidth,
@@ -714,6 +790,35 @@ export function CutEditor({
     };
     window.addEventListener("beforeunload", unload);
     return () => window.removeEventListener("beforeunload", unload);
+  }, [dirty]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const guard = (event: MouseEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey ||
+        !(event.target instanceof Element)
+      )
+        return;
+      const link = event.target.closest<HTMLAnchorElement>("a[href]");
+      if (!link || link.target === "_blank" || link.hasAttribute("download")) return;
+      const url = new URL(link.href, window.location.href);
+      if (
+        url.origin !== window.location.origin ||
+        (url.pathname === location.pathname && url.search === location.search)
+      )
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPendingNavigation({ href: url.pathname + url.search + url.hash });
+    };
+    document.addEventListener("click", guard, true);
+    return () => document.removeEventListener("click", guard, true);
   }, [dirty]);
 
   // --- Arrangement: z-order + nudge ---------------------------------------
@@ -820,8 +925,8 @@ export function CutEditor({
   }, [bubbles]);
 
   useEffect(() => {
-    const editor = confirmationRef.current ?? editorRoot.current;
-    if ((!focusMode && !pendingNavigation) || !ready || !editor) return;
+    const editor = confirmationRef.current;
+    if (!pendingNavigation || !ready || !editor) return;
     const previous = document.activeElement;
     const fields = () =>
       Array.from(
@@ -857,10 +962,10 @@ export function CutEditor({
       window.removeEventListener("keydown", trap, true);
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
     };
-  }, [focusMode, ready, pendingNavigation]);
+  }, [ready, pendingNavigation]);
 
   const save = useCallback(async () => {
-    if (saving || !dirty) return;
+    if (saving || !dirty) return !saving && !dirty;
     setSaving(true);
     setMessage(null);
     // Snapshot the payload AND the edit generation together. Persist the render
@@ -888,17 +993,33 @@ export function CutEditor({
       });
       if (!outcome.ok) {
         setMessage({ kind: "error", text: outcome.error });
+        return false;
       } else {
         // Do NOT write the snapshot back into state — an edit made during the
         // await would be reverted. Only clear dirty when no edit landed mid-save.
         if (outcome.revision) revisionRef.current = outcome.revision;
-        if (outcome.clean) setDirty(false);
-        setMessage({ kind: "ok", text: "Saved to lettering.json." });
+        onSaved?.(payload, revisionRef.current);
+        if (outcome.clean) {
+          setDirty(false);
+          clearDraft();
+        }
+        setMessage({ kind: "ok", text: "Lettering saved." });
+        return outcome.clean;
       }
     } finally {
       setSaving(false);
     }
-  }, [bubbles, plans, workId, episodeId, cutId, saving, dirty]);
+  }, [bubbles, plans, workId, episodeId, cutId, saving, dirty, clearDraft, onSaved]);
+
+  const continueNavigation = () => {
+    if (!pendingNavigation) return;
+    allowUnloadRef.current = true;
+    clearDraft();
+    if ("reload" in pendingNavigation) window.location.reload();
+    else if ("action" in pendingNavigation) pendingNavigation.action();
+    else router.push(pendingNavigation.href);
+    setPendingNavigation(null);
+  };
 
   // Keyboard (#333): arrows nudge the selected bubble (Shift for a larger
   // step), Delete removes it, Cmd/Ctrl+D duplicates it, Cmd/Ctrl+Z undoes and
@@ -906,7 +1027,13 @@ export function CutEditor({
   // keys, so typing in the inspector never moves or deletes a bubble.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.isComposing) return;
+      if (
+        event.isComposing ||
+        event.defaultPrevented ||
+        !(event.target instanceof Node) ||
+        !editorRoot.current?.contains(event.target)
+      )
+        return;
       if (pendingNavigation) {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -961,7 +1088,6 @@ export function CutEditor({
         return;
       }
       if (event.key === "Escape") {
-        if (!armed && !editingId) setFocusMode(false);
         setArmed(null);
         setEditingId(null);
         return;
@@ -1024,20 +1150,18 @@ export function CutEditor({
     bubbles,
     copyBubbles,
     startEditing,
-    armed,
-    editingId,
     pendingNavigation,
   ]);
 
   return (
-    <div
+    <section
       ref={editorRoot}
       inert={!ready}
       aria-busy={!ready}
-      role="dialog"
-      aria-modal={focusMode}
       aria-label="Lettering editor"
-      className={focusMode ? "editor editor-focus" : "editor"}
+      className={`editor editor-focus${integrated ? " integrated-cut" : ""}`}
+      data-inspector-open={inspectorOpen}
+      data-workspace-wide={wideWorkspace}
       data-testid={`cut-editor-${cutId}`}
     >
       {pendingNavigation && (
@@ -1046,28 +1170,38 @@ export function CutEditor({
             className="lettering-confirm"
             role="alertdialog"
             aria-modal="true"
-            aria-label="Discard unsaved lettering"
+            aria-label="Unsaved lettering"
             ref={confirmationRef}
           >
-            <h2>Discard unsaved lettering?</h2>
-            <p>
-              Copy your draft before leaving. Reloading keeps the saved version and discards the
-              edits currently on screen.
-            </p>
+            <h2>Save your lettering before leaving?</h2>
+            <p>Your changes are still on this cut. Save them, or discard them to continue.</p>
+            {message?.kind === "error" && <p role="alert">{message.text}</p>}
             <div className="chip-row">
-              <button type="button" className="btn" onClick={() => setPendingNavigation(null)}>
+              <button
+                type="button"
+                className="btn"
+                disabled={saving}
+                onClick={() => setPendingNavigation(null)}
+              >
                 Keep editing
               </button>
               <button
                 type="button"
                 className="btn btn-danger"
-                onClick={() => {
-                  allowUnloadRef.current = true;
-                  if ("reload" in pendingNavigation) window.location.reload();
-                  else window.location.assign(pendingNavigation.href);
-                }}
+                disabled={saving}
+                onClick={continueNavigation}
               >
                 Discard and continue
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={saving}
+                onClick={async () => {
+                  if (await save()) continueNavigation();
+                }}
+              >
+                {saving ? "Saving…" : "Save and continue"}
               </button>
             </div>
           </div>
@@ -1076,10 +1210,10 @@ export function CutEditor({
       <header className="page-head">
         <div>
           <p className="page-eyebrow">{webtoonTitle}</p>
-          <h1 className="page-title">Edit cut lettering</h1>
+          <h1 className="page-title">Lettering</h1>
           <div className="page-meta">
             <span>
-              {episodeTitle} · cut <code>{cutId}</code>
+              {!integrated && <>{episodeTitle} · </>}Cut <code>{cutId}</code>
             </span>
             <span>
               <b>{bubbles.length}</b> bubble{bubbles.length === 1 ? "" : "s"}
@@ -1092,41 +1226,62 @@ export function CutEditor({
           </div>
         </div>
         <div className="editor-actions">
-          <label className="lettering-cut-picker">
-            Cut
-            <select
-              aria-label="Edit cut"
-              value={cutId}
-              disabled={dirty}
-              onChange={(event) => {
-                const target = cutNavigation.find((c) => c.id === event.target.value);
-                if (target) window.location.assign(target.href);
+          {!integrated && (
+            <label className="lettering-cut-picker">
+              Cut
+              <select
+                aria-label="Edit cut"
+                value={cutId}
+                disabled={dirty}
+                onChange={(event) => {
+                  const target = cutNavigation.find((c) => c.id === event.target.value);
+                  if (target) router.push(target.href);
+                }}
+              >
+                {cutNavigation.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() =>
+              ask(
+                "Help me improve this cut. Discuss the scene and dialogue before proposing changes.",
+                { episodeId, cutId },
+              )
+            }
+          >
+            Ask agent
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            aria-pressed={inspectorOpen}
+            onClick={() => setInspectorPreference(!inspectorOpen)}
+          >
+            Properties
+          </button>
+          {!integrated && (
+            <Link
+              href={`/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}`}
+              className="btn btn-ghost"
+              onClick={(event) => {
+                if (dirty) {
+                  event.preventDefault();
+                  setPendingNavigation({
+                    href: `/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}`,
+                  });
+                }
               }}
             >
-              {cutNavigation.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button type="button" className="btn btn-ghost" onClick={() => setFocusMode((f) => !f)}>
-            {focusMode ? "Exit focus" : "Focus editor"}
-          </button>
-          <Link
-            href={`/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}`}
-            className="btn btn-ghost"
-            onClick={(event) => {
-              if (dirty) {
-                event.preventDefault();
-                setPendingNavigation({
-                  href: `/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}`,
-                });
-              }
-            }}
-          >
-            Cancel
-          </Link>
+              Episode
+            </Link>
+          )}
           <button
             type="button"
             className="btn btn-primary"
@@ -1140,6 +1295,7 @@ export function CutEditor({
       </header>
 
       <div
+        hidden={integrated && !message && !dirty}
         className={`lettering-status${message?.kind === "error" ? " is-error" : ""}`}
         role={message?.kind === "error" ? "alert" : "status"}
       >
@@ -1174,45 +1330,39 @@ export function CutEditor({
 
       <div className="editor-layout">
         <div className="editor-stage-wrap">
-          <details className="lettering-art-review">
-            <summary>Artwork review</summary>
-            <CutReviewControl
-              workId={workId}
-              episodeId={episodeId}
-              cutId={cutId}
-              initialReviewStatus={initialReviewStatus}
-              artworkRevision={artworkRevision}
-            />
-          </details>
-          <ArtRevisions
-            workId={workId}
-            episodeId={episodeId}
-            cutId={cutId}
-            sourceDigest={
-              art.src ? new URL(art.src, "http://local.invalid").searchParams.get("revision") : null
-            }
-            characters={characters}
-            dirty={dirty}
-          />
-          <div className="editor-toolbar">
+          <fieldset className="editor-toolbar" aria-label="Bubble tools">
             <button
               type="button"
-              className="btn"
+              aria-label="Copy"
+              title="Copy"
+              className="btn btn-icon"
               disabled={!activeIds.length}
               onClick={() => void copyBubbles()}
             >
-              Copy
+              <StudioIcon name="copy" />
             </button>
             <button
               type="button"
-              className="btn"
+              aria-label="Paste"
+              className="btn btn-icon"
               title="Paste bubbles copied in this tab. Cmd/Ctrl+V uses the system clipboard."
               onClick={() => void pasteBubbles()}
             >
-              Paste
+              <StudioIcon name="paste" />
             </button>
-            <button type="button" className="btn" disabled={!activeIds.length} onClick={toggleLock}>
-              {bubbles.some((b) => activeIds.includes(b.id) && b.locked) ? "Unlock" : "Lock"}
+            <button
+              type="button"
+              className="btn btn-icon"
+              disabled={!activeIds.length}
+              onClick={toggleLock}
+              aria-label={
+                bubbles.some((b) => activeIds.includes(b.id) && b.locked) ? "Unlock" : "Lock"
+              }
+              title="Lock or unlock selection"
+            >
+              <StudioIcon
+                name={bubbles.some((b) => activeIds.includes(b.id) && b.locked) ? "unlock" : "lock"}
+              />
             </button>
             <button
               type="button"
@@ -1220,52 +1370,56 @@ export function CutEditor({
               disabled={!selected || selected.locked}
               onClick={() => selected && startEditing(selected.id)}
             >
-              Edit text
+              <StudioIcon name="text" /> Edit text
             </button>
             <button
               type="button"
-              className="btn"
+              aria-label="Undo"
+              className="btn btn-icon"
               onClick={undo}
               disabled={!history.canUndo}
               title="Undo (Cmd/Ctrl+Z)"
               data-testid="editor-undo"
             >
-              Undo
+              <StudioIcon name="undo" />
             </button>
             <button
               type="button"
-              className="btn"
+              aria-label="Redo"
+              className="btn btn-icon"
               onClick={redo}
               disabled={!history.canRedo}
               title="Redo (Shift+Cmd/Ctrl+Z)"
               data-testid="editor-redo"
             >
-              Redo
+              <StudioIcon name="redo" />
             </button>
             <button type="button" className="btn" onClick={addBubble} data-testid="editor-add">
-              + Add bubble
+              <StudioIcon name="plus" /> Add bubble
             </button>
             <button
               type="button"
-              className="btn"
+              aria-label="Duplicate"
+              className="btn btn-icon"
               onClick={duplicateSelected}
               disabled={!hasEditableSelection}
               title="Duplicate (Cmd/Ctrl+D)"
               data-testid="editor-duplicate"
             >
-              Duplicate
+              <StudioIcon name="duplicate" />
             </button>
             <button
               type="button"
-              className="btn btn-danger"
+              aria-label="Delete"
+              className="btn btn-icon btn-danger"
               onClick={deleteSelected}
               disabled={!hasEditableSelection}
               title="Delete (Delete key)"
               data-testid="editor-delete"
             >
-              Delete
+              <StudioIcon name="trash" />
             </button>
-            {themeId !== null && (
+            {themeId !== null && (!integrated || theme !== null) && (
               <button
                 type="button"
                 className="btn"
@@ -1281,7 +1435,7 @@ export function CutEditor({
                 Apply theme{theme === null ? " (not installed)" : ""}
               </button>
             )}
-          </div>
+          </fieldset>
 
           <details className="lettering-alignment-menu" aria-disabled={!activeIds.length}>
             <summary>Align objects</summary>
@@ -1315,11 +1469,11 @@ export function CutEditor({
               type="button"
               onClick={() => {
                 setFitMode(false);
-                setZoom((z) => Math.max(0.25, z - 0.1));
+                setZoom((z) => Math.max(0.05, z - 0.1));
               }}
               aria-label="Zoom out"
             >
-              −
+              <StudioIcon name="minus" />
             </button>
             <output>{Math.round(zoom * 100)}%</output>
             <button
@@ -1331,7 +1485,7 @@ export function CutEditor({
               }}
               aria-label="Zoom in"
             >
-              +
+              <StudioIcon name="plus" />
             </button>
             <button
               className="btn btn-chip"
@@ -1513,7 +1667,25 @@ export function CutEditor({
           </div>
         </div>
 
-        <aside className="editor-inspector" data-testid="editor-inspector">
+        <aside
+          className="editor-inspector"
+          hidden={!inspectorOpen}
+          data-testid="editor-inspector"
+          aria-label="Lettering properties"
+        >
+          {!wideWorkspace && (
+            <div className="inspector-drawer-heading">
+              <span>Properties</span>
+              <button
+                type="button"
+                className="btn btn-icon"
+                aria-label="Close properties"
+                onClick={() => setInspectorPreference(false)}
+              >
+                <StudioIcon name="close" />
+              </button>
+            </div>
+          )}
           {/* The cut's own fields (#332): prompt, cast, shot, palette, shape.
               Collapsed by default so the bubble stays the inspector's subject;
               saves on its own path and never touches the render record. */}
@@ -1547,6 +1719,27 @@ export function CutEditor({
               </p>
             </div>
           )}
+          <details className="lettering-art-review">
+            <summary>Artwork review</summary>
+            <CutReviewControl
+              key={artworkRevision}
+              workId={workId}
+              episodeId={episodeId}
+              cutId={cutId}
+              initialReviewStatus={initialReviewStatus}
+              artworkRevision={artworkRevision}
+            />
+          </details>
+          <ArtRevisions
+            workId={workId}
+            episodeId={episodeId}
+            cutId={cutId}
+            sourceDigest={
+              art.src ? new URL(art.src, "http://local.invalid").searchParams.get("revision") : null
+            }
+            characters={characters}
+            dirty={dirty}
+          />
           <details className="inspector-cut-context">
             <summary>Scene details</summary>
             <CutFieldsEditor
@@ -1560,6 +1753,6 @@ export function CutEditor({
           </details>
         </aside>
       </div>
-    </div>
+    </section>
   );
 }

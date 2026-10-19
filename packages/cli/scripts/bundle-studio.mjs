@@ -105,11 +105,34 @@ function copyPackage(realSrc, destPath) {
   const stat = lstatSync(realSrc);
   if (!stat.isDirectory()) return;
   mkdirSync(dirname(destPath), { recursive: true });
-  cpSync(realSrc, destPath, { recursive: true, dereference: true });
+  cpSync(realSrc, destPath, {
+    recursive: true,
+    dereference: true,
+    // Node's native recursive copy can preserve nested links despite
+    // dereference. A filter selects the walker that materializes them.
+    filter: () => true,
+  });
 }
 
 const destNodeModules = join(dest, "node_modules");
 hoistPnpmStore(join(standalone, "node_modules"), destNodeModules);
+
+// External workspace packages are linked from the app, outside pnpm's virtual
+// store. Materialize the traced packages before removing those app-local links.
+// Their traced dependency links are dereferenced by copyPackage as well.
+const appModules = join(standalone, "apps", "studio", "node_modules");
+if (existsSync(appModules)) {
+  for (const scopeOrPkg of readdirSync(appModules)) {
+    const entry = join(appModules, scopeOrPkg);
+    if (scopeOrPkg.startsWith("@")) {
+      for (const name of readdirSync(entry)) {
+        copyPackage(realpathSync(join(entry, name)), join(destNodeModules, scopeOrPkg, name));
+      }
+    } else {
+      copyPackage(realpathSync(entry), join(destNodeModules, scopeOrPkg));
+    }
+  }
+}
 
 // Drop the per-app `apps/studio/node_modules` (next/react were pnpm symlinks
 // there). With it removed, the server's module resolution walks up to the single

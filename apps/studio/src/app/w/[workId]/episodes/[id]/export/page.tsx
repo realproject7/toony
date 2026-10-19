@@ -67,7 +67,7 @@ export default async function EpisodeExportPage({
               id <code>{episode.id}</code>
             </span>
             <span>
-              <b>{cutCount}</b> cut(s)
+              <b>{cutCount}</b> {cutCount === 1 ? "cut" : "cuts"}
             </span>
           </div>
         </div>
@@ -81,7 +81,7 @@ export default async function EpisodeExportPage({
               className="btn btn-ghost"
               data-testid="open-reader-link"
             >
-              Read
+              Preview
             </Link>
             <span className="btn btn-primary" aria-current="page" data-testid="export-mode-active">
               Export

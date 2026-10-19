@@ -127,7 +127,7 @@ export function CharacterEditor({
         setSaved(JSON.stringify(characters));
         setMessage({
           kind: "ok",
-          text: data.changed ? "Saved to webtoon.json." : "Nothing changed.",
+          text: data.changed ? "Characters saved." : "Nothing changed.",
         });
         router.refresh();
       }
@@ -145,6 +145,7 @@ export function CharacterEditor({
           type="text"
           className="new-work-input"
           placeholder="New character name"
+          aria-label="New character name"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => {
@@ -168,7 +169,7 @@ export function CharacterEditor({
           disabled={saving || !dirty}
           data-testid="character-save"
         >
-          {saving ? "Saving…" : dirty ? "Save registry" : "Saved"}
+          {saving ? "Saving…" : dirty ? "Save characters" : "Saved"}
         </button>
       </div>
       {message && (
@@ -178,7 +179,7 @@ export function CharacterEditor({
               ? "editor-toast editor-toast-ok"
               : "editor-toast editor-toast-error"
           }
-          role="status"
+          role={message.kind === "error" ? "alert" : "status"}
           data-testid="character-message"
         >
           {message.text}
@@ -187,8 +188,8 @@ export function CharacterEditor({
 
       {rows.length === 0 && (
         <p className="empty" data-testid="character-empty">
-          No characters yet. Add one above; its id becomes the key every cut uses and the folder its
-          reference sheets live in.
+          Add your first character above. Keep their appearance, personality and outfits together
+          here.
         </p>
       )}
 
@@ -232,7 +233,7 @@ export function CharacterEditor({
                   />
                 </label>
                 <label className="field">
-                  <span>Lockstring</span>
+                  <span>Core description</span>
                   <textarea
                     rows={2}
                     value={character.lockstring}
@@ -240,8 +241,7 @@ export function CharacterEditor({
                     data-testid={`character-lockstring-${character.id}`}
                   />
                   <span className="field-hint">
-                    The short invariant description prepended to every prompt that names this
-                    character.
+                    The defining features to preserve whenever this character appears.
                   </span>
                 </label>
               </div>
@@ -249,8 +249,8 @@ export function CharacterEditor({
               <details className="character-craft">
                 <summary>Identity, wardrobe & story</summary>
                 <p className="field-hint">
-                  Keep enduring appearance separate from outfits. These notes guide authored cuts
-                  and agent revision briefs; they do not guarantee visual consistency.
+                  Describe lasting features here and outfits below. These notes guide the agent;
+                  review the artwork for consistency.
                 </p>
                 <label className="field">
                   <span>Visual identity</span>
@@ -350,8 +350,8 @@ export function CharacterEditor({
                 <span className="field-label">Reference sheets</span>
                 {row.sheets.length === 0 && (
                   <p className="field-hint">
-                    None. Put an image under <code>characters/{character.id}/</code> and list it
-                    here; a workflow that declares a reference input will condition on the first.
+                    No reference sheets yet. Add an existing image from{" "}
+                    <code>characters/{character.id}/</code>.
                   </p>
                 )}
                 <ul className="character-sheet-list">
@@ -380,7 +380,9 @@ export function CharacterEditor({
                 <div className="character-sheet-add">
                   <input
                     type="text"
-                    placeholder={`file name under characters/${character.id}/`}
+                    className="studio-input"
+                    aria-label={`${character.name} reference image filename`}
+                    placeholder="Reference image filename"
                     value={sheetInputs[character.id] ?? ""}
                     onChange={(e) =>
                       setSheetInputs((prev) => ({ ...prev, [character.id]: e.target.value }))
@@ -394,6 +396,7 @@ export function CharacterEditor({
                     type="button"
                     className="btn btn-chip"
                     onClick={() => addSheet(character.id)}
+                    disabled={!sheetInputs[character.id]?.trim()}
                     data-testid={`character-sheet-add-${character.id}`}
                   >
                     + Add sheet

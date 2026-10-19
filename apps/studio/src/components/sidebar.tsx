@@ -1,104 +1,107 @@
 "use client";
 
-// Left rail for the Production Scroll shell. Navigation only — the studio is a
-// working tool, not a landing page. Deliberately no wallet/account/publish/
-// royalty/marketplace entries.
-//
-// Workspace-aware (issue #51): the rail always offers a way back to the Library
-// at `/`. When the current route is inside a work (`/w/<id>/...`), it also shows
-// that work's scoped navigation (dashboard + episodes) so switching between a
-// work's surfaces never requires a restart. The current work id is read from the
-// path — no server round-trip — and url-decoded for display.
-
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 
-/** Extract the current work id from a `/w/<id>/...` path, or null at the library. */
-function currentWorkId(pathname: string): string | null {
-  const match = pathname.match(/^\/w\/([^/]+)/);
-  const raw = match?.[1];
-  if (!raw) return null;
-  try {
-    return decodeURIComponent(raw);
-  } catch {
-    return raw;
-  }
-}
-
-function isActive(pathname: string, href: string): boolean {
-  if (href === "/") return pathname === "/";
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
-
+const paths = {
+  Library: "M4 4h6v16H4zM14 4h6v16h-6z",
+  Story: "M5 3h14v18H5zM8 7h8M8 11h8M8 15h5",
+  Characters: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 21v-2a8 6 0 0 1 16 0v2",
+  Episodes: "M3 4h18v6H3zM3 14h18v6H3z",
+  Settings: "M4 7h16M4 17h16M9 4v6M15 14v6",
+};
 export function Sidebar() {
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("toony-theme") === "dark";
+      setDark(stored);
+      document.documentElement.dataset.theme = stored ? "dark" : "light";
+    } catch {
+      /* Default light theme remains usable without storage. */
+    }
+  }, []);
+  const toggleTheme = () => {
+    const next = !dark;
+    setDark(next);
+    document.documentElement.dataset.theme = next ? "dark" : "light";
+    try {
+      localStorage.setItem("toony-theme", next ? "dark" : "light");
+    } catch {
+      /* This tab keeps the choice. */
+    }
+  };
   const pathname = usePathname() ?? "/";
-  const workId = currentWorkId(pathname);
-  const workBase = workId ? `/w/${encodeURIComponent(workId)}` : null;
-
+  const raw = pathname.match(/^\/w\/([^/]+)/)?.[1];
+  const base = raw ? `/w/${raw}` : null;
+  const link = (label: keyof typeof paths, href: string, testId: string) => (
+    <Link
+      key={label}
+      href={href}
+      className="nav-link"
+      title={label}
+      data-testid={testId}
+      aria-current={
+        pathname === href || (label !== "Story" && href !== "/" && pathname.startsWith(`${href}/`))
+          ? "page"
+          : undefined
+      }
+    >
+      <svg
+        width="21"
+        height="21"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d={paths[label]} />
+      </svg>
+      <span>{label}</span>
+    </Link>
+  );
   return (
     <aside className="sidebar">
-      <Link href="/" className="brand" aria-label="Toony Studio — Library">
-        {/* The app icon: the operator's Toony tuxedo-cat mark (v4). */}
-        {/* biome-ignore lint/performance/noImgElement: static brand mark served from /public, not user content for the Next image optimizer. */}
-        <img className="brand-mark" src="/brand/toony-icon.png" alt="" aria-hidden="true" />
-        <span>
-          Toony<span className="brand-dot">.</span>
-        </span>
+      <Link href="/" className="brand" aria-label="Toony library">
+        {/* biome-ignore lint/performance/noImgElement: static local brand asset requires no optimization. */}
+        <img className="brand-mark" src="/brand/toony-icon.png" alt="" />
       </Link>
       <nav className="nav" aria-label="Primary">
-        <p className="nav-section-title">Workspace</p>
-        <Link
-          href="/"
-          className="nav-link"
-          aria-current={isActive(pathname, "/") ? "page" : undefined}
-          data-testid="nav-library"
-        >
-          Library
-        </Link>
-        <Link
-          href="/settings"
-          className="nav-link"
-          aria-current={isActive(pathname, "/settings") ? "page" : undefined}
-          data-testid="nav-settings"
-        >
-          Settings
-        </Link>
-
-        {workBase && (
-          <>
-            <p className="nav-section-title nav-section-work" data-testid="nav-current-work">
-              {workId}
-            </p>
-            <Link
-              href={workBase}
-              className="nav-link"
-              aria-current={pathname === workBase ? "page" : undefined}
-              data-testid="nav-dashboard"
-            >
-              Dashboard
-            </Link>
-            <Link
-              href={`${workBase}/episodes`}
-              className="nav-link"
-              aria-current={isActive(pathname, `${workBase}/episodes`) ? "page" : undefined}
-              data-testid="nav-episodes"
-            >
-              Episodes
-            </Link>
-            <Link
-              href={`${workBase}/characters`}
-              className="nav-link"
-              aria-current={isActive(pathname, `${workBase}/characters`) ? "page" : undefined}
-              data-testid="nav-characters"
-            >
-              Characters
-            </Link>
-          </>
+        {link("Library", "/", "nav-library")}
+        {base && (
+          <div className="nav-work" data-testid="nav-current-work">
+            {link("Story", base, "nav-dashboard")}
+            {link("Characters", `${base}/characters`, "nav-characters")}
+            {link("Episodes", `${base}/episodes`, "nav-episodes")}
+          </div>
         )}
       </nav>
-      <div className="sidebar-status">
-        <p className="sidebar-foot">Local-first webtoon production</p>
-      </div>
+      <nav className="nav nav-bottom" aria-label="Preferences">
+        <button
+          type="button"
+          className="nav-link nav-theme"
+          aria-label={dark ? "Use light theme" : "Use dark theme"}
+          onClick={toggleTheme}
+        >
+          <svg
+            width="21"
+            height="21"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            aria-hidden="true"
+          >
+            <path d="M20 14A8.5 8.5 0 0 1 10 4a8.5 8.5 0 1 0 10 10Z" />
+          </svg>
+          <span>{dark ? "Light" : "Dark"}</span>
+        </button>
+        {link("Settings", "/settings", "nav-settings")}
+      </nav>
     </aside>
   );
 }

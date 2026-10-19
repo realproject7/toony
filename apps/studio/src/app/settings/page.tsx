@@ -11,6 +11,7 @@
 // resolved server-side by `@/lib/workspace`.
 
 import { readConfig } from "@toony/project-io";
+import { AgentConnectionButton } from "@/components/ask-agent";
 import { SettingsForm } from "@/components/settings-form";
 import { probeComfyui } from "@/lib/comfyui-probe";
 import { workspaceRoot } from "@/lib/workspace";
@@ -30,14 +31,26 @@ export default async function SettingsPage() {
         <div>
           <p className="page-eyebrow">Workspace</p>
           <h1 className="page-title">Settings</h1>
-          <p className="page-meta">
-            Connect the image model you generate with. Saved to this workspace and shared with the
-            CLI and agents.
-          </p>
+          <p className="page-meta">Manage your agent connection and optional artwork tools.</p>
         </div>
       </header>
 
-      <SettingsForm initialConfig={config} initialConnection={connection} />
+      <section className="card settings-card settings-agent">
+        <div>
+          <h2>Your agent</h2>
+          <p>
+            Connect Claude or Codex with your own account. Choose project context and conversation
+            storage in the connection panel.
+          </p>
+        </div>
+        <AgentConnectionButton />
+      </section>
+      <details className="settings-generation">
+        <summary>
+          Artwork generation settings <span>Optional</span>
+        </summary>
+        <SettingsForm initialConfig={config} initialConnection={connection} />
+      </details>
     </div>
   );
 }

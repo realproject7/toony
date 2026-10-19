@@ -17,7 +17,7 @@ export function BriefCard({
   const names = new Map(characters.map((c) => [c.id, c.name]));
   return (
     <article className="card brief-card" data-testid="brief-card">
-      <h2 className="card-title">Production brief</h2>
+      <h2 className="card-title">Story brief</h2>
       {unreadable && (
         <p className="notice notice-danger">
           The brief file exists but is not valid JSON. Fix <code>script/brief.json</code>.
@@ -25,8 +25,8 @@ export function BriefCard({
       )}
       {brief?.absent && (
         <p className="empty" data-testid="brief-empty">
-          No brief yet. The agent writes <code>script/brief.json</code> once you have agreed what
-          the work is and who it is for.
+          No story brief yet. Develop the premise, audience and characters with your agent.
+          Connected chat discusses proposals; saving them to the project is not available yet.
         </p>
       )}
       {brief && !brief.absent && brief.brief === null && (
@@ -110,10 +110,6 @@ export function BriefCard({
               </dd>
             </>
           )}
-          <dt>Revision</dt>
-          <dd>
-            <code>{brief.revision?.slice(0, 12)}</code>
-          </dd>
         </dl>
       )}
     </article>

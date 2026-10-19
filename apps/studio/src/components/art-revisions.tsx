@@ -1,7 +1,9 @@
 "use client";
 import type { ArtRevision } from "@toony/project-io";
 import type { Character } from "@toony/schema";
-import { useCallback, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { useAgentWorkspace } from "./agent-workspace";
 
 type RequestView = Omit<ArtRevision, "context"> & { brief: string; stale: boolean };
 export function ArtRevisions({
@@ -19,6 +21,8 @@ export function ArtRevisions({
   characters: readonly Character[];
   dirty: boolean;
 }) {
+  const { ask } = useAgentWorkspace();
+  const router = useRouter();
   const [requests, setRequests] = useState<RequestView[]>([]);
   const [revision, setRevision] = useState<string | null>(null);
   const [change, setChange] = useState("");
@@ -53,6 +57,9 @@ export function ArtRevisions({
       setBusy(false);
     }
   }, [workId, episodeId, cutId, sourceDigest]);
+  useEffect(() => {
+    if (opened) void refresh();
+  }, [opened, refresh]);
   const send = async (payload: object) => {
     const response = await fetch("/api/art-revisions", {
       method: "POST",
@@ -77,7 +84,9 @@ export function ArtRevisions({
       setChange("");
       setBriefId(result.id);
       await refresh();
-      setMessage("Request saved. Copy the brief to your agent. No image service has been called.");
+      setMessage(
+        "Request saved. Discuss it with your agent or copy the brief for an image-editing tool.",
+      );
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Could not save the request.");
     } finally {
@@ -89,9 +98,14 @@ export function ArtRevisions({
     setMessage("");
     try {
       await send({ action: "apply", id: r.id, candidateDigest: r.candidate?.sha256 });
-      window.location.reload();
+      setRequests((old) =>
+        old.map((row) => (row.id === r.id ? { ...row, state: "applied" } : row)),
+      );
+      setMessage("Candidate applied as draft. Your lettering is preserved.");
+      router.refresh();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Could not apply the candidate.");
+    } finally {
       setBusy(false);
     }
   };
@@ -102,17 +116,14 @@ export function ArtRevisions({
       className="art-revisions"
       data-testid="art-revisions"
       onToggle={(e) => {
-        if (e.currentTarget.open && !opened) {
-          setOpened(true);
-          void refresh();
-        }
+        setOpened(e.currentTarget.open);
       }}
     >
       <summary>Request an art change</summary>
       <div className="art-revisions-body">
         <p className="field-hint">
-          Describe a change for this cut. Your agent receives the original image, character and
-          scene context, and what must stay the same. You compare the candidate before applying it.
+          Describe a change and preserve its source for comparison. Connected chat can discuss saved
+          text; image editing still needs a capable tool.
         </p>
         <label className="field">
           <span>Target</span>
@@ -180,10 +191,22 @@ export function ArtRevisions({
                   ? "Context changed · create a new request"
                   : r.state === "candidate"
                     ? "Candidate ready for comparison"
-                    : "Waiting for an agent candidate"}
+                    : "Waiting for an image-editing candidate"}
             </p>
             <p>Keep: {r.preserve}</p>
             <div className="editor-actions">
+              <button
+                type="button"
+                className="btn btn-chip"
+                onClick={() =>
+                  ask(
+                    `Help refine this image-editing request. Change: ${r.change}\nPreserve: ${r.preserve}\nDiscuss the plan only; do not claim to have edited the image.`,
+                    { episodeId, cutId },
+                  )
+                }
+              >
+                Discuss with agent
+              </button>
               <button
                 type="button"
                 className="btn btn-chip"

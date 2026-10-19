@@ -66,8 +66,7 @@ export default async function LibraryPage() {
         <section className="notice" data-testid="library-empty">
           <h2 className="card-title">No works yet</h2>
           <p className="page-meta">
-            This workspace has no webtoons. Create one to begin — it scaffolds a valid project
-            folder in the workspace and opens its dashboard.
+            Create a webtoon to start shaping your story, characters and episodes.
           </p>
           <p>
             <NewWorkButton genres={packs.genreOptions} />
@@ -98,9 +97,6 @@ export default async function LibraryPage() {
                   </div>
                   <div className="work-card-body">
                     <p className="work-card-title">{work.title}</p>
-                    <p className="work-card-id">
-                      <code>{work.id}</code>
-                    </p>
                     <div className="work-card-counts">
                       <span>
                         <b>{work.episodeCount}</b> ep

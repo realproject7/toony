@@ -58,6 +58,7 @@ import { GeometryControls } from "./geometry-controls";
 import { GradientControls } from "./gradient-controls";
 import { InspectorNumberField } from "./inspector-number-field";
 import { LetteringTextField } from "./lettering-text-field";
+import { StudioIcon } from "./studio-icon";
 import { TextLayoutControls } from "./text-layout-controls";
 
 /** Per-weight human labels for the weight selector. */
@@ -576,7 +577,7 @@ export function BubbleInspector({
                 aria-label="Nudge up"
                 data-testid="field-nudge-up"
               >
-                ↑
+                <StudioIcon name="arrow" rotate={-90} />
               </button>
               <button
                 type="button"
@@ -585,7 +586,7 @@ export function BubbleInspector({
                 aria-label="Nudge left"
                 data-testid="field-nudge-left"
               >
-                ←
+                <StudioIcon name="arrow" rotate={180} />
               </button>
               <button
                 type="button"
@@ -594,7 +595,7 @@ export function BubbleInspector({
                 aria-label="Nudge right"
                 data-testid="field-nudge-right"
               >
-                →
+                <StudioIcon name="arrow" rotate={0} />
               </button>
               <button
                 type="button"
@@ -603,7 +604,7 @@ export function BubbleInspector({
                 aria-label="Nudge down"
                 data-testid="field-nudge-down"
               >
-                ↓
+                <StudioIcon name="arrow" rotate={90} />
               </button>
             </div>
           </div>

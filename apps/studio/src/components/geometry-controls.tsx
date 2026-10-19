@@ -1,6 +1,7 @@
 "use client";
 
 import type { LetteringOverlay } from "@toony/schema";
+import { resolvedTailStyle } from "@/lib/new-overlay";
 
 export function GeometryControls({
   overlay,
@@ -58,6 +59,7 @@ export function GeometryControls({
               </span>
               <input
                 aria-label={`Tail ${key} percent`}
+                disabled={resolvedTailStyle(overlay) === "none"}
                 type="number"
                 min={0}
                 max={100}
