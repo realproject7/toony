@@ -7,7 +7,7 @@ import {
   assertAgentOrigin,
   assertAgentSession,
 } from "../agent/security.js";
-import { agentFocus, agentSettings } from "../agent/types.js";
+import { agentFocus, agentPreferences } from "../agent/types.js";
 
 function request(headers: Record<string, string> = {}, url = "http://localhost:4400/api/agent") {
   return new Request(url, {
@@ -79,29 +79,35 @@ test("request size is bounded even without a content-length header", async () =>
   );
   assert.deepEqual(await agentBody(request()), {});
 });
-test("connection settings cannot smuggle environment, commands or invalid scene paths", () => {
+test("agent preferences cannot smuggle environment, options or invalid focus paths", () => {
   assert.deepEqual(
-    agentSettings({
+    agentPreferences({
       provider: "codex",
       model: "",
-      projectContext: true,
       retainHistory: false,
       env: { TOKEN: "test-only" },
     }),
-    { provider: "codex", model: "", projectContext: true, retainHistory: false },
+    { provider: "codex", model: "", autoApply: true, viewArtwork: true, retainHistory: false },
   );
-  assert.throws(() =>
-    agentSettings({
-      provider: "codex",
-      model: "--shell x",
-      projectContext: true,
-      retainHistory: false,
+  for (const model of ["--shell x", "-p", "--model=x", "a b", "x".repeat(101)]) {
+    assert.throws(() => agentPreferences({ provider: "claude", model }), /model/);
+  }
+  assert.equal(agentPreferences({ provider: "claude", model: "opus[1m]" }).model, "opus[1m]");
+  assert.throws(() => agentPreferences({ provider: "other" }));
+  assert.throws(() => agentPreferences({ provider: "codex", autoApply: "yes" }));
+  assert.throws(() => agentFocus({ route: "episode", episodeId: "../outside" }));
+  assert.throws(() => agentFocus({ route: "episode", episodeId: "ep-001", bubbleIds: ["a/b"] }));
+  // A cut without an episode is dropped, not refused, so a half-loaded page never blocks a message.
+  assert.deepEqual(agentFocus({ route: "episode", cutId: "cut-001" }), { route: "episode" });
+  assert.deepEqual(
+    agentFocus({
+      route: "episode",
+      episodeId: "ep-001",
+      cutId: "cut-001",
+      bubbleIds: ["b1", "b1", "b2"],
+      path: "untrusted",
     }),
+    { route: "episode", episodeId: "ep-001", cutId: "cut-001", bubbleIds: ["b1", "b2"] },
   );
-  assert.throws(() => agentFocus({ episodeId: "../outside" }));
-  assert.throws(() => agentFocus({ cutId: "cut" }));
-  assert.deepEqual(agentFocus({ episodeId: "ep-1", cutId: "cut-1", path: "untrusted" }), {
-    episodeId: "ep-1",
-    cutId: "cut-1",
-  });
+  assert.deepEqual(agentFocus({ route: "nowhere" }), { route: "library" });
 });

@@ -9,9 +9,21 @@ export type AgentProvider = "claude" | "codex";
 /** What the installed CLI can do right now, without exposing account identity. */
 export type ProviderReadiness =
   | { state: "ready"; version: string }
-  | { state: "sign-in-required"; version: string; command: string }
+  | {
+      state: "sign-in-required";
+      version: string;
+      command: string;
+      /** Additive: a plain sentence for a sign-in Toony does not use (an API key, for example). */
+      message?: string;
+    }
   | { state: "missing"; installCommand: string; docsUrl: string }
-  | { state: "unsupported"; version: string; supported: string }
+  | {
+      state: "unsupported";
+      version: string;
+      supported: string;
+      /** Additive: what is missing when the version is in range but a required option is not. */
+      detail?: string;
+    }
   | { state: "checking" }
   | { state: "unavailable"; detail: string };
 
@@ -183,6 +195,12 @@ export interface ConversationSummary {
   title: string;
   updatedAt: string;
   preview: string;
+  /** Additive: a conversation from an older Toony build that can be read but not continued. */
+  readOnly?: boolean;
+  /** Additive: the provider of the conversation's last turn, when it had one. */
+  provider?: AgentProvider | null;
+  /** Additive: the state of the conversation's last turn, when it had one. */
+  state?: TurnState["state"] | null;
 }
 
 export interface ConversationView {
@@ -193,6 +211,8 @@ export interface ConversationView {
   items: ConversationItem[];
   tasks: TaskItem[];
   turn: TurnState | null;
+  /** Additive: true for a conversation from an older Toony build (read only). */
+  readOnly?: boolean;
 }
 
 export type ChangeScope =
@@ -314,7 +334,41 @@ export type AgentAction =
   | { action: "undo"; conversationId: string; changeId: string }
   | { action: "cancel"; conversationId: string }
   | { action: "memory"; workId: string }
-  | { action: "forget"; workId: string; noteId: string };
+  | { action: "forget"; workId: string; noteId: string }
+  /** Additive: run the last failed or stopped turn of the conversation again. */
+  | { action: "retry"; conversationId: string };
+
+/** Additive: the success body of each `POST /api/agent` action. */
+export interface AgentResponses {
+  bootstrap: { ok: true; connection: ConnectionState };
+  providers: { ok: true; providers: ProviderStatus[] };
+  connect: { ok: true; connection: ConnectionState; providers: ProviderStatus[] };
+  preferences: { ok: true; connection: ConnectionState };
+  disconnect: { ok: true; connection: ConnectionState };
+  open: { ok: true; view: ConversationView };
+  new: { ok: true; view: ConversationView };
+  history: { ok: true; conversations: ConversationSummary[] };
+  delete: { ok: true };
+  send: { ok: true; view: ConversationView };
+  answer: { ok: true; view: ConversationView };
+  proposal: { ok: true; view: ConversationView };
+  undo: { ok: true; view: ConversationView };
+  cancel: { ok: true; view: ConversationView };
+  retry: { ok: true; view: ConversationView };
+  memory: { ok: true; memory: MemoryView };
+  forget: { ok: true; memory: MemoryView };
+}
+
+/**
+ * Additive: the failure body of `POST /api/agent`. `providers` is present when
+ * a connect or preference change was refused because the CLI is not ready.
+ */
+export interface AgentFailure {
+  ok: false;
+  code: string;
+  error: string;
+  providers?: ProviderStatus[];
+}
 
 export interface MemoryNote {
   id: string;

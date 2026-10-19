@@ -1,121 +1,161 @@
-import { mkdir, realpath } from "node:fs/promises";
-import { join } from "node:path";
-import { projectAgentContext } from "@/lib/agent/context";
-import { nativeAnswer, probeAgent } from "@/lib/agent/native";
+// The agent panel's actions (`AgentAction` in lib/agent/protocol.ts). Every
+// action is guarded like any Studio write: a loopback host, an Origin equal to
+// it, `x-toony-agent: 1`, a JSON body and the session cookie (bootstrap issues
+// it). Success bodies are `AgentResponses[action]`; failures are
+// `{ ok: false, code, error }` (plus `providers` when the CLI is not ready).
+// State changes reach every tab as live events on `GET /api/live`.
+
 import {
   agentBody,
   agentResponse,
   assertAgentOrigin,
   assertAgentSession,
 } from "@/lib/agent/security";
-import { AgentStore } from "@/lib/agent/store";
-import { AgentError, agentFocus, agentSettings } from "@/lib/agent/types";
-import { resolveWork, workspaceRoot } from "@/lib/workspace";
+import { agentRuntime, requestPort } from "@/lib/agent/server";
+import { AgentError, agentFocus, agentPreferences, isAgentError } from "@/lib/agent/types";
+import { resolveWork } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-const state = globalThis as typeof globalThis & { toonyAgentStores?: Map<string, AgentStore> };
-async function store(): Promise<AgentStore> {
-  // A fresh install has no workspace folder until something creates it.
-  await mkdir(workspaceRoot(), { recursive: true });
-  const root = await realpath(workspaceRoot());
-  state.toonyAgentStores ??= new Map();
-  const stores = state.toonyAgentStores;
-  let value = stores.get(root);
-  if (!value) {
-    value = new AgentStore(join(root, ".toony-agent"), nativeAnswer, async (workId, focus) => {
-      const work = await resolveWork(workId);
-      if (!work) throw new AgentError("work", "This project is unavailable.", 404);
-      return projectAgentContext(work.root, focus);
-    });
-    stores.set(root, value);
+
+function string(value: unknown, what = "request"): string {
+  if (typeof value !== "string" || value === "") {
+    throw new AgentError("request", `The ${what} is incomplete.`);
   }
-  await value.init();
   return value;
 }
-function string(value: unknown): string {
-  if (typeof value !== "string") throw new AgentError("request", "The request is incomplete.");
-  return value;
+
+async function workIdOf(value: unknown): Promise<string | null> {
+  if (value === undefined || value === null) return null;
+  const workId = string(value);
+  if (!(await resolveWork(workId))) {
+    throw new AgentError("work", "This webtoon is not in the workspace.", 404);
+  }
+  return workId;
 }
+
 export async function POST(request: Request): Promise<Response> {
   try {
     assertAgentOrigin(request);
     const body = await agentBody(request);
-    if (body.action === "bootstrap") return agentResponse({ ok: true }, 200, true);
-    assertAgentSession(request);
-    if (body.action === "providers") {
-      return agentResponse({
-        ok: true,
-        providers: await Promise.all([probeAgent("claude"), probeAgent("codex")]),
-      });
+    const agent = await agentRuntime();
+    agent.setPort(requestPort(request));
+    if (body.action === "bootstrap") {
+      return agentResponse({ ok: true, connection: agent.connectionState() }, 200, true);
     }
-    const agent = await store();
-    const workId = body.workId === undefined || body.workId === null ? null : string(body.workId);
-    if (workId !== null && !(await resolveWork(workId)))
-      throw new AgentError("work", "This project is unavailable.", 404);
+    assertAgentSession(request);
     switch (body.action) {
-      case "state":
-        return agentResponse({ ok: true, ...agent.view(workId) });
-      case "verify": {
-        if (body.trustNative !== true)
-          throw new AgentError(
-            "trust",
-            "Confirm use of your installed agent before checking the connection.",
-          );
-        await agent.verify(agentSettings(body.settings));
-        return agentResponse({ ok: true });
-      }
-      case "configure":
-        await agent.configure(agentSettings(body.settings));
-        break;
-      case "disconnect":
-        await agent.disconnect();
-        break;
-      case "new":
-        return agentResponse({ ok: true, ...(await agent.newConversation(workId)) });
-      case "open":
+      case "providers":
+        return agentResponse({ ok: true, providers: await agent.providers(body.refresh === true) });
+      case "connect":
         return agentResponse({
           ok: true,
-          ...(await agent.open(workId, string(body.conversationId))),
+          ...(await agent.connect(agentPreferences(body.preferences))),
+        });
+      case "preferences":
+        return agentResponse({
+          ok: true,
+          connection: await agent.setPreferences(agentPreferences(body.preferences)),
+        });
+      case "disconnect":
+        return agentResponse({ ok: true, connection: await agent.disconnect() });
+      case "open": {
+        const workId = await workIdOf(body.workId);
+        const conversationId =
+          body.conversationId === undefined || body.conversationId === null
+            ? undefined
+            : string(body.conversationId);
+        return agentResponse({ ok: true, view: await agent.open(workId, conversationId) });
+      }
+      case "new":
+        return agentResponse({
+          ok: true,
+          view: await agent.newConversation(await workIdOf(body.workId)),
         });
       case "history":
-        return agentResponse({ ok: true, history: agent.history(workId) });
-      case "read":
         return agentResponse({
           ok: true,
-          conversation: agent.read(workId, string(body.conversationId)),
+          conversations: agent.history(await workIdOf(body.workId)),
         });
       case "delete":
-        await agent.deleteConversation(workId, string(body.conversationId));
-        break;
-      case "cancel":
-        agent.cancel(workId, string(body.conversationId));
-        break;
+        await agent.deleteConversation(string(body.conversationId));
+        return agentResponse({ ok: true });
       case "send":
         return agentResponse({
           ok: true,
-          ...(await agent.send(
-            workId,
+          view: await agent.send(
             string(body.conversationId),
-            string(body.message),
             string(body.requestId),
-            agentFocus(body.focus),
-          )),
+            typeof body.text === "string" ? body.text : "",
+            body.focus === undefined ? undefined : agentFocus(body.focus),
+          ),
         });
+      case "answer":
+        return agentResponse({
+          ok: true,
+          view: await agent.answer(
+            string(body.conversationId),
+            string(body.questionId),
+            string(body.requestId),
+            body.choices,
+            body.other,
+          ),
+        });
+      case "proposal": {
+        if (body.decision !== "apply" && body.decision !== "dismiss") {
+          throw new AgentError("request", "Choose Apply or Dismiss.");
+        }
+        return agentResponse({
+          ok: true,
+          view: await agent.decideProposal(
+            string(body.conversationId),
+            string(body.proposalId),
+            body.decision,
+          ),
+        });
+      }
+      case "undo":
+        return agentResponse({
+          ok: true,
+          view: await agent.undo(string(body.conversationId), string(body.changeId)),
+        });
+      case "cancel":
+        return agentResponse({ ok: true, view: await agent.cancel(string(body.conversationId)) });
+      case "retry":
+        return agentResponse({ ok: true, view: await agent.retry(string(body.conversationId)) });
+      case "memory": {
+        const workId = await workIdOf(body.workId);
+        if (workId === null) throw new AgentError("work", "Open a webtoon first.", 400);
+        return agentResponse({ ok: true, memory: await agent.memory(workId) });
+      }
+      case "forget": {
+        const workId = await workIdOf(body.workId);
+        if (workId === null) throw new AgentError("work", "Open a webtoon first.", 400);
+        return agentResponse({ ok: true, memory: await agent.forget(workId, string(body.noteId)) });
+      }
       default:
         throw new AgentError("request", "This agent action is unavailable.");
     }
-    return agentResponse({ ok: true, ...agent.view(workId) });
   } catch (error) {
-    return error instanceof AgentError
-      ? agentResponse({ ok: false, code: error.code, error: error.message }, error.status)
-      : agentResponse(
-          {
-            ok: false,
-            code: "unavailable",
-            error: "The local agent service is unavailable. Check your workspace and try again.",
-          },
-          500,
-        );
+    if (isAgentError(error)) {
+      const providers = (error as { providers?: unknown }).providers;
+      return agentResponse(
+        {
+          ok: false,
+          code: error.code,
+          error: error.message,
+          ...(Array.isArray(providers) ? { providers } : {}),
+        },
+        error.status,
+      );
+    }
+    return agentResponse(
+      {
+        ok: false,
+        code: "unavailable",
+        error: "The local agent service is unavailable. Check your workspace and try again.",
+      },
+      500,
+    );
   }
 }
