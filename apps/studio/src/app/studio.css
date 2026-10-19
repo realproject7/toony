@@ -2560,9 +2560,12 @@ button.transition-block {
   z-index: 80;
   padding: 18px 22px;
   background: var(--color-bg, var(--color-surface));
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .editor-focus .page-head {
+  flex-shrink: 0;
   margin-bottom: 12px;
   align-items: center;
 }
@@ -2579,7 +2582,9 @@ button.transition-block {
 .editor-focus .editor-layout {
   grid-template-columns: minmax(0, 1fr) 310px;
   grid-template-rows: minmax(0, 1fr);
-  height: calc(100dvh - 130px);
+  flex: 1;
+  min-height: 0;
+  height: auto;
   gap: 18px;
 }
 .editor-focus .editor-stage-wrap {
@@ -2713,6 +2718,7 @@ button.transition-block {
   min-width: 0;
 }
 .inspector-organized {
+  position: relative;
   gap: 16px;
 }
 .inspector-organized :is(input, select, textarea, button) {

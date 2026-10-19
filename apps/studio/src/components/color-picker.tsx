@@ -271,7 +271,7 @@ export function ColorPicker({
           ref={popoverRef}
           id={popoverId}
           role="dialog"
-          aria-label={`${label} color`}
+          aria-label={label.endsWith("color") ? label : `${label} color`}
         >
           <div className="color-grid" data-testid={testId ? `${testId}-grid` : undefined}>
             {DEFAULT_SWATCHES.map((color) => (
