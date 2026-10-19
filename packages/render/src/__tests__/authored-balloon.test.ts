@@ -151,3 +151,24 @@ test("an explicit tail style opts a legacy kind into a usable default contour", 
   assert.ok(plan.tail);
   assert.equal(plan.pathD, layoutBubble({ ...b, balloonShape: "oval" }, 800, 1200).pathD);
 });
+
+test("authored paths are stable under engine-sized trigonometric differences", () => {
+  const shapes = BALLOON_SHAPES.map((shape) => ({
+    shape,
+    before: authoredBalloon(box, shape, null, 24, { style: "none" }),
+  }));
+  const originalSin = Math.sin,
+    originalCos = Math.cos;
+  try {
+    Math.sin = (x) => originalSin(x) * (1 + Number.EPSILON);
+    Math.cos = (x) => originalCos(x) * (1 - Number.EPSILON);
+    for (const { shape, before } of shapes) {
+      const after = authoredBalloon(box, shape, null, 24, { style: "none" });
+      assert.deepEqual(after.outline, before.outline, shape);
+      assert.deepEqual(after.accents, before.accents, shape);
+    }
+  } finally {
+    Math.sin = originalSin;
+    Math.cos = originalCos;
+  }
+});

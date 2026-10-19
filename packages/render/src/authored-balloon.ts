@@ -326,7 +326,21 @@ export function authoredBalloon(
       );
     }
   }
-  return { outline, tail, accents };
+  // Trigonometric results can differ in their last bits across JS engines.
+  // Both SVG and raster consume these stabilized coordinates, avoiding server/
+  // browser hydration mismatches without a visible loss of geometric precision.
+  const precision = Math.max(width, height) / 1e8;
+  const stable = (commands: BalloonCommand[]) =>
+    commands.map(
+      (c) =>
+        Object.fromEntries(
+          Object.entries(c).map(([key, value]) => [
+            key,
+            typeof value === "number" ? Math.round(value / precision) * precision : value,
+          ]),
+        ) as unknown as BalloonCommand,
+    );
+  return { outline: stable(outline), tail, accents: stable(accents) };
 }
 
 export function balloonTextInset(shape: BalloonShape): number {
