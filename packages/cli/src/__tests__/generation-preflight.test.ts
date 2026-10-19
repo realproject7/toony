@@ -58,6 +58,19 @@ test("automatic canvas reduction is blocked; an explicit size is disclosed witho
   assert.equal(canvasFinding("fixture", baseline, baseline, false), undefined);
 });
 
+test("an empty-scene instruction cannot also ask for attendants", () => {
+  const cut = { id: "empty", characters: [] } as unknown as Cut;
+  assert.equal(
+    promptFindings(
+      cut,
+      "no humans, a carriage at the gate, liveried attendants waiting",
+      "scene",
+    )[0]?.code,
+    "empty-scene-people",
+  );
+  assert.deepEqual(promptFindings(cut, "no people, an empty courtyard with trees", "scene"), []);
+});
+
 async function fixture(t: { after(fn: () => Promise<void>): void }) {
   const dir = await mkdtemp(join(tmpdir(), "toony-preflight-"));
   t.after(() => rm(dir, { recursive: true, force: true }));

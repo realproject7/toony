@@ -6,12 +6,12 @@
     "@toony/providers": 89,
     "@toony/fonts": 20,
     "@toony/packs": 38,
-    "@toony/project-io": 147,
+    "@toony/project-io": 154,
     "@toony/render": 190,
-    "@toony/studio": 111,
+    "@toony/studio": 112,
     "@toony/export": 188,
     "@toony/lint": 94,
-    "toony-cli": 282
+    "toony-cli": 284
   },
   "verification": 42,
   "reductions": {}

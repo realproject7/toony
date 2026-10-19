@@ -337,7 +337,7 @@ export function CharacterEditor({
                     patch(character.id, {
                       wardrobe: [
                         ...(character.wardrobe ?? []),
-                        { id: `outfit-${(character.wardrobe?.length ?? 0) + 1}`, description: "" },
+                        { id: `outfit-${crypto.randomUUID().slice(0, 8)}`, description: "" },
                       ],
                     })
                   }

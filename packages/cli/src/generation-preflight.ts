@@ -26,6 +26,19 @@ export function promptFindings(
       target: cut.id,
       message,
     });
+  const excludesPeople = /\bno (?:humans?|people|persons?|characters?)\b/i.test(prompt);
+  const positiveScene = prompt.replace(/\bno (?:humans?|people|persons?|characters?)\b/gi, "");
+  if (
+    (excludesPeople || cut.artDirection?.subjects.length === 0) &&
+    /\b(?:attendants?|crowds?|couples?|girls?|boys?|women|woman|men|man|people|persons?|[1-9]\d*\s*(?:girls?|boys?|people))\b/i.test(
+      positiveScene,
+    )
+  ) {
+    add(
+      "empty-scene-people",
+      "The scene excludes people but also describes people. Resolve the visible cast before generation.",
+    );
+  }
   if (count > 0 && /\bno (?:humans?|people|persons?|characters?)\b/i.test(prompt)) {
     add(
       "empty-scene-cast",

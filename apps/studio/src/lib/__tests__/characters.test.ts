@@ -71,6 +71,24 @@ async function snapshot(root: string): Promise<Map<string, string>> {
   return out;
 }
 
+test("identity, development and wardrobe survive Studio registry saves", async () => {
+  const root = await newProject();
+  const loaded = await loadProject(root);
+  const characters = loaded.project.webtoon.characters ?? [];
+  assert.ok(characters[0]);
+  characters[0].visualIdentity = "Cropped hair and round glasses";
+  characters[0].wardrobe = [{ id: "work", description: "Teal work coat" }];
+  characters[0].development = {
+    role: "Lead",
+    desire: "Earn trust",
+    flaw: "Avoids asking",
+    voice: "Direct",
+    arc: "Accept help",
+  };
+  assert.deepEqual(await saveCharacters(root, characters), { ok: true, changed: true });
+  assert.deepEqual((await loadProject(root)).project.webtoon.characters, characters);
+});
+
 test("rows carry each character's uses and whether its sheets are on disk", async () => {
   const root = await newProject();
   const rows = await characterRows(root, (await loadProject(root)).project);

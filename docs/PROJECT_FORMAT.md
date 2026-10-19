@@ -595,3 +595,21 @@ condition on one character reference when configured and does not edit a source
 image. Render provenance carries the art direction and a digest of the resolved
 workflow; the provider records a separate digest of the submitted graph. These
 records do not certify visual quality or deterministic execution.
+
+
+## Per-cut art revision requests
+
+Studio can save a local request with change/preserve instructions and an optional
+target character. The request snapshots the source bytes, content digest, current
+cut, adjacent cuts, character registry, story bible and lettering. No provider or
+messaging service runs. `toony revision list` and `show` expose requests to agents;
+`create` can author one and `stage --id … --file … --note …` imports a candidate.
+
+Requests and immutable source snapshots live under `.toony/revisions/`. Staged
+images have unique content-addressed names under the episode's assets/revisions.
+Studio shows the original and candidate before explicit adoption. Adoption checks
+the candidate digest and current source/context, changes one cut image pointer,
+and resets artwork review to draft. It preserves old image bytes, all lettering
+and other cuts. A changed source, character registry, story bible or adjacent cut
+invalidates the request. This local workflow requires one writer per work and an
+editing-capable agent tool; it does not add source-image editing to generation.

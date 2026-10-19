@@ -41,6 +41,7 @@ import { letteringClipboard, parseLetteringClipboard } from "@/lib/lettering-cli
 import { newOverlay, presetOverlay } from "@/lib/new-overlay";
 import type { CutArt } from "@/lib/project";
 import { AlignmentSymbol } from "./alignment-symbol";
+import { ArtRevisions } from "./art-revisions";
 import { CutFieldsEditor } from "./cut-fields-editor";
 import { CutReviewControl } from "./cut-review-control";
 import type { InlineTextHandle, TextSelection } from "./inline-lettering-text";
@@ -1182,6 +1183,16 @@ export function CutEditor({
               artworkRevision={artworkRevision}
             />
           </details>
+          <ArtRevisions
+            workId={workId}
+            episodeId={episodeId}
+            cutId={cutId}
+            sourceDigest={
+              art.src ? new URL(art.src, "http://local.invalid").searchParams.get("revision") : null
+            }
+            characters={characters}
+            dirty={dirty}
+          />
           <div className="editor-toolbar">
             <button
               type="button"

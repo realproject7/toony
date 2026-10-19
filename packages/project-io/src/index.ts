@@ -102,6 +102,17 @@ export {
   loadProject,
   summarizeEpisodes,
 } from "./reader.js";
+export {
+  type ArtRevision,
+  applyArtRevision,
+  artRevisionBrief,
+  artRevisionContext,
+  createArtRevision,
+  listArtRevisions,
+  RevisionError,
+  readArtRevision,
+  stageArtRevision,
+} from "./revisions.js";
 export { buildInitialProject, type InitialCraftOptions, slugify } from "./scaffold.js";
 export {
   type LoadedBrief,
