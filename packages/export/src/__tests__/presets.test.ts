@@ -1,62 +1,89 @@
-// The export preset registry merges contributed presets with the three built-in
-// engines (#192). The built-ins must pin nothing — that is what makes the
-// zero-pack path identical to the pre-seam behaviour — and must always win.
+// The export preset registry merges contributed presets with the built-in
+// outputs (#192). Built-ins always win, including the `stitched` and `platform`
+// aliases, and a contributed preset may name its engine by an alias.
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { EXPORT_TARGET_KINDS } from "@toony/schema";
+import { BUILTIN_OUTPUTS } from "../defaults.js";
 import {
   BUILTIN_EXPORT_PRESETS,
-  type ExportPreset,
+  type ContributedExportPreset,
   listExportPresetIds,
   resolveExportPreset,
 } from "../presets.js";
 
-const TALL: ExportPreset = {
+const BUILTIN_IDS = ["strip", "cuts", "instagram", "instagram-square", "x", "webtoon"];
+
+const TALL: ContributedExportPreset = {
   id: "webtoon-tall",
   target: "platform",
   options: { width: 1600, format: "jpeg", quality: 88 },
 };
 
-test("the built-in presets are one per engine and pin no options", () => {
+test("the built-in presets are the built-in outputs with their pinned options", () => {
   assert.deepEqual(
     BUILTIN_EXPORT_PRESETS.map((preset) => preset.id),
-    [...EXPORT_TARGET_KINDS],
+    BUILTIN_IDS,
   );
-  for (const preset of BUILTIN_EXPORT_PRESETS) {
-    assert.equal(preset.target, preset.id);
-    // Empty options mean each engine applies its own default width/format/
-    // quality, exactly as it did before presets existed.
-    assert.deepEqual(preset.options, {});
-  }
+  assert.deepEqual(
+    BUILTIN_EXPORT_PRESETS.map((preset) => preset.target),
+    ["strip", "cuts", "social", "social", "social", "strip"],
+  );
+  // The plain engines pin nothing: each applies its own defaults.
+  assert.deepEqual(BUILTIN_EXPORT_PRESETS[0]?.options, {});
+  assert.deepEqual(BUILTIN_EXPORT_PRESETS[1]?.options, {});
+  assert.deepEqual(BUILTIN_EXPORT_PRESETS.find((preset) => preset.id === "webtoon")?.options, {
+    width: 800,
+    sliceHeight: 1280,
+    format: "jpeg",
+    quality: 90,
+  });
+  assert.deepEqual(
+    BUILTIN_EXPORT_PRESETS.filter((preset) => preset.target === "social").map(
+      (preset) => preset.options.frame,
+    ),
+    ["instagram-portrait", "instagram-square", "x-landscape"],
+  );
+  assert.equal(BUILTIN_OUTPUTS.length, BUILTIN_EXPORT_PRESETS.length);
 });
 
-test("with no contributed presets the registry is exactly the three built-ins", async () => {
-  assert.deepEqual(await listExportPresetIds(), [...EXPORT_TARGET_KINDS]);
-  assert.deepEqual(await listExportPresetIds([]), [...EXPORT_TARGET_KINDS]);
-  for (const kind of EXPORT_TARGET_KINDS) {
-    assert.deepEqual(await resolveExportPreset(kind), { id: kind, target: kind, options: {} });
-  }
+test("with no contributed presets the registry is exactly the built-ins", async () => {
+  assert.deepEqual(await listExportPresetIds(), BUILTIN_IDS);
+  assert.deepEqual(await listExportPresetIds([]), BUILTIN_IDS);
 });
 
-test("a contributed preset is offered and resolves with its pinned options", async () => {
-  assert.deepEqual(await listExportPresetIds([TALL]), [...EXPORT_TARGET_KINDS, "webtoon-tall"]);
-  assert.deepEqual(await resolveExportPreset("webtoon-tall", [TALL]), TALL);
+test("stitched and platform resolve to the strip and cuts outputs", async () => {
+  assert.equal((await resolveExportPreset("stitched"))?.id, "strip");
+  assert.equal((await resolveExportPreset("platform"))?.id, "cuts");
+  assert.equal(await resolveExportPreset("plotlink"), undefined);
 });
 
-test("a contributed preset cannot redefine a built-in", async () => {
-  const hijack: ExportPreset = { id: "platform", target: "plotlink", options: { width: 99 } };
-  assert.deepEqual(await resolveExportPreset("platform", [hijack]), {
-    id: "platform",
-    target: "platform",
+test("a contributed preset is offered and resolves with its engine alias normalized", async () => {
+  assert.deepEqual(await listExportPresetIds([TALL]), [...BUILTIN_IDS, "webtoon-tall"]);
+  assert.deepEqual(await resolveExportPreset("webtoon-tall", [TALL]), {
+    id: "webtoon-tall",
+    target: "cuts",
+    options: { width: 1600, format: "jpeg", quality: 88 },
+  });
+});
+
+test("a contributed preset cannot redefine a built-in or an alias", async () => {
+  const hijacks: ContributedExportPreset[] = [
+    { id: "cuts", target: "strip", options: { width: 99 } },
+    { id: "platform", target: "strip", options: { width: 99 } },
+  ];
+  assert.deepEqual(await resolveExportPreset("cuts", hijacks), {
+    id: "cuts",
+    target: "cuts",
     options: {},
   });
-  assert.deepEqual(await listExportPresetIds([hijack]), [...EXPORT_TARGET_KINDS]);
+  assert.equal((await resolveExportPreset("platform", hijacks))?.target, "cuts");
+  assert.deepEqual(await listExportPresetIds(hijacks), BUILTIN_IDS);
 });
 
 test("contributed presets present but unselected do not change a built-in", async () => {
-  for (const kind of EXPORT_TARGET_KINDS) {
-    assert.deepEqual(await resolveExportPreset(kind, [TALL]), await resolveExportPreset(kind));
+  for (const id of BUILTIN_IDS) {
+    assert.deepEqual(await resolveExportPreset(id, [TALL]), await resolveExportPreset(id));
   }
 });
 
@@ -67,5 +94,5 @@ test("an unknown preset id resolves to undefined rather than throwing", async ()
 
 test("registry lookups return Promises", () => {
   assert.ok(listExportPresetIds() instanceof Promise);
-  assert.ok(resolveExportPreset("platform") instanceof Promise);
+  assert.ok(resolveExportPreset("strip") instanceof Promise);
 });

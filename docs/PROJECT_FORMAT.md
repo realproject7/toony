@@ -18,9 +18,10 @@ my-webtoon/
         clean/
         final/
       exports/
-        plotlink/
-        platform/
-        stitched/
+        strip/            one folder per export output, each with manifest.json
+        cuts/
+        instagram/
+        webtoon/
       logs/
   assets/
   logs/

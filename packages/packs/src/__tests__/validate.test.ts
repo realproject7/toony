@@ -5,6 +5,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { EXPORT_LEGACY_FOLDERS } from "@toony/schema";
 import { asPackManifest, validateGenreScaffold, validatePackManifest } from "../index.js";
 
 function codes(value: unknown): string[] {
@@ -136,7 +137,66 @@ test("an export preset must select a built-in engine", () => {
   const bad = { ...VALID, exportPresets: [{ id: "p", target: "gif", options: {} }] };
   const result = validatePackManifest(bad);
   assert.ok(result.issues.some((i) => i.code === "pack.export-preset.target"));
-  assert.match(result.issues[0]?.message ?? "", /platform, stitched, plotlink/);
+  assert.match(
+    result.issues[0]?.message ?? "",
+    /strip, cuts, social \(stitched and platform still work\)/,
+  );
+  assert.ok(
+    codes({ ...VALID, exportPresets: [{ id: "p", target: "plotlink", options: {} }] }).includes(
+      "pack.export-preset.target",
+    ),
+  );
+});
+
+test("an export preset may name its engine by a kind or an accepted alias", () => {
+  for (const target of ["strip", "cuts", "social", "stitched", "platform"]) {
+    assert.deepEqual(
+      codes({ ...VALID, exportPresets: [{ id: "p", target, options: {} }] }),
+      [],
+      target,
+    );
+  }
+});
+
+test("an export preset id is one folder name and never a legacy export folder", () => {
+  for (const id of ["../escape", "a/b", ...EXPORT_LEGACY_FOLDERS]) {
+    assert.ok(
+      codes({ ...VALID, exportPresets: [{ id, target: "strip", options: {} }] }).includes(
+        "pack.export-preset.id.unsafe",
+      ),
+      id,
+    );
+  }
+});
+
+test("the new output options are allowed and held to the shared bounds", () => {
+  const options = {
+    sliceHeight: 1280,
+    maxBytes: 900_000,
+    margin: 24,
+    textCards: true,
+    frame: "x-landscape",
+    tallCuts: "fit",
+  };
+  assert.deepEqual(codes({ ...VALID, exportPresets: [{ id: "p", target: "strip", options }] }), []);
+  const bad = codes({
+    ...VALID,
+    exportPresets: [
+      {
+        id: "p",
+        target: "social",
+        options: { sliceHeight: 8, frame: "story", tallCuts: "shrink", textCards: "yes" },
+      },
+    ],
+  });
+  for (const code of [
+    "pack.export-preset.sliceHeight",
+    "pack.export-preset.frame",
+    "pack.export-preset.tallCuts",
+    "pack.export-preset.textCards",
+  ]) {
+    assert.ok(bad.includes(code), code);
+  }
 });
 
 test("preset options are held to the same bounds as the CLI flags", () => {

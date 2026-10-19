@@ -10,7 +10,7 @@
 //   - JSON for structural/data files: `webtoon.json`, `lettering.json`
 
 import { join } from "node:path";
-import { isPathSafeId } from "@toony/schema";
+import { EXPORT_LEGACY_FOLDERS, isPathSafeId } from "@toony/schema";
 
 /** Project root manifest (JSON). */
 export const WEBTOON_FILE = "webtoon.json";
@@ -35,14 +35,36 @@ export const STYLE_GUIDE_FILE = "style-guide.md";
  * Per-episode asset/export/log folders live under each episode directory.
  */
 export const PROJECT_DIRS = ["assets", "logs"] as const;
-export const EPISODE_DIRS = [
-  "assets/clean",
-  "assets/final",
-  "exports/plotlink",
-  "exports/platform",
-  "exports/stitched",
-  "logs",
-] as const;
+export const EPISODE_DIRS = ["assets/clean", "assets/final", "exports", "logs"] as const;
+
+/** Per-episode folder holding one subfolder per export output. */
+export const EXPORTS_DIR = "exports";
+
+/**
+ * Export folders written by earlier Toony versions. They are left on disk
+ * untouched, and nothing reads them.
+ */
+export const LEGACY_EXPORT_DIRS = EXPORT_LEGACY_FOLDERS;
+
+/**
+ * Project-relative folder of one export output, `episodes/<id>/exports/<output>`.
+ * Both ids must be single safe path segments, so the folder can never escape the
+ * episode's exports folder.
+ */
+export function episodeExportRelDir(episodeId: string, outputId: string): string {
+  if (!isPathSafeId(episodeId)) {
+    throw new Error(`unsafe episode id: ${JSON.stringify(episodeId)}`);
+  }
+  if (!isPathSafeId(outputId) || (LEGACY_EXPORT_DIRS as readonly string[]).includes(outputId)) {
+    throw new Error(`unsafe export output id: ${JSON.stringify(outputId)}`);
+  }
+  return `${EPISODES_DIR}/${episodeId}/${EXPORTS_DIR}/${outputId}`;
+}
+
+/** Absolute folder of one export output. */
+export function episodeExportDir(root: string, episodeId: string, outputId: string): string {
+  return join(root, episodeExportRelDir(episodeId, outputId));
+}
 
 export function webtoonPath(root: string): string {
   return join(root, WEBTOON_FILE);

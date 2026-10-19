@@ -1,22 +1,47 @@
-// Per-work, per-episode export route (issue #53).
+// Export page: choose an output (episode strip, cut images, Instagram, X or
+// webtoon platforms), set at most a few options, preview the layout of the
+// files, export in the background and download the results.
 //
-// Surfaces the existing headless export engine (`@toony/export`) in the studio
-// UI: choose a target (platform / stitched / PlotLink-ready), set width / format
-// / quality, run it, and review the engine's own manifest + constraint results
-// and the on-disk output location. Rendering, constraint enforcement, and writes
-// all happen in the engine via `/api/export`; this page only resolves the work
-// path-safely from `<workId>`, lays out a thumbnail strip for context, and hands
-// off to the client `ExportPanel`.
+// The page resolves the work path-safely from `<workId>`, reads each cut's
+// artwork size for the layout preview, and loads the exports already on disk.
+// Rendering and writing happen in the export engine through `/api/export`.
 
+import { readFile } from "node:fs/promises";
+import { readImageDimensions } from "@toony/export";
 import { resolveReferenceWidth } from "@toony/schema";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ExportPanel } from "@/components/export-panel";
 import { LoadError } from "@/components/load-error";
-import { assetUrl, findEpisodeBundle, loadWork, ProjectIoError } from "@/lib/project";
+import { savedExports } from "@/lib/export";
+import type { PreviewItem } from "@/lib/export-view";
+import {
+  assetUrl,
+  findEpisodeBundle,
+  loadWork,
+  ProjectIoError,
+  resolveWorkAsset,
+} from "@/lib/project";
 import { resolveWork } from "@/lib/workspace";
+import "./export.css";
 
 export const dynamic = "force-dynamic";
+
+/** Header-only size of a cut's artwork, or null when it cannot be read. */
+async function artSize(
+  root: string,
+  rel: string | null,
+): Promise<{ width: number; height: number } | null> {
+  if (!rel) return null;
+  const absolute = resolveWorkAsset(root, rel);
+  if (!absolute) return null;
+  try {
+    const shape = readImageDimensions(new Uint8Array(await readFile(absolute)));
+    return shape ? { width: shape.width, height: shape.height } : null;
+  } catch {
+    return null;
+  }
+}
 
 export default async function EpisodeExportPage({
   params,
@@ -41,31 +66,39 @@ export default async function EpisodeExportPage({
   const bundle = findEpisodeBundle(loaded, episodeId);
   if (!bundle) notFound();
 
-  const { episode, cuts } = bundle;
+  const { episode, cuts, transitions } = bundle;
   const cutById = new Map(cuts.map((cut) => [cut.id, cut]));
-
-  // Thumbnail strip in reading order, for context while choosing a target.
-  const thumbs = episode.sequence
-    .filter((item) => item.type === "cut")
-    .map((item) => {
+  const transitionById = new Map(transitions.map((t) => [t.id, t]));
+  const items: PreviewItem[] = [];
+  for (const item of episode.sequence) {
+    if (item.type === "cut") {
       const cut = cutById.get(item.id);
-      const rel = cut?.image?.final ?? cut?.image?.clean ?? null;
-      return { id: item.id, src: assetUrl(work.id, work.root, rel) };
-    });
-
-  const cutCount = thumbs.length;
+      if (!cut) continue;
+      const rel = cut.image?.final ?? cut.image?.clean ?? null;
+      const size = await artSize(work.root, rel);
+      const src = assetUrl(work.id, work.root, rel);
+      items.push({
+        type: "cut",
+        id: cut.id,
+        ...(cut.panelAspect === undefined ? {} : { panelAspect: cut.panelAspect }),
+        art: size && src ? { ...size, src } : null,
+      });
+    } else {
+      const transition = transitionById.get(item.id);
+      if (transition) items.push({ type: "transition", id: transition.id, transition });
+    }
+  }
+  const cutCount = items.filter((item) => item.type === "cut").length;
+  const saved = await savedExports(work.id, work.root, episode.id);
 
   return (
-    <div data-testid="studio-episode-export">
+    <div data-testid="studio-episode-export" className="export-page">
       <header className="page-head">
         <div>
           <p className="page-eyebrow">{loaded.project.webtoon.title}</p>
-          <h1 className="page-title">Export episode</h1>
+          <h1 className="page-title">Export</h1>
           <div className="page-meta">
             <span>{episode.title}</span>
-            <span>
-              id <code>{episode.id}</code>
-            </span>
             <span>
               <b>{cutCount}</b> {cutCount === 1 ? "cut" : "cuts"}
             </span>
@@ -90,29 +123,13 @@ export default async function EpisodeExportPage({
         </div>
       </header>
 
-      <div className="export-layout">
-        <aside className="export-thumbs" aria-label="Cuts in reading order">
-          {thumbs.length === 0 && <p className="empty">This episode has no cuts yet.</p>}
-          {thumbs.map((thumb, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: a cut can recur in the reading sequence, so its id is not unique here; the position is the stable identity.
-            <figure className="export-thumb" key={`${index}-${thumb.id}`}>
-              {thumb.src ? (
-                // biome-ignore lint/performance/noImgElement: local file served by /api/asset, not a web image.
-                <img src={thumb.src} alt={`Cut ${thumb.id}`} loading="lazy" />
-              ) : (
-                <div className="export-thumb-empty">No art</div>
-              )}
-              <figcaption>{thumb.id}</figcaption>
-            </figure>
-          ))}
-        </aside>
-
-        <ExportPanel
-          workId={work.id}
-          episodeId={episode.id}
-          referenceWidth={resolveReferenceWidth(loaded.project.webtoon.referenceWidth)}
-        />
-      </div>
+      <ExportPanel
+        workId={work.id}
+        episodeId={episode.id}
+        referenceWidth={resolveReferenceWidth(loaded.project.webtoon.referenceWidth)}
+        items={items}
+        saved={saved}
+      />
     </div>
   );
 }

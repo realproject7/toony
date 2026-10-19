@@ -39,7 +39,7 @@ Concretely, a pack cannot:
 - reference anything but a `.json` data file,
 - reach the network — pack resolution reads local files and nothing else,
 - add a new export engine (a preset selects one of the three Toony ships),
-- redefine a built-in genre or export target (the core always wins).
+- redefine a built-in genre or export output (the core always wins).
 
 ## Layout
 
@@ -111,7 +111,7 @@ already claimed is missing from that list rather than quietly counted.
   "exportPresets": [
     {
       "id": "webtoon-tall",
-      "target": "platform",
+      "target": "cuts",
       "options": { "width": 1600, "format": "jpeg", "quality": 88 }
     }
   ],
@@ -373,18 +373,24 @@ Rules worth knowing before you author a whole episode of them:
 
 | Field | Rule |
 |---|---|
-| `id` | The id `toony export <id>` selects. Unique within the pack. |
-| `target` | The engine that runs: `platform`, `stitched`, or `plotlink`. |
-| `options.width` | Optional. Render width in px, 1–100000. |
-| `options.format` | Optional. `png` or `jpeg`. Ignored by `plotlink` (always WebP). |
-| `options.quality` | Optional. Lossy quality 0–100. |
+| `id` | The id `toony export --output <id>` selects, and the name of its folder under `exports/`. Unique within the pack; one folder name (letters, digits, `-`, `_`). |
+| `target` | The engine that runs: `strip`, `cuts`, or `social`. `stitched` and `platform` still work as names for `strip` and `cuts`. |
+| `options.width` | Optional. Image width in px, 1–100000 (strip and cuts). |
+| `options.format` | Optional. `png` or `jpeg`. |
+| `options.quality` | Optional. JPEG quality 0–100. |
+| `options.sliceHeight` | Optional, strip. Split into parts at most this tall, 64–100000. |
+| `options.maxBytes` | Optional, strip with `sliceHeight`. Byte cap per part, 10000–1000000000. |
+| `options.margin` | Optional, cuts. Background margin around each cut in px, 0–10000. |
+| `options.textCards` | Optional, cuts. `true` also writes text-card transitions as images. |
+| `options.frame` | Optional, social. `instagram-portrait`, `instagram-square`, or `x-landscape`. |
+| `options.tallCuts` | Optional, social. `split` (default) or `fit`. |
 
 An option you omit keeps the engine's own default. An explicit CLI flag beats
 whatever the preset pins:
 
 ```sh
-toony export webtoon-tall --episode ep-001              # the preset's width
-toony export webtoon-tall --episode ep-001 --width 900  # 900 wins
+toony export ep-001 --output webtoon-tall              # the preset's width
+toony export ep-001 --output webtoon-tall --width 900  # 900 wins
 ```
 
 ### `craftBands[]`

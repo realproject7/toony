@@ -17,8 +17,8 @@ sequence:
     id: cut-002
 ```
 
-Markdown can be generated as a support artifact for export targets, but it is
-not the source of truth for webtoon production.
+Exports write image files and a manifest; they are never the source of truth
+for webtoon production.
 
 ## Local-First Model
 
@@ -332,30 +332,34 @@ rolls a new seed per cut and records it, so a different take needs no invented
 number. A run whose write-back replaces an authored prompt prints one line with
 the count and the ids, however many cuts it touched.
 
-## Export Targets
+## Export Outputs
 
-Platform export:
+Three engines draw from one composition path (`composeCut` and
+`composeTransitionBand`), planned by one pure layout module that the Studio
+preview also uses:
 
-- ordered JPG or PNG files
-- configurable width
-- compression options
+- **strip**: the episode as one tall PNG or JPEG, preserving cuts, gutters,
+  transitions and lettering. With a part height it writes parts that break
+  between whole cuts and restack to exactly the same pixels; a cut taller than a
+  part is split at exact rows. An optional byte cap per part is met by real
+  encodes, never by lowering width or quality. Parts never allocate the whole page.
+- **cuts**: one opaque image per cut at the chosen width, with an optional margin,
+  and optionally each text-card transition as its own image.
+- **social**: fixed frames with content inside safe insets and whole cuts per
+  frame. A cut taller than the frame is split into rows, or fitted whole when its
+  lettering stays legible. Frames are grouped into posts.
 
-Stitched export:
+Built-in outputs: `strip`, `cuts`, `instagram` (1080 x 1350), `instagram-square`
+(1080 x 1080), `x` (1600 x 900, up to 4 images per post) and `webtoon` (800 px
+wide, 1280 px JPEG parts at quality 90). Each writes
+`episodes/<id>/exports/<output>/` with a manifest that maps every file to the
+sequence items it shows and records the options, warnings (for example cuts
+without artwork) and a hash of the inputs. A folder is replaced atomically, and
+only files the previous manifest owns are removed. `stitched` and `platform`
+remain names for `strip` and `cuts`. Export folders written by earlier versions
+are left on disk and never read.
 
-- one long JPG or PNG
-- preserves cuts, gutters, transitions, and lettering
-
-PlotLink-ready export:
-
-- WebP images
-- max 20 image strips per episode (multiple consecutive cuts per strip)
-- max 1,000,000 bytes per image, max 16,383px per dimension
-- complete reading sequence preserved, including lettering and transition bands
-- requested width and quality retained; impossible fits fail before replacing prior output
-- generated markdown between 500 and 10,000 characters
-- manifest included
-
-Toony prepares PlotLink-ready content only. It does not upload or publish.
+Toony writes files only. It does not post or publish anywhere.
 
 ## Packs
 
@@ -382,7 +386,7 @@ The format is documented in [PACK_FORMAT.md](./PACK_FORMAT.md).
 ## Craft measurement
 
 A pack's own output can be graded rather than eyeballed. `toony measure` composes
-an episode exactly as the stitched export does and reads the page back as craft
+an episode exactly as the strip export does and reads the page back as craft
 signals — the geometry and colour of the composed page, plus the transition
 vocabulary read off the episode's declared records — so a pack is finished when
 its output lands inside a target band. The measurement is provider-free and

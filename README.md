@@ -22,9 +22,9 @@ Toony includes:
 - provider-neutral image generation and manual image import workflows
 - local web studio editing
 - webtoon-specific lint and review tools
-- platform image sequence export
-- stitched episode export
-- PlotLink-ready export packages
+- exports: the episode as one tall strip (or split into parts), one image per
+  cut, Instagram and X post images, and 800 px parts for webtoon platforms, each
+  with a manifest and a "Download all" ZIP in Studio
 - data-only content packs that add workflows, genre scaffolds, export presets,
   and craft bands without forking the core
   ([docs/PACK_FORMAT.md](./docs/PACK_FORMAT.md))
@@ -38,7 +38,7 @@ Toony does not include:
 - wallet management
 - account management
 - transaction signing
-- direct PlotLink upload or publishing
+- posting to social or reading platforms (Toony writes the files; you post them)
 - royalty claiming
 - marketplace or reader features
 - cloud sync
@@ -52,7 +52,7 @@ The MVP should prove that Toony can produce one original webtoon episode with:
 - visible bubble variety
 - useful transition rhythm
 - usable focused lettering edits
-- valid platform, stitched, and PlotLink-ready exports
+- valid strip, cut image, and social exports
 
 File creation alone is not the quality bar.
 

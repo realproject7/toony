@@ -1,20 +1,13 @@
 // Export manifest completeness lint.
 //
-// Consumes `@toony/export`'s manifest contract — `validateManifest` for
-// structure/path-safety/quality bounds, and the exported PlotLink constants —
-// rather than redefining any of it. On top of the structural check this adds the
-// target-specific PlotLink semantics (all WebP, ≤20 images, ≤1MB each, markdown
-// present), a reading-order check on the declared file order, and optional
-// on-disk existence/size consistency when a file resolver is supplied.
+// Consumes `@toony/export`'s manifest contract (`validateManifest` for
+// structure, path safety and quality bounds) rather than redefining it. On top
+// of the structural check this adds a reading-order check on the declared file
+// order, per-output consistency (image sizes, part heights and size caps, rows
+// that restack without gaps, social post order), and optional on-disk existence
+// and size consistency when a file resolver is supplied.
 
-import {
-  type ExportManifest,
-  PLOTLINK_MARKDOWN_MAX,
-  PLOTLINK_MARKDOWN_MIN,
-  PLOTLINK_MAX_BYTES,
-  PLOTLINK_MAX_IMAGES,
-  validateManifest,
-} from "@toony/export";
+import { type ExportManifest, validateManifest } from "@toony/export";
 import { type Finding, finding } from "./findings.js";
 
 /** What a manifest-declared file looks like on disk (from the caller's fs). */
@@ -30,6 +23,94 @@ export type ResolveManifestFile = (projectRelativePath: string) => ManifestFileP
 function isReadingOrderPreserved(paths: readonly string[]): boolean {
   const sorted = [...paths].sort();
   return paths.every((path, i) => path === sorted[i]);
+}
+
+/** Per-output checks that hold for every manifest the engine writes. */
+function outputFindings(m: ExportManifest): Finding[] {
+  const findings: Finding[] = [];
+  const frame = m.options.frame;
+  for (const file of m.files) {
+    if (m.kind === "social" && frame) {
+      if (file.width !== frame.width || file.height !== frame.height) {
+        findings.push(
+          finding(
+            "error",
+            "manifest/frame-size",
+            file.path,
+            `social frames must be ${frame.width} x ${frame.height}; "${file.path}" is ${file.width} x ${file.height}.`,
+          ),
+        );
+      }
+    } else if (file.width !== m.width) {
+      findings.push(
+        finding(
+          "error",
+          "manifest/width-mismatch",
+          file.path,
+          `the output is ${m.width} px wide; "${file.path}" is ${file.width} px.`,
+        ),
+      );
+    }
+    if (m.options.sliceHeight !== null && file.height > m.options.sliceHeight) {
+      findings.push(
+        finding(
+          "error",
+          "manifest/part-too-tall",
+          file.path,
+          `parts are at most ${m.options.sliceHeight} px tall; "${file.path}" is ${file.height} px.`,
+        ),
+      );
+    }
+    if (m.options.maxBytes !== null && file.byteSize > m.options.maxBytes) {
+      findings.push(
+        finding(
+          "error",
+          "manifest/over-size-cap",
+          file.path,
+          `files are capped at ${m.options.maxBytes} bytes; "${file.path}" is ${file.byteSize}.`,
+        ),
+      );
+    }
+  }
+
+  // A band split across files must continue exactly where the last piece ended.
+  const rowsDrawn = new Map<number, number>();
+  for (const file of m.files) {
+    for (const item of file.items) {
+      if (item.top === undefined || item.height === undefined) continue;
+      const expected = rowsDrawn.get(item.index) ?? 0;
+      if (item.top !== expected) {
+        findings.push(
+          finding(
+            "error",
+            "manifest/row-gap",
+            file.path,
+            `${item.type} "${item.id}" continues at row ${item.top}; the previous piece ended at row ${expected}.`,
+          ),
+        );
+      }
+      rowsDrawn.set(item.index, item.top + item.height);
+    }
+  }
+
+  if (m.kind === "social") {
+    let previous = 1;
+    for (const file of m.files) {
+      if (file.post === undefined || file.post < previous || file.post > previous + 1) {
+        findings.push(
+          finding(
+            "warning",
+            "manifest/post-order",
+            file.path,
+            "social files must be grouped into consecutive posts in reading order.",
+          ),
+        );
+        break;
+      }
+      previous = file.post;
+    }
+  }
+  return findings;
 }
 
 /**
@@ -63,50 +144,7 @@ export function lintManifestCompleteness(
     );
   }
 
-  if (m.target === "plotlink") {
-    if (m.files.length > PLOTLINK_MAX_IMAGES) {
-      findings.push(
-        finding(
-          "error",
-          "manifest/plotlink-too-many-images",
-          manifestId,
-          `PlotLink allows at most ${PLOTLINK_MAX_IMAGES} images; manifest declares ${m.files.length}.`,
-        ),
-      );
-    }
-    for (const file of m.files) {
-      if (file.format !== "webp") {
-        findings.push(
-          finding(
-            "error",
-            "manifest/plotlink-format",
-            file.path,
-            `PlotLink images must be WebP; "${file.path}" is ${file.format}.`,
-          ),
-        );
-      }
-      if (file.byteSize > PLOTLINK_MAX_BYTES) {
-        findings.push(
-          finding(
-            "error",
-            "manifest/plotlink-too-large",
-            file.path,
-            `PlotLink images must be ≤${PLOTLINK_MAX_BYTES} bytes; "${file.path}" is ${file.byteSize}.`,
-          ),
-        );
-      }
-    }
-    if (!m.markdown) {
-      findings.push(
-        finding(
-          "error",
-          "manifest/plotlink-markdown-missing",
-          manifestId,
-          `PlotLink manifests must declare generated markdown (${PLOTLINK_MARKDOWN_MIN}..${PLOTLINK_MARKDOWN_MAX} chars).`,
-        ),
-      );
-    }
-  }
+  findings.push(...outputFindings(m));
 
   if (resolveFile) {
     for (const file of m.files) {
@@ -127,19 +165,6 @@ export function lintManifestCompleteness(
             "manifest/size-mismatch",
             file.path,
             `manifest records ${file.byteSize} bytes but the file is ${probe.byteSize}.`,
-          ),
-        );
-      }
-    }
-    if (m.markdown) {
-      const probe = resolveFile(m.markdown.path);
-      if (!probe?.exists) {
-        findings.push(
-          finding(
-            "error",
-            "manifest/missing-file",
-            m.markdown.path,
-            "declared markdown file does not exist on disk.",
           ),
         );
       }

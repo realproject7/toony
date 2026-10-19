@@ -1,56 +1,63 @@
 # @toony/export
 
-Headless export for Toony episodes: platform image sequences, stitched episode
-images, and PlotLink-ready WebP packages — plus the export **manifest schema**.
+Headless export for Toony episodes: an episode strip (whole or in parts), one
+image per cut, and fixed-size social frames, plus the export **manifest schema**.
 
-Compositing/encoding uses `@napi-rs/canvas` (self-contained skia; PNG/JPEG/WebP).
-All lettering/transition geometry comes from `@toony/render`
-(`layoutCut`/`layoutTransition`), so export matches the studio preview and never
-invents its own layout.
+Compositing and encoding use `@napi-rs/canvas` (self-contained skia; PNG and
+JPEG). All lettering and transition geometry comes from `@toony/render`
+(`layoutCut`/`layoutTransition`), so every output matches the Studio preview and
+never invents its own layout.
 
-## Targets
+## Outputs
 
-- **platform** — one PNG/JPEG per cut, in reading order, at a configurable width
-  and compression.
-- **stitched** — one long image preserving cuts, gutters, transitions, and
-  lettering.
-- **plotlink** — consecutive cuts, lettering and transition bands packed into
-  **≤20 WebP strips per episode, ≤1,000,000 bytes each**, plus generated markdown
-  (**500–10,000 chars**, enforced) and a manifest. Keeps one episode and the
-  requested width and quality (defaults: 800px, quality 82); never silently
-  shrinks lettering or lowers quality. Prepares content only — never uploads or
-  publishes.
+Three engines share one composition path (`composeCut` and
+`composeTransitionBand`) and one pure layout planner (`./layout`, also a
+browser-safe subpath the Studio preview uses):
 
-Each target writes into the project's `episodes/<id>/exports/<target>/` folder
-and emits `manifest.json`. Toony does not upload or publish to PlotLink.
+- **strip** (`exportStrip`): the reading sequence stacked into one tall image,
+  identical to the page craft measurement reads (`stitchEpisode`). With
+  `sliceHeight` it writes parts instead. Each part takes the longest run of whole
+  bands that fits; only a band taller than a part is split, at exact integer rows,
+  so the parts restack to the full strip pixel for pixel. With `maxBytes` a part
+  that encodes too large gives back its last band, and a single band is cut at the
+  largest row count that fits, found by real encodes. Width and quality never
+  change silently. Parts compose bands on demand and free them after their last
+  use, so the full page is never allocated.
+- **cuts** (`exportCuts`): one opaque image per cut at `width`, the cut composed
+  at `width - 2 * margin` and placed on a white background. `textCards: true` also
+  writes every transition that carries words as its own image.
+- **social** (`exportSocial`): frames of a fixed size (`instagram-portrait`
+  1080 x 1350, `instagram-square` 1080 x 1080, `x-landscape` 1600 x 900). Content
+  stays inside the frame's safe insets. Bands are packed whole per frame and a
+  plain gap never starts or ends one. A cut taller than the content box is split
+  into rows (`tallCuts: "split"`, the default) or, with `"fit"`, composed narrower
+  so it fits whole when that keeps it at least 0.6 of the reference column wide.
+  Frames are grouped into posts (20 per Instagram post, 4 per X post).
 
-PlotLink packing prefers boundaries between complete rendered cuts/transitions.
-A block too tall for WebP's **16,383px** dimension limit, or too large to encode
-within the byte budget alone, is split at exact integer rows without omitted or
-duplicated pixels. The adjacent strips reproduce the full rendered page. Widths
-above the WebP limit are rejected. If the complete sequence needs more than 20
-strips at the requested settings, export fails with an actionable error; callers
-can explicitly choose a smaller width or lower quality and review readability.
-Packing is deterministic and greedy, not a promise that every episode can fit.
+Built-in outputs (presets): `strip`, `cuts`, `instagram`, `instagram-square`,
+`x`, and `webtoon` (strip at 800 px, 1280 px parts, JPEG quality 90). `stitched`
+and `platform` resolve to `strip` and `cuts`. Packs may contribute more presets.
+`exportWithPreset` runs one, with explicit options overriding what it pins.
 
-All strips are encoded before replacing a previous PlotLink package. Publication
-stages a complete directory and preserves unrelated files; obsolete images are
-removed only when owned by the previous valid manifest. A conflicting unowned
-output filename is reported without overwriting it. Claimed previous outputs
-must be regular files whose sizes and SHA-256 hashes match the manifest;
-changed or missing files and symlinks stop replacement, including stale images
-and the markdown support file. The bounded markdown is a
-support artifact and may be truncated at a line boundary above 10,000 characters;
-the image strips still contain the complete rendered episode.
+Every output writes `episodes/<id>/exports/<output>/`. All files are encoded
+before anything on disk changes; the folder is staged beside the old one and
+swapped. A previous file is replaced or removed only when the previous valid
+manifest lists it and its bytes still match the recorded size and SHA-256, so
+unrelated files are preserved and a changed or symlinked output stops the export
+without replacing anything. Export folders written by earlier versions are never
+read or changed.
 
 ## Manifest schema (owned here)
 
-`ExportManifest`: `manifestVersion`, `target`, `projectId`, `episodeId`, `width`,
-ordered `files[]` (each with a **project-relative** `path`, `format`, `width`,
-`height`, `byteSize`, `quality`, `sha256`), and `markdown` (path + character
-count + sha256) for the plotlink target. `validateManifest(value)` returns a
-list of problems — including any non-project-relative path — for #11 to lint
-completeness against.
+`ExportManifest` (version 2): `kind`, `output`, `projectId`, `episodeId`, `width`,
+the resolved `options`, ordered `files[]` (each with a **project-relative**
+`path`, `format`, `width`, `height`, `byteSize`, `quality`, `sha256`, a `role`
+of `strip`, `slice`, `cut`, `card` or `frame`, the sequence `items` it shows with
+row ranges for split pieces, and a `post` for social frames), `warnings` (for
+example cuts without artwork) and `inputs.sha256`, a hash of what the files were
+rendered from. `episodeInputsHash(root, episodeId)` computes the current value,
+so a caller can tell when an export is out of date. `validateManifest(value)`
+returns a list of problems, including any non-project-relative path.
 
 ## Public safety
 
@@ -62,4 +69,4 @@ paths never reach output.
 
 - `pnpm --filter @toony/export build | typecheck | test`
 
-CLI: `toony export <platform|stitched|plotlink> [path] --episode <id> [--width <px>] [--format png|jpg] [--quality <0-100>]`.
+CLI: `toony export <episode> [path] --output <strip|cuts|instagram|instagram-square|x|webtoon|preset> [--width <px>] [--slice-height <px>] [--format png|jpg] [--quality <0-100>] [--margin <px>]`.

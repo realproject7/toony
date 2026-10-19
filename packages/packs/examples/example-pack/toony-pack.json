@@ -20,7 +20,7 @@
   "exportPresets": [
     {
       "id": "webtoon-tall",
-      "target": "platform",
+      "target": "cuts",
       "options": {
         "width": 1600,
         "format": "jpeg",

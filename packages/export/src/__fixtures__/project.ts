@@ -1,11 +1,11 @@
-// Named fixtures for export tests: a rich project (enough lettering for the
-// PlotLink markdown minimum) and real generated cut PNGs. Original test content;
-// asset paths are project-relative.
+// Named fixtures for export tests: a rich project with dialogue-heavy lettering,
+// a mixed sequence of cut shapes and transition kinds, and real generated cut
+// PNGs. Original test content; asset paths are project-relative.
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { createCanvas } from "@napi-rs/canvas";
 import { buildInitialProject } from "@toony/project-io";
-import type { BubbleKind, LetteringOverlay, Project } from "@toony/schema";
+import type { BubbleKind, LetteringOverlay, Project, Transition } from "@toony/schema";
 
 function overlay(
   id: string,
@@ -138,4 +138,79 @@ export async function writeCutImages(root: string): Promise<void> {
     await mkdir(dir, { recursive: true });
     await writeFile(`${dir}/${name}.png`, canvas.toBuffer("image/png"));
   }
+}
+
+function transition(
+  id: string,
+  type: Transition["type"],
+  gutterHeight: number,
+  text: string | null,
+): Transition {
+  return {
+    id,
+    type,
+    gutterHeight,
+    text,
+    sfx: null,
+    agentNote: null,
+    humanNote: null,
+    image: null,
+    reviewStatus: "draft",
+  };
+}
+
+/**
+ * Five cuts of different shapes in a mixed sequence: two with art, one wide and
+ * one tall art-less panel, and one whose art has a transparent region; between
+ * them a scene-break card, a plain gutter, a narration card and a black band.
+ * Every cut carries lettering, so bubbles cross every split and every frame.
+ */
+export function buildSequenceProject(): Project {
+  const project = buildExportProject();
+  project.webtoon.referenceWidth = 800;
+  const bundle = project.episodes[0];
+  if (!bundle) throw new Error("fixture missing episode");
+  bundle.cuts.push(
+    { id: "cut-003", image: null, imagePrompt: "", negativePrompt: "", panelAspect: 0.5 },
+    { id: "cut-004", image: null, imagePrompt: "", negativePrompt: "", panelAspect: 3 },
+    {
+      id: "cut-005",
+      image: { clean: "episodes/ep-001/assets/clean/cut-005.png", final: null },
+      imagePrompt: "",
+      negativePrompt: "",
+    },
+  );
+  bundle.transitions.push(
+    transition("tr-002", "gutter", 48, null),
+    transition("tr-003", "narration_card", 160, "Later that night, the harbor went quiet."),
+    transition("tr-004", "black_band", 60, null),
+  );
+  bundle.lettering.push(
+    overlay("ov-7", "cut-003", "Jun", "speech", "Wide sky tonight.", 0.1, 0.1),
+    overlay("ov-8", "cut-004", "Mira", "speech", "The stairs go all the way down.", 0.2, 0.4),
+    overlay("ov-9", "cut-005", "Jun", "shout", "Wait for me!", 0.3, 0.2),
+  );
+  bundle.episode.sequence = [
+    { type: "cut", id: "cut-001" },
+    { type: "transition", id: "tr-001" },
+    { type: "cut", id: "cut-002" },
+    { type: "transition", id: "tr-002" },
+    { type: "cut", id: "cut-003" },
+    { type: "transition", id: "tr-003" },
+    { type: "cut", id: "cut-004" },
+    { type: "transition", id: "tr-004" },
+    { type: "cut", id: "cut-005" },
+  ];
+  return project;
+}
+
+/** Write the sequence fixture's art, including a PNG with a transparent region. */
+export async function writeSequenceImages(root: string): Promise<void> {
+  await writeCutImages(root);
+  const canvas = createCanvas(300, 450);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#3f7a5a";
+  ctx.fillRect(0, 0, 300, 300);
+  // The bottom third stays fully transparent.
+  await writeFile(`${root}/episodes/ep-001/assets/clean/cut-005.png`, canvas.toBuffer("image/png"));
 }

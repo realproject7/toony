@@ -1,22 +1,20 @@
-// The export preset registry: which engine `toony export <id>` runs, and the
-// render options it starts from.
+// The export preset registry: which engine `toony export --output <id>` runs,
+// and the options it starts from.
 //
-// The three engines in `./targets.ts` are the closed set — a preset selects one,
-// it can never add one. What a preset opens up is NAMING a set of option
-// defaults: "webtoon-tall" can mean the platform engine at 1600px JPEG q88
-// without that width living in core source.
-//
-// The three built-in presets carry EMPTY options, so `toony export platform`
-// resolves to the platform engine with no option pinned and each engine applies
-// its own defaults exactly as before. With no packs installed the registry holds
-// only those three and export behaves precisely as it did without the seam.
+// The three engines (strip, cuts, social) are the closed set: a preset selects
+// one, it can never add one. A preset NAMES a set of option defaults, so
+// "webtoon" can mean the strip engine at 800 px, cut into 1280 px JPEG parts,
+// without that combination living in caller code. The built-in outputs are
+// presets too; packs may contribute more. `stitched` and `platform` are kept as
+// aliases of `strip` and `cuts`.
 
-import { EXPORT_TARGET_KINDS, type ExportTargetKind } from "@toony/schema";
-import type { ExportOptions } from "./targets.js";
+import { type ExportTargetKind, type ExportTargetName, resolveExportKind } from "@toony/schema";
+import { BUILTIN_OUTPUTS, OUTPUT_ALIASES } from "./defaults.js";
+import type { ExportOptions } from "./outputs.js";
 
 /** A named export configuration: one built-in engine plus pinned options. */
 export interface ExportPreset {
-  /** The id `toony export <id>` selects. */
+  /** The id `toony export --output <id>` selects; also the output folder name. */
   id: string;
   /** Which built-in export engine runs. */
   target: ExportTargetKind;
@@ -27,25 +25,35 @@ export interface ExportPreset {
   options: ExportOptions;
 }
 
+/** A preset as a pack contributes it: the engine may use an accepted alias. */
+export interface ContributedExportPreset {
+  id: string;
+  target: ExportTargetName;
+  options: ExportOptions;
+}
+
 /**
- * The presets the core always provides: one per export engine, named after it,
- * with nothing pinned. These always win over a contributed preset with the same
- * id, so a pack can never change what `toony export platform` does.
+ * The presets the core always provides. These always win over a contributed
+ * preset with the same id (or an alias), so a pack can never change what a
+ * built-in output does.
  */
-export const BUILTIN_EXPORT_PRESETS: readonly ExportPreset[] = EXPORT_TARGET_KINDS.map((kind) => ({
-  id: kind,
-  target: kind,
-  options: {},
+export const BUILTIN_EXPORT_PRESETS: readonly ExportPreset[] = BUILTIN_OUTPUTS.map((output) => ({
+  id: output.id,
+  target: output.kind,
+  options: { ...output.options },
 }));
 
-function mergedPresets(contributed: readonly ExportPreset[]): ExportPreset[] {
-  const builtinIds = new Set(BUILTIN_EXPORT_PRESETS.map((preset) => preset.id));
-  const seen = new Set(builtinIds);
+function mergedPresets(contributed: readonly ContributedExportPreset[]): ExportPreset[] {
+  const reserved = new Set([
+    ...BUILTIN_EXPORT_PRESETS.map((preset) => preset.id),
+    ...Object.keys(OUTPUT_ALIASES),
+  ]);
   const merged = [...BUILTIN_EXPORT_PRESETS];
   for (const preset of contributed) {
-    if (seen.has(preset.id)) continue;
-    seen.add(preset.id);
-    merged.push(preset);
+    const target = resolveExportKind(preset.target);
+    if (target === null || reserved.has(preset.id)) continue;
+    reserved.add(preset.id);
+    merged.push({ id: preset.id, target, options: { ...preset.options } });
   }
   return merged;
 }
@@ -57,15 +65,19 @@ function mergedPresets(contributed: readonly ExportPreset[]): ExportPreset[] {
  * a later resolution strategy does not force a refactor of every consumer.
  */
 export async function listExportPresetIds(
-  contributed: readonly ExportPreset[] = [],
+  contributed: readonly ContributedExportPreset[] = [],
 ): Promise<string[]> {
   return mergedPresets(contributed).map((preset) => preset.id);
 }
 
-/** Resolve an export preset id, or `undefined` when nothing claims it. */
+/**
+ * Resolve an export preset id (or the alias `stitched` / `platform`), or
+ * `undefined` when nothing claims it.
+ */
 export async function resolveExportPreset(
   id: string,
-  contributed: readonly ExportPreset[] = [],
+  contributed: readonly ContributedExportPreset[] = [],
 ): Promise<ExportPreset | undefined> {
-  return mergedPresets(contributed).find((preset) => preset.id === id);
+  const canonical = Object.hasOwn(OUTPUT_ALIASES, id) ? (OUTPUT_ALIASES[id] as string) : id;
+  return mergedPresets(contributed).find((preset) => preset.id === canonical);
 }

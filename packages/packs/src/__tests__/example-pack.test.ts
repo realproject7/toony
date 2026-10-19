@@ -39,7 +39,7 @@ test("the committed example pack loads and contributes every kind", async () => 
   assert.deepEqual(loaded.content.exportPresets, [
     {
       id: "webtoon-tall",
-      target: "platform",
+      target: "cuts",
       options: { width: 1600, format: "jpeg", quality: 88 },
     },
   ]);
