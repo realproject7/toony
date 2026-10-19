@@ -134,7 +134,8 @@ export default async function EpisodeScriptPage({
             {bundle === null && <span className="chip chip-warn">episode not created yet</span>}
             {scriptBody && (
               <span>
-                <b>{beats.length}</b> beat(s), <b>{cutCount}</b> scripted cut(s)
+                <b>{beats.length}</b> {beats.length === 1 ? "beat" : "beats"}, <b>{cutCount}</b>{" "}
+                scripted {cutCount === 1 ? "cut" : "cuts"}
               </span>
             )}
           </div>

@@ -67,7 +67,7 @@ export default async function EpisodeExportPage({
               id <code>{episode.id}</code>
             </span>
             <span>
-              <b>{cutCount}</b> cut(s)
+              <b>{cutCount}</b> {cutCount === 1 ? "cut" : "cuts"}
             </span>
           </div>
         </div>

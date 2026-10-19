@@ -3263,10 +3263,11 @@ button.transition-block {
 
 .art-revisions {
   border-bottom: 1px solid var(--color-line);
-  padding: 0.65rem 1rem;
+  padding: 12px 0;
 }
 .art-revisions > summary {
   cursor: pointer;
+  font-size: 12px;
   font-weight: 600;
 }
 .art-revisions-body {
@@ -3315,16 +3316,9 @@ button.transition-block {
 .art-revisions {
   flex-shrink: 0;
 }
-.art-revisions[open] {
-  max-height: max(180px, calc(100dvh - 300px));
-  overflow: auto;
-}
 .art-revisions > summary {
-  position: sticky;
-  top: 0;
   padding: 0.35rem 0;
   background: var(--color-surface);
-  z-index: 1;
 }
 
 .lettering-workspace {

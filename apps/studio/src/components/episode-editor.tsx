@@ -264,6 +264,8 @@ export function EpisodeEditor({
     };
   }, [dirty, router]);
 
+  const cutCount = rhythm.sequence.filter((item) => item.type === "cut").length;
+
   return (
     <section className="episode-editor" aria-label="Episode editor" data-testid="episode-editor">
       <header className="episode-editor-head">
@@ -271,8 +273,8 @@ export function EpisodeEditor({
           <Link href={`/w/${encodeURIComponent(workId)}/episodes`}>Episodes</Link>
           <h1>{title}</h1>
           <span>
-            {rhythm.sequence.filter((i) => i.type === "cut").length} cuts ·{" "}
-            {rhythm.transitions.length} transitions
+            {cutCount} {cutCount === 1 ? "cut" : "cuts"} · {rhythm.transitions.length}{" "}
+            {rhythm.transitions.length === 1 ? "transition" : "transitions"}
           </span>
         </div>
         <div className="editor-actions">
