@@ -779,7 +779,7 @@ export function AgentWorkspace({ children }: { children: ReactNode }) {
               </button>
             </div>
           )}
-          <div className="agent-composer">
+          <div className="agent-composer" hidden={settingsOpen}>
             <div className="agent-context">
               <span title="Only saved text is shared">
                 {view.settings?.projectContext && workId
