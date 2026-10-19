@@ -35,8 +35,9 @@ options:
                            also fail when a cut an episode renders has no image
                            asset; opt-in, because \`image: null\` is legitimate
                            mid-production and the shipped examples rely on it
-  studio --port <n>        port for the studio server (in-repo dev default 4477;
-                           installed: a free port is chosen automatically)
+  studio --port <n>        port for the studio server (default 4477; installed
+                           mode picks a free port when 4477 is taken)
+  studio --no-open         do not open the browser once the studio is ready
   import-image --episode <id> (--cut <id> [--slot clean|final] | --transition <id>)
                --from <file> [--provider manual]
                            strips image metadata at ingest; provider-neutral

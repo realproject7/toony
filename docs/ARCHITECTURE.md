@@ -283,6 +283,13 @@ A compiled cut's `imagePrompt` is the script's scene text and nothing else. The
 story bible, the character lockstrings and the palette clause compose on top of
 it at generate time, exactly as they do for a hand-authored cut.
 
+The compile orchestration (script read and refusals, the project's lettering
+theme, validation with the project, the draft lints, plan geometry, diff and
+conflicts, and the written draft) lives in `@toony/authoring`. `toony draft
+compile` formats its result; Studio uses the same function to create a new
+episode from an agent-written script and then applies the draft with the same
+`applyDraft`, so both paths produce the same records.
+
 ## Controlled production
 
 `toony produce` is how an agent spends provider time without starting anything
@@ -407,7 +414,7 @@ and resizing use document coordinates across zoom and pan. Locks persist as edit
 metadata; group alignment and optional guides do not change rendering semantics.
 
 Modern cut saves include a `baseRevision` content hash for that cut's lettering.
-The process write queue compares it with current saved content before merging. A
+The project write lock compares it with current saved content before merging. A
 stale save returns HTTP409 without writing. Successful saves return the new
 revision, including saves that leave newer local edits dirty. The UI preserves a
 failed draft and offers copy/reload. Legacy API callers may omit the revision;
@@ -469,3 +476,57 @@ server restart. Provider retention is separate.
 
 Project mutations, image editing and generation are not agent tools in this
 increment. Conversation results cannot automatically become project canon.
+
+## Studio write path and live feed
+
+Every change Studio makes to a project, whether a person's save, another tab's
+or the agent's, runs through one function, `withProjectWrite`
+(`apps/studio/src/lib/ops/`):
+
+1. take the project's lock (one per canonical project root, in this process);
+2. load the project as the validation baseline;
+3. snapshot every file and folder the change plans to write into
+   `.toony/history/<changeId>/`, with a manifest of what existed;
+4. run the change;
+5. if no planned file changed, drop the snapshot and record nothing;
+6. reload and refuse any new validation error in the touched scope;
+7. write the manifest, append `.toony/agent/journal.jsonl`, keep the newest 50
+   snapshots and publish a `project` event on the live bus.
+
+A failure in steps 4 to 6 restores the snapshot before the error surfaces.
+`undoChange` reverses a change from its snapshot only while every file it wrote
+still holds exactly what it wrote; otherwise it answers "Newer edits depend on
+this change. Undo those first." (a later Studio change wrote them) or that the
+files changed elsewhere. The lettering, transition, cut field, cut review,
+character, draft and art revision routes run inside this path with their
+original revision checks and HTTP 409 conflicts unchanged. Atomic writes stage
+into unique sibling files, so two writers never share a staging file. The CLI
+and other tools are still separate processes: the one-external-writer rule
+remains.
+
+Every mutating Studio route uses one request guard (`lib/request-guard.ts`): a
+loopback host, an Origin equal to that host, `x-toony-agent: 1`, the declared body
+type (JSON, or an image for uploads), same-origin fetch metadata when sent, and
+the HTTP-only, SameSite=Strict session cookie (path `/api`) this server process
+issued through `POST /api/session`. Browser code calls `studioFetch`, which
+bootstraps the session once and retries once after a server restart. Reads
+that reveal local state (`GET /api/live`, `GET /api/workspace`) require the
+header, the cookie, a loopback host and same-origin metadata.
+
+Project operations shared by agent tools and the left workspace (create and
+rename a work, update the story, merge characters by id, create an episode from
+a script, add or edit cuts with sequence integrity, set dialogue, set
+transitions, import artwork bytes) are plain functions over this path. Setting
+dialogue on a cut that already has lettering never writes: it returns a
+replacement for a person to approve.
+
+`GET /api/live` is one NDJSON stream per tab: `hello`, the events the tab missed
+since `?since=<seq>` (or `resync` when they are no longer held; the bus keeps
+2000), then every new event, with a `ping` every 15 seconds. The browser's
+`LiveProvider` keeps the stream open and reconnects. Pages call
+`useProjectSync(workId, scopes)`: a project change that touches the page refreshes
+it, unless an open editor registered with `useEditorScope` holds unsaved edits
+the change overlaps; then the hook reports `changedWhileDirty` so the editor can
+offer "Reload it" or "Keep editing", and the editor's own revision check still
+guards its next save.
+
