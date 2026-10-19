@@ -151,8 +151,22 @@ export function EpisodeEditor({
 
   // Report what the person is looking at to the agent panel.
   useEffect(() => {
-    setAgentFocus(episodeFocus(episodeId, selection, selection?.type === "cut" ? bubbleIds : []));
-  }, [episodeId, selection, bubbleIds]);
+    const focus = episodeFocus(episodeId, selection, selection?.type === "cut" ? bubbleIds : []);
+    focus.labels = { episode: title };
+    if (selection?.type === "cut") {
+      focus.labels.cut = `Cut ${cutNumberIn(rhythm.sequence, selection.id)}`;
+    } else if (selection?.type === "transition") {
+      const at = rhythm.sequence.findIndex((i) => i.type === "transition" && i.id === selection.id);
+      const before = rhythm.sequence
+        .slice(0, Math.max(0, at))
+        .filter((i) => i.type === "cut")
+        .at(-1);
+      focus.labels.transition = before
+        ? `After Cut ${cutNumberIn(rhythm.sequence, before.id)}`
+        : "Transition";
+    }
+    setAgentFocus(focus);
+  }, [episodeId, title, selection, bubbleIds, rhythm.sequence]);
 
   const clearDraft = useCallback(() => {
     try {
@@ -218,6 +232,18 @@ export function EpisodeEditor({
     if (dirty && !staysInTransitions) setPending(() => afterCut);
     else afterCut();
   };
+  // A link to another item of this episode (for example "Open Cut 3" in the
+  // agent panel) arrives as new server props with the same editor mounted.
+  // Follow it like a click on that item, with the same unsaved-edit guard.
+  const followedItem = useRef(initialItem);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: react to a new link target only.
+  useEffect(() => {
+    if (initialItem === followedItem.current) return;
+    followedItem.current = initialItem;
+    const next = episodeSelection(rhythm.sequence, initialItem);
+    if (!next || (selection && next.type === selection.type && next.id === selection.id)) return;
+    request(() => choose(next), next.type === "transition");
+  }, [initialItem]);
   /** Run `next` once unsaved transition edits are saved or discarded (the open cut stays). */
   const requestSavedRhythm = (next: () => void) => {
     if (dirty) setPending(() => next);

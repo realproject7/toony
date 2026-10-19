@@ -9,12 +9,14 @@
 import { readFile } from "node:fs/promises";
 import { readImageDimensions } from "@toony/export";
 import { resolveReferenceWidth } from "@toony/schema";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ExportPanel } from "@/components/export-panel";
 import { LoadError } from "@/components/load-error";
 import { savedExports } from "@/lib/export";
 import type { PreviewItem } from "@/lib/export-view";
+import { routeParam, workPageData } from "@/lib/page-data";
 import {
   assetUrl,
   findEpisodeBundle,
@@ -41,6 +43,20 @@ async function artSize(
   } catch {
     return null;
   }
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ workId: string; id: string }>;
+}): Promise<Metadata> {
+  const { workId, id } = await params;
+  const data = await workPageData(workId);
+  if (data.kind !== "ok") return { title: "Export" };
+  const bundle = findEpisodeBundle(data.loaded, routeParam(id));
+  return {
+    title: `Export · ${bundle?.episode.title ?? "Episode"} · ${data.loaded.project.webtoon.title}`,
+  };
 }
 
 export default async function EpisodeExportPage({

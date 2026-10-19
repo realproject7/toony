@@ -2231,3 +2231,23 @@ button.agent-chip-off .studio-icon {
     font-size: 16px;
   }
 }
+
+/* A failed step keeps its reason behind a small disclosure. */
+.agent-activity-why > summary {
+  cursor: pointer;
+  color: var(--agent-muted, var(--color-muted));
+  font-size: inherit;
+  list-style: none;
+  width: fit-content;
+}
+.agent-activity-why > summary::-webkit-details-marker {
+  display: none;
+}
+.agent-activity-why > summary:focus-visible {
+  outline: 2px solid var(--agent-focus, var(--color-primary));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.agent-activity-why[open] > summary {
+  margin-bottom: 2px;
+}

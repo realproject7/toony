@@ -198,9 +198,11 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
       {
         title: str("The title, exactly as it should read."),
         logline: str("One-sentence pitch."),
-        language: str("Dialogue language code, for example en, ko or ja."),
+        language: str(
+          "Dialogue language code, for example en, ko or ja. Pass the language the dialogue will be written in.",
+        ),
       },
-      ["title"],
+      ["title", "language"],
     ),
   },
   {

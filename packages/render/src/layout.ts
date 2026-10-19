@@ -14,7 +14,12 @@ import { balloonTextInset } from "./authored-balloon.js";
 // in the caller's space (display px for the preview, natural px for export). The
 // tail point is image-space normalized; it is converted to pixel space here.
 
-import { type FontFamilyId, resolveFontFamily } from "@toony/fonts";
+import {
+  type FontFamily,
+  type FontFamilyId,
+  fontHasCodepoint,
+  resolveFontFamily,
+} from "@toony/fonts";
 import {
   type BubbleKind,
   type BubbleTone,
@@ -335,6 +340,61 @@ export function cutPlacementFrame(
   };
 }
 
+/** Code points that need a visible glyph (whitespace and format characters do not). */
+function glyphPoints(text: string): number[] {
+  const points = new Set<number>();
+  for (const character of text) {
+    if (/[\p{White_Space}\p{Cc}\p{Default_Ignorable_Code_Point}]/u.test(character)) continue;
+    points.add(character.codePointAt(0) as number);
+  }
+  return [...points];
+}
+
+function familyCovers(family: FontFamily, points: readonly number[], weight: number): boolean {
+  return points.every((point) => fontHasCodepoint(family.id, point, weight));
+}
+
+const isHangul = (p: number) =>
+  (p >= 0xac00 && p <= 0xd7a3) || (p >= 0x1100 && p <= 0x11ff) || (p >= 0x3130 && p <= 0x318f);
+const isJapanese = (p: number) =>
+  (p >= 0x3040 && p <= 0x30ff) || (p >= 0x4e00 && p <= 0x9fff) || (p >= 0xff66 && p <= 0xff9f);
+
+/**
+ * The face a bubble is drawn with. The requested (or per-kind default) face is
+ * kept whenever it can draw every character, so existing lettering renders
+ * exactly as before. When it cannot (for example Korean narration in a project
+ * declared as English, or a Latin-only display face chosen for Korean text),
+ * the per-kind default for the text's own script is used, then any bundled face
+ * that covers the whole text. Without this, the browser would quietly fall back
+ * to a system font in the editor while the export drew nothing for those
+ * characters.
+ */
+function coveringFamily(
+  requested: FontFamily,
+  text: string,
+  kind: LetteringOverlay["kind"],
+  weight: number,
+): FontFamily {
+  const points = glyphPoints(text);
+  // Only a missing writing system moves the face: Korean or Japanese letters
+  // the face cannot draw. Gaps in Latin punctuation or symbols keep the
+  // requested face, so Latin lettering renders exactly as it always has.
+  const missing = points.filter((point) => !fontHasCodepoint(requested.id, point, weight));
+  const korean = missing.some(isHangul);
+  const japanese = missing.some(isJapanese);
+  if (!korean && !japanese) return requested;
+  const script = points.filter((point) => isHangul(point) || isJapanese(point));
+  const candidates = [
+    resolveFontFamily(undefined, kind, korean ? "ko" : "ja"),
+    resolveFontFamily(korean ? "noto-sans-kr" : "noto-sans-jp", kind),
+  ];
+  return (
+    candidates.find((candidate) => familyCovers(candidate, points, weight)) ??
+    candidates.find((candidate) => familyCovers(candidate, script, weight)) ??
+    requested
+  );
+}
+
 /**
  * Lay out a single overlay into a `BubbleRender`. Pure: same inputs → same plan.
  */
@@ -368,7 +428,16 @@ export function layoutBubble(
   // The DEFAULT follows the project's declared dialogue language (#213); every
   // consumer resolves here, so the preview and the raster cannot pick different
   // faces for the same project.
-  const family = resolveFontFamily(effectiveFamilyId, kind, opts.dialogueLanguage);
+  const requestedFamily = resolveFontFamily(effectiveFamilyId, kind, opts.dialogueLanguage);
+  // Styled text already resolves a bundled face per character run (see
+  // layoutStyledText); plain text uses one face, so it must be one that can
+  // draw the text's writing system.
+  const styledRuns =
+    overlay.textLayout !== undefined &&
+    (overlay.textRanges !== undefined || overlay.fontStyle !== undefined);
+  const family = styledRuns
+    ? requestedFamily
+    : coveringFamily(requestedFamily, overlay.text, kind, matchFaceWeight(fontWeight));
   const fontFamily: FontFamilyId = family.id;
   const fontStack = family.stack;
   const textAlign: TextAlign = overlay.textAlign ?? LETTERING_STYLE_DEFAULTS.textAlign;

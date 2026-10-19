@@ -92,7 +92,17 @@ function ActivityRow({ item, onNavigate }: { item: Activity; onNavigate: () => v
       </span>
       <span className="agent-activity-text">
         <span className="agent-activity-title">{item.title}</span>
-        {item.detail && <span className="agent-activity-detail">{item.detail}</span>}
+        {item.detail &&
+          (item.status === "failed" ? (
+            // A refused step is usually fixed by the agent on its next try; the
+            // exact reason stays one click away instead of filling the chat.
+            <details className="agent-activity-why">
+              <summary>Why</summary>
+              <span className="agent-activity-detail">{item.detail}</span>
+            </details>
+          ) : (
+            <span className="agent-activity-detail">{item.detail}</span>
+          ))}
         {item.targets && item.targets.length > 0 && (
           <TargetLinks targets={item.targets} onNavigate={onNavigate} />
         )}

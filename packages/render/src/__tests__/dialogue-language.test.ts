@@ -165,3 +165,34 @@ test("an explicit fontFamily ignores the declared language, in every kind", asyn
     }
   }
 });
+
+test("text the declared face cannot draw moves to a bundled face that can, and covered text stays put", async () => {
+  const [sample] = await shippedLettering("dead-air");
+  assert.ok(sample);
+  const korean: LetteringOverlay = {
+    ...sample,
+    id: "ov-korean-narration",
+    kind: "narration",
+    text: "모두가 잠들면, 고양이 우체국이 문을 엽니다.",
+    fontFamily: undefined,
+  };
+  const english: LetteringOverlay = { ...korean, id: "ov-english-narration", text: "Every night." };
+  const [koPlan, enPlan] = layoutCut([korean, english], W, H, { dialogueLanguage: "en" });
+  assert.ok(koPlan && enPlan);
+  const koFamily = getFontFamily(koPlan.fontFamily);
+  assert.ok(
+    koFamily?.scripts.includes("korean"),
+    `Korean narration was set in ${koPlan.fontFamily}`,
+  );
+  assert.equal(koPlan.fontStack, koFamily?.stack);
+  const declared = layoutCut([english], W, H, { dialogueLanguage: "en" })[0];
+  assert.equal(enPlan.fontFamily, declared?.fontFamily, "covered text keeps the declared face");
+
+  // An explicit Latin-only face keeps its own text and still never drops Korean.
+  const pinned = layoutCut([{ ...korean, fontFamily: "anton" }], W, H, {
+    dialogueLanguage: "en",
+  })[0];
+  assert.ok(getFontFamily(pinned?.fontFamily ?? "")?.scripts.includes("korean"));
+  const pinnedLatin = layoutCut([{ ...english, fontFamily: "nunito" }], W, H)[0];
+  assert.equal(pinnedLatin?.fontFamily, "nunito");
+});
