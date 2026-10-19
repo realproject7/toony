@@ -1,6 +1,7 @@
 "use client";
 
 import type { LetteringOverlay } from "@toony/schema";
+import { InspectorNumberField } from "./inspector-number-field";
 
 export function GradientControls({
   overlay,
@@ -16,51 +17,59 @@ export function GradientControls({
   return (
     <Container className={embedded ? "inspector-fill" : "field-group"}>
       {!embedded && <legend>Bubble fill</legend>}
-      <label className="field">
-        <span>Fill type</span>
-        <select
-          aria-label="Bubble fill type"
-          value={gradient ? "linear" : "solid"}
-          onChange={(e) =>
-            onChange({
-              fillGradient:
-                e.target.value === "solid"
-                  ? null
-                  : {
-                      angle: 90,
-                      stops: [
-                        {
-                          offset: 0,
-                          color: /^#[\da-f]{6}(?:[\da-f]{2})?$/i.test(overlay.fill)
-                            ? overlay.fill
-                            : "#ffffff",
-                        },
-                        { offset: 1, color: "#d9e4ef" },
-                      ],
-                    },
-            })
-          }
-        >
-          <option value="solid">Solid</option>
-          <option value="linear">Linear gradient</option>
-        </select>
-      </label>
+      <fieldset className="inspector-segmented inspector-fill-type" aria-label="Bubble fill type">
+        {(["solid", "linear"] as const).map((type) => (
+          <button
+            type="button"
+            key={type}
+            className="btn"
+            aria-pressed={type === (gradient ? "linear" : "solid")}
+            onClick={() => {
+              if ((type === "linear") === Boolean(gradient)) return;
+              onChange({
+                fillGradient:
+                  type === "solid"
+                    ? null
+                    : {
+                        angle: 90,
+                        stops: [
+                          {
+                            offset: 0,
+                            color: /^#[\da-f]{6}(?:[\da-f]{2})?$/i.test(overlay.fill)
+                              ? overlay.fill
+                              : "#ffffff",
+                          },
+                          { offset: 1, color: "#d9e4ef" },
+                        ],
+                      },
+              });
+            }}
+          >
+            {type === "solid" ? "Solid" : "Gradient"}
+          </button>
+        ))}
+      </fieldset>
       {gradient && (
         <>
-          <label className="field field-inline">
-            <span>Angle</span>
-            <input
-              aria-label="Gradient angle"
-              type="range"
+          <div className="inspector-gradient-preview-row">
+            <div
+              className="inspector-gradient-preview"
+              aria-hidden="true"
+              style={{
+                background: `linear-gradient(${gradient.angle + 90}deg, ${gradient.stops.map((stop) => `${stop.color} ${stop.offset * 100}%`).join(", ")})`,
+              }}
+            />
+            <InspectorNumberField
+              label="Angle"
+              value={gradient.angle}
               min={0}
               max={359}
-              value={gradient.angle}
-              onChange={(e) =>
-                onChange({ fillGradient: { ...gradient, angle: Number(e.target.value) } })
+              unit="°"
+              onCommit={(value) =>
+                value !== null && onChange({ fillGradient: { ...gradient, angle: value } })
               }
             />
-            <output>{gradient.angle}°</output>
-          </label>
+          </div>
           <div className="gradient-stops">
             <div className="gradient-stop-headings" aria-hidden="true">
               <span>Color</span>
@@ -96,63 +105,61 @@ export function GradientControls({
                     })
                   }
                 />
-                <input
-                  aria-label={`Stop ${index + 1} position`}
-                  type="number"
+                <InspectorNumberField
+                  label={`Stop ${index + 1} position`}
+                  hideLabel
                   min={0}
                   max={100}
                   value={Math.round(stop.offset * 100)}
-                  onChange={(e) => {
-                    const value = e.target.valueAsNumber;
-                    if (Number.isFinite(value))
-                      onChange({
-                        fillGradient: {
-                          ...gradient,
-                          stops: gradient.stops.map((s, i) =>
-                            i === index
-                              ? {
-                                  ...s,
-                                  offset: Math.max(
-                                    gradient.stops[index - 1]?.offset ?? 0,
-                                    Math.min(gradient.stops[index + 1]?.offset ?? 1, value / 100),
-                                  ),
-                                }
-                              : s,
-                          ),
-                        },
-                      });
-                  }}
+                  onCommit={(value) =>
+                    value !== null &&
+                    onChange({
+                      fillGradient: {
+                        ...gradient,
+                        stops: gradient.stops.map((s, i) =>
+                          i === index
+                            ? {
+                                ...s,
+                                offset: Math.max(
+                                  gradient.stops[index - 1]?.offset ?? 0,
+                                  Math.min(gradient.stops[index + 1]?.offset ?? 1, value / 100),
+                                ),
+                              }
+                            : s,
+                        ),
+                      },
+                    })
+                  }
                 />
-                <input
-                  aria-label={`Stop ${index + 1} alpha`}
-                  type="number"
+                <InspectorNumberField
+                  label={`Stop ${index + 1} alpha`}
+                  hideLabel
                   min={0}
                   max={100}
                   value={Math.round(
                     (stop.color.length === 9 ? Number.parseInt(stop.color.slice(7), 16) / 255 : 1) *
                       100,
                   )}
-                  onChange={(e) => {
-                    const value = e.target.valueAsNumber;
-                    if (Number.isFinite(value))
-                      onChange({
-                        fillGradient: {
-                          ...gradient,
-                          stops: gradient.stops.map((s, i) =>
-                            i === index
-                              ? {
-                                  ...s,
-                                  color:
-                                    s.color.slice(0, 7) +
-                                    Math.round((Math.max(0, Math.min(100, value)) * 255) / 100)
-                                      .toString(16)
-                                      .padStart(2, "0"),
-                                }
-                              : s,
-                          ),
-                        },
-                      });
-                  }}
+                  onCommit={(value) =>
+                    value !== null &&
+                    onChange({
+                      fillGradient: {
+                        ...gradient,
+                        stops: gradient.stops.map((s, i) =>
+                          i === index
+                            ? {
+                                ...s,
+                                color:
+                                  s.color.slice(0, 7) +
+                                  Math.round((value * 255) / 100)
+                                    .toString(16)
+                                    .padStart(2, "0"),
+                              }
+                            : s,
+                        ),
+                      },
+                    })
+                  }
                 />
                 <button
                   type="button"

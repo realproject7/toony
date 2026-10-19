@@ -56,6 +56,7 @@ import { ColorPicker } from "./color-picker";
 import { FontCoverageNotice } from "./font-coverage-notice";
 import { GeometryControls } from "./geometry-controls";
 import { GradientControls } from "./gradient-controls";
+import { InspectorNumberField } from "./inspector-number-field";
 import { LetteringTextField } from "./lettering-text-field";
 import { TextLayoutControls } from "./text-layout-controls";
 
@@ -161,14 +162,15 @@ export function BubbleInspector({
         </nav>
       </header>
       {overflow && (
-        <div className="editor-toast editor-toast-warn" data-testid="inspector-overflow">
-          Text overflows this bubble even at the minimum font. Enlarge the box or shorten the text.
-        </div>
+        <details className="inspector-overflow" data-testid="inspector-overflow">
+          <summary>Text doesn’t fit in this bubble</summary>
+          <p>Enlarge the bubble, reduce the font size, or shorten the text.</p>
+        </details>
       )}
 
       <section className="inspector-panel" hidden={tab !== "text"} aria-label="Text properties">
         {(overlay.kind !== "narration" || overlay.speaker) && (
-          <label className="field">
+          <label className="field inspector-property-row">
             <span>Speaker</span>
             <input
               type="text"
@@ -188,214 +190,170 @@ export function BubbleInspector({
           onRestoreSelection={onRestoreSelection}
         />
         {!rangeSelected && (
-          <>
-            <fieldset className="field-group" data-testid="group-typography">
-              <legend>Typography</legend>
+          <fieldset className="field-group inspector-typography" data-testid="group-typography">
+            <legend>Typography</legend>
 
-              <label className="field">
-                <span>Font family</span>
-                <select
-                  value={overlay.fontFamily ?? ""}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    // Empty option clears the override so the bubble resolves to the
-                    // per-kind default family (back-compatible with overlays that never
-                    // set one). A non-empty value is always a curated family id.
-                    onChange({ fontFamily: value === "" ? undefined : (value as FontFamilyId) });
-                  }}
-                  data-testid="field-font-family"
-                >
-                  <option value="">
-                    Default ({defaultFontFamilyForKind(overlay.kind, dialogueLanguage)})
+            <label className="field inspector-font-family">
+              <span className="sr-only">Font family</span>
+              <select
+                value={overlay.fontFamily ?? ""}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  // Empty option clears the override so the bubble resolves to the
+                  // per-kind default family (back-compatible with overlays that never
+                  // set one). A non-empty value is always a curated family id.
+                  onChange({ fontFamily: value === "" ? undefined : (value as FontFamilyId) });
+                }}
+                data-testid="field-font-family"
+              >
+                <option value="">
+                  Default ({defaultFontFamilyForKind(overlay.kind, dialogueLanguage)})
+                </option>
+                {FONT_FAMILIES.map((family) => (
+                  <option key={family.id} value={family.id} style={{ fontFamily: family.stack }}>
+                    {family.name}
                   </option>
-                  {FONT_FAMILIES.map((family) => (
-                    <option key={family.id} value={family.id} style={{ fontFamily: family.stack }}>
-                      {family.name}
+                ))}
+              </select>
+            </label>
+
+            <div className="inspector-type-style">
+              <label className="field">
+                <span className="sr-only">Weight</span>
+                <select
+                  aria-label="Font weight"
+                  value={fontWeight}
+                  onChange={(event) =>
+                    onChange({ fontWeight: Number(event.target.value) as FontWeight })
+                  }
+                >
+                  {FONT_WEIGHTS.map((weight) => (
+                    <option key={weight} value={weight}>
+                      {WEIGHT_LABELS[weight]}
                     </option>
                   ))}
                 </select>
               </label>
+              <button
+                type="button"
+                className="btn"
+                aria-pressed={overlay.fontStyle === "italic"}
+                onClick={() =>
+                  onChange({
+                    fontStyle: overlay.fontStyle === "italic" ? "normal" : "italic",
+                    textLayout: overlay.textLayout ?? defaultLetteringTextLayout(referenceWidth),
+                  })
+                }
+              >
+                <i aria-hidden="true">I</i> Italic
+              </button>
+            </div>
 
-              <div className="field">
-                <span>Size</span>
-                <div className="field-inline">
-                  <input
-                    type="number"
-                    min={FONT_SIZE_MIN_PX}
-                    max={FONT_SIZE_MAX_PX}
-                    step={1}
-                    key={`${overlay.id}-font-${fontSize}`}
-                    defaultValue={fontSize ?? ""}
-                    placeholder="Auto"
-                    onBlur={(e) => {
-                      const raw = e.target.value.trim();
-                      if (!raw) {
-                        if (fontSize !== null) onChange({ fontSize: null });
-                        return;
-                      }
-                      const value = Number(raw);
-                      if (!Number.isFinite(value)) {
-                        e.target.value = String(fontSize ?? "");
-                        return;
-                      }
-                      const next = clamp(Math.round(value), FONT_SIZE_MIN_PX, FONT_SIZE_MAX_PX);
-                      e.target.value = String(next);
-                      if (next !== fontSize) onChange({ fontSize: next });
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        event.currentTarget.blur();
-                      }
-                    }}
-                    aria-label="Font size"
-                    data-testid="field-font-size"
-                  />
+            <div className="inspector-type-metrics">
+              <InspectorNumberField
+                label="Size"
+                value={fontSize}
+                min={FONT_SIZE_MIN_PX}
+                max={FONT_SIZE_MAX_PX}
+                automatic
+                onCommit={(value) => onChange({ fontSize: value })}
+                testId="field-font-size"
+                action={
                   <button
                     type="button"
-                    className={fontSize === null ? "btn btn-chip btn-chip-active" : "btn btn-chip"}
+                    className="inspector-inline-action"
+                    aria-pressed={fontSize === null}
                     onClick={() => onChange({ fontSize: null })}
                     data-testid="field-font-size-auto"
                   >
                     Auto
                   </button>
-                </div>
-              </div>
+                }
+              />
+              <InspectorNumberField
+                label="Line height"
+                value={lineHeight}
+                min={LINE_HEIGHT_MIN}
+                max={LINE_HEIGHT_MAX}
+                step={0.05}
+                unit="×"
+                testId="field-line-height"
+                onCommit={(value) => value !== null && onChange({ lineHeight: value })}
+              />
+              <InspectorNumberField
+                label="Tracking"
+                value={letterSpacing}
+                min={LETTER_SPACING_MIN_EM}
+                max={LETTER_SPACING_MAX_EM}
+                step={0.01}
+                unit="em"
+                testId="field-letter-spacing"
+                onCommit={(value) => value !== null && onChange({ letterSpacing: value })}
+              />
+            </div>
 
-              <div className="inspector-type-style">
-                <label className="field">
-                  <span>Weight</span>
-                  <select
-                    aria-label="Font weight"
-                    value={fontWeight}
-                    onChange={(event) =>
-                      onChange({ fontWeight: Number(event.target.value) as FontWeight })
+            <div className="field">
+              <span>Alignment</span>
+              <div className="chip-row inspector-segmented inspector-alignment">
+                {TEXT_ALIGNS.map((align) => (
+                  <button
+                    key={align}
+                    type="button"
+                    className={
+                      textAlign === align ? "btn btn-chip btn-chip-active" : "btn btn-chip"
                     }
+                    aria-pressed={textAlign === align}
+                    onClick={() => onChange({ textAlign: align })}
+                    data-testid={`field-align-${align}`}
                   >
-                    {FONT_WEIGHTS.map((weight) => (
-                      <option key={weight} value={weight}>
-                        {WEIGHT_LABELS[weight]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  className="btn"
-                  aria-pressed={overlay.fontStyle === "italic"}
-                  onClick={() =>
-                    onChange({
-                      fontStyle: overlay.fontStyle === "italic" ? "normal" : "italic",
-                      textLayout: overlay.textLayout ?? defaultLetteringTextLayout(referenceWidth),
-                    })
-                  }
-                >
-                  <i aria-hidden="true">I</i> Italic
-                </button>
+                    <AlignmentSymbol mode={align} />
+                    {align}
+                  </button>
+                ))}
               </div>
+            </div>
 
-              <div className="field">
-                <span>Horizontal alignment</span>
-                <div className="chip-row inspector-alignment">
-                  {TEXT_ALIGNS.map((align) => (
-                    <button
-                      key={align}
-                      type="button"
-                      className={
-                        textAlign === align ? "btn btn-chip btn-chip-active" : "btn btn-chip"
-                      }
-                      aria-pressed={textAlign === align}
-                      onClick={() => onChange({ textAlign: align })}
-                      data-testid={`field-align-${align}`}
-                    >
-                      <AlignmentSymbol mode={align} />
-                      {align}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="field">
-                <span>Vertical align</span>
-                <div className="chip-row inspector-alignment">
-                  {VERTICAL_ALIGNS.map((align) => (
-                    <button
-                      key={align}
-                      type="button"
-                      className={
-                        verticalAlign === align ? "btn btn-chip btn-chip-active" : "btn btn-chip"
-                      }
-                      aria-pressed={verticalAlign === align}
-                      onClick={() => onChange({ verticalAlign: align })}
-                      data-testid={`field-valign-${align}`}
-                    >
-                      <AlignmentSymbol mode={align} vertical />
-                      {align}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <details className="inspector-disclosure">
-                <summary>Spacing &amp; auto-fit</summary>
-                <label className="field field-inline">
-                  <span>Line height</span>
-                  <input
-                    type="range"
-                    min={LINE_HEIGHT_MIN}
-                    max={LINE_HEIGHT_MAX}
-                    step={0.05}
-                    value={lineHeight}
-                    onChange={(e) =>
-                      onChange({
-                        lineHeight: clamp(Number(e.target.value), LINE_HEIGHT_MIN, LINE_HEIGHT_MAX),
-                      })
+            <div className="field">
+              <span className="sr-only">Vertical alignment</span>
+              <div className="chip-row inspector-segmented inspector-alignment">
+                {VERTICAL_ALIGNS.map((align) => (
+                  <button
+                    key={align}
+                    type="button"
+                    className={
+                      verticalAlign === align ? "btn btn-chip btn-chip-active" : "btn btn-chip"
                     }
-                    data-testid="field-line-height"
-                  />
-                  <output>{lineHeight.toFixed(2)}</output>
-                </label>
-
-                <label className="field field-inline">
-                  <span>Letter spacing</span>
-                  <input
-                    type="range"
-                    min={LETTER_SPACING_MIN_EM}
-                    max={LETTER_SPACING_MAX_EM}
-                    step={0.01}
-                    value={letterSpacing}
-                    onChange={(e) =>
-                      onChange({
-                        letterSpacing: clamp(
-                          Number(e.target.value),
-                          LETTER_SPACING_MIN_EM,
-                          LETTER_SPACING_MAX_EM,
-                        ),
-                      })
-                    }
-                    data-testid="field-letter-spacing"
-                  />
-                  <output>{letterSpacing.toFixed(2)}em</output>
-                </label>
-                <TextLayoutControls
-                  layout={overlay.textLayout}
-                  referenceWidth={referenceWidth}
-                  onChange={(textLayout) =>
-                    onChange({ textLayout, ...(!overlay.textLayout ? { textRanges: [] } : {}) })
-                  }
-                />
-              </details>
-            </fieldset>
+                    aria-pressed={verticalAlign === align}
+                    onClick={() => onChange({ verticalAlign: align })}
+                    data-testid={`field-valign-${align}`}
+                  >
+                    <AlignmentSymbol mode={align} vertical />
+                    {align}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <ColorPicker
-              label="Text"
+              label="Text color"
               value={textColor}
               projectPalette={projectPalette}
               onChange={(hex) => onChange({ textColor: hex })}
               inline
+              compact
               testId="field-text-color"
             />
-          </>
+            <details className="inspector-disclosure">
+              <summary>Auto-fit &amp; padding</summary>
+              <TextLayoutControls
+                layout={overlay.textLayout}
+                referenceWidth={referenceWidth}
+                onChange={(textLayout) =>
+                  onChange({ textLayout, ...(!overlay.textLayout ? { textRanges: [] } : {}) })
+                }
+              />
+            </details>
+          </fieldset>
         )}
         <FontCoverageNotice segments={fontSegments} compact />
         {overlay.textLayout && overlay.textRanges === undefined && (
@@ -422,140 +380,144 @@ export function BubbleInspector({
         ) : (
           <>
             <fieldset className="field-group" data-testid="group-color">
-              <legend>Appearance</legend>
+              <legend>Fill</legend>
               <GradientControls overlay={overlay} onChange={onChange} embedded />
-              {!overlay.fillGradient && (
-                <ColorPicker
-                  label="Fill"
-                  value={overlay.fill}
-                  projectPalette={projectPalette}
-                  onChange={(hex) => onChange({ fill: hex })}
-                  inline
-                  testId="field-fill-color"
-                />
-              )}
-              <ColorPicker
-                label="Border"
-                value={overlay.border?.color ?? bubbleKindStyle(overlay.kind).stroke}
-                projectPalette={projectPalette}
-                onChange={(hex) =>
-                  onChange({
-                    border: { width: overlay.border?.width ?? 2, color: hex },
-                  })
+              <div
+                className={
+                  overlay.fillGradient ? "inspector-gradient-opacity" : "inspector-paint-row"
                 }
-                inline
-                testId="field-border-color"
-              />
-              <label className="field field-inline">
-                <span>Fill opacity</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={overlay.opacity}
-                  onChange={(e) => onChange({ opacity: Number(e.target.value) })}
-                  data-testid="field-opacity"
-                />
-                <output>{Math.round(overlay.opacity * 100)}%</output>
-              </label>
-            </fieldset>
-
-            <details className="inspector-disclosure">
-              <summary>Outline details</summary>
-              <fieldset
-                className="field-group"
-                data-testid="group-styling"
-                aria-label="Outline controls"
               >
-                <label className="field field-inline">
-                  <input
-                    type="checkbox"
-                    checked={overlay.border !== null}
-                    onChange={(e) =>
-                      onChange({ border: e.target.checked ? { width: 2, color: "#101010" } : null })
-                    }
-                    data-testid="field-border-toggle"
+                {!overlay.fillGradient && (
+                  <ColorPicker
+                    label="Fill color"
+                    value={overlay.fill}
+                    projectPalette={projectPalette}
+                    onChange={(hex) => onChange({ fill: hex })}
+                    inline
+                    compact
+                    testId="field-fill-color"
                   />
-                  <span>Custom border</span>
-                </label>
-                {overlay.border !== null && (
-                  <label className="field field-inline">
-                    <span>Border width</span>
-                    <input
-                      type="number"
-                      min={0}
-                      step={0.5}
-                      value={overlay.border.width}
-                      onChange={(e) =>
-                        onChange({
-                          border: {
-                            width: Math.max(0, Number(e.target.value)),
-                            color: overlay.border?.color ?? "#101010",
-                          },
-                        })
-                      }
-                      data-testid="field-border-width"
-                    />
-                  </label>
                 )}
-
-                {(!overlay.balloonShape || overlay.balloonShape === "rounded") && (
-                  <label className="field field-inline">
-                    <span>Corner radius</span>
-                    <input
-                      type="number"
-                      min={CORNER_RADIUS_MIN_PX}
-                      max={CORNER_RADIUS_MAX_PX}
-                      step={1}
-                      value={overlay.cornerRadius ?? ""}
-                      placeholder="Default"
-                      onChange={(e) => {
-                        const raw = e.target.value;
-                        // Empty input clears the override → per-kind default radius.
-                        if (raw === "") {
-                          onChange({ cornerRadius: undefined });
-                          return;
-                        }
-                        onChange({
-                          cornerRadius: clamp(
-                            Number(raw),
-                            CORNER_RADIUS_MIN_PX,
-                            CORNER_RADIUS_MAX_PX,
-                          ),
-                        });
-                      }}
-                      data-testid="field-corner-radius"
-                    />
-                  </label>
-                )}
-              </fieldset>
-
-              {!overlay.balloonShape && (
-                <div className="field">
-                  <span>Tone</span>
-                  <div className="chip-row">
-                    {BUBBLE_TONES.map((value) => (
-                      <button
-                        key={value}
-                        type="button"
-                        className={tone === value ? "btn btn-chip btn-chip-active" : "btn btn-chip"}
-                        aria-pressed={tone === value}
-                        // tone refines the outline SHAPE (scalloped/jagged); the renderer
-                        // reads it from the overlay. "neutral" clears the override.
-                        onClick={() => onChange({ tone: value })}
-                        data-testid={`field-tone-${value}`}
-                      >
-                        {value}
-                      </button>
-                    ))}
-                  </div>
-                  <span className="field-hint">
-                    Refines the bubble silhouette to encode emotion.
-                  </span>
-                </div>
+                <InspectorNumberField
+                  label="Opacity"
+                  value={Math.round(overlay.opacity * 100)}
+                  min={0}
+                  max={100}
+                  unit="%"
+                  testId="field-opacity"
+                  onCommit={(value) => value !== null && onChange({ opacity: value / 100 })}
+                />
+              </div>
+            </fieldset>
+            <fieldset className="field-group" data-testid="group-styling">
+              <legend>Border</legend>
+              <div className="inspector-paint-row">
+                <ColorPicker
+                  label="Border color"
+                  value={overlay.border?.color ?? bubbleKindStyle(overlay.kind).stroke}
+                  projectPalette={projectPalette}
+                  onChange={(hex) =>
+                    onChange({ border: { width: overlay.border?.width ?? 2, color: hex } })
+                  }
+                  inline
+                  compact
+                  testId="field-border-color"
+                />
+                <InspectorNumberField
+                  label="Width"
+                  value={overlay.border?.width ?? null}
+                  min={0}
+                  max={Number.MAX_SAFE_INTEGER}
+                  step={0.5}
+                  unit="px"
+                  automatic
+                  testId="field-border-width"
+                  onCommit={(value) =>
+                    onChange({
+                      border:
+                        value === null
+                          ? null
+                          : {
+                              width: value,
+                              color: overlay.border?.color ?? bubbleKindStyle(overlay.kind).stroke,
+                            },
+                    })
+                  }
+                />
+              </div>
+              {overlay.border !== null && (
+                <button
+                  type="button"
+                  className="inspector-inline-action inspector-reset"
+                  onClick={() => onChange({ border: null })}
+                >
+                  Reset border to default
+                </button>
               )}
-            </details>
+            </fieldset>
+            {(!overlay.balloonShape || overlay.balloonShape === "rounded") && (
+              <details className="inspector-disclosure">
+                <summary>Shape details</summary>
+                <fieldset className="field-group" aria-label="Outline controls">
+                  {(!overlay.balloonShape || overlay.balloonShape === "rounded") && (
+                    <label className="field field-inline">
+                      <span>Corner radius</span>
+                      <input
+                        type="number"
+                        min={CORNER_RADIUS_MIN_PX}
+                        max={CORNER_RADIUS_MAX_PX}
+                        step={1}
+                        value={overlay.cornerRadius ?? ""}
+                        placeholder="Default"
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          // Empty input clears the override → per-kind default radius.
+                          if (raw === "") {
+                            onChange({ cornerRadius: undefined });
+                            return;
+                          }
+                          onChange({
+                            cornerRadius: clamp(
+                              Number(raw),
+                              CORNER_RADIUS_MIN_PX,
+                              CORNER_RADIUS_MAX_PX,
+                            ),
+                          });
+                        }}
+                        data-testid="field-corner-radius"
+                      />
+                    </label>
+                  )}
+                </fieldset>
+
+                {!overlay.balloonShape && (
+                  <div className="field">
+                    <span>Tone</span>
+                    <div className="chip-row">
+                      {BUBBLE_TONES.map((value) => (
+                        <button
+                          key={value}
+                          type="button"
+                          className={
+                            tone === value ? "btn btn-chip btn-chip-active" : "btn btn-chip"
+                          }
+                          aria-pressed={tone === value}
+                          // tone refines the outline SHAPE (scalloped/jagged); the renderer
+                          // reads it from the overlay. "neutral" clears the override.
+                          onClick={() => onChange({ tone: value })}
+                          data-testid={`field-tone-${value}`}
+                        >
+                          {value}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="field-hint">
+                      Refines the bubble silhouette to encode emotion.
+                    </span>
+                  </div>
+                )}
+              </details>
+            )}
           </>
         )}
       </section>
@@ -568,7 +530,7 @@ export function BubbleInspector({
 
           <div className="field">
             <span>Stacking order (z {zIndex})</span>
-            <div className="chip-row inspector-stacking">
+            <div className="chip-row inspector-segmented inspector-stacking">
               <button
                 type="button"
                 className="btn btn-chip"
@@ -606,7 +568,7 @@ export function BubbleInspector({
 
           <div className="field">
             <span>Nudge</span>
-            <div className="nudge-pad">
+            <div className="nudge-pad inspector-nudge-row">
               <button
                 type="button"
                 className="btn btn-chip nudge-up"
