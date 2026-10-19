@@ -190,7 +190,21 @@ export async function withProjectWrite<T>(
   plan: WritePlan,
   fn: (tx: WriteContext) => Promise<T>,
 ): Promise<WriteOutcome<T>> {
-  const root = await canonicalRoot(ctx.root);
+  // Queue on the path as given before any await, so writes to one project run
+  // in the order they were requested; the canonical lock inside also covers
+  // the same project reached through another path.
+  return withLock(`request:${ctx.root}`, async () => {
+    const root = await canonicalRoot(ctx.root);
+    return writeUnderLock(ctx, root, plan, fn);
+  });
+}
+
+async function writeUnderLock<T>(
+  ctx: OpContext,
+  root: string,
+  plan: WritePlan,
+  fn: (tx: WriteContext) => Promise<T>,
+): Promise<WriteOutcome<T>> {
   return withLock(root, async () => {
     let before: LoadedProject;
     try {

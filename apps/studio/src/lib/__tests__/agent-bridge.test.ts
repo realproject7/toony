@@ -133,7 +133,8 @@ test("turn tokens are random, single turn, checked whole and revoked", () => {
   assert.notEqual(token, other);
   assert.deepEqual(resolveTurnToken(token), { conversationId: "c-1", turnId: "turn-1" });
   assert.deepEqual(resolveTurnToken(other), { conversationId: "c-2", turnId: "turn-2" });
-  assert.equal(resolveTurnToken(`${token.slice(0, 63)}0`), null);
+  const changed = `${token.slice(0, 63)}${token.endsWith("0") ? "1" : "0"}`;
+  assert.equal(resolveTurnToken(changed), null);
   assert.equal(resolveTurnToken("short"), null);
   assert.equal(resolveTurnToken(null), null);
   assert.equal(bearerToken(`Bearer ${token}`), token);
