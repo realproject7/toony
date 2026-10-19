@@ -459,3 +459,15 @@ test("a work made by toony init with lettering keeps working with these operatio
   assert.equal(loaded.validation.valid, true);
   assert.equal(loaded.project.episodes[0]?.lettering[0]?.speaker, "Narrator");
 });
+
+test("undoing a new episode is refused while a later edit inside it stands", async (t) => {
+  const { root, ctx } = await blankWork(t);
+  const blank = await createBlankEpisode(ctx, { cuts: 2 });
+  assert.ok(blank.change);
+  const added = await editCuts(ctx, blank.episodeId, [{ op: "add", scene: "Rain." }]);
+  assert.ok(added.change);
+  await assert.rejects(undoChange(ctx, blank.change.changeId), /Newer edits depend on this change/);
+  await undoChange(ctx, added.change.changeId);
+  await undoChange(ctx, blank.change.changeId);
+  assert.deepEqual((await loadProject(root)).project.episodes, []);
+});

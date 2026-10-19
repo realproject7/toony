@@ -22,8 +22,14 @@ import { rename, rm, writeFile } from "node:fs/promises";
 /** Suffix of the sibling staging file an atomic write stages into. */
 const TMP_SUFFIX = ".tmp";
 
-/** Staging paths claimed by writes in flight in this process. */
-const claimed = new Set<string>();
+/**
+ * Staging paths claimed by writes in flight in this process. Kept on
+ * `globalThis` so copies of this module bundled into different entry points
+ * (Studio route handlers are bundled separately) still share one set.
+ */
+const atomicGlobal = globalThis as typeof globalThis & { toonyStagingClaims?: Set<string> };
+atomicGlobal.toonyStagingClaims ??= new Set<string>();
+const claimed: Set<string> = atomicGlobal.toonyStagingClaims;
 
 /** One file's worth of bytes for a batched atomic write. */
 export interface AtomicFileWrite {

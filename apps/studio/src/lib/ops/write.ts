@@ -91,16 +91,26 @@ export interface WriteOutcome<T> {
   change: ProjectChange | null;
 }
 
-let counter = 0;
+// Route handlers are bundled separately, so process-wide state lives on globalThis.
+const writeGlobal = globalThis as typeof globalThis & { toonyChangeCounter?: number };
+
+function tick(): number {
+  writeGlobal.toonyChangeCounter = ((writeGlobal.toonyChangeCounter ?? 0) + 1) % 1296;
+  return writeGlobal.toonyChangeCounter;
+}
 
 /** A new change id: time-ordered, path safe, unique. */
 export function newChangeId(): string {
-  counter = (counter + 1) % 1296;
-  return `c${Date.now().toString(36)}${counter.toString(36).padStart(2, "0")}-${randomBytes(3).toString("hex")}`;
+  return `c${Date.now().toString(36)}${tick().toString(36).padStart(2, "0")}-${randomBytes(3).toString("hex")}`;
 }
 
 function nextOrder(): number {
-  return Date.now() * 1000 + (counter % 1000);
+  return Date.now() * 1000 + (tick() % 1000);
+}
+
+/** Whether two project-relative paths are the same, or one is a folder holding the other. */
+function samePlace(a: string, b: string): boolean {
+  return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
 }
 
 /** Scopes as the issue-path prefixes they own, keyed by episode id rather than index. */
@@ -305,13 +315,15 @@ export async function undoChange(ctx: OpContext, changeId: string): Promise<Proj
       if ((await signatureOf(root, entry)) !== entry.after) moved.push(entry);
     }
     if (moved.length > 0) {
-      const paths = new Set(moved.map((entry) => entry.path));
       const later = (await listManifests(root)).filter(
         (m) =>
           m.order > target.order &&
           m.kind === "change" &&
           m.undoneBy === undefined &&
-          m.entries.some((entry) => paths.has(entry.path) && entry.after !== entry.before),
+          m.entries.some(
+            (entry) =>
+              entry.after !== entry.before && moved.some((own) => samePlace(own.path, entry.path)),
+          ),
       );
       throw new OpError(
         "stale",
