@@ -37,6 +37,7 @@ import {
   upsertCharacters,
   workFolderSlug,
 } from "../ops/index.js";
+import { transitionRemovedWith } from "../sequence-order.js";
 
 // Named fixture: a real 1x1 PNG.
 const PNG_FIXTURE = Buffer.from(
@@ -266,6 +267,35 @@ function episodeWith(sequence: string[]): EpisodeBundle {
     lettering: [],
   };
 }
+
+test("the remove-cut prompt names exactly the transition the cut route removes", () => {
+  const known = new Set<string>();
+  for (const sequence of [
+    ["c1", "t1", "c2", "t2", "c3"],
+    ["c1", "c2", "t2", "c3"],
+    ["c1", "t1", "c2", "c3"],
+    ["c1", "c2", "c3"],
+    ["c1", "t1", "c2"],
+  ]) {
+    const base = episodeWith(sequence);
+    for (const cutId of sequence.filter((id) => id.startsWith("c"))) {
+      const kept = new Set(
+        applyCutOperations(base, [{ op: "remove", cutId }], known).bundle.transitions.map(
+          (t) => t.id,
+        ),
+      );
+      const removed = base.transitions.map((t) => t.id).filter((id) => !kept.has(id));
+      const named = transitionRemovedWith(base.episode.sequence, cutId);
+      assert.deepEqual(named ? [named.id] : [], removed, `${sequence.join(" ")} without ${cutId}`);
+    }
+  }
+  const named = transitionRemovedWith(
+    episodeWith(["c1", "t1", "c2", "t2", "c3"]).episode.sequence,
+    "c3",
+  );
+  assert.deepEqual(named, { id: "t2", position: "before" });
+  assert.equal(transitionRemovedWith(episodeWith(["c1"]).episode.sequence, "c1"), null);
+});
 
 test("cut edits keep the reading order whole", () => {
   const ids = (b: EpisodeBundle) => b.episode.sequence.map((item) => item.id);

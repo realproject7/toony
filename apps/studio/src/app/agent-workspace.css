@@ -204,10 +204,11 @@
   gap: 12px;
   position: relative;
 }
-.human-workspace
-  .editor-focus[data-workspace-wide="true"][data-inspector-open="true"]
+/* Properties sits beside the canvas whenever the editor has room for both
+   (see cut-editor.tsx); the cut fit shrinks to make space. */
+.human-workspace .editor-focus[data-inspector-inline="true"][data-inspector-open="true"]
   .editor-layout {
-  grid-template-columns: minmax(0, 1fr) 280px;
+  grid-template-columns: minmax(0, 1fr) 260px;
 }
 .human-workspace .editor-focus .editor-inspector {
   padding: 12px;
@@ -225,9 +226,10 @@
   font-size: 13px;
   font-weight: 600;
 }
-.human-workspace .editor-focus[data-workspace-wide="false"] .editor-inspector {
+/* A narrow editor gets a drawer that starts below the bubble toolbar. */
+.human-workspace .editor-focus[data-inspector-inline="false"] .editor-inspector {
   position: absolute;
-  top: 0;
+  top: calc(var(--inspector-drawer-top, 0px) + 8px);
   right: 0;
   bottom: 0;
   width: min(300px, 95%);
@@ -311,15 +313,15 @@
   padding: 0;
   border: 0;
   align-items: center;
+}
+/* The rule under the tools spans the whole row, Align included. */
+.human-workspace .editor-focus .editor-toolbar-row {
   padding-bottom: 8px;
   border-bottom: 1px solid var(--color-line);
 }
 .human-workspace .editor-focus .editor-toolbar .btn {
   min-height: 32px;
   border-radius: 7px;
-}
-.human-workspace .editor-toolbar [data-testid="editor-undo"] {
-  margin-left: 6px;
 }
 .human-workspace .editor-toolbar [data-testid="editor-add"] {
   margin-left: 6px;
@@ -373,21 +375,23 @@
     min-height: 460px;
     flex-shrink: 0;
   }
+  /* The bubble tools wrap to a second row rather than scrolling sideways,
+     so Lock and Delete stay in sight. */
   .human-workspace .editor-focus .editor-toolbar {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    flex-shrink: 0;
+    flex-wrap: wrap;
   }
   .human-workspace .editor-focus .editor-toolbar .btn {
     flex-shrink: 0;
     white-space: nowrap;
   }
-  .human-workspace .editor-focus .page-head > .editor-actions {
-    width: 100%;
+  .human-workspace .editor-focus :is(.page-head, .cut-head) > .editor-actions {
     display: flex;
     flex-wrap: wrap;
   }
-  .human-workspace .editor-focus .page-head > .editor-actions .btn {
+  .human-workspace .editor-focus .page-head > .editor-actions {
+    width: 100%;
+  }
+  .human-workspace .editor-focus :is(.page-head, .cut-head) > .editor-actions .btn {
     white-space: nowrap;
     padding-inline: 8px;
     min-width: 0;
@@ -509,6 +513,17 @@
 }
 .agent-workspace[data-agent-mode="expanded"] :is(.agent-plan-summary, .agent-attention) {
   padding-inline: max(var(--agent-pad), calc((100% - var(--agent-column)) / 2));
+}
+/* The floating agent button sits over the bottom right of the workspace, so
+   scrolled content keeps room below its end and nothing stays hidden under it. */
+.agent-workspace[data-agent-mode="hidden"] .human-workspace
+  :is(.editor-focus .editor-inspector, .episode-transition-properties) {
+  padding-bottom: 72px;
+}
+.agent-workspace[data-agent-mode="hidden"]
+  .human-workspace
+  > .content:not(:has(> .editor, > .episode-editor)) {
+  padding-bottom: 88px;
 }
 .agent-restore {
   position: absolute;
@@ -660,7 +675,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2, 8px);
-  min-height: 56px;
+  min-height: var(--shell-header-h, 60px);
   padding: var(--space-2, 8px) var(--space-2, 8px) var(--space-2, 8px) var(--agent-pad);
   border-bottom: 1px solid var(--agent-line);
 }
@@ -686,6 +701,7 @@
   white-space: nowrap;
 }
 .agent-header-actions {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -772,15 +788,14 @@
 }
 
 /* ---- Settings popover --------------------------------------------------- */
-.agent-settings-wrap {
-  position: relative;
-}
+/* The popover hangs from the right edge of the header actions, so it stays
+   inside the panel whether or not Expand and Hide are shown. */
 .agent-popover {
   position: absolute;
   top: calc(100% + 6px);
-  right: -40px;
+  right: 0;
   z-index: 20;
-  width: min(320px, calc(var(--agent-width, 360px) - 24px));
+  width: min(320px, calc(var(--agent-width, 360px) - 16px));
   max-height: min(70vh, 560px);
   overflow: auto;
   padding: var(--space-3, 12px);
@@ -788,6 +803,12 @@
   border-radius: var(--agent-radius-lg);
   background: var(--agent-raised);
   box-shadow: var(--shadow-3);
+}
+@media (max-width: 899px) {
+  /* The panel fills the screen beside the 64 px rail here. */
+  .agent-popover {
+    width: min(320px, calc(100vw - 64px - 16px));
+  }
 }
 .agent-settings {
   display: grid;
@@ -1070,7 +1091,7 @@
 .agent-task-ring {
   width: 11px;
   height: 11px;
-  border: 1.5px solid var(--agent-line-strong);
+  border: 1.5px solid var(--agent-muted);
   border-radius: 50%;
 }
 .agent-tasks li[data-status="in_progress"] .agent-task-ring {
@@ -1587,6 +1608,25 @@ button.agent-option:hover:not(:disabled),
 .agent-option-other {
   border-style: dashed;
 }
+/* While the agent is still working the options cannot be picked yet, so they
+   step back instead of inviting a click that does nothing. */
+fieldset.agent-question:disabled {
+  box-shadow: none;
+}
+fieldset.agent-question:disabled .agent-option {
+  border-color: var(--agent-line);
+  background: var(--agent-sunken);
+  cursor: not-allowed;
+}
+fieldset.agent-question:disabled .agent-option :is(strong, small) {
+  color: var(--agent-muted);
+}
+.agent-question-wait {
+  margin: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-xs, 0.75rem);
+  line-height: 1.4;
+}
 .agent-other {
   display: grid;
   gap: 4px;
@@ -1732,6 +1772,7 @@ button.agent-option:hover:not(:disabled),
 /* ---- Footer: working bar and composer ----------------------------------- */
 .agent-footer {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-2, 8px);
   padding: 0 var(--agent-pad) var(--agent-pad);
 }
@@ -1740,20 +1781,24 @@ button.agent-option:hover:not(:disabled),
   align-items: center;
   gap: var(--space-2, 8px);
   min-height: 34px;
-  padding: 0 4px 0 var(--space-3, 12px);
+  padding: 6px var(--space-3, 12px);
   border-radius: var(--agent-radius);
   background: var(--agent-accent-soft);
   color: var(--agent-accent-strong);
 }
 .agent-working-step {
+  display: -webkit-box;
   flex: 1;
   min-width: 0;
   overflow: hidden;
   font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .agent-working-time {
+  flex-shrink: 0;
   color: var(--agent-accent-strong);
   font-size: var(--text-xs, 0.75rem);
   font-variant-numeric: tabular-nums;
@@ -2234,17 +2279,33 @@ button.agent-chip-off .studio-icon {
 
 /* A failed step keeps its reason behind a small disclosure. */
 .agent-activity-why > summary {
-  cursor: pointer;
-  color: var(--agent-muted, var(--color-muted));
-  font-size: inherit;
-  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   width: fit-content;
+  cursor: pointer;
+  color: var(--agent-muted);
+  font-size: inherit;
+  font-weight: 600;
+  list-style: none;
 }
 .agent-activity-why > summary::-webkit-details-marker {
   display: none;
 }
+.agent-activity-why > summary:hover {
+  color: var(--agent-ink);
+}
+.agent-activity-why > summary .studio-icon {
+  width: 12px;
+  height: 12px;
+  transform: rotate(-90deg);
+  transition: transform var(--agent-fast) var(--agent-ease);
+}
+.agent-activity-why[open] > summary .studio-icon {
+  transform: none;
+}
 .agent-activity-why > summary:focus-visible {
-  outline: 2px solid var(--agent-focus, var(--color-primary));
+  outline: 2px solid var(--agent-accent);
   outline-offset: 2px;
   border-radius: 4px;
 }

@@ -30,7 +30,7 @@ import {
 } from "@toony/schema";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBrowserMeasure } from "@/lib/browser-measure";
 import { clamp } from "@/lib/clamp";
 import { resolveCutStage } from "@/lib/cut-stage";
@@ -48,6 +48,7 @@ import type { InspectorTab } from "./bubble-inspector";
 import type { InlineTextHandle, TextSelection } from "./inline-lettering-text";
 import { LetteringCanvas } from "./lettering-canvas";
 import { LETTERING_PRESET_MIME, LetteringPresets } from "./lettering-presets";
+import { SaveState } from "./save-state";
 import { StudioIcon } from "./studio-icon";
 import { keyboardOwnedByField, useEditHistory } from "./use-edit-history";
 
@@ -115,6 +116,15 @@ export interface CutEditorRuntime {
 }
 
 const ARTWORK_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+/** From this editor width, Properties opens on its own. */
+const OPEN_INSPECTOR_WIDTH = 940;
+/**
+ * From this editor width, Properties sits beside the canvas (about 260 px) and
+ * the cut fit shrinks to make room. A laptop with the agent panel docked and
+ * the Cuts list open leaves the editor about 670 px. Narrower editors get a
+ * drawer below the toolbar instead.
+ */
+const INLINE_INSPECTOR_WIDTH = 640;
 
 /** Bubbles compared for the clean point: the stored overflow flag follows the render. */
 function stableBubbles(bubbles: readonly LetteringOverlay[]): string {
@@ -178,12 +188,28 @@ export function CutEditor({
   useEffect(() => setReady(true), []);
   const [inspectorPreference, setInspectorPreference] = useState<boolean | null>(null);
   const [wideWorkspace, setWideWorkspace] = useState(false);
+  const [inlineInspector, setInlineInspector] = useState(false);
   const inspectorOpen = inspectorPreference ?? wideWorkspace;
   useEffect(() => {
     const root = editorRoot.current;
     if (!root) return;
-    const observer = new ResizeObserver(() => setWideWorkspace(root.clientWidth >= 940));
+    const observer = new ResizeObserver(() => {
+      setWideWorkspace(root.clientWidth >= OPEN_INSPECTOR_WIDTH);
+      setInlineInspector(root.clientWidth >= INLINE_INSPECTOR_WIDTH);
+    });
     observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
+  // The drawer starts below the bubble toolbar, so the tools stay in reach.
+  const toolbarRowRef = useRef<HTMLDivElement>(null);
+  const [drawerTop, setDrawerTop] = useState(0);
+  useEffect(() => {
+    const row = toolbarRowRef.current;
+    if (!row) return;
+    const measure = () => setDrawerTop(Math.ceil(row.offsetTop + row.offsetHeight));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(row);
     return () => observer.disconnect();
   }, []);
   const [additionalIds, setAdditionalIds] = useState<string[]>([]);
@@ -199,6 +225,20 @@ export function CutEditor({
     inlineRef = useRef<InlineTextHandle>(null);
   const panRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null),
     spaceRef = useRef(false);
+  // Align is a small menu: a click elsewhere closes it, except on the canvas,
+  // where the person may be picking the bubbles to align.
+  const alignMenuRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const close = (event: PointerEvent) => {
+      const menu = alignMenuRef.current;
+      const target = event.target as Node;
+      if (!menu?.open || menu.contains(target)) return;
+      if (viewportRef.current?.contains(target)) return;
+      menu.open = false;
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, []);
   const revisionRef = useRef(initialLetteringRevision),
     allowUnloadRef = useRef(false);
   const [dirty, setDirty] = useState(false);
@@ -1322,7 +1362,7 @@ export function CutEditor({
       aria-label={`Cut ${cutNumber} lettering`}
       className="editor editor-focus integrated-cut"
       data-inspector-open={inspectorOpen}
-      data-workspace-wide={wideWorkspace}
+      data-inspector-inline={inlineInspector}
       data-testid={`cut-editor-${cutId}`}
     >
       {pendingNavigation && (
@@ -1381,6 +1421,12 @@ export function CutEditor({
           )}
         </div>
         <div className="editor-actions">
+          <SaveState
+            dirty={dirty}
+            saving={saving}
+            onSave={() => void save()}
+            testId="editor-save"
+          />
           {hasArtwork && (
             <button
               type="button"
@@ -1404,24 +1450,15 @@ export function CutEditor({
           >
             Properties
           </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => void save()}
-            disabled={saving || !dirty}
-            data-testid="editor-save"
-          >
-            {saving ? "Saving…" : dirty ? "Save" : "Saved"}
-          </button>
         </div>
       </header>
 
       <div
-        hidden={!message && !dirty}
+        hidden={!message}
         className={`lettering-status${message?.kind === "error" ? " is-error" : ""}`}
         role={message?.kind === "error" ? "alert" : "status"}
       >
-        <span>{message?.text ?? "Unsaved changes"}</span>
+        <span>{message?.text}</span>
         {message?.kind === "error" && isConflictMessage(message.text) && (
           <>
             <button type="button" className="btn btn-chip" onClick={() => copyBubbles(true)}>
@@ -1450,7 +1487,7 @@ export function CutEditor({
 
       <div className="editor-layout">
         <div className="editor-stage-wrap">
-          <div className="editor-toolbar-row">
+          <div className="editor-toolbar-row" ref={toolbarRowRef}>
             <fieldset className="editor-toolbar" aria-label="Bubble tools">
               <button
                 type="button"
@@ -1541,31 +1578,44 @@ export function CutEditor({
                   Apply style
                 </button>
               )}
+              <details
+                className="lettering-alignment-menu"
+                aria-disabled={!activeIds.length}
+                ref={alignMenuRef}
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  event.currentTarget.open = false;
+                  event.currentTarget.querySelector("summary")?.focus();
+                }}
+              >
+                <summary>
+                  Align <StudioIcon name="chevron" />
+                </summary>
+                <fieldset className="lettering-object-alignment" aria-label="Align bubbles">
+                  <span>
+                    {activeIds.length > 1 ? "Align the selected bubbles" : "Align to the cut"}
+                  </span>
+                  {(["left", "center", "right", "top", "middle", "bottom"] as const).map((mode) => (
+                    <button
+                      type="button"
+                      className="btn btn-chip"
+                      key={mode}
+                      disabled={!hasEditableSelection}
+                      onClick={() => alignObjects(mode)}
+                      aria-label={`Align ${mode}`}
+                    >
+                      <AlignmentSymbol
+                        mode={mode}
+                        vertical={["top", "middle", "bottom"].includes(mode)}
+                      />
+                      {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                    </button>
+                  ))}
+                </fieldset>
+              </details>
             </fieldset>
-            <details className="lettering-alignment-menu" aria-disabled={!activeIds.length}>
-              <summary>Align</summary>
-              <fieldset className="lettering-object-alignment" aria-label="Align bubbles">
-                <span>
-                  {activeIds.length > 1 ? "Align the selected bubbles" : "Align to the cut"}
-                </span>
-                {(["left", "center", "right", "top", "middle", "bottom"] as const).map((mode) => (
-                  <button
-                    type="button"
-                    className="btn btn-chip"
-                    key={mode}
-                    disabled={!hasEditableSelection}
-                    onClick={() => alignObjects(mode)}
-                    aria-label={`Align ${mode}`}
-                  >
-                    <AlignmentSymbol
-                      mode={mode}
-                      vertical={["top", "middle", "bottom"].includes(mode)}
-                    />
-                    {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                  </button>
-                ))}
-              </fieldset>
-            </details>
           </div>
           <div className="lettering-view-controls">
             <button
@@ -1619,13 +1669,12 @@ export function CutEditor({
                   : "Click text to type. Drag to move. Hold Space to pan."}
             </span>
           </div>
-          {hasArtwork ? (
-            <p className="scene-caption" title={scene}>
-              <b className="scene-caption-label">Scene</b>{" "}
-              {scene.trim() || "No scene description yet."}{" "}
-              <span className="scene-caption-hint">Ask the agent to change this.</span>
-            </p>
-          ) : (
+          <p className="scene-caption" title={scene}>
+            <b className="scene-caption-label">Scene</b>{" "}
+            {scene.trim() || "No scene description yet."}{" "}
+            <span className="scene-caption-hint">Ask the agent to change this.</span>
+          </p>
+          {!hasArtwork && (
             <div
               className={`artwork-drop${dropActive ? " is-active" : ""}`}
               data-testid="artwork-drop"
@@ -1656,30 +1705,6 @@ export function CutEditor({
                 }}
                 data-testid="artwork-file"
               />
-            </div>
-          )}
-          {legacyRequest && (
-            <div className="editor-toast editor-toast-warn">
-              This bubble uses an older text layout. Update it to type directly on the cut.
-              <button
-                type="button"
-                className="btn btn-chip"
-                onClick={() => {
-                  const b = bubbles.find((b) => b.id === legacyRequest);
-                  if (!b) return;
-                  update(b.id, {
-                    textLayout: b.textLayout ?? defaultLetteringTextLayout(referenceWidth),
-                    textRanges: b.textRanges ?? [],
-                  });
-                  setEditingId(b.id);
-                  setLegacyRequest(null);
-                }}
-              >
-                Update it
-              </button>
-              <button type="button" className="btn btn-chip" onClick={() => setLegacyRequest(null)}>
-                Keep as is
-              </button>
             </div>
           )}
           <div className="lettering-workspace">
@@ -1802,6 +1827,36 @@ export function CutEditor({
                 onRedo={redo}
               />
             </section>
+            {legacyRequest && (
+              <div className="editor-toast editor-toast-warn legacy-layout-notice">
+                <span>
+                  This bubble uses an older text layout. Update it to type directly on the cut.
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-chip"
+                  onClick={() => {
+                    const b = bubbles.find((b) => b.id === legacyRequest);
+                    if (!b) return;
+                    update(b.id, {
+                      textLayout: b.textLayout ?? defaultLetteringTextLayout(referenceWidth),
+                      textRanges: b.textRanges ?? [],
+                    });
+                    setEditingId(b.id);
+                    setLegacyRequest(null);
+                  }}
+                >
+                  Update it
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-chip"
+                  onClick={() => setLegacyRequest(null)}
+                >
+                  Keep as is
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1810,8 +1865,9 @@ export function CutEditor({
           hidden={!inspectorOpen}
           data-testid="editor-inspector"
           aria-label="Bubble properties"
+          style={{ "--inspector-drawer-top": `${drawerTop}px` } as CSSProperties}
         >
-          {!wideWorkspace && (
+          {!inlineInspector && (
             <div className="inspector-drawer-heading">
               <span>Properties</span>
               <button

@@ -97,7 +97,9 @@ function ActivityRow({ item, onNavigate }: { item: Activity; onNavigate: () => v
             // A refused step is usually fixed by the agent on its next try; the
             // exact reason stays one click away instead of filling the chat.
             <details className="agent-activity-why">
-              <summary>Why</summary>
+              <summary>
+                <PanelIcon name="chevron" /> Why
+              </summary>
               <span className="agent-activity-detail">{item.detail}</span>
             </details>
           ) : (
@@ -313,6 +315,9 @@ export function QuestionCard({
             onChange={(event) => setOther(event.target.value)}
           />
         </div>
+      )}
+      {disabled && !sending && (
+        <p className="agent-question-wait">You can answer when the agent is waiting for you.</p>
       )}
       {(item.multiSelect || otherOpen) && (
         <div className="agent-card-actions">

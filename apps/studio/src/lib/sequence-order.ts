@@ -71,3 +71,26 @@ export function orderAfterMove(
   if (at === -1) return [...order];
   return [...rest.slice(0, at + 1), cutId, ...rest.slice(at + 1)];
 }
+
+/**
+ * The transition that goes when `cutId` is removed, matching the cut route:
+ * after the first cut, before the last cut, and, for a cut between two
+ * transitions, the one after it (the one before it then joins the new
+ * neighbours). `null` when no transition goes.
+ */
+export function transitionRemovedWith(
+  sequence: readonly OrderItem[],
+  cutId: string,
+): { id: string; position: "before" | "after" } | null {
+  const order = cutOrder(sequence);
+  const index = order.indexOf(cutId);
+  if (index === -1 || order.length <= 1) return null;
+  const at = sequence.findIndex((item) => item.type === "cut" && item.id === cutId);
+  const previous = sequence[at - 1];
+  const next = sequence[at + 1];
+  const before = previous?.type === "transition" ? previous : undefined;
+  const after = next?.type === "transition" ? next : undefined;
+  if (index === 0) return after ? { id: after.id, position: "after" } : null;
+  if (index === order.length - 1) return before ? { id: before.id, position: "before" } : null;
+  return before && after ? { id: after.id, position: "after" } : null;
+}

@@ -84,7 +84,8 @@ export interface AgentPanelProps {
 const NO_FOCUS: AgentFocus = { route: "library" };
 const PENDING_TIMEOUT_MS = 20_000;
 
-function WorkingBar({ turn, onStop }: { turn: TurnState; onStop: () => void }) {
+// The composer's square button stops the turn, so the bar only reports it.
+function WorkingBar({ turn }: { turn: TurnState }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -99,9 +100,6 @@ function WorkingBar({ turn, onStop }: { turn: TurnState; onStop: () => void }) {
       <span className="agent-working-time" aria-hidden="true">
         {elapsed}
       </span>
-      <button type="button" className="agent-text-button" onClick={onStop}>
-        <PanelIcon name="stop" /> Stop
-      </button>
     </div>
   );
 }
@@ -786,7 +784,7 @@ export function AgentPanel(props: AgentPanelProps) {
       <div className="agent-body">{body}</div>
       {inChat && (
         <div className="agent-footer">
-          {running && turn && <WorkingBar turn={turn} onStop={() => void stop()} />}
+          {running && turn && <WorkingBar turn={turn} />}
           {notice && (
             <div className="agent-error-bar" role="alert">
               <span>{notice}</span>

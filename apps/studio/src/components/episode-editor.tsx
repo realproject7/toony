@@ -31,13 +31,20 @@ import {
 } from "@/lib/lettering-cache";
 import { useEditorScope } from "@/lib/live/provider";
 import { useProjectSync } from "@/lib/live/use-project-sync";
-import { cutNumberIn, cutOrder, dropTarget, stepTarget } from "@/lib/sequence-order";
+import {
+  cutNumberIn,
+  cutOrder,
+  dropTarget,
+  stepTarget,
+  transitionRemovedWith,
+} from "@/lib/sequence-order";
 import { studioFetch } from "@/lib/studio-fetch";
 import { planTransitionInsert } from "@/lib/transition-insert";
 import { episodeFocus } from "@/lib/workspace-focus";
 import { ActionMenu } from "./action-menu";
 import { ConfirmDialog } from "./confirm-dialog";
 import { CutEditor, type CutEditorProps } from "./cut-editor";
+import { SaveState } from "./save-state";
 import { StudioIcon } from "./studio-icon";
 import { TransitionBlock } from "./transition-block";
 import { TransitionInspector } from "./transition-inspector";
@@ -58,6 +65,14 @@ interface Props {
 type Item = { type: "cut" | "transition"; id: string };
 
 const sameRhythm = (a: EpisodeRhythm, b: EpisodeRhythm) => JSON.stringify(a) === JSON.stringify(b);
+
+/** What removing a cut takes with it: a transition only when one actually goes. */
+function removalNote(rhythm: EpisodeRhythm, cutId: string | null): string {
+  const gone = cutId ? transitionRemovedWith(rhythm.sequence, cutId) : null;
+  if (!gone) return "Its lettering goes with it. You can undo right after.";
+  const type = rhythm.transitions.find((t) => t.id === gone.id)?.type ?? "gutter";
+  return `Its lettering goes with it, and so does the ${transitionLabel(type)} transition ${gone.position} it. You can undo right after.`;
+}
 
 export function EpisodeEditor({
   workId,
@@ -796,11 +811,15 @@ export function EpisodeEditor({
                   <h2>
                     {selectedTransition ? transitionLabel(selectedTransition.type) : "Transitions"}
                   </h2>
-                  <span className="page-meta">
-                    {dirty ? "Unsaved changes" : "Between two cuts"}
-                  </span>
+                  <span className="page-meta">Between two cuts</span>
                 </div>
                 <div className="editor-actions">
+                  <SaveState
+                    dirty={dirty}
+                    saving={saving}
+                    onSave={() => void save()}
+                    testId="save-transitions"
+                  />
                   <button
                     className="btn btn-icon"
                     type="button"
@@ -820,15 +839,6 @@ export function EpisodeEditor({
                     disabled={!history.canRedo}
                   >
                     <StudioIcon name="redo" />
-                  </button>
-                  <button
-                    className="btn btn-primary"
-                    type="button"
-                    onClick={() => void save()}
-                    disabled={!dirty || saving}
-                    data-testid="save-transitions"
-                  >
-                    {saving ? "Saving…" : dirty ? "Save" : "Saved"}
                   </button>
                 </div>
               </header>
@@ -957,10 +967,7 @@ export function EpisodeEditor({
         onConfirm={confirmRemove}
         onCancel={() => setRemoving(null)}
       >
-        <p>
-          Its lettering goes with it, and so does the transition that led into it. You can undo
-          right after.
-        </p>
+        <p>{removalNote(rhythm, removing)}</p>
       </ConfirmDialog>
       {toast.element}
     </section>

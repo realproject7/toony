@@ -224,6 +224,9 @@
   --studio-inspector-width: 21rem;
   --studio-toolbar-height: 3.25rem;
   --studio-statusbar-height: 1.75rem;
+  /* The episode editor's header and the agent panel's header meet side by
+     side, so both use this height and their bottom rules line up. */
+  --shell-header-h: 3.75rem;
   --scroll-max-width: 30rem;
   --episode-max-width: var(--scroll-max-width);
   --cut-gutter: 0.75rem;
