@@ -18,6 +18,31 @@
 // Changes made by this same tab are skipped by default, because the component
 // that saved already holds the result; pass `{ includeOwn: true }` to refresh
 // for them too.
+//
+// Wiring an editor (for the left workspace):
+//
+//   1. Key the editor by the saved revision of what it edits, so new server
+//      props remount it after a refresh instead of being ignored by state that
+//      was seeded once:
+//        <CutEditor key={`${cutId}:${letteringRevision}`} ... />
+//        <EpisodeEditor key={`${episodeId}:${transitionRevision}`} ... />
+//   2. Register what it holds while it is mounted, reading dirtiness from a ref:
+//        useEditorScope(`lettering:${episodeId}/${cutId}`, () => dirtyRef.current);
+//        useEditorScope(`sequence:${episodeId}`, () => rhythmDirtyRef.current);
+//   3. Call the hook once per page with what the page shows, and render a slim
+//      banner from `changedWhileDirty`:
+//        const sync = useProjectSync(workId, [{ kind: "episode", episodeId }]);
+//        sync.changedWhileDirty && (
+//          <p role="status">The agent changed this cut.
+//            <button onClick={sync.reload}>Reload it</button>
+//            <button onClick={sync.dismiss}>Keep editing</button></p>)
+//      "Reload it" discards the editor's unsaved edits by remounting it with
+//      the saved data (clear the editor's session recovery copy first, or the
+//      remounted editor restores it); "Keep editing" leaves them, and the next
+//      save meets the existing revision check (HTTP 409) as today.
+//   4. Pages that only show data (story, characters, library card) call
+//      `useProjectSync(workId, "all")` or with their scopes and need no editor
+//      registration.
 
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
