@@ -73,6 +73,12 @@ export interface AgentFocus {
   transitionId?: string;
   bubbleIds?: string[];
   characterId?: string;
+  /**
+   * Additive: short labels the workspace knows for what is in focus, for
+   * example `{ episode: "Episode 2", cut: "Cut 3" }`. The panel shows them in
+   * its context chip instead of ids. Never raw ids.
+   */
+  labels?: { episode?: string; cut?: string; transition?: string; character?: string };
 }
 
 /** A place in the human workspace a card can open. `href` is an internal path. */
