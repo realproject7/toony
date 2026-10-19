@@ -44,7 +44,7 @@ test("native execution has explicit tool restrictions and an allowlisted environ
       OPENAI_API_KEY: "TEST_SECRET",
       NODE_OPTIONS: "untrusted",
       ANTHROPIC_BASE_URL: "untrusted",
-    } as NodeJS.ProcessEnv),
+    }),
     { PATH: "bin", HOME: "home" },
   );
 });

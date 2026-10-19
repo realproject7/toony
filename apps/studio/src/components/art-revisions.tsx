@@ -1,7 +1,8 @@
 "use client";
 import type { ArtRevision } from "@toony/project-io";
 import type { Character } from "@toony/schema";
-import { useCallback, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 import { useAgentWorkspace } from "./agent-workspace";
 
 type RequestView = Omit<ArtRevision, "context"> & { brief: string; stale: boolean };
@@ -21,6 +22,7 @@ export function ArtRevisions({
   dirty: boolean;
 }) {
   const { ask } = useAgentWorkspace();
+  const router = useRouter();
   const [requests, setRequests] = useState<RequestView[]>([]);
   const [revision, setRevision] = useState<string | null>(null);
   const [change, setChange] = useState("");
@@ -55,6 +57,9 @@ export function ArtRevisions({
       setBusy(false);
     }
   }, [workId, episodeId, cutId, sourceDigest]);
+  useEffect(() => {
+    if (opened) void refresh();
+  }, [opened, refresh]);
   const send = async (payload: object) => {
     const response = await fetch("/api/art-revisions", {
       method: "POST",
@@ -93,9 +98,14 @@ export function ArtRevisions({
     setMessage("");
     try {
       await send({ action: "apply", id: r.id, candidateDigest: r.candidate?.sha256 });
-      window.location.reload();
+      setRequests((old) =>
+        old.map((row) => (row.id === r.id ? { ...row, state: "applied" } : row)),
+      );
+      setMessage("Candidate applied as draft. Your lettering is preserved.");
+      router.refresh();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Could not apply the candidate.");
+    } finally {
       setBusy(false);
     }
   };
@@ -106,10 +116,7 @@ export function ArtRevisions({
       className="art-revisions"
       data-testid="art-revisions"
       onToggle={(e) => {
-        if (e.currentTarget.open && !opened) {
-          setOpened(true);
-          void refresh();
-        }
+        setOpened(e.currentTarget.open);
       }}
     >
       <summary>Request an art change</summary>

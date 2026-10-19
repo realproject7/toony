@@ -30,7 +30,9 @@ const DISABLED = [
   "code_mode_host",
   "goals",
 ];
-export function nativeEnvironment(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function nativeEnvironment(
+  source: Readonly<Record<string, string | undefined>> = process.env,
+): NodeJS.ProcessEnv {
   const allowed = [
     "HOME",
     "PATH",

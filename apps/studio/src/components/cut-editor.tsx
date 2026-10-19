@@ -1649,6 +1649,7 @@ export function CutEditor({
           <details className="lettering-art-review">
             <summary>Artwork review</summary>
             <CutReviewControl
+              key={artworkRevision}
               workId={workId}
               episodeId={episodeId}
               cutId={cutId}
