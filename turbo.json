@@ -19,6 +19,11 @@
       // completes first, then typecheck runs against its output.
       "dependsOn": ["^build", "build"]
     },
+    "toony-cli#test": {
+      // The relocated Studio regression exercises the assembled CLI artifact.
+      "dependsOn": ["^build", "build"],
+      "outputs": ["dist-test/**"]
+    },
     "test": {
       "dependsOn": ["^build"],
       // A package's `test` compiles the same sources as its `build`, tests
