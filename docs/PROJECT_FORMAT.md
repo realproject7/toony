@@ -568,3 +568,48 @@ lock and does not alter rendered appearance or text. Absent means unlocked. The
 editor disables manipulation and property edits until explicitly unlocked. Pasted
 objects receive new identities, their destination cut and an unlocked state;
 their text and styling are preserved.
+
+
+## Authored art direction
+
+A cut or script cut may declare `artDirection` version `1`: `purpose`, `framing`
+(establishing, wide, medium, close-up or detail), `camera`, `subjects`,
+`environment` (setting, depth, lighting), `style` (linework, color, shading,
+optional texture), `focalPoints`, and `lettering` (`none`, or `reserved` with
+regions). Regions use normalized x/y/width/height plus a description. Optional
+`protectedRegions` cannot overlap reserved lettering space. Empty subjects
+explicitly describe scenery. Each subject names a registered `characterId`,
+position, action, optional expression, wardrobeId and visibleDetails. Detail
+shots require visibleDetails and omit portrait identity and invisible clothing.
+
+Characters may add `visualIdentity`, `wardrobe` entries (unique id, description),
+and `development` (role, desire, flaw, voice, arc). Optional cut `continuity` names
+an earlier `fromCutId`, what to `preserve`, and intentional `changes`. An outfit
+change across that link requires a change note. The script compiler carries the
+intent into cuts and derives their visible cast when no character list is given.
+
+Generation scopes identity and wardrobe to each subject and composes the shot
+before style. Inspection reports capability limits: spatial composition and
+wardrobe are prompt instructions, not enforced masks; the current adapter can
+condition on one character reference when configured and does not edit a source
+image. Render provenance carries the art direction and a digest of the resolved
+workflow; the provider records a separate digest of the submitted graph. These
+records do not certify visual quality or deterministic execution.
+
+
+## Per-cut art revision requests
+
+Studio can save a local request with change/preserve instructions and an optional
+target character. The request snapshots the source bytes, content digest, current
+cut, adjacent cuts, character registry, story bible and lettering. No provider or
+messaging service runs. `toony revision list` and `show` expose requests to agents;
+`create` can author one and `stage --id … --file … --note …` imports a candidate.
+
+Requests and immutable source snapshots live under `.toony/revisions/`. Staged
+images have unique content-addressed names under the episode's assets/revisions.
+Studio shows the original and candidate before explicit adoption. Adoption checks
+the candidate digest and current source/context, changes one cut image pointer,
+and resets artwork review to draft. It preserves old image bytes, all lettering
+and other cuts. A changed source, character registry, story bible or adjacent cut
+invalidates the request. This local workflow requires one writer per work and an
+editing-capable agent tool; it does not add source-image editing to generation.

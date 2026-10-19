@@ -48,6 +48,31 @@ const CAST: Character[] = [
   { id: "sol", name: "Sol", lockstring: "grey scarf, round glasses, ink line" },
 ];
 
+test("script composition survives compilation and derives the visible cast", () => {
+  const value = script("ep-002", "b".repeat(64));
+  const cut = value.beats[0]?.cuts[0];
+  assert.ok(cut);
+  delete cut.characters;
+  cut.artDirection = {
+    version: 1,
+    purpose: "Locate the lead",
+    framing: "wide",
+    camera: "Eye level",
+    subjects: [{ characterId: "mira", position: "left", action: "Waits" }],
+    environment: { setting: "Pier", depth: "Near rope, pier, distant boats", lighting: "Dawn" },
+    style: { linework: "Fine", color: "Muted", shading: "Flat" },
+    focalPoints: ["The lead"],
+    lettering: { mode: "none" },
+  };
+  const project = buildInitialProject("Composition fixture");
+  project.webtoon.characters = CAST;
+  const compiled = compileEpisodeScript(value, project);
+  assert.deepEqual(compiled.bundle.cuts[0]?.artDirection, cut.artDirection);
+  assert.deepEqual(compiled.bundle.cuts[0]?.characters, ["mira"]);
+  cut.artDirection.camera = "Changed after compilation";
+  assert.equal(compiled.bundle.cuts[0]?.artDirection?.camera, "Eye level");
+});
+
 function brief(): ProductionBrief {
   return {
     briefFormat: PRODUCTION_BRIEF_FORMAT_VERSION,

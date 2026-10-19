@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadProject, writeCuts, writeWebtoon } from "@toony/project-io";
-import type { Cut } from "@toony/schema";
+import type { ArtDirection, Cut } from "@toony/schema";
 import { pngWithText, startFakeComfy } from "../__fixtures__/comfyui-server.js";
 import { injectCharacterLockstrings, runGenerate } from "../commands/generate.js";
 import { runInit } from "../commands/init.js";
@@ -58,6 +58,19 @@ test("automatic canvas reduction is blocked; an explicit size is disclosed witho
   assert.equal(canvasFinding("fixture", baseline, baseline, false), undefined);
 });
 
+test("an empty-scene instruction cannot also ask for attendants", () => {
+  const cut = { id: "empty", characters: [] } as unknown as Cut;
+  assert.equal(
+    promptFindings(
+      cut,
+      "no humans, a carriage at the gate, liveried attendants waiting",
+      "scene",
+    )[0]?.code,
+    "empty-scene-people",
+  );
+  assert.deepEqual(promptFindings(cut, "no people, an empty courtyard with trees", "scene"), []);
+});
+
 async function fixture(t: { after(fn: () => Promise<void>): void }) {
   const dir = await mkdtemp(join(tmpdir(), "toony-preflight-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -81,6 +94,49 @@ async function fixture(t: { after(fn: () => Promise<void>): void }) {
   err.length = 0;
   return { root, bundle, io, out, err, server };
 }
+
+test("authored composition reaches dry-run, submitted prompts and durable provenance", async (t) => {
+  const f = await fixture(t);
+  const artDirection: ArtDirection = {
+    version: 1,
+    purpose: "Establish the empty location",
+    framing: "establishing",
+    camera: "High view across water",
+    subjects: [],
+    environment: {
+      setting: "Harbor",
+      depth: "Near railing, water, distant sheds",
+      lighting: "Soft dusk",
+    },
+    style: { linework: "Sparse contours", color: "Blue and warm window", shading: "Large masses" },
+    focalPoints: ["Lit window"],
+    lettering: { mode: "none" },
+  };
+  await writeCuts(
+    f.root,
+    "ep-001",
+    f.bundle.cuts.map((cut) => ({ ...cut, imagePrompt: "An empty harbor", artDirection })),
+  );
+  const args = [f.root, "--episode", "ep-001", "--cut", "cut-001"];
+  assert.equal(
+    await runGenerate([...args, "--dry-run", "--json"], f.io),
+    EXIT_OK,
+    f.err.join("\n"),
+  );
+  const report = JSON.parse(f.out.join("\n"));
+  assert.equal(f.server.calls(), 0);
+  assert.equal(report.targets[0].capabilities.subjectPositions, "prompt-only");
+  assert.match(report.targets[0].inputs.workflowDigest, /^[a-f0-9]{64}$/);
+  assert.equal(await runGenerate(args, f.io), EXIT_OK, f.err.join("\n"));
+  assert.equal(f.server.prompts()[0], report.targets[0].inputs.prompt);
+  assert.match(f.server.prompts()[0] ?? "", /Visible character count: 0/);
+  const entries = JSON.parse(
+    await readFile(join(f.root, "episodes/ep-001/logs/ingest.json"), "utf8"),
+  );
+  assert.deepEqual(entries[0].renderInputs.artDirection, artDirection);
+  assert.equal(entries[0].renderInputs.workflowDigest, report.targets[0].inputs.workflowDigest);
+  assert.match(entries[0].submittedGraphDigest, /^[a-f0-9]{64}$/);
+});
 
 test("dry-run reports actual composed inputs and dimensions with no submission, upload or project write", async (t) => {
   const f = await fixture(t);

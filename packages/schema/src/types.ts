@@ -1,3 +1,4 @@
+import type { ArtDirection, CharacterDevelopment, CharacterWardrobe } from "./art-direction.js";
 import type { LetteringTextRange } from "./lettering-ranges.js";
 // Shared schema definitions for Toony projects.
 //
@@ -432,6 +433,7 @@ export interface ImageAssetRef {
  */
 export interface Cut {
   id: string;
+  artDirection?: ArtDirection;
   /** Artwork review only. Absent means draft/unreviewed, without rewriting old projects. */
   reviewStatus?: ReviewStatus;
   image: ImageAssetRef | null;
@@ -593,6 +595,11 @@ export interface Character {
   id: string;
   name: string;
   lockstring: string;
+  /** Invariant physical identity, separate from changeable clothes and expressions. */
+  visualIdentity?: string;
+  wardrobe?: CharacterWardrobe[];
+  /** Story-building context for the author/agent, never an automatic plot generator. */
+  development?: CharacterDevelopment;
   /**
    * Reference sheets (#327): project-relative image paths under
    * `characters/<id>/`, in preference order. `toony generate` hands the first

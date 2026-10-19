@@ -2920,3 +2920,69 @@ button.transition-block {
   width: 100%;
   max-width: 100%;
 }
+
+.art-revisions {
+  border-bottom: 1px solid var(--color-line);
+  padding: 0.65rem 1rem;
+}
+.art-revisions > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.art-revisions-body {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+  max-width: 64rem;
+}
+.art-revision-card {
+  border: 1px solid var(--color-line);
+  border-radius: 0.6rem;
+  padding: 0.85rem;
+  display: grid;
+  gap: 0.55rem;
+}
+.art-revision-card p,
+.art-revisions-body > p {
+  margin: 0;
+}
+.art-revision-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+.art-revision-comparison figure {
+  margin: 0;
+}
+.art-revision-comparison img {
+  display: block;
+  width: 100%;
+  max-height: min(20rem, 40dvh);
+  object-fit: contain;
+  background: var(--color-surface-sunken);
+}
+.art-revision-comparison figcaption {
+  text-align: center;
+  font-size: 0.85rem;
+  padding-top: 0.4rem;
+}
+@media (max-width: 600px) {
+  .art-revision-comparison {
+    grid-template-columns: 1fr;
+  }
+}
+
+.art-revisions {
+  flex-shrink: 0;
+}
+.art-revisions[open] {
+  max-height: max(180px, calc(100dvh - 300px));
+  overflow: auto;
+}
+.art-revisions > summary {
+  position: sticky;
+  top: 0;
+  padding: 0.35rem 0;
+  background: var(--color-surface);
+  z-index: 1;
+}

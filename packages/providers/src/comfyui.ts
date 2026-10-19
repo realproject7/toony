@@ -13,7 +13,7 @@
 // Toony imposes NO content policy here; whatever the operator's ComfyUI install
 // produces is ingested as-is.
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { ComfyUIConfig } from "./comfyui-config.js";
 import {
   buildPromptRequest,
@@ -185,6 +185,7 @@ export class ComfyUIProvider implements ImageProvider {
       bytes,
       format,
       provenance: {
+        submittedGraphDigest: createHash("sha256").update(JSON.stringify(graph)).digest("hex"),
         source: "comfyui",
         providerId: this.id,
         contentType: contentTypeFor(format),

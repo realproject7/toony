@@ -1535,7 +1535,9 @@ test("a finished cut render records the inputs that produced it (#240)", async (
 
     // And in the episode's ingest log, beside the asset they produced.
     const log = await readIngestLog(projectDir);
-    assert.deepEqual(log.at(-1)?.renderInputs, {
+    const { workflowDigest, ...recorded } = log.at(-1)?.renderInputs as Record<string, unknown>;
+    assert.match(String(workflowDigest), /^[a-f0-9]{64}$/);
+    assert.deepEqual(recorded, {
       prompt: "a hero on a rooftop, webtoon style",
       basePrompt: "a hero on a rooftop, webtoon style",
       negativePrompt: "lowres",
@@ -1902,7 +1904,9 @@ test("a final-slot render leaves the clean plate's record alone (#240)", async (
     });
     // And the final pass's inputs are still recoverable — per asset path.
     const log = await readIngestLog(projectDir);
-    assert.deepEqual(log.at(-1)?.renderInputs, {
+    const { workflowDigest, ...recorded } = log.at(-1)?.renderInputs as Record<string, unknown>;
+    assert.match(String(workflowDigest), /^[a-f0-9]{64}$/);
+    assert.deepEqual(recorded, {
       prompt: "the lettered final pass",
       basePrompt: "the lettered final pass",
       negativePrompt: "",

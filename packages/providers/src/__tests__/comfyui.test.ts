@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 
 import {
@@ -58,11 +59,13 @@ test("provider metadata identifies the comfyui source", () => {
 test("produce submits, polls until complete, fetches bytes, and returns a result", async () => {
   const calls: string[] = [];
   let polls = 0;
+  let submittedGraphDigest = "";
   const fetch: FetchLike = async (url, init) => {
     calls.push(`${init?.method ?? "GET"} ${url}`);
     if (url.endsWith("/prompt")) {
       // The submitted graph must carry the injected prompt.
       const body = JSON.parse(String(init?.body));
+      submittedGraphDigest = createHash("sha256").update(JSON.stringify(body.prompt)).digest("hex");
       assert.equal(body.prompt["6"].inputs.text, "a webtoon hero");
       assert.equal(body.prompt["7"].inputs.text, "blurry");
       // This call passes width: 832 explicitly, and an explicit size must still
@@ -92,6 +95,7 @@ test("produce submits, polls until complete, fetches bytes, and returns a result
 
   assert.equal(result.format, "png");
   assert.deepEqual(result.provenance, {
+    submittedGraphDigest,
     source: "comfyui",
     providerId: "comfyui",
     contentType: "image/png",

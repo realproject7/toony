@@ -80,6 +80,10 @@ export interface IngestResult {
  * a field added here cannot be silently left out of that answer.
  */
 export interface RenderInputs {
+  /** Authored shot/wardrobe/continuity intent as submitted. */
+  artDirection?: import("@toony/schema").ArtDirection;
+  /** Digest of the resolved graph, injection map and selected weights; no private identifiers. */
+  workflowDigest?: string;
   prompt: string;
   basePrompt: string;
   negativePrompt: string;
@@ -111,6 +115,7 @@ export interface RenderInputs {
 }
 
 interface ProvenanceEntry {
+  submittedGraphDigest?: string;
   assetPath: string;
   recordKind: "cut" | "transition";
   recordId: string;
@@ -375,6 +380,9 @@ export async function ingestImageAsset(
     contentType: result.provenance.contentType,
     byteLength: stripped.length,
     sha256,
+    ...(result.provenance.submittedGraphDigest === undefined
+      ? {}
+      : { submittedGraphDigest: result.provenance.submittedGraphDigest }),
     ...(renderInputs === undefined ? {} : { renderInputs }),
   });
 

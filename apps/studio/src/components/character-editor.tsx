@@ -246,6 +246,106 @@ export function CharacterEditor({
                 </label>
               </div>
 
+              <details className="character-craft">
+                <summary>Identity, wardrobe & story</summary>
+                <p className="field-hint">
+                  Keep enduring appearance separate from outfits. These notes guide authored cuts
+                  and agent revision briefs; they do not guarantee visual consistency.
+                </p>
+                <label className="field">
+                  <span>Visual identity</span>
+                  <textarea
+                    rows={2}
+                    value={character.visualIdentity ?? ""}
+                    placeholder="Face, hair, build and distinguishing features"
+                    onChange={(e) =>
+                      patch(character.id, { visualIdentity: e.target.value || undefined })
+                    }
+                  />
+                </label>
+                <div className="character-fields">
+                  {(["role", "desire", "flaw", "voice", "arc"] as const).map((key) => (
+                    <label className="field" key={key}>
+                      <span>
+                        {key === "arc"
+                          ? "Character arc"
+                          : key.charAt(0).toUpperCase() + key.slice(1)}
+                      </span>
+                      <textarea
+                        rows={2}
+                        value={character.development?.[key] ?? ""}
+                        onChange={(e) => {
+                          const development = {
+                            role: "",
+                            desire: "",
+                            flaw: "",
+                            voice: "",
+                            arc: "",
+                            ...character.development,
+                            [key]: e.target.value,
+                          };
+                          patch(character.id, {
+                            development: Object.values(development).every((s) => s === "")
+                              ? undefined
+                              : development,
+                          });
+                        }}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <p className="field-hint">
+                  Fill all five story fields when using character development.
+                </p>
+                {(character.wardrobe ?? []).map((outfit, index) => (
+                  <div className="character-fields" key={outfit.id}>
+                    <label className="field">
+                      <span>Outfit ID</span>
+                      <input value={outfit.id} readOnly />
+                    </label>
+                    <label className="field">
+                      <span>Outfit description</span>
+                      <textarea
+                        rows={2}
+                        value={outfit.description}
+                        onChange={(e) =>
+                          patch(character.id, {
+                            wardrobe: character.wardrobe?.map((w, i) =>
+                              i === index ? { ...w, description: e.target.value } : w,
+                            ),
+                          })
+                        }
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="btn btn-chip"
+                      onClick={() =>
+                        patch(character.id, {
+                          wardrobe: character.wardrobe?.filter((_, i) => i !== index),
+                        })
+                      }
+                    >
+                      Remove outfit
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="btn btn-chip"
+                  onClick={() =>
+                    patch(character.id, {
+                      wardrobe: [
+                        ...(character.wardrobe ?? []),
+                        { id: `outfit-${crypto.randomUUID().slice(0, 8)}`, description: "" },
+                      ],
+                    })
+                  }
+                >
+                  Add outfit
+                </button>
+              </details>
+
               <div className="character-sheets">
                 <span className="field-label">Reference sheets</span>
                 {row.sheets.length === 0 && (
