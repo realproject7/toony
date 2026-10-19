@@ -672,7 +672,7 @@ const WRITES: Record<string, WriteTool> = {
     perform: async (host, args: ReturnType<typeof A.importArtworkArgs>) => {
       const work = await requireWork(host);
       assertPathNamedByPerson(args.path, host.userTexts());
-      const bytes = await readImageFile(args.path);
+      const bytes = await readImageFile(args.path.trim());
       const imported = await importArtwork(
         opContext(host, work),
         args.episodeId,
@@ -768,6 +768,8 @@ export function pathNamedByPerson(path: string, texts: readonly string[], home: 
   const mentions = (text: string, form: string, isFolder: boolean) => {
     if (form === "~" || form.length < 3) return false;
     for (let at = text.indexOf(form); at >= 0; at = text.indexOf(form, at + 1)) {
+      // The match must start a path in the text, not sit inside a longer one.
+      if (at > 0 && !/[\s'"`([<]/.test(text.charAt(at - 1))) continue;
       const next = text.charAt(at + form.length);
       // A file must end at a boundary. A folder may also end with one "/", but a
       // path to another file inside it does not name the folder itself.

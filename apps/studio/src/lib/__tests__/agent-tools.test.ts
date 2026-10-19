@@ -624,4 +624,6 @@ test("artwork import accepts only image paths the person wrote, never hidden one
   assert.equal(pathNamedByPerson("/srv/art/notes.txt", ["/srv/art/notes.txt"], home), false);
   assert.equal(pathNamedByPerson("relative/a.png", ["relative/a.png"], home), false);
   assert.equal(pathNamedByPerson("/a.png", ["/a.png"], home), true);
+  assert.equal(pathNamedByPerson("/srv/art/b.png", ["See /mnt/srv/art/b.png"], home), false);
+  assert.equal(pathNamedByPerson("/srv/art/b.png", ['Use "/srv/art/b.png"'], home), true);
 });
