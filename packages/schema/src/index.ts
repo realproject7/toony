@@ -1,4 +1,14 @@
 export {
+  ART_FRAMINGS,
+  type ArtDirection,
+  type ArtRegion,
+  artDirectionIssues,
+  type CharacterDevelopment,
+  type CharacterWardrobe,
+  SUBJECT_POSITIONS,
+  validateArtDirection,
+} from "./art-direction.js";
+export {
   defaultLetteringTextLayout,
   type LetteringTextLayout,
   validateLetteringTextLayout,

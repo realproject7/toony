@@ -14,7 +14,9 @@ export function promptFindings(
   prompt: string,
   framing: "scene" | "detail",
 ): GenerationFinding[] {
-  const count = new Set(cut.characters ?? []).size;
+  const count = new Set(
+    cut.artDirection?.subjects.map((s) => s.characterId) ?? cut.characters ?? [],
+  ).size;
   const findings: GenerationFinding[] = [];
   const add = (code: string, message: string) =>
     findings.push({

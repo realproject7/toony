@@ -92,6 +92,7 @@ import {
   REVIEW_STATUSES,
   type StyleLexicon,
 } from "@toony/schema";
+import { compositionCapabilities, compositionPrompt } from "../composition.js";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 import { passesAuthoringGate } from "../generate-gate.js";
 import { canvasFinding, type GenerationFinding, promptFindings } from "../generation-preflight.js";
@@ -293,6 +294,7 @@ function workflowLatentSize(config: {
 /** A built provider, with the size its workflow draws at where that is known. */
 interface BuiltProvider {
   provider: ImageProvider;
+  workflowDigest: string;
   latent: { width?: number; height?: number };
   /** Whether the resolved workflow declares a reference input (#327). */
   acceptsReference: boolean;
@@ -323,6 +325,15 @@ async function buildProvider(
       });
       return {
         provider: new ComfyUIProvider(config),
+        workflowDigest: createHash("sha256")
+          .update(
+            JSON.stringify({
+              graph: config.workflow,
+              map: config.injectionMap,
+              checkpoint: config.checkpoint,
+            }),
+          )
+          .digest("hex"),
         latent: workflowLatentSize(config),
         acceptsReference:
           config.injectionMap.referenceNode !== undefined &&
@@ -379,7 +390,7 @@ function referenceCandidate(
   cut: Cut | undefined,
   registry: readonly Character[],
 ): { characterId: string; path: string } | undefined {
-  for (const id of cut?.characters ?? []) {
+  for (const id of cut?.artDirection?.subjects.map((s) => s.characterId) ?? cut?.characters ?? []) {
     const character = registry.find((c) => c.id === id);
     const path = character?.references?.[0];
     if (character !== undefined && path !== undefined) return { characterId: character.id, path };
@@ -552,9 +563,11 @@ function composePrompt(
   framing: "scene" | "detail" = cut?.imageFraming ?? "scene",
 ): string {
   const palette = appendPaletteClause(
-    framing === "detail"
-      ? `Detail framing: show only the described part or object, without widening to a portrait or full figure. ${basePrompt}`
-      : injectCharacterLockstrings(basePrompt, cut?.characters, registry),
+    cut?.artDirection
+      ? compositionPrompt(basePrompt, cut.artDirection, registry)
+      : framing === "detail"
+        ? `Detail framing: show only the described part or object, without widening to a portrait or full figure. ${basePrompt}`
+        : injectCharacterLockstrings(basePrompt, cut?.characters, registry),
     cut?.palette,
   );
   // The pack's style words (#335) go last, after the palette, so they qualify
@@ -660,7 +673,16 @@ function planJobs(
     }
     // Lockstrings prepend (#92), then the palette clause appends (#207), so the
     // colour qualifies the whole scene rather than one character's description.
-    const resolvedFraming = framing ?? cut?.imageFraming;
+    const resolvedFraming = cut?.artDirection
+      ? cut.artDirection.framing === "detail"
+        ? "detail"
+        : "scene"
+      : (framing ?? cut?.imageFraming);
+    if (cut?.artDirection && framing !== undefined && framing !== resolvedFraming)
+      return {
+        error: `${cutId}: --framing conflicts with the authored art direction. Update the cut's artDirection first.`,
+        usage: true,
+      };
     const composed = composePrompt(
       cutPrompt,
       cut,
@@ -683,6 +705,7 @@ function planJobs(
       lexicon,
     );
     if (resolvedFraming !== undefined) inputs.framing = resolvedFraming;
+    if (cut?.artDirection) inputs.artDirection = structuredClone(cut.artDirection);
     const reference = resolvedFraming === "detail" ? undefined : referenceCandidate(cut, registry);
     jobs.push({
       id: cutId,
@@ -926,6 +949,19 @@ interface RepeatInput {
  * workflow, and each of them differs and is named.
  */
 const REPEAT_INPUTS: Record<keyof RenderInputs, RepeatInput> = {
+  artDirection: {
+    recorded: (record) => (record.artDirection ? JSON.stringify(record.artDirection) : UNRECORDED),
+    submitted: ({ job }) =>
+      job.inputs.artDirection ? JSON.stringify(job.inputs.artDirection) : undefined,
+    refuses: () => false,
+    instruct: () => null,
+  },
+  workflowDigest: {
+    recorded: (record) => record.workflowDigest ?? UNRECORDED,
+    submitted: ({ job }) => job.inputs.workflowDigest,
+    refuses: () => false,
+    instruct: () => null,
+  },
   framing: {
     recorded: (record) => record.framing ?? "scene",
     submitted: ({ job }) => job.inputs.framing ?? "scene",
@@ -1383,6 +1419,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
       }
       providers.set(workflow ?? "", built);
     }
+    job.inputs.workflowDigest = built.workflowDigest;
     ready.push({
       job,
       provider: built.provider,
@@ -1443,6 +1480,10 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
         id: job.id,
         target: job.target,
         inputs: job.inputs,
+        capabilities: compositionCapabilities(
+          job.inputs.artDirection,
+          job.inputs.reference !== undefined,
+        ),
         effectiveNegativePrompt: job.request.options?.negativePrompt ?? "",
         canvas: {
           width: job.inputs.width ?? latent.width ?? null,

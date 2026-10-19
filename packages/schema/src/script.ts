@@ -21,6 +21,7 @@
 // Each artifact carries its OWN format version rather than `SCHEMA_VERSION`, so
 // these files version independently of the project format.
 
+import { type ArtDirection, validateArtDirection } from "./art-direction.js";
 import type { IssueCollector } from "./errors.js";
 import { joinPath } from "./errors.js";
 import { isArray, isInteger, isNonEmptyString, isOneOf, isPlainObject } from "./guards.js";
@@ -168,6 +169,7 @@ export interface ScriptGoal {
  * no prompt, seed, workflow, provider, asset reference or render record.
  */
 export interface ScriptCut {
+  artDirection?: ArtDirection;
   /** Unique within its script. Nothing here requires it to match a real `Cut`. */
   id: string;
   /** What this cut does for the story. */
@@ -441,6 +443,7 @@ function validateScriptContinuity(
 const SCRIPT_BEAT_KEYS = ["id", "purpose", "goals", "cuts"] as const;
 const SCRIPT_GOAL_KEYS = ["characterId", "goal"] as const;
 const SCRIPT_CUT_KEYS = [
+  "artDirection",
   "id",
   "intent",
   "scene",
@@ -524,6 +527,8 @@ function validateScriptCut(value: unknown, path: string, c: IssueCollector): voi
     return;
   }
   allowlistKeys(value, SCRIPT_CUT_KEYS, path, "script.unknown-key", c);
+  if (value.artDirection !== undefined)
+    validateArtDirection(value.artDirection, joinPath(path, "artDirection"), c);
   requireText(value, "id", path, c);
   requireText(value, "intent", path, c);
   requireText(value, "scene", path, c);

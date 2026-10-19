@@ -208,7 +208,12 @@ export function compileEpisodeScript(
       image: null,
       imagePrompt: sc.scene,
       negativePrompt: "",
-      ...(sc.characters !== undefined ? { characters: [...sc.characters] } : {}),
+      ...(sc.artDirection !== undefined ? { artDirection: structuredClone(sc.artDirection) } : {}),
+      ...(sc.characters !== undefined
+        ? { characters: [...sc.characters] }
+        : sc.artDirection
+          ? { characters: sc.artDirection.subjects.map((s) => s.characterId) }
+          : {}),
       ...(sc.shotType !== undefined ? { shotType: sc.shotType } : {}),
       ...(sc.palette !== undefined ? { palette: sc.palette } : {}),
     };

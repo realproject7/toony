@@ -121,6 +121,9 @@ export async function saveCharacters(
       id: c.id.trim(),
       name: c.name.trim(),
       lockstring: c.lockstring.trim(),
+      ...(c.visualIdentity === undefined ? {} : { visualIdentity: c.visualIdentity }),
+      ...(c.development === undefined ? {} : { development: c.development }),
+      ...(c.wardrobe === undefined ? {} : { wardrobe: c.wardrobe }),
       ...(references.length > 0 ? { references } : {}),
     };
   });

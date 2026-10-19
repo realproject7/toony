@@ -5,6 +5,11 @@
 // canonical ordering, duplicate ids, missing records, and referential integrity.
 // #11 consumes these validators for production-readiness linting.
 
+import {
+  artDirectionIssues,
+  validateArtDirection,
+  validateCharacterCraft,
+} from "./art-direction.js";
 import { IssueCollector, joinPath, type ValidationResult } from "./errors.js";
 import { EXPORT_WIDTH_MAX, EXPORT_WIDTH_MIN } from "./export-options.js";
 import {
@@ -22,6 +27,7 @@ import { validateLetteringTextLayout } from "./lettering-layout.js";
 import { validateLetteringTextRanges } from "./lettering-ranges.js";
 import { foldingFilesystems, foldPathSafeId, isPathSafeId } from "./path-safe-id.js";
 import { validateGutterBandWidth } from "./presets.js";
+import type { Project } from "./types.js";
 import {
   BALLOON_SHAPES,
   BUBBLE_KINDS,
@@ -343,6 +349,7 @@ function validateCharactersValue(value: unknown, path: string, c: IssueCollector
         "character name must be a non-empty string.",
       );
     }
+    validateCharacterCraft(character, characterPath, c);
     if (character.references !== undefined) {
       validateCharacterReferences(
         character.references,
@@ -403,6 +410,8 @@ export function validateCutValue(value: unknown, path: string, c: IssueCollector
       "imageFraming must be scene or detail.",
     );
   }
+  if (value.artDirection !== undefined)
+    validateArtDirection(value.artDirection, joinPath(path, "artDirection"), c);
   // Character refs (#92) are OPTIONAL + back-compat. The schema validates only
   // the SHAPE (an array of non-empty id strings); whether each id resolves to a
   // registry character is a referential LINT check (`character/unknown-ref`), so
@@ -1295,6 +1304,20 @@ export function validateProject(value: unknown): ValidationResult {
     }
 
     validateEpisodeBundleRecords(bundle, bundlePath, c);
+  }
+
+  // Cross-record craft checks run only after the complete structure is safe.
+  if (c.result().issues.length === 0) {
+    const project = value as unknown as Project;
+    for (const [i, bundle] of project.episodes.entries()) {
+      const ordered = bundle.episode.sequence.flatMap((entry) =>
+        entry.type === "cut" ? bundle.cuts.filter((cut) => cut.id === entry.id) : [],
+      );
+      for (const [j, cut] of bundle.cuts.entries())
+        for (const message of artDirectionIssues(cut, project.webtoon.characters ?? [], ordered)) {
+          c.add(`episodes[${i}].cuts[${j}].artDirection`, "art.consistency", message);
+        }
+    }
   }
 
   return c.result();

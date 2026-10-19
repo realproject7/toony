@@ -53,6 +53,8 @@ export interface ImageRequest {
  * provider logs — only the source kind, provider label, and content type.
  */
 export interface AssetProvenance {
+  /** SHA-256 of the graph actually submitted, without publishing the private graph. */
+  submittedGraphDigest?: string;
   source: ProviderKind;
   providerId: string;
   contentType: string;
