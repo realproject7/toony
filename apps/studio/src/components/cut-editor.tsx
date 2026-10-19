@@ -64,6 +64,9 @@ const BubbleInspector = dynamic(() => import("./bubble-inspector").then((m) => m
 });
 
 export interface CutEditorProps {
+  integrated?: boolean;
+  registerNavigation?: (guard: ((next: () => void) => void) | null) => void;
+  onSaved?: (bubbles: LetteringOverlay[], revision: string) => void;
   workId: string;
   episodeId: string;
   episodeTitle: string;
@@ -134,6 +137,9 @@ export function CutEditor({
   renderRecord,
   theme,
   themeId,
+  integrated,
+  registerNavigation,
+  onSaved,
 }: CutEditorProps) {
   const router = useRouter();
   const { ask } = useAgentWorkspace();
@@ -145,7 +151,7 @@ export function CutEditor({
   const editorRoot = useRef<HTMLElement>(null);
   const confirmationRef = useRef<HTMLDivElement>(null);
   const [pendingNavigation, setPendingNavigation] = useState<
-    { href: string } | { reload: true } | null
+    { href: string } | { reload: true } | { action: () => void } | null
   >(null);
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(true), []);
@@ -165,7 +171,7 @@ export function CutEditor({
   const [textSelection, setTextSelection] = useState<TextSelection>({ start: 0, end: 0 });
   const [armed, setArmed] = useState<string | null>(null);
   const [zoom, setZoom] = useState(0.75),
-    [fitMode, setFitMode] = useState<false | "cut" | "width">("width");
+    [fitMode, setFitMode] = useState<false | "cut" | "width">(integrated ? "cut" : "width");
   const [panMode, setPanMode] = useState(false),
     [snap, setSnap] = useState(true);
   const [guides, setGuides] = useState<{ x?: number; y?: number }>({});
@@ -178,6 +184,14 @@ export function CutEditor({
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    registerNavigation?.((next) => {
+      if (dirty || saving) setPendingNavigation({ action: next });
+      else next();
+    });
+    return () => registerNavigation?.(null);
+  }, [registerNavigation, dirty, saving]);
 
   const draftKey = `toony-lettering:${workId}/${episodeId}/${cutId}`;
   const draftReady = useRef(false);
@@ -950,7 +964,7 @@ export function CutEditor({
   }, [ready, pendingNavigation]);
 
   const save = useCallback(async () => {
-    if (saving || !dirty) return;
+    if (saving || !dirty) return !saving && !dirty;
     setSaving(true);
     setMessage(null);
     // Snapshot the payload AND the edit generation together. Persist the render
@@ -978,20 +992,33 @@ export function CutEditor({
       });
       if (!outcome.ok) {
         setMessage({ kind: "error", text: outcome.error });
+        return false;
       } else {
         // Do NOT write the snapshot back into state — an edit made during the
         // await would be reverted. Only clear dirty when no edit landed mid-save.
         if (outcome.revision) revisionRef.current = outcome.revision;
+        onSaved?.(payload, revisionRef.current);
         if (outcome.clean) {
           setDirty(false);
           clearDraft();
         }
         setMessage({ kind: "ok", text: "Lettering saved." });
+        return outcome.clean;
       }
     } finally {
       setSaving(false);
     }
-  }, [bubbles, plans, workId, episodeId, cutId, saving, dirty, clearDraft]);
+  }, [bubbles, plans, workId, episodeId, cutId, saving, dirty, clearDraft, onSaved]);
+
+  const continueNavigation = () => {
+    if (!pendingNavigation) return;
+    allowUnloadRef.current = true;
+    clearDraft();
+    if ("reload" in pendingNavigation) window.location.reload();
+    else if ("action" in pendingNavigation) pendingNavigation.action();
+    else router.push(pendingNavigation.href);
+    setPendingNavigation(null);
+  };
 
   // Keyboard (#333): arrows nudge the selected bubble (Shift for a larger
   // step), Delete removes it, Cmd/Ctrl+D duplicates it, Cmd/Ctrl+Z undoes and
@@ -1131,7 +1158,7 @@ export function CutEditor({
       inert={!ready}
       aria-busy={!ready}
       aria-label="Lettering editor"
-      className="editor editor-focus"
+      className={`editor editor-focus${integrated ? " integrated-cut" : ""}`}
       data-inspector-open={inspectorOpen}
       data-workspace-wide={wideWorkspace}
       data-testid={`cut-editor-${cutId}`}
@@ -1142,14 +1169,12 @@ export function CutEditor({
             className="lettering-confirm"
             role="alertdialog"
             aria-modal="true"
-            aria-label="Discard unsaved lettering"
+            aria-label="Unsaved lettering"
             ref={confirmationRef}
           >
-            <h2>Discard unsaved lettering?</h2>
-            <p>
-              Copy your draft before leaving. Reloading keeps the saved version and discards the
-              edits currently on screen.
-            </p>
+            <h2>Save your lettering before leaving?</h2>
+            <p>Your changes are still on this cut. Save them, or discard them to continue.</p>
+            {message?.kind === "error" && <p role="alert">{message.text}</p>}
             <div className="chip-row">
               <button type="button" className="btn" onClick={() => setPendingNavigation(null)}>
                 Keep editing
@@ -1157,14 +1182,20 @@ export function CutEditor({
               <button
                 type="button"
                 className="btn btn-danger"
-                onClick={() => {
-                  allowUnloadRef.current = true;
-                  clearDraft();
-                  if ("reload" in pendingNavigation) window.location.reload();
-                  else router.push(pendingNavigation.href);
-                }}
+                disabled={saving}
+                onClick={continueNavigation}
               >
                 Discard and continue
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={saving}
+                onClick={async () => {
+                  if (await save()) continueNavigation();
+                }}
+              >
+                Save and continue
               </button>
             </div>
           </div>
@@ -1176,7 +1207,7 @@ export function CutEditor({
           <h1 className="page-title">Lettering</h1>
           <div className="page-meta">
             <span>
-              {episodeTitle} · cut <code>{cutId}</code>
+              {!integrated && <>{episodeTitle} · </>}Cut <code>{cutId}</code>
             </span>
             <span>
               <b>{bubbles.length}</b> bubble{bubbles.length === 1 ? "" : "s"}
@@ -1189,24 +1220,26 @@ export function CutEditor({
           </div>
         </div>
         <div className="editor-actions">
-          <label className="lettering-cut-picker">
-            Cut
-            <select
-              aria-label="Edit cut"
-              value={cutId}
-              disabled={dirty}
-              onChange={(event) => {
-                const target = cutNavigation.find((c) => c.id === event.target.value);
-                if (target) router.push(target.href);
-              }}
-            >
-              {cutNavigation.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.id}
-                </option>
-              ))}
-            </select>
-          </label>
+          {!integrated && (
+            <label className="lettering-cut-picker">
+              Cut
+              <select
+                aria-label="Edit cut"
+                value={cutId}
+                disabled={dirty}
+                onChange={(event) => {
+                  const target = cutNavigation.find((c) => c.id === event.target.value);
+                  if (target) router.push(target.href);
+                }}
+              >
+                {cutNavigation.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <button
             type="button"
             className="btn btn-ghost"
@@ -1227,20 +1260,22 @@ export function CutEditor({
           >
             Properties
           </button>
-          <Link
-            href={`/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}`}
-            className="btn btn-ghost"
-            onClick={(event) => {
-              if (dirty) {
-                event.preventDefault();
-                setPendingNavigation({
-                  href: `/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}`,
-                });
-              }
-            }}
-          >
-            Episode
-          </Link>
+          {!integrated && (
+            <Link
+              href={`/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}`}
+              className="btn btn-ghost"
+              onClick={(event) => {
+                if (dirty) {
+                  event.preventDefault();
+                  setPendingNavigation({
+                    href: `/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}`,
+                  });
+                }
+              }}
+            >
+              Episode
+            </Link>
+          )}
           <button
             type="button"
             className="btn btn-primary"
@@ -1254,6 +1289,7 @@ export function CutEditor({
       </header>
 
       <div
+        hidden={integrated && !message && !dirty}
         className={`lettering-status${message?.kind === "error" ? " is-error" : ""}`}
         role={message?.kind === "error" ? "alert" : "status"}
       >
@@ -1359,7 +1395,7 @@ export function CutEditor({
             >
               Delete
             </button>
-            {themeId !== null && (
+            {themeId !== null && (!integrated || theme !== null) && (
               <button
                 type="button"
                 className="btn"

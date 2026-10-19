@@ -1,223 +1,101 @@
-// Per-work episode preview route.
-//
-// Walks the episode's canonical `sequence` and renders cuts and transitions in
-// the exact reading order the reader experiences (Production Scroll hard rule 1),
-// scoped to the work resolved path-safely from `<workId>`. Cut images and bubble
-// overlays are resolved through `@toony/render` against this work's asset scope.
-
 import { resolveGutterBandWidth, resolveReferenceWidth } from "@toony/schema";
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CutCanvas } from "@/components/cut-canvas";
+import type { CutEditorProps } from "@/components/cut-editor";
+import { EpisodeEditor } from "@/components/episode-editor";
 import { LoadError } from "@/components/load-error";
-import { PlannedGeometryReport } from "@/components/planned-geometry-report";
-import { TransitionBlock } from "@/components/transition-block";
+import { cutFieldsOf } from "@/lib/cut-fields";
+import { cutLetteringRevision } from "@/lib/lettering-save";
 import { discoverStudioPacks } from "@/lib/packs";
-import { loadPlannedGeometry } from "@/lib/planned-geometry";
 import {
-  cutReviewCounts,
-  FALLBACK_ART,
+  assetUrl,
   findEpisodeBundle,
   loadWork,
   ProjectIoError,
-  resolveEpisodeRenderInputs,
+  resolveCutReviewArtwork,
 } from "@/lib/project";
+import { transitionRevision } from "@/lib/transition-save";
 import { resolveWork } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-export default async function EpisodePreviewPage({
+export default async function EpisodeEditorPage({
   params,
   searchParams,
 }: {
   params: Promise<{ workId: string; id: string }>;
-  searchParams: Promise<{ band?: string | string[] }>;
+  searchParams: Promise<{ item?: string; transitions?: string }>;
 }) {
   const { workId, id } = await params;
   const query = await searchParams;
   const work = await resolveWork(decodeURIComponent(workId));
   if (!work) notFound();
-  const episodeId = decodeURIComponent(id);
-  const base = `/w/${encodeURIComponent(work.id)}`;
-
   let loaded: Awaited<ReturnType<typeof loadWork>>;
   try {
     loaded = await loadWork(work.root);
   } catch (cause) {
-    const reason = cause instanceof ProjectIoError ? cause.message : String(cause);
-    return <LoadError reason={reason} />;
+    return <LoadError reason={cause instanceof ProjectIoError ? cause.message : String(cause)} />;
   }
-
-  const bundle = findEpisodeBundle(loaded, episodeId);
+  const bundle = findEpisodeBundle(loaded, decodeURIComponent(id));
   if (!bundle) notFound();
-
-  const { episode, lettering } = bundle;
-  const { cutById, transitionById, bubblesByCut, artByCut } = await resolveEpisodeRenderInputs(
-    bundle,
-    work.id,
-    work.root,
-  );
-  // The column this project's px gutter heights were authored against (#217), so
-  // the preview scales bands the same way the export does.
-  const referenceWidth = resolveReferenceWidth(loaded.project.webtoon.referenceWidth);
-  // The gutter strip this project letters in (#215), resolved once and handed to
-  // every cut, so the preview reserves the strip the export reserves.
-  const gutterBandWidth = resolveGutterBandWidth(loaded.project.webtoon.gutterBandWidth);
-
-  const reviewCounts = cutReviewCounts(bundle.cuts);
-  const cutCount = episode.sequence.filter((item) => item.type === "cut").length;
-  const transitionCount = episode.sequence.filter((item) => item.type === "transition").length;
-  // The work root preserves a work-local pack's precedence over a workspace
-  // pack. Selection is URL state only: this project has no genre→band contract.
-  const selectedBandId = typeof query.band === "string" ? query.band : "";
+  const { webtoon } = loaded.project;
   const packs = await discoverStudioPacks(work.root);
-  const plannedGeometry = await loadPlannedGeometry(
-    work.root,
-    episode.id,
-    selectedBandId,
-    packs.content,
+  const episodeId = bundle.episode.id;
+  const referenceWidth = resolveReferenceWidth(webtoon.referenceWidth);
+  const base = `/w/${encodeURIComponent(work.id)}/episodes/${encodeURIComponent(episodeId)}`;
+  const navigation = bundle.episode.sequence
+    .filter((item) => item.type === "cut")
+    .map((item) => ({ id: item.id, href: `${base}?item=${encodeURIComponent(`cut:${item.id}`)}` }));
+  const cuts: CutEditorProps[] = await Promise.all(
+    bundle.cuts.map(async (cut) => {
+      const { art, artworkRevision } = await resolveCutReviewArtwork(work.id, work.root, cut);
+      const bubbles = bundle.lettering.filter((b) => b.cutId === cut.id);
+      return {
+        workId: work.id,
+        episodeId,
+        episodeTitle: bundle.episode.title,
+        webtoonTitle: webtoon.title,
+        cutId: cut.id,
+        art,
+        artworkRevision,
+        initialBubbles: bubbles,
+        initialLetteringRevision: cutLetteringRevision(bubbles),
+        cutNavigation: navigation,
+        initialReviewStatus: cut.reviewStatus,
+        dialogueLanguage: webtoon.languages.dialogueLanguage,
+        referenceWidth,
+        gutterBandWidth: resolveGutterBandWidth(webtoon.gutterBandWidth),
+        cutFields: cutFieldsOf(cut),
+        characters: webtoon.characters ?? [],
+        renderRecord: {
+          ...(cut.imageSeed === undefined ? {} : { imageSeed: cut.imageSeed }),
+          ...(cut.imageWorkflow === undefined ? {} : { imageWorkflow: cut.imageWorkflow }),
+        },
+        theme: packs.letteringTheme(webtoon.letteringTheme),
+        themeId: webtoon.letteringTheme ?? null,
+      };
+    }),
   );
-
+  const firstTransition = bundle.episode.sequence.find((item) => item.type === "transition");
   return (
-    <div data-testid="studio-episode-preview">
-      <header className="page-head">
-        <div>
-          <p className="page-eyebrow">{loaded.project.webtoon.title}</p>
-          <h1 className="page-title">{episode.title}</h1>
-          <div className="page-meta">
-            <span>
-              {cutCount} cuts · {transitionCount} transitions
-            </span>
-          </div>
-        </div>
-        <div className="editor-actions">
-          <Link
-            href={`${base}/episodes/${encodeURIComponent(episode.id)}/script`}
-            className="btn"
-            data-testid="open-script-link"
-          >
-            Script &amp; draft
-          </Link>
-          <Link
-            href={`${base}/episodes/${encodeURIComponent(episode.id)}/transitions/edit`}
-            className="btn"
-            data-testid="edit-transitions-link"
-          >
-            Edit transitions
-          </Link>
-          <nav className="reader-toggle" aria-label="View mode">
-            <span className="btn btn-primary" aria-current="page" data-testid="edit-mode-active">
-              Edit
-            </span>
-            <Link
-              href={`${base}/episodes/${encodeURIComponent(episode.id)}/read`}
-              className="btn btn-ghost"
-              data-testid="open-reader-link"
-            >
-              Read
-            </Link>
-            <Link
-              href={`${base}/episodes/${encodeURIComponent(episode.id)}/export`}
-              className="btn btn-ghost"
-              data-testid="open-export-link"
-            >
-              Export
-            </Link>
-          </nav>
-        </div>
-      </header>
-
-      <div className="preview-layout">
-        <div className="sequence" data-testid="episode-sequence">
-          {episode.sequence.length === 0 && (
-            <p className="empty">This episode has no sequence items yet.</p>
-          )}
-          {episode.sequence.map((item, index) => {
-            const key = `${index}-${item.type}-${item.id}`;
-            if (item.type === "cut") {
-              const cut = cutById.get(item.id);
-              if (!cut) {
-                return (
-                  <div className="transition-block notice-danger" key={key}>
-                    <span className="transition-type">Missing cut</span>
-                    <span className="seq-id">{item.id}</span>
-                  </div>
-                );
-              }
-              return (
-                <CutCanvas
-                  key={key}
-                  cut={cut}
-                  bubbles={bubblesByCut.get(cut.id) ?? []}
-                  art={artByCut.get(cut.id) ?? FALLBACK_ART}
-                  workId={work.id}
-                  episodeId={episode.id}
-                  dialogueLanguage={loaded.project.webtoon.languages.dialogueLanguage}
-                  gutterBandWidth={gutterBandWidth}
-                />
-              );
-            }
-            const transition = transitionById.get(item.id);
-            if (!transition) {
-              return (
-                <div className="transition-block notice-danger" key={key}>
-                  <span className="transition-type">Missing transition</span>
-                  <span className="seq-id">{item.id}</span>
-                </div>
-              );
-            }
-            return (
-              <TransitionBlock key={key} transition={transition} referenceWidth={referenceWidth} />
-            );
-          })}
-        </div>
-
-        <aside className="inspector" data-testid="episode-inspector">
-          <Link href={`${base}/episodes`} className="inspector-back">
-            &larr; All episodes
-          </Link>
-          <div data-testid="cut-review-progress">
-            <h2 className="card-title">Cut review</h2>
-            <div className="stat-row">
-              <span>Final cuts</span>
-              <b>
-                {reviewCounts.final} / {bundle.cuts.length}
-              </b>
-            </div>
-            <div className="stat-row">
-              <span>Draft (unreviewed)</span>
-              <b>{reviewCounts.draft}</b>
-            </div>
-            <div className="stat-row">
-              <span>Human-edited</span>
-              <b>{reviewCounts["human-edited"]}</b>
-            </div>
-          </div>
-          <div>
-            <h2 className="card-title">Sequence</h2>
-            <div className="stat-row">
-              <span>Cuts</span>
-              <b>{cutCount}</b>
-            </div>
-            <div className="stat-row">
-              <span>Transitions</span>
-              <b>{transitionCount}</b>
-            </div>
-            <div className="stat-row">
-              <span>Bubbles</span>
-              <b>{lettering.length}</b>
-            </div>
-          </div>
-          <details className="episode-details">
-            <summary>Composition details</summary>
-            <PlannedGeometryReport
-              bands={packs.craftBandOptions}
-              selectedBandId={selectedBandId}
-              {...plannedGeometry}
-            />
-          </details>
-        </aside>
-      </div>
-    </div>
+    <EpisodeEditor
+      key={`${work.id}/${episodeId}`}
+      workId={work.id}
+      episodeId={episodeId}
+      title={bundle.episode.title}
+      cuts={cuts}
+      initialRhythm={{ sequence: bundle.episode.sequence, transitions: bundle.transitions }}
+      initialRevision={transitionRevision(bundle.episode.sequence, bundle.transitions)}
+      initialItem={
+        typeof query.item === "string"
+          ? query.item
+          : query.transitions && firstTransition
+            ? `transition:${firstTransition.id}`
+            : undefined
+      }
+      imageUrls={Object.fromEntries(
+        bundle.transitions.map((t) => [t.id, assetUrl(work.id, work.root, t.image)]),
+      )}
+      referenceWidth={referenceWidth}
+    />
   );
 }
