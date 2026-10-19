@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { buildInitialProject } from "@toony/project-io";
 import type { EpisodeBundle, Project } from "@toony/schema";
+import { focusFromLocation } from "../agent/focus-route.js";
 import {
   BRIEF_MAX_BYTES,
   cleanMemory,
@@ -225,4 +226,41 @@ test("memory files are private, cleaned on read and changed one at a time", asyn
   assert.deepEqual(cleaned.tasks, [{ id: "t1", title: "Fine", status: "done" }]);
   assert.deepEqual(cleanMemory("nonsense").tasks, []);
   assert.ok((await readFile(join(dir, MEMORY_FILE), "utf8")).length > 0);
+});
+
+test("the browser location gives the focus, including the editor's selection", () => {
+  assert.deepEqual(focusFromLocation("/"), { workId: null, focus: { route: "library" } });
+  assert.deepEqual(focusFromLocation("/settings"), { workId: null, focus: { route: "settings" } });
+  assert.deepEqual(focusFromLocation("/w/harbor"), { workId: "harbor", focus: { route: "story" } });
+  assert.deepEqual(focusFromLocation("/w/harbor/characters"), {
+    workId: "harbor",
+    focus: { route: "characters" },
+  });
+  assert.deepEqual(focusFromLocation("/w/harbor/episodes/ep-002", "?item=cut%3Acut-003"), {
+    workId: "harbor",
+    focus: { route: "episode", episodeId: "ep-002", cutId: "cut-003" },
+  });
+  assert.deepEqual(focusFromLocation("/w/harbor/episodes/ep-002", "item=transition:tr-cut-002"), {
+    workId: "harbor",
+    focus: { route: "episode", episodeId: "ep-002", transitionId: "tr-cut-002" },
+  });
+  assert.deepEqual(focusFromLocation("/w/harbor/episodes/ep-002/cuts/cut-004/edit"), {
+    workId: "harbor",
+    focus: { route: "episode", episodeId: "ep-002", cutId: "cut-004" },
+  });
+  assert.deepEqual(focusFromLocation("/w/harbor/episodes/ep-002/read").focus.route, "preview");
+  assert.deepEqual(focusFromLocation("/w/harbor/episodes/ep-002/export").focus.route, "export");
+  // A script page for an episode that does not exist yet still has a focus.
+  assert.deepEqual(focusFromLocation("/w/harbor/episodes/ep-009/script"), {
+    workId: "harbor",
+    focus: { route: "episode", episodeId: "ep-009" },
+  });
+  assert.deepEqual(focusFromLocation("/w/..%2Fx/episodes"), {
+    workId: null,
+    focus: { route: "library" },
+  });
+  assert.deepEqual(focusFromLocation("/w/harbor/episodes/ep-1", "?item=cut:..").focus, {
+    route: "episode",
+    episodeId: "ep-1",
+  });
 });

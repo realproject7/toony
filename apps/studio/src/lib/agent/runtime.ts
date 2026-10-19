@@ -72,6 +72,8 @@ export const TURN_HARD_LIMIT_MS = 15 * 60_000;
 export const TURN_IDLE_LIMIT_MS = 5 * 60_000;
 export const MESSAGE_MAX = 12_000;
 export const RUNNING_TURNS_MAX = 3;
+/** Streamed text is published at most this often, so deltas do not flood the live buffer. */
+const DELTA_MS = 80;
 const RECENT_MAX_BYTES = 6 * 1024;
 
 export interface ReadinessLike {
@@ -124,6 +126,11 @@ interface RunningTurn {
   failure: Failure | null;
   lastEventAt: number;
   sawText: boolean;
+  /** Streamed text not yet published (deltas are sent at most every DELTA_MS). */
+  pendingDelta: string;
+  deltaTimer: ReturnType<typeof setTimeout> | null;
+  /** Notes taken into this turn's prompt; given back if the turn does not finish. */
+  notes: string[];
   host: TurnHost;
   done: Promise<void>;
 }
@@ -900,6 +907,9 @@ export class AgentRuntime {
       failure: null,
       lastEventAt: Date.now(),
       sawText: false,
+      pendingDelta: "",
+      deltaTimer: null,
+      notes: [],
       done: Promise.resolve(),
     } as unknown as RunningTurn;
     run.host = new TurnHost(this, record, turn.id, run);
@@ -958,6 +968,9 @@ export class AgentRuntime {
         tools: mcpTools(),
         rules: AGENT_RULES,
       });
+      // Notes for the agent are taken once; a failed turn gives them back.
+      const notes = record.pendingNotes.splice(0);
+      run.notes = notes;
       for (let attempt = 0; attempt < 2; attempt++) {
         if (run.cancelled) return;
         run.attempt = attempt;
@@ -972,7 +985,7 @@ export class AgentRuntime {
             : { mode: "new", ...(sessionId ? { id: sessionId } : {}) },
           files,
         };
-        const prompt = await this.buildPrompt(record, trigger, !resume);
+        const prompt = await this.buildPrompt(record, trigger, !resume, notes);
         run.resumeMissing = false;
         run.failure = null;
         run.completed = false;
@@ -993,6 +1006,12 @@ export class AgentRuntime {
           // The CLI no longer has this session: start a fresh one from the brief.
           delete record.native[provider];
           continue;
+        }
+        if (!run.completed && !run.failure && !run.cancelled) {
+          run.failure = {
+            code: "other",
+            message: "The agent stopped before finishing. Try again.",
+          };
         }
         if (run.completed && provider === "claude" && sessionId && !resume) {
           record.native.claude = { id: sessionId, model: run.model, at: now() };
@@ -1077,12 +1096,8 @@ export class AgentRuntime {
         break;
       case "text-delta":
         run.draft += event.text;
-        this.bus.publish({
-          type: "delta",
-          conversationId: record.id,
-          turnId: run.turn.id,
-          text: event.text,
-        });
+        run.pendingDelta += event.text;
+        run.deltaTimer ??= setTimeout(() => this.publishDelta(run), DELTA_MS);
         break;
       case "text":
         this.flushText(run, event.text);
@@ -1116,8 +1131,19 @@ export class AgentRuntime {
     }
   }
 
+  /** Send the streamed text gathered since the last delta event. */
+  private publishDelta(run: RunningTurn): void {
+    if (run.deltaTimer) clearTimeout(run.deltaTimer);
+    run.deltaTimer = null;
+    if (!run.pendingDelta) return;
+    const text = run.pendingDelta;
+    run.pendingDelta = "";
+    this.bus.publish({ type: "delta", conversationId: run.record.id, turnId: run.turn.id, text });
+  }
+
   private flushText(run: RunningTurn, text: string): void {
     const clean = text.trim();
+    this.publishDelta(run);
     run.draft = "";
     if (!clean) return;
     run.sawText = true;
@@ -1137,8 +1163,14 @@ export class AgentRuntime {
     const { record, turn } = run;
     if (run.finished) return;
     run.finished = true;
+    if (run.deltaTimer) clearTimeout(run.deltaTimer);
+    run.deltaTimer = null;
+    run.pendingDelta = "";
     if (run.token) revokeTurnToken(turn.id);
     const ended = now();
+    if ((run.cancelled || run.failure) && run.notes.length > 0) {
+      record.pendingNotes = [...run.notes, ...record.pendingNotes];
+    }
     if (run.cancelled) {
       turn.state = "cancelled";
       turn.error = { code: "cancelled", message: "Stopped. Your conversation is kept." };
@@ -1213,7 +1245,12 @@ export class AgentRuntime {
   }
 
   /** The prompt of one turn: [brief and recent messages for a new session] + notes + focus + text. */
-  async buildPrompt(record: ConversationRecord, trigger: Trigger, fresh: boolean): Promise<string> {
+  async buildPrompt(
+    record: ConversationRecord,
+    trigger: Trigger,
+    fresh: boolean,
+    notes: readonly string[] = [],
+  ): Promise<string> {
     const parts: string[] = [];
     const work = await this.loadWork(record);
     const openQuestions = record.items.flatMap((item) =>
@@ -1262,11 +1299,8 @@ export class AgentRuntime {
         );
       }
     }
-    if (record.pendingNotes.length > 0) {
-      parts.push(
-        `Since your last turn:\n${record.pendingNotes.map((note) => `- ${note}`).join("\n")}`,
-      );
-      record.pendingNotes = [];
+    if (notes.length > 0) {
+      parts.push(`Since your last turn:\n${notes.map((note) => `- ${note}`).join("\n")}`);
     }
     parts.push(focusLine(work?.loaded.project ?? null, trigger.focus));
     parts.push(

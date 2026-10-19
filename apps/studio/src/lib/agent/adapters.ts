@@ -12,7 +12,13 @@
 
 import type { AgentProvider } from "./protocol.js";
 
-/** Codex features Toony turns off. MCP itself needs none of them. */
+/**
+ * Codex features Toony turns off. `code_mode_host` stays on: the model reaches
+ * MCP tools through the code-mode host (its `exec` tool lists ALL_TOOLS), so
+ * turning the host off leaves the agent without the Toony tools. With the
+ * shell, unified exec, browser, image and plugin features off, the host can
+ * only call the Toony tools.
+ */
 export const CODEX_DISABLED_FEATURES = [
   "shell_tool",
   "unified_exec",
@@ -31,7 +37,6 @@ export const CODEX_DISABLED_FEATURES = [
   "skill_search",
   "skill_mcp_dependency_install",
   "code_mode",
-  "code_mode_host",
   "goals",
 ] as const;
 

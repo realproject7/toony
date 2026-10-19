@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { NativeEvent, RunFiles } from "../agent/adapters.js";
 import { cliLauncher } from "../agent/launcher.js";
-import { startTurnProcess } from "../agent/process.js";
+import { nativeEnvironment, startTurnProcess } from "../agent/process.js";
 
 async function scratch(t: { after: (fn: () => Promise<void>) => void }) {
   const dir = await mkdtemp(join(tmpdir(), "toony-process-"));
@@ -46,7 +46,7 @@ process.stdin.on("end", () => {
     command: process.execPath,
     args: [script],
     cwd: dir,
-    env: { PATH: process.env.PATH ?? "" },
+    env: nativeEnvironment(),
     input: "안녕 prompt",
     onStdoutLine: (line) => lines.push(line),
   });
@@ -82,7 +82,7 @@ setInterval(() => {}, 1000);`,
     command: process.execPath,
     args: [script],
     cwd: dir,
-    env: { PATH: process.env.PATH ?? "" },
+    env: nativeEnvironment(),
     input: "",
     onStdoutLine: () => ready(),
     graceMs: 50,

@@ -453,33 +453,98 @@ navigation uses client routing; unsaved lettering has a session-local recovery
 copy with its original save revision, so recovery still uses the existing save
 conflict guard.
 
-The initial agent adapter is read-only. It runs the user's installed Claude Code
-or Codex CLI from an empty private directory with native tools, hooks, plugins,
-MCP and project discovery restricted. It passes only allowlisted environment
-variables. Authentication remains with the official CLI. Toony neither collects
-credentials nor initiates login. Compatibility is currently pinned to inspected
-CLI versions: Codex 0.158.0 and Claude Code 2.1.293, with required restriction flags
-checked before inference. Other versions fail closed until verified.
+### The in-app agent
 
-`POST /api/agent` requires a loopback host, matching browser origin, a custom JSON
-header and a strict HTTP-only local session cookie. Run Studio bound to loopback.
-The development scripts and CLI launcher bind to loopback by default. Do not
-override that binding or expose this local account adapter through a public proxy. Native output is
-bounded and validated as events arrive; prohibited actions stop the process
-group. Raw diagnostic output is never sent to the browser. Timeout, cancellation
-and disconnect reject late responses.
+The agent is the person's own Claude Code or Codex CLI, run on this computer
+with their subscription sign-in. Toony never collects credentials or starts a
+login. The runtime lives in `apps/studio/src/lib/agent/`.
 
-Toony owns conversation IDs and replays a bounded conversation plus an allowlisted
-snapshot of saved story, character and selected-scene text. This is application
-history, not a resumed native CLI session. Images, unsaved editor changes and
-provider configuration are excluded. A context switch never redirects an admitted
-request. Saved conversation files live in `.toony-agent` under the workspace,
-outside individual projects, with private file permissions. Retention can be
-disabled for new conversations. Interrupted responses are not restarted after a
-server restart. Provider retention is separate.
+Readiness (`readiness.ts`) finds the CLI on the allowlisted `PATH` and in the
+usual install folders, accepts version ranges (Claude Code 2.1.259 up to 2.2,
+Codex 0.158 up to 0.170) and checks every option Toony passes in the CLI's own
+`--help`. Version and help checks are cached per binary (real path, size,
+modification time), never run per turn. The sign-in check reads only
+`loggedIn`, `authMethod` and `apiProvider` from `claude auth status --json`, or
+the exit code and "Logged in using ChatGPT" from `codex login status`; command
+output is never logged. Other sign-in methods are explained, not used.
+Connecting runs this check and saves `.toony-agent/settings.json` (version 2,
+mode 0600); it does not run a model turn. A version 1 file migrates on load.
 
-Project mutations, image editing and generation are not agent tools in this
-increment. Conversation results cannot automatically become project canon.
+A turn is one CLI process in the conversation's private folder
+(`.toony-agent/sessions/<conversationId>/`, 0700) with the allowlisted
+environment, resuming the conversation's native session:
+
+- Claude Code: `-p --output-format stream-json --verbose
+  --include-partial-messages --restricted --tools "" --strict-mcp-config
+  --mcp-config <run>/mcp.json --permission-mode dontAsk --allowedTools
+  mcp__toony --no-chrome --append-system-prompt-file <run>/toony-rules.md`,
+  then `--session-id` (new) or `--resume`. No built-in tool is available, only
+  the Toony MCP server, and nothing can prompt.
+- Codex: `exec --json` (or `exec resume <thread>`), user config and rules
+  ignored, `sandbox_mode="read-only"`, `approval_policy="never"`, web search
+  off, the Toony MCP server with `default_tools_approval_mode="approve"`, the
+  rules as developer instructions, and shell, exec, browser, image, plugin,
+  hook, memory and multi-agent features off. The code-mode host stays on
+  because the model reaches MCP tools through it.
+
+The prompt goes on stdin. Parsers accept unknown event types and turn the rest
+into text deltas, finished text, tool steps, completion, sign-in failure (stopped
+early, with the exact `claude auth login` or `codex login` command shown), usage
+limit and other failure. A session the CLI no longer has is replaced by a fresh
+one that starts from the recovery brief and the recent messages. Stop sends
+SIGINT, then SIGTERM, then SIGKILL to the process group; late output is
+dropped. A turn ends after 15 minutes, or after 5 minutes without any sign of
+life.
+
+The agent works only through typed Toony tools. Studio writes a small MCP
+bridge (Node built-ins only) into a private per-turn run folder with its config
+(Studio URL, a random bearer token for this turn, the tool list). The bridge
+answers `initialize`, `ping` and `tools/list` itself and forwards `tools/call`
+(name and arguments only, never `_meta`) to `POST /api/agent/tools`. That route
+serves loopback hosts only, refuses browser requests and accepts only the live
+token of a running turn (compared in constant time, revoked when the turn
+ends). Tools read the project, or write through `withProjectWrite` as the agent
+with the conversation id, so every change is journaled, undoable and published
+on the live feed. Reads: `get_status`, `list_works`, `read_story`,
+`read_characters`, `read_episode`, `view_cut` (the cut composed with lettering
+by the export renderer, at most 768 px, as an MCP image; text when artwork
+viewing is off) and `check_episode`. Writes: `create_work`, `update_story`,
+`save_characters`, `remove_character`, `create_episode`, `rename_episode`,
+`delete_episode`, `edit_cuts`, `set_dialogue`, `set_transitions`,
+`import_artwork`, `export_episode` and `undo_change`. Collaboration:
+`update_tasks`, `ask_user`, `remember` and `forget`. There is no generation
+tool.
+
+With "Let the agent make changes without asking" on, writes apply and each
+leaves an undoable change card. Off, each write becomes a proposal card the
+person applies or dismisses; replacing existing lettering is always a proposal.
+A proposal is refused as stale when the project changed where it would write.
+A question or a proposal ends the turn in "waiting"; the answer, or the last
+decision of that turn, starts the next turn with a plain note. Agent edits
+never set review status.
+
+Conversations are stored as `.toony-agent/conversations/v2/<id>.json` (0600,
+atomic, bounded items; trimming never drops an unanswered question or a pending
+proposal). They hold the native session per provider, idempotency keys and the
+data of pending proposals. A conversation the person chose not to keep is never
+written. Older conversations stay readable as history but cannot be continued.
+A library conversation moves to the work its agent creates. One turn runs per
+conversation.
+
+Memory travels with the project: `.toony/agent/memory.json` (notes and the task
+list) beside the change journal. The recovery brief (at most 8 KB: work, cast,
+episodes with progress, tasks, the open question, notes, recent changes and what
+changed since the last turn) opens every new native session and answers
+`get_status`. Every turn prompt carries a focus line naming what the person is
+looking at ("Episode 2 (The Letter), Cut 3. Selected bubbles: 2"); a page for an
+episode that does not exist yet is described, not refused.
+
+`POST /api/agent` carries the panel's actions (`AgentAction` in
+`lib/agent/protocol.ts`) behind the shared request guard. Every state change
+reaches each tab on `GET /api/live`: `connection`, `providers`, `conversation`,
+`item`, `turn`, `delta`, `tasks`, `rebind`, `navigate`, plus the `project` and
+`export` events of the write path and export jobs. Run Studio bound to loopback;
+do not expose it through a proxy.
 
 ## Studio write path and live feed
 

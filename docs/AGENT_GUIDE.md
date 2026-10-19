@@ -10,6 +10,10 @@ command prints JSON with `--json` and exits 0 on success, 1 on a domain error, 2
 on a usage or IO error. Nothing here needs a network, a credential or a model
 choice of its own.
 
+This guide is for an agent working with the `toony` command and the project
+files. An agent connected inside Toony Studio works differently: see "Inside
+Toony Studio" at the end.
+
 ## The loop
 
 1. **Agree on the work.** Talk with the person. Write `script/brief.json`: what
@@ -159,3 +163,34 @@ change: revise it with a stated reason, and recompile every episode script that
 reports `script.brief-stale`.
 
 The exit codes, every flag and every subcommand: `toony --help`.
+
+## Inside Toony Studio
+
+When the person connects their Claude Code or Codex in Studio's agent panel,
+the agent has no shell, file or web access. It works only through the Toony
+tools Studio serves over MCP (server `toony`), and Studio checks every argument
+and writes through its own write path. The rules arrive as a system prompt or
+developer instructions; the person's message arrives with a line saying what
+they are looking at.
+
+- Start a new session with `get_status`: the work, cast, episodes with
+  progress, your task list, the open question, remembered notes and what
+  changed since your last turn.
+- Read with `read_story`, `read_characters`, `read_episode`, `view_cut` (the
+  cut as an image with its lettering) and `check_episode`.
+- Write with `create_work` (from a library chat only), `update_story`,
+  `save_characters`, `remove_character`, `create_episode`, `rename_episode`,
+  `delete_episode`, `edit_cuts`, `set_dialogue`, `set_transitions`,
+  `import_artwork` (a file the person points to), `export_episode` (files
+  only) and `undo_change`.
+- `create_episode` takes the episode script described above (beats, cuts,
+  dialogue, `transitionAfter`) without the format, id and brief revision
+  fields; Studio fills them, compiles the draft and applies it as the next
+  episode.
+- Plan with `update_tasks`, ask with `ask_user` (2 to 6 options, then end the
+  turn), keep durable decisions with `remember` and drop them with `forget`.
+- `set_dialogue` on a cut that already has lettering, and every write while the
+  person has "Let the agent make changes without asking" off, becomes a
+  proposal the person applies or dismisses. Do not repeat it; end the turn and
+  you will hear the decision.
+- There is no generation tool and no way to set review status.

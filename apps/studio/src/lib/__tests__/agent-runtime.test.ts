@@ -196,7 +196,10 @@ test("a turn streams text, posts items, completes, and request ids are used once
     after.items.map((i) => i.kind),
     ["user", "assistant"],
   );
-  assert.ok(events.some((e) => e.type === "delta" && e.text === "Hel"));
+  // Streamed pieces are sent together, before the finished text replaces them.
+  const deltaAt = events.findIndex((e) => e.type === "delta" && e.text === "Hello");
+  const replyAt = events.findIndex((e) => e.type === "item" && e.item.kind === "assistant");
+  assert.ok(deltaAt !== -1 && deltaAt < replyAt);
   assert.ok(events.some((e) => e.type === "turn" && e.turn?.step === "Checking the project"));
   // The first turn of a conversation is a new native session that starts from the brief.
   const first = launches[0];

@@ -1,5 +1,5 @@
 // The Toony tools the agent calls: hand-written argument checks with messages
-// the model can act on, and a happy path for every tool over a temporary
+// the model can act on, and a happy path for every tool over a fresh
 // project through the same write path the person's edits use.
 
 import assert from "node:assert/strict";
