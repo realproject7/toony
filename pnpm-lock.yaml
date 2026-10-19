@@ -20,6 +20,9 @@ importers:
 
   apps/studio:
     dependencies:
+      '@toony/authoring':
+        specifier: workspace:*
+        version: link:../../packages/authoring
       '@toony/export':
         specifier: workspace:*
         version: link:../../packages/export
@@ -64,12 +67,37 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  packages/authoring:
+    dependencies:
+      '@toony/export':
+        specifier: workspace:*
+        version: link:../export
+      '@toony/lint':
+        specifier: workspace:*
+        version: link:../lint
+      '@toony/project-io':
+        specifier: workspace:*
+        version: link:../project-io
+      '@toony/schema':
+        specifier: workspace:*
+        version: link:../schema
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.2
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
   packages/cli:
     dependencies:
       '@napi-rs/canvas':
         specifier: 1.0.0
         version: 1.0.0
     devDependencies:
+      '@toony/authoring':
+        specifier: workspace:*
+        version: link:../authoring
       '@toony/export':
         specifier: workspace:*
         version: link:../export

@@ -3,6 +3,7 @@
 // PROJECT_FORMAT.md). Consumed by the CLI (#5), the studio app and preview (#6),
 // and downstream tickets (#7, #10) so the on-disk contract lives in one place.
 
+export { type AtomicFileWrite, atomicWrite, atomicWriteAll, stagingPathFor } from "./atomic.js";
 export {
   CONFIG_DIR,
   CONFIG_FILE,
@@ -18,8 +19,10 @@ export {
   type ApplyResult,
   applyDraft,
   type ChangedRecord,
+  type CompiledDialogue,
   type CompiledDraft,
   type CompileOptions,
+  compileDialogueOverlays,
   compileEpisodeScript,
   DRAFT_DEFAULT_GUTTER_HEIGHT,
   DRAFT_FORMAT_VERSION,
@@ -42,6 +45,12 @@ export {
   sameFingerprint,
   writeDraft,
 } from "./draft.js";
+export {
+  compareEpisodeIds,
+  EPISODE_ID_PREFIX,
+  nextEpisodeId,
+  sortEpisodeIds,
+} from "./episode-order.js";
 export { ProjectIoError } from "./errors.js";
 export {
   decodeJson,
@@ -64,6 +73,7 @@ export {
   type AssetTarget,
   type CutAssetTarget,
   type IngestResult,
+  importImageBytes,
   ingestImageAsset,
   type RenderInputs,
   recordedRenderInputs,
@@ -113,7 +123,13 @@ export {
   readArtRevision,
   stageArtRevision,
 } from "./revisions.js";
-export { buildInitialProject, type InitialCraftOptions, slugify } from "./scaffold.js";
+export {
+  buildInitialProject,
+  buildSeededProject,
+  type InitialCraftOptions,
+  seedCraftOptions,
+  slugify,
+} from "./scaffold.js";
 export {
   type LoadedBrief,
   type LoadedEpisodeScript,
@@ -124,7 +140,7 @@ export {
   writeBrief,
   writeEpisodeScript,
 } from "./script.js";
-export { readStoryBible, STORY_BIBLE_TEMPLATE } from "./story-bible.js";
+export { readStoryBible, STORY_BIBLE_TEMPLATE, writeStoryBible } from "./story-bible.js";
 export { listWorkspace, type WorkspaceEntry } from "./workspace.js";
 export {
   writeCuts,

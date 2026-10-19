@@ -18,57 +18,36 @@
 
 import { readFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
+import { compileEpisodeDraft, DRAFT_LINTS_NOT_RUN } from "@toony/authoring";
 import {
   asCraftBand,
   type CraftBand,
-  comparePlanToCraftBand,
-  DEFAULT_SCREEN_ASPECT,
-  ExportError,
-  measureEpisodeBundle,
   type PlanBandReport,
   type PlanMeasurement,
   validateCraftBandValue,
 } from "@toony/export";
-import {
-  type Finding,
-  lintBubbleOverflow,
-  lintCharacterRefs,
-  lintCraft,
-  sortFindings,
-} from "@toony/lint";
+import type { Finding } from "@toony/lint";
 import {
   type ApplyResult,
   applyDraft,
-  compileEpisodeScript,
-  DRAFT_FORMAT_VERSION,
   type DraftConflict,
   type DraftContinuity,
   type DraftDefault,
   type DraftDiff,
   diffDraft,
   draftConflicts,
-  draftPath,
-  type EpisodeDraft,
   fingerprintEpisode,
-  type LoadedEpisodeScript,
   loadProject,
   ProjectIoError,
-  projectWithDraft,
-  readBrief,
   readDraft,
-  readEpisodeScript,
-  readEpisodeScriptFrom,
-  revisionId,
   writeDraft,
 } from "@toony/project-io";
 import {
   type EpisodeBundle,
   EXPORT_WIDTH_MAX,
   EXPORT_WIDTH_MIN,
-  type Project,
   type ValidationIssue,
   validateExportInt,
-  validateProject,
 } from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 import { discoverPackContent } from "../packs.js";
@@ -86,13 +65,6 @@ const USAGE = `usage:
   toony draft apply [path] --episode <id> [--json]`;
 
 const VALUE_FLAGS = new Set(["--episode", "--from", "--against", "--width", "--screen-aspect"]);
-
-/** Lint checks a draft cannot run, because they need art or an export. */
-const LINTS_NOT_RUN = [
-  "image/* (no art yet)",
-  "cut/panel-aspect-mismatch (no art yet)",
-  "manifest/* (no export yet)",
-] as const;
 
 interface Parsed {
   positional: string[];
@@ -217,7 +189,7 @@ function findingLines(findings: readonly Finding[]): string[] {
       : `lint: ${findings.length} finding(s)`,
   ];
   for (const f of findings) lines.push(`  [${f.severity}] ${f.code} ${f.targetId}: ${f.message}`);
-  lines.push(`  not run: ${LINTS_NOT_RUN.join("; ")}`);
+  lines.push(`  not run: ${DRAFT_LINTS_NOT_RUN.join("; ")}`);
   return lines;
 }
 
@@ -323,7 +295,6 @@ async function runCompile(parsed: Parsed, io: DraftIo): Promise<number> {
 
   const loaded = await loadOrReport(root, parsed.json, io);
   if (loaded === null) return EXIT_USAGE;
-  const registry = loaded.project.webtoon.characters ?? [];
 
   const packs = await discoverPackContent(root, io);
   let band: CraftBand | null = null;
@@ -338,122 +309,63 @@ async function runCompile(parsed: Parsed, io: DraftIo): Promise<number> {
     band = read;
   }
 
-  // The script: the project's own by default, or a file named with --from.
-  let script: LoadedEpisodeScript;
+  // Everything from the script read to the written draft is the shared
+  // authoring orchestration, so Studio compiles a script the same way.
   const from = parsed.values.get("--from");
-  try {
-    script =
-      from === undefined
-        ? await readEpisodeScript(root, episodeId, registry)
-        : await readEpisodeScriptFrom(root, resolve(io.cwd, from), episodeId, registry);
-  } catch (cause) {
-    if (cause instanceof ProjectIoError) {
-      io.err(`script error: ${cause.message}`);
-      return EXIT_USAGE;
-    }
-    throw cause;
-  }
-  if (script.absent) {
-    io.err(
-      from === undefined
-        ? `no script for episode ${episodeId}: write script/episodes/${episodeId}.json first, or name one with --from`
-        : `script file not found: ${from}`,
-    );
-    return EXIT_USAGE;
-  }
-  // `valid` is false for a malformed file AND for a file that names another
-  // episode than the one asked for; both are refused here. Warnings (an
-  // unresolved character, a stale brief) leave it valid and go in the report.
-  if (!script.validation.valid || script.script === null) {
-    io.err(`the script for episode ${episodeId} does not validate:`);
-    for (const line of issueLines(script.validation.issues)) io.err(line);
-    return EXIT_VALIDATION;
-  }
-
-  let brief: Awaited<ReturnType<typeof readBrief>> | null;
-  try {
-    brief = await readBrief(root);
-  } catch (cause) {
-    if (!(cause instanceof ProjectIoError)) throw cause;
-    brief = null;
-  }
-
-  // The project's lettering theme (#334), from installed packs. A selected id
-  // no pack provides is said on stderr and the defaults stand, so a draft is
-  // never refused for a pack that is not installed yet.
-  const themeId = loaded.project.webtoon.letteringTheme;
-  const theme =
-    themeId === undefined
-      ? undefined
-      : packs.letteringThemes.find((entry) => entry.id === themeId)?.theme;
-  if (themeId !== undefined && theme === undefined) {
-    io.err(
-      `note: webtoon.json selects lettering theme "${themeId}", which no installed pack provides; the draft letters with the defaults`,
-    );
-  }
-
-  let compiled: ReturnType<typeof compileEpisodeScript>;
-  try {
-    compiled = compileEpisodeScript(script.script, loaded.project, {
-      ...(theme === undefined ? {} : { theme }),
-    });
-  } catch (cause) {
-    if (cause instanceof ProjectIoError) {
-      io.err(`compile refused: ${cause.message}`);
-      return EXIT_VALIDATION;
-    }
-    throw cause;
-  }
-  const { bundle, defaults, continuity } = compiled;
-
-  // A draft that does not validate with its project is never written.
-  const combined: Project = projectWithDraft(loaded.project, bundle);
-  const validation = validateProject(combined);
-  if (!validation.valid) {
-    io.err(`compile refused: the draft does not validate with its project, nothing written:`);
-    for (const line of issueLines(validation.issues)) io.err(line);
-    return EXIT_VALIDATION;
-  }
-
-  const findings = sortFindings([
-    ...lintCharacterRefs(bundle, registry),
-    ...lintCraft(bundle, registry, { gutterBandWidth: loaded.project.webtoon.gutterBandWidth }),
-    ...lintBubbleOverflow(bundle, () => null, {
-      gutterBandWidth: loaded.project.webtoon.gutterBandWidth,
-    }),
-  ]);
-
-  let measurement: PlanMeasurement;
-  try {
-    measurement = measureEpisodeBundle(combined, bundle, {
-      width,
-      screenAspect: screenAspect ?? band?.screenAspect ?? DEFAULT_SCREEN_ASPECT,
-    });
-  } catch (cause) {
-    if (cause instanceof ExportError) {
-      io.err(`compile refused: ${cause.message}`);
-      return EXIT_USAGE;
-    }
-    throw cause;
-  }
-  const bandReport = band === null ? null : comparePlanToCraftBand(measurement, band);
-
-  const existing = loaded.project.episodes.find((e) => e.episode.id === episodeId) ?? null;
-  const diff = diffDraft(bundle, existing);
-  const conflicts = draftConflicts(diff);
-
-  const draft: EpisodeDraft = {
-    draftFormat: DRAFT_FORMAT_VERSION,
+  const compiled = await compileEpisodeDraft({
+    root,
     episodeId,
-    scriptRevision: script.revision ?? revisionId(script.script),
-    briefRevision: brief?.revision ?? null,
+    loaded,
+    ...(from === undefined ? {} : { scriptFile: resolve(io.cwd, from) }),
+    letteringThemes: packs.letteringThemes,
+    onThemeMissing: (themeId) =>
+      io.err(
+        `note: webtoon.json selects lettering theme "${themeId}", which no installed pack provides; the draft letters with the defaults`,
+      ),
+    band,
+    width,
+    screenAspect,
+  });
+  if (!compiled.ok) {
+    switch (compiled.stage) {
+      case "script-read":
+        io.err(`script error: ${compiled.message}`);
+        return EXIT_USAGE;
+      case "script-absent":
+        io.err(
+          from === undefined
+            ? `no script for episode ${episodeId}: write script/episodes/${episodeId}.json first, or name one with --from`
+            : `script file not found: ${from}`,
+        );
+        return EXIT_USAGE;
+      case "script-invalid":
+        io.err(`the script for episode ${episodeId} does not validate:`);
+        for (const line of issueLines(compiled.issues)) io.err(line);
+        return EXIT_VALIDATION;
+      case "compile":
+        io.err(`compile refused: ${compiled.message}`);
+        return EXIT_VALIDATION;
+      case "invalid":
+        io.err(`compile refused: the draft does not validate with its project, nothing written:`);
+        for (const line of issueLines(compiled.issues)) io.err(line);
+        return EXIT_VALIDATION;
+      case "measure":
+        io.err(`compile refused: ${compiled.message}`);
+        return EXIT_USAGE;
+    }
+  }
+  const {
+    draft,
     bundle,
     defaults,
-    ...(continuity === undefined ? {} : { continuity }),
-    reviewedAgainst: await fingerprintEpisode(root, episodeId),
-  };
-  await writeDraft(root, draft);
-  const file = relative(io.cwd, draftPath(root, episodeId)) || draftPath(root, episodeId);
+    continuity,
+    findings,
+    measurement,
+    band: bandReport,
+    diff,
+    conflicts,
+  } = compiled;
+  const file = relative(io.cwd, compiled.draftFile) || compiled.draftFile;
 
   if (parsed.json) {
     io.out(
@@ -465,7 +377,7 @@ async function runCompile(parsed: Parsed, io: DraftIo): Promise<number> {
           applied: false,
           scriptRevision: draft.scriptRevision,
           briefRevision: draft.briefRevision,
-          scriptWarnings: script.warnings,
+          scriptWarnings: compiled.scriptWarnings,
           records: {
             cuts: bundle.cuts.length,
             transitions: bundle.transitions.length,
@@ -473,9 +385,8 @@ async function runCompile(parsed: Parsed, io: DraftIo): Promise<number> {
           },
           defaults,
           continuity: continuity ?? null,
-          letteringTheme:
-            themeId === undefined ? null : { id: themeId, applied: theme !== undefined },
-          lint: { findings, notRun: LINTS_NOT_RUN },
+          letteringTheme: compiled.letteringTheme,
+          lint: { findings, notRun: DRAFT_LINTS_NOT_RUN },
           geometry: { ...measurement, band: bandReport },
           diff,
           conflicts,
@@ -488,7 +399,8 @@ async function runCompile(parsed: Parsed, io: DraftIo): Promise<number> {
     io.out(
       `draft written: ${file} (not applied). ${bundle.cuts.length} cut(s), ${bundle.transitions.length} transition(s), ${bundle.lettering.length} overlay(s) from script revision ${draft.scriptRevision.slice(0, 12)}`,
     );
-    for (const w of script.warnings) io.out(`script warning: [${w.code}] ${w.path}: ${w.message}`);
+    for (const w of compiled.scriptWarnings)
+      io.out(`script warning: [${w.code}] ${w.path}: ${w.message}`);
     for (const line of continuityLines(continuity)) io.out(line);
     for (const line of defaultsLines(defaults)) io.out(line);
     for (const line of findingLines(findings)) io.out(line);

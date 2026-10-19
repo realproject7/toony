@@ -7,6 +7,7 @@ import {
   GENRES,
   listGenreIds,
   resolveGenreSeed,
+  seedCraftOptions,
   slugify,
   writeProject,
 } from "@toony/project-io";
@@ -111,11 +112,7 @@ export async function runInit(args: string[], io: InitIo): Promise<number> {
   // writes them into `webtoon.json`, so the project carries them from here on
   // and nothing consults the pack to render.
   const seed = genre === undefined ? undefined : await resolveGenreSeed(genre, packs.genres);
-  const project = buildInitialProject(name, seed?.bundle, {
-    ...(seed?.gutterBandWidth === undefined ? {} : { gutterBandWidth: seed.gutterBandWidth }),
-    ...(seed?.letteringTheme === undefined ? {} : { letteringTheme: seed.letteringTheme }),
-    ...(seed?.styleLexicon === undefined ? {} : { styleLexicon: seed.styleLexicon }),
-  });
+  const project = buildInitialProject(name, seed?.bundle, seedCraftOptions(seed));
   try {
     await writeProject(target, project);
   } catch (cause) {

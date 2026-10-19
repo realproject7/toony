@@ -3,21 +3,27 @@
 // Toony is local-first: the workspace files are the ONLY copy of the user's
 // work, so a crash or power-loss mid-write must never truncate a file that was
 // previously intact. Every persisted write in this package goes through the
-// helpers here: they stage bytes into a sibling `<file>.tmp` and then `rename`
+// helpers here: they stage bytes into a sibling staging file and then `rename`
 // it over the target. A same-directory rename is atomic on POSIX, so a reader
 // (or a crash) observes either the whole old file or the whole new file — never
 // a partial mix. `writeFile` must fully succeed before the rename, so a failure
 // mid-write leaves the original target untouched.
 //
-// These helpers do NOT coordinate concurrent writers: file locking and
-// multi-process safety are out of scope (#144). Because the temp file uses a
-// fixed `.tmp` sibling name, two concurrent atomic writes to the same target
-// race on that temp file — callers must serialize writes to one path.
+// Staging names are unique per writer: `<file>.<pid>.tmp` for the first write
+// to a target in this process, `<file>.<pid>-<n>.tmp` while another write to
+// the same target is still staging. Two processes, or two unserialized writes
+// in one process, therefore never share a staging file. These helpers still do
+// NOT order concurrent writers: the last rename wins, so callers that
+// read-modify-write a file serialize on their own lock (Studio's project write
+// lock), and file locking across processes stays out of scope (#144).
 
 import { rename, rm, writeFile } from "node:fs/promises";
 
-/** Suffix of the sibling temp file an atomic write stages into. */
+/** Suffix of the sibling staging file an atomic write stages into. */
 const TMP_SUFFIX = ".tmp";
+
+/** Staging paths claimed by writes in flight in this process. */
+const claimed = new Set<string>();
 
 /** One file's worth of bytes for a batched atomic write. */
 export interface AtomicFileWrite {
@@ -27,13 +33,28 @@ export interface AtomicFileWrite {
   data: string | Uint8Array;
 }
 
-function tmpPathFor(file: string): string {
-  return `${file}${TMP_SUFFIX}`;
+/**
+ * The staging path the `slot`-th concurrent write to `file` in this process
+ * uses. Slot 0 is what a lone write uses, so a test can predict it and place a
+ * fault there.
+ */
+export function stagingPathFor(file: string, slot = 0): string {
+  return `${file}.${process.pid}${slot === 0 ? "" : `-${slot}`}${TMP_SUFFIX}`;
+}
+
+function claimStagingPath(file: string): string {
+  for (let slot = 0; ; slot++) {
+    const candidate = stagingPathFor(file, slot);
+    if (!claimed.has(candidate)) {
+      claimed.add(candidate);
+      return candidate;
+    }
+  }
 }
 
 /**
- * Write `data` to `file` atomically: stage into `<file>.tmp`, then rename over
- * the target. A crash or error before the rename leaves the original `file`
+ * Write `data` to `file` atomically: stage into a unique sibling, then rename
+ * over the target. A crash or error before the rename leaves the original `file`
  * (if it existed) intact rather than truncated.
  */
 export async function atomicWrite(file: string, data: string | Uint8Array): Promise<void> {
@@ -41,8 +62,8 @@ export async function atomicWrite(file: string, data: string | Uint8Array): Prom
 }
 
 /**
- * Write several files as a single write-unit: stage EVERY file into its
- * `<file>.tmp` sibling first, then rename them into place in the given order.
+ * Write several files as a single write-unit: stage EVERY file into its own
+ * staging sibling first, then rename them into place in the given order.
  * Nothing is renamed until all temps are written, so a failure while staging
  * leaves every target untouched.
  *
@@ -55,22 +76,28 @@ export async function atomicWrite(file: string, data: string | Uint8Array): Prom
  */
 export async function atomicWriteAll(writes: readonly AtomicFileWrite[]): Promise<void> {
   const staged: Array<{ tmp: string; file: string }> = [];
+  const owned: string[] = [];
   try {
-    for (const { file, data } of writes) {
-      const tmp = tmpPathFor(file);
-      await writeFile(tmp, data);
-      staged.push({ tmp, file });
+    try {
+      for (const { file, data } of writes) {
+        const tmp = claimStagingPath(file);
+        owned.push(tmp);
+        await writeFile(tmp, data);
+        staged.push({ tmp, file });
+      }
+    } catch (cause) {
+      // Staging failed before any rename, so the original targets are untouched.
+      // Drop temps we already wrote; ignore cleanup errors so the original write
+      // failure is what surfaces to the caller.
+      await Promise.all(staged.map(({ tmp }) => rm(tmp, { force: true }).catch(() => {})));
+      throw cause;
     }
-  } catch (cause) {
-    // Staging failed before any rename, so the original targets are untouched.
-    // Drop temps we already wrote; ignore cleanup errors so the original write
-    // failure is what surfaces to the caller.
-    await Promise.all(staged.map(({ tmp }) => rm(tmp, { force: true }).catch(() => {})));
-    throw cause;
-  }
 
-  // All temps staged: commit with atomic renames in the caller-chosen order.
-  for (const { tmp, file } of staged) {
-    await rename(tmp, file);
+    // All temps staged: commit with atomic renames in the caller-chosen order.
+    for (const { tmp, file } of staged) {
+      await rename(tmp, file);
+    }
+  } finally {
+    for (const tmp of owned) claimed.delete(tmp);
   }
 }

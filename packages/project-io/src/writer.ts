@@ -31,6 +31,7 @@ import {
   EPISODE_DIRS,
   episodeDir,
   episodeFile,
+  episodesDir,
   letteringFile,
   PROJECT_DIRS,
   STORY_BIBLE_FILE,
@@ -51,6 +52,9 @@ project-relative path only.
  * Write a fully-formed project to \`root\`. Validates the model first and refuses
  * to write if it would not pass schema validation. Callers must ensure \`root\`
  * does not already exist (this creates it non-recursively).
+ *
+ * The \`episodes/\` folder is always created, even for a project with no episode
+ * yet, because the loader requires it: a work created empty opens and validates.
  */
 export async function writeProject(root: string, project: Project): Promise<void> {
   const result = validateProject(project);
@@ -63,6 +67,7 @@ export async function writeProject(root: string, project: Project): Promise<void
   for (const dir of PROJECT_DIRS) {
     await mkdir(join(root, dir), { recursive: true });
   }
+  await mkdir(episodesDir(root), { recursive: true });
 
   // Structural files: JSON.
   await atomicWrite(webtoonPath(root), encodeJson(project.webtoon));

@@ -13,6 +13,7 @@ import type { Dirent } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { isProjectRelativePath } from "@toony/schema";
+import { compareEpisodeIds } from "./episode-order.js";
 import { decodeJson, decodeYaml } from "./format.js";
 import {
   cutsFile,
@@ -48,7 +49,7 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-/** Episode folder names under a work, deterministically sorted; [] on error. */
+/** Episode folder names under a work, in reading order; [] on error. */
 async function listEpisodeDirs(workRoot: string): Promise<string[]> {
   let entries: Dirent[];
   try {
@@ -59,7 +60,7 @@ async function listEpisodeDirs(workRoot: string): Promise<string[]> {
   return entries
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
-    .sort();
+    .sort(compareEpisodeIds);
 }
 
 /** Read an episode's cut list, tolerating a missing/corrupt file as empty. */

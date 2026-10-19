@@ -15,7 +15,13 @@ import {
   type Transition,
   type Webtoon,
 } from "@toony/schema";
-import { buildGenreEpisodeBundle, type Genre } from "./genres.js";
+import {
+  buildGenreEpisodeBundle,
+  type Genre,
+  type GenreScaffold,
+  type GenreSeed,
+  resolveGenreSeed,
+} from "./genres.js";
 
 /** Lowercase, hyphenate, and trim a name into a safe folder/project id. */
 export function slugify(name: string): string {
@@ -143,4 +149,31 @@ export function buildInitialProject(
         ? buildGenreEpisodeBundle(starter)
         : starter;
   return { webtoon, episodes: [episode] };
+}
+
+/** The project-level craft values a resolved genre seed writes into `webtoon.json`. */
+export function seedCraftOptions(seed: GenreSeed | undefined): InitialCraftOptions {
+  return {
+    ...(seed?.gutterBandWidth === undefined ? {} : { gutterBandWidth: seed.gutterBandWidth }),
+    ...(seed?.letteringTheme === undefined ? {} : { letteringTheme: seed.letteringTheme }),
+    ...(seed?.styleLexicon === undefined ? {} : { styleLexicon: seed.styleLexicon }),
+  };
+}
+
+/**
+ * The starter project `toony init --genre <id>` builds, for any caller that
+ * offers the same starters (Studio's "New webtoon" and the agent's work
+ * creation). With no genre it is the neutral starter. `null` means the genre is
+ * not a built-in and no installed pack contributes it, so a stale choice is
+ * refused rather than silently swapped for another starter.
+ */
+export async function buildSeededProject(
+  name: string,
+  genre: string | undefined,
+  scaffolds: readonly GenreScaffold[] = [],
+): Promise<Project | null> {
+  if (genre === undefined || genre.trim() === "") return buildInitialProject(name);
+  const seed = await resolveGenreSeed(genre, scaffolds);
+  if (seed === undefined) return null;
+  return buildInitialProject(name, seed.bundle, seedCraftOptions(seed));
 }

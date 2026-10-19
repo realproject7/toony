@@ -638,6 +638,14 @@ export interface Webtoon {
   languages: LanguageConfig;
   imageProviders: ImageProvidersConfig;
   /**
+   * The story in one sentence, as the author states it. OPTIONAL: absent means
+   * none was written. Shown on the story page and given to the agent; nothing
+   * renders or exports it.
+   */
+  logline?: string;
+  /** A short summary of the whole story, in the author's words. OPTIONAL, like `logline`. */
+  synopsis?: string;
+  /**
    * The id of an installed pack's lettering theme (#334), applied where an
    * overlay is created or on request. Absent means the renderer's own defaults.
    */

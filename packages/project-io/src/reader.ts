@@ -14,6 +14,7 @@ import {
   type ValidationResult,
   validateProject,
 } from "@toony/schema";
+import { compareEpisodeIds } from "./episode-order.js";
 import { ProjectIoError } from "./errors.js";
 import { decodeJson, decodeYaml } from "./format.js";
 import {
@@ -75,7 +76,7 @@ function normalizeCut(value: unknown): unknown {
   };
 }
 
-/** List episode directory names in deterministic (sorted) order. */
+/** List episode directory names in reading order (`ep-2` before `ep-10`). */
 async function listEpisodeIds(root: string): Promise<string[]> {
   let entries: Dirent[];
   try {
@@ -87,7 +88,7 @@ async function listEpisodeIds(root: string): Promise<string[]> {
   return entries
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
-    .sort();
+    .sort(compareEpisodeIds);
 }
 
 /**
