@@ -146,6 +146,27 @@ export function bubbleKindPatch(
   };
 }
 
+/** The shape gallery also owns free text; preserve authored styling and hidden tail targets. */
+export function balloonShapePatch(
+  overlay: LetteringOverlay,
+  shape: BalloonShape | null,
+): Partial<LetteringOverlay> {
+  const tailStyle = resolvedTailStyle(overlay);
+  if (shape === null) return { kind: "sfx", balloonShape: undefined, tailStyle };
+  return {
+    balloonShape: shape,
+    tailStyle,
+    ...(overlay.kind === "sfx"
+      ? {
+          kind: "speech",
+          // Free-text presets start transparent with a zero-width border.
+          fill: overlay.fill === "transparent" ? bubbleKindStyle("speech").fill : overlay.fill,
+          border: overlay.border?.width === 0 ? { ...overlay.border, width: 2.2 } : overlay.border,
+        }
+      : {}),
+  };
+}
+
 export function presetPreviewPlan(
   kind: BubbleKind,
   options: Parameters<typeof presetOverlay>[4] & {

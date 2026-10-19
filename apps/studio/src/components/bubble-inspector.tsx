@@ -52,7 +52,6 @@ import { useEffect, useState } from "react";
 import { clamp } from "@/lib/clamp";
 import { AlignmentSymbol } from "./alignment-symbol";
 import { BalloonControls } from "./balloon-controls";
-import { BubbleKindPicker } from "./bubble-kind-picker";
 import { ColorPicker } from "./color-picker";
 import { FontCoverageNotice } from "./font-coverage-notice";
 import { GeometryControls } from "./geometry-controls";
@@ -147,14 +146,6 @@ export function BubbleInspector({
   return (
     <div className="inspector-form inspector-organized" data-testid="bubble-inspector">
       <header className="inspector-header">
-        <BubbleKindPicker
-          overlay={overlay}
-          width={artWidth}
-          height={artHeight}
-          dialogueLanguage={dialogueLanguage}
-          gutterBandWidth={gutterBandWidth}
-          onChange={onChange}
-        />
         <nav className="inspector-tabs" aria-label="Bubble properties">
           {(["text", "bubble", "layout"] as const).map((value) => (
             <button
@@ -271,45 +262,41 @@ export function BubbleInspector({
                 </div>
               </div>
 
-              <div className="field">
-                <span>Style</span>
-                <div className="chip-row">
-                  <button
-                    type="button"
-                    className="btn btn-chip"
-                    aria-pressed={overlay.fontStyle === "italic"}
-                    onClick={() =>
-                      onChange({
-                        fontStyle: overlay.fontStyle === "italic" ? "normal" : "italic",
-                        textLayout:
-                          overlay.textLayout ?? defaultLetteringTextLayout(referenceWidth),
-                      })
+              <div className="inspector-type-style">
+                <label className="field">
+                  <span>Weight</span>
+                  <select
+                    aria-label="Font weight"
+                    value={fontWeight}
+                    onChange={(event) =>
+                      onChange({ fontWeight: Number(event.target.value) as FontWeight })
                     }
                   >
-                    Italic
-                  </button>
-
-                  {FONT_WEIGHTS.map((weight) => (
-                    <button
-                      key={weight}
-                      type="button"
-                      className={
-                        fontWeight === weight ? "btn btn-chip btn-chip-active" : "btn btn-chip"
-                      }
-                      style={{ fontWeight: weight }}
-                      aria-pressed={fontWeight === weight}
-                      onClick={() => onChange({ fontWeight: weight })}
-                      data-testid={`field-weight-${weight}`}
-                    >
-                      {WEIGHT_LABELS[weight]}
-                    </button>
-                  ))}
-                </div>
+                    {FONT_WEIGHTS.map((weight) => (
+                      <option key={weight} value={weight}>
+                        {WEIGHT_LABELS[weight]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="btn"
+                  aria-pressed={overlay.fontStyle === "italic"}
+                  onClick={() =>
+                    onChange({
+                      fontStyle: overlay.fontStyle === "italic" ? "normal" : "italic",
+                      textLayout: overlay.textLayout ?? defaultLetteringTextLayout(referenceWidth),
+                    })
+                  }
+                >
+                  <i aria-hidden="true">I</i> Italic
+                </button>
               </div>
 
               <div className="field">
                 <span>Horizontal alignment</span>
-                <div className="chip-row">
+                <div className="chip-row inspector-alignment">
                   {TEXT_ALIGNS.map((align) => (
                     <button
                       key={align}
@@ -330,7 +317,7 @@ export function BubbleInspector({
 
               <div className="field">
                 <span>Vertical align</span>
-                <div className="chip-row">
+                <div className="chip-row inspector-alignment">
                   {VERTICAL_ALIGNS.map((align) => (
                     <button
                       key={align}
@@ -422,18 +409,18 @@ export function BubbleInspector({
         )}
       </section>
       <section className="inspector-panel" hidden={tab !== "bubble"} aria-label="Bubble appearance">
+        <BalloonControls
+          overlay={overlay}
+          onChange={onChange}
+          width={artWidth}
+          height={artHeight}
+          dialogueLanguage={dialogueLanguage}
+          gutterBandWidth={gutterBandWidth}
+        />
         {isSfx ? (
           <p className="field-hint">Free text has no bubble background or tail.</p>
         ) : (
           <>
-            <BalloonControls
-              overlay={overlay}
-              onChange={onChange}
-              width={artWidth}
-              height={artHeight}
-              dialogueLanguage={dialogueLanguage}
-              gutterBandWidth={gutterBandWidth}
-            />
             <fieldset className="field-group" data-testid="group-color">
               <legend>Appearance</legend>
               <GradientControls overlay={overlay} onChange={onChange} embedded />
@@ -470,15 +457,17 @@ export function BubbleInspector({
                   onChange={(e) => onChange({ opacity: Number(e.target.value) })}
                   data-testid="field-opacity"
                 />
-                <output>{overlay.opacity.toFixed(2)}</output>
+                <output>{Math.round(overlay.opacity * 100)}%</output>
               </label>
             </fieldset>
 
             <details className="inspector-disclosure">
               <summary>Outline details</summary>
-              <fieldset className="field-group" data-testid="group-styling">
-                <legend>Styling</legend>
-
+              <fieldset
+                className="field-group"
+                data-testid="group-styling"
+                aria-label="Outline controls"
+              >
                 <label className="field field-inline">
                   <input
                     type="checkbox"
@@ -579,7 +568,7 @@ export function BubbleInspector({
 
           <div className="field">
             <span>Stacking order (z {zIndex})</span>
-            <div className="chip-row">
+            <div className="chip-row inspector-stacking">
               <button
                 type="button"
                 className="btn btn-chip"
@@ -661,9 +650,11 @@ export function BubbleInspector({
         <details className="inspector-disclosure">
           <summary>Panel placement</summary>
           {/* --- Craft (#93/#98/#99) -------------------------------------------- */}
-          <fieldset className="field-group" data-testid="group-craft">
-            <legend>Craft</legend>
-
+          <fieldset
+            className="field-group"
+            data-testid="group-craft"
+            aria-label="Panel placement controls"
+          >
             {isSfx && (
               <label className="field">
                 <span>SFX mode</span>
@@ -695,7 +686,7 @@ export function BubbleInspector({
                     onClick={() => onChange({ placement: value })}
                     data-testid={`field-placement-${value}`}
                   >
-                    {value}
+                    {value === "in_panel" ? "In panel" : "Gutter"}
                   </button>
                 ))}
               </div>
@@ -716,7 +707,7 @@ export function BubbleInspector({
                       onClick={() => onChange({ placementSide: value })}
                       data-testid={`field-placement-side-${value}`}
                     >
-                      {value}
+                      {value === "left" ? "Left" : "Right"}
                     </button>
                   ))}
                 </div>
@@ -734,9 +725,9 @@ export function BubbleInspector({
               <span>Off-panel tail target</span>
               {overlay.tailTarget ? (
                 <>
-                  <div className="field-inline">
-                    <label className="field-inline">
-                      <span>x</span>
+                  <div className="geometry-controls">
+                    <label className="field">
+                      <span>X</span>
                       <input
                         type="number"
                         step={0.05}
@@ -752,8 +743,8 @@ export function BubbleInspector({
                         data-testid="field-tail-target-x"
                       />
                     </label>
-                    <label className="field-inline">
-                      <span>y</span>
+                    <label className="field">
+                      <span>Y</span>
                       <input
                         type="number"
                         step={0.05}
@@ -807,7 +798,7 @@ export function BubbleInspector({
             >
               {REVIEW_STATUSES.map((status) => (
                 <option key={status} value={status}>
-                  {status}
+                  {{ draft: "Draft", "human-edited": "Edited", final: "Final" }[status]}
                 </option>
               ))}
             </select>
