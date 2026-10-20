@@ -530,6 +530,11 @@ function repositoryRoot(): string {
  * Read off the shipped code, not off the new code, so this is a claim about
  * what the change did rather than a snapshot of what it does. `panelInset` is
  * deliberately absent: it is the one number that was allowed to move.
+ *
+ * `valueMean` (85.2) and `valueSpread` (73.2) were re-read when export stopped
+ * drawing host-installed fonts in place of the bundled ones: the originals were
+ * taken on a machine whose own Noto Sans KR, Patrick Hand, Bangers and Anton
+ * replaced the bundled faces, so the lettering ink differed slightly.
  */
 const DEAD_AIR_BEFORE: Partial<Record<CraftMetricName, number>> = {
   gutterRatio: 0.1968,
@@ -538,8 +543,8 @@ const DEAD_AIR_BEFORE: Partial<Record<CraftMetricName, number>> = {
   panelHeightSpread: 0.3981,
   panelsPerScreen: 1.36,
   gutterIntrusionsPerScreen: 0.85,
-  valueMean: 85.2,
-  valueSpread: 73.2,
+  valueMean: 85.4,
+  valueSpread: 73.3,
   saturationMean: 0.263,
   hueBias: 159.2,
 };

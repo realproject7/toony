@@ -4,10 +4,15 @@
 // @napi-rs/canvas selects a face purely by the family NAME passed to
 // `GlobalFonts.registerFromPath(file, name)` — it does not pick a weight variant
 // from a `font-weight` in `ctx.font`. So each weight file is registered under its
-// OWN canvas family name: the family's display name for 400, and a distinct
-// "<name> 700" name for 700. `canvasFontFamily(familyId, weight)` returns the
+// OWN canvas family name: "Toony <name>" for 400, and a distinct
+// "Toony <name> 700" for 700. `canvasFontFamily(familyId, weight)` returns the
 // name to put in `ctx.font`, mirroring what `@toony/render` resolved, so the
 // canvas and the SVG land on the identical underlying woff2.
+//
+// The "Toony " prefix keeps a font installed on the host under the same public
+// name (an "Anton" or "Nunito" in the user's font folder) from replacing the
+// bundled file: @napi-rs/canvas draws an installed family in preference to a
+// registered one of the same name, which made exports differ between machines.
 
 import { GlobalFonts } from "@napi-rs/canvas";
 import {
@@ -23,12 +28,12 @@ import { fontAssetPath } from "@toony/fonts/node";
 import { matchFaceWeight } from "@toony/render";
 import type { BubbleKind } from "@toony/schema";
 
-// Canvas family name for a face FILE's weight. 400 files register under the
-// family's display name; 700 files under "<name> 700". Keying off the file weight
-// that actually exists means a 400-only family always resolves to its display
+// Canvas family name for a face FILE's weight. 400 files register under
+// "Toony <name>"; 700 files under "Toony <name> 700". Keying off the file weight
+// that actually exists means a 400-only family always resolves to its regular
 // name even when a bold weight is requested (matching `fontFileForWeight`).
 function nameForFaceWeight(family: FontFamily, faceWeight: FontFaceWeight): string {
-  return faceWeight === 700 ? `${family.name} 700` : family.name;
+  return faceWeight === 700 ? `Toony ${family.name} 700` : `Toony ${family.name}`;
 }
 
 /**
