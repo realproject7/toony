@@ -26,3 +26,17 @@ export function latentHeightFor(width: number, panelAspect: number): number {
   const snapped = Math.round((width * panelAspect) / LATENT_BLOCK_PX) * LATENT_BLOCK_PX;
   return Math.max(LATENT_BLOCK_PX, snapped);
 }
+
+/**
+ * The narrowest column (a multiple of the latent block) whose panel of this
+ * shape holds at least `area` pixels: how a short panel keeps a workflow's
+ * baseline detail instead of being drawn small.
+ */
+export function columnForArea(area: number, panelAspect: number): number {
+  let column = Math.max(
+    LATENT_BLOCK_PX,
+    Math.ceil(Math.sqrt(area / panelAspect) / LATENT_BLOCK_PX) * LATENT_BLOCK_PX,
+  );
+  while (column * latentHeightFor(column, panelAspect) < area) column += LATENT_BLOCK_PX;
+  return column;
+}

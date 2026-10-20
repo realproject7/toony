@@ -110,7 +110,7 @@ import { passesAuthoringGate } from "./generate-gate.js";
 import { canvasFinding, type GenerationFinding, promptFindings } from "./generation-preflight.js";
 import { discoverPackContent } from "./packs.js";
 import { appendPaletteClause } from "./palette.js";
-import { latentHeightFor } from "./panel-shape.js";
+import { columnForArea, latentHeightFor } from "./panel-shape.js";
 import { shellQuote } from "./shell.js";
 
 export interface GenerateIo {
@@ -146,6 +146,14 @@ export interface GenerateIo {
    * image model away from the cut it is drawing.
    */
   standalonePrompt?: boolean;
+  /**
+   * A declared shape shorter than the workflow's latent widens the column so
+   * the panel keeps the baseline pixel count, where the command line would
+   * refuse without an explicit width (`reduced-generation-canvas`). Nothing on
+   * Studio's route can pass a width, and a wide cut drawn small is worse than
+   * one drawn a little wider.
+   */
+  keepDetail?: boolean;
 }
 
 /** One thing a run did to one target. The text lines say the same in prose. */
@@ -864,13 +872,27 @@ function applyPanelShapes(
         exit: EXIT_USAGE,
       };
     }
-    const height = latentHeightFor(column, panelAspect);
+    let width = column;
+    let height = latentHeightFor(width, panelAspect);
+    const baseline =
+      entry.latent.width !== undefined && entry.latent.height !== undefined
+        ? entry.latent.width * entry.latent.height
+        : undefined;
+    const widened =
+      io.keepDetail === true &&
+      typeof shared.width !== "number" &&
+      baseline !== undefined &&
+      width * height < baseline;
+    if (widened) {
+      width = columnForArea(baseline, panelAspect);
+      height = latentHeightFor(width, panelAspect);
+    }
     // The size goes through `inputs`, so the size that is recorded is the size
     // that is submitted.
-    entry.job.inputs = { ...entry.job.inputs, width: column, height };
+    entry.job.inputs = { ...entry.job.inputs, width, height };
     // Only the options change: an attached reference sheet stays on the request.
     entry.job.request = { ...entry.job.request, options: requestFor(entry.job.inputs).options };
-    entry.job.label = `${entry.job.label} at ${column}x${height}`;
+    entry.job.label = `${entry.job.label} at ${width}x${height}${widened ? " (widened to keep the baseline detail)" : ""}`;
   }
   return null;
 }
