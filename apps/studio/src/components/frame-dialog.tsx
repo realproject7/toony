@@ -77,7 +77,7 @@ export function FrameDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const drag = useRef<{ handle: FrameHandle; x: number; y: number; start: ImageView } | null>(null);
-  const stage = useRef<HTMLDivElement>(null);
+  const stage = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -97,16 +97,26 @@ export function FrameDialog({
     (event.currentTarget as Element).setPointerCapture(event.pointerId);
     drag.current = { handle, x: event.clientX, y: event.clientY, start: frame };
   };
+  // Pointer movement in picture pixels, through the SVG's own fit and scale.
+  const toPicture = (clientX: number, clientY: number) => {
+    const svg = stage.current;
+    const matrix = svg?.getScreenCTM();
+    if (!svg || !matrix) return null;
+    const point = new DOMPoint(clientX, clientY).matrixTransform(matrix.inverse());
+    return { x: point.x, y: point.y };
+  };
   const move = (event: PointerEvent) => {
     const current = drag.current;
-    const box = stage.current?.getBoundingClientRect();
-    if (!current || !box || box.width === 0 || box.height === 0) return;
+    if (!current) return;
+    const from = toPicture(current.x, current.y);
+    const to = toPicture(event.clientX, event.clientY);
+    if (!from || !to) return;
     setFrame(
       dragFrame(
         current.start,
         current.handle,
-        (event.clientX - current.x) / box.width,
-        (event.clientY - current.y) / box.height,
+        (to.x - from.x) / source.width,
+        (to.y - from.y) / source.height,
       ),
     );
   };
@@ -144,6 +154,13 @@ export function FrameDialog({
   };
 
   const edges = frameEdges(frame);
+  const box = {
+    x: frame.x * source.width,
+    y: frame.y * source.height,
+    width: frame.width * source.width,
+    height: frame.height * source.height,
+  };
+  const handleSize = Math.max(source.width, source.height) * 0.018;
   const shown = {
     width: Math.round(frame.width * source.width),
     height: Math.round(frame.height * source.height),
@@ -171,40 +188,59 @@ export function FrameDialog({
         Drag the frame to choose what this cut shows. The picture itself does not change.
       </p>
       <div className="frame-layout">
-        <div
+        <svg
           ref={stage}
           className="frame-stage"
-          style={{ aspectRatio: `${source.width} / ${source.height}` }}
+          viewBox={`0 0 ${source.width} ${source.height}`}
+          preserveAspectRatio="xMidYMid meet"
           onPointerMove={move}
           onPointerUp={end}
           onPointerCancel={end}
+          role="img"
+          aria-label={`Frame over the source for Cut ${cutNumber}`}
           data-testid="frame-stage"
         >
           {picture.src && (
-            // biome-ignore lint/performance/noImgElement: local picture served by /api/asset.
-            <img src={picture.src} alt={`Source for Cut ${cutNumber}`} draggable={false} />
+            <image href={picture.src} x={0} y={0} width={source.width} height={source.height} />
           )}
-          <div
+          <path
+            className="frame-dim"
+            fillRule="evenodd"
+            d={`M0 0H${source.width}V${source.height}H0Z M${box.x} ${box.y}H${box.x + box.width}V${box.y + box.height}H${box.x}Z`}
+          />
+          <rect
             className="frame-box"
-            role="presentation"
-            style={{
-              left: `${frame.x * 100}%`,
-              top: `${frame.y * 100}%`,
-              width: `${frame.width * 100}%`,
-              height: `${frame.height * 100}%`,
-            }}
+            x={box.x}
+            y={box.y}
+            width={box.width}
+            height={box.height}
             onPointerDown={begin("move")}
             data-testid="frame-box"
-          >
-            {HANDLES.map((handle) => (
-              <span
+          />
+          {HANDLES.map((handle) => {
+            const hx = handle.includes("w")
+              ? box.x
+              : handle.includes("e")
+                ? box.x + box.width
+                : box.x + box.width / 2;
+            const hy = handle.includes("n")
+              ? box.y
+              : handle.includes("s")
+                ? box.y + box.height
+                : box.y + box.height / 2;
+            return (
+              <rect
                 key={handle}
                 className={`frame-handle is-${handle}`}
+                x={hx - handleSize / 2}
+                y={hy - handleSize / 2}
+                width={handleSize}
+                height={handleSize}
                 onPointerDown={begin(handle)}
               />
-            ))}
-          </div>
-        </div>
+            );
+          })}
+        </svg>
         <div className="frame-side">
           <fieldset className="frame-presets">
             <legend>Quick frames</legend>
