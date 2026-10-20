@@ -34,6 +34,7 @@ import {
   upsertItem,
   viewOf,
 } from "./conversations.js";
+import { turnRules } from "./host-notice.js";
 import { cliLauncher, type Launcher, type LaunchHandle } from "./launcher.js";
 import { focusLine, readMemory, recoveryBrief, updateMemory } from "./memory.js";
 import type {
@@ -973,7 +974,7 @@ export class AgentRuntime {
         url: this.studioUrl(),
         token: run.token,
         tools: mcpTools(),
-        rules: AGENT_RULES,
+        rules: turnRules(AGENT_RULES),
       });
       // Notes for the agent are taken once; a failed turn gives them back.
       const notes = record.pendingNotes.splice(0);

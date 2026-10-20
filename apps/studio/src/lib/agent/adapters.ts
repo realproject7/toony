@@ -4,8 +4,10 @@
 // Claude Code (print mode, stream JSON, partial messages), restricted: no
 // built-in tools, only the Toony MCP server (strict config), allowed without a
 // prompt (`--permission-mode dontAsk --allowedTools mcp__toony`). Codex `exec`
-// (JSON lines), read-only sandbox, never asks, user config and rules ignored,
-// shell/web/image/plugin features off, the Toony MCP server approved.
+// (JSON lines), read-only sandbox, never asks, user config, rules and the skills
+// catalog ignored, shell/web/image/plugin features off, the Toony MCP server
+// approved. Codex still reads the person's global AGENTS.md (no supported flag
+// skips it), so the rules open with a notice that it does not apply here.
 //
 // Parsers ignore event types they do not know and never fail on non-empty
 // `plugins`; safety comes from the flags and from Toony's own tool checks.
@@ -119,6 +121,7 @@ export function codexConfig(files: RunFiles): string[] {
     `mcp_servers.${MCP_SERVER}.tool_timeout_sec=${TOOL_TIMEOUT_SEC}`,
     `mcp_servers.${MCP_SERVER}.default_tools_approval_mode=${toml("approve")}`,
     "features.skip_host_skill_discovery=true",
+    "skills.include_instructions=false",
     ...CODEX_DISABLED_FEATURES.map((name) => `features.${name}=false`),
   ];
   return values.flatMap((value) => ["-c", value]);

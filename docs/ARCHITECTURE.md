@@ -517,9 +517,12 @@ environment, resuming the conversation's native session:
 - Codex: `exec --json` (or `exec resume <thread>`), user config and rules
   ignored, `sandbox_mode="read-only"`, `approval_policy="never"`, web search
   off, the Toony MCP server with `default_tools_approval_mode="approve"`, the
-  rules as developer instructions, and shell, exec, browser, image, plugin,
-  hook, memory and multi-agent features off. The code-mode host stays on
-  because the model reaches MCP tools through it.
+  rules as developer instructions, the skills catalog off, and shell, exec,
+  browser, image, plugin, hook, memory and multi-agent features off. The
+  code-mode host stays on because the model reaches MCP tools through it.
+  Codex still loads the person's global AGENTS.md and no supported flag skips
+  it, so the rules for both CLIs open with a notice that instructions from the
+  person's own coding-agent setup do not apply inside Toony.
 
 The prompt goes on stdin. Parsers accept unknown event types and turn the rest
 into text deltas, finished text, tool steps, completion, sign-in failure (stopped
