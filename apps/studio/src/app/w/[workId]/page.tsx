@@ -1,110 +1,155 @@
-// Per-work dashboard (issue #51) — the working home for one webtoon.
-//
-// Project identity, language config, project health, and the episode list as
-// navigable rows, all scoped to the work resolved from `<workId>`. The work id is
-// resolved PATH-SAFELY by `resolveWork` (exact match against the workspace scan)
-// before any project file is read. No wallet/account/publish surfaces.
+// The story page: the webtoon's home. Its title (renamed in place), the story
+// in a calm read view, the cast, and the episodes. The agent writes the story;
+// this page shows it. "Needs attention" appears only when something is wrong.
 
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AskAgent } from "@/components/ask-agent";
-import { BriefCard } from "@/components/brief-card";
-import { EpisodeList } from "@/components/episode-list";
+import { EpisodeRows } from "@/components/episode-rows";
+import { LiveRefresh } from "@/components/live-refresh";
 import { LoadError } from "@/components/load-error";
-import { loadWork, overviewEpisodes, ProjectIoError } from "@/lib/project";
+import { WorkTitle } from "@/components/work-title";
+import { workPageData, workTitle } from "@/lib/page-data";
+import { plainIssues } from "@/lib/plain-issues";
 import { loadBriefView } from "@/lib/script-view";
-import { resolveWork } from "@/lib/workspace";
+import { castMembers, storyEpisodes } from "@/lib/story-view";
 
 export const dynamic = "force-dynamic";
 
-export default async function WorkDashboardPage({
-  params,
-}: {
-  params: Promise<{ workId: string }>;
-}) {
+type Params = { params: Promise<{ workId: string }> };
+
+export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { workId } = await params;
-  const work = await resolveWork(decodeURIComponent(workId));
-  if (!work) notFound();
+  return { title: `Story · ${await workTitle(workId)}` };
+}
 
-  let loaded: Awaited<ReturnType<typeof loadWork>>;
-  try {
-    loaded = await loadWork(work.root);
-  } catch (cause) {
-    const reason = cause instanceof ProjectIoError ? cause.message : String(cause);
-    return <LoadError reason={reason} />;
-  }
-
-  const { project, validation } = loaded;
-  const { webtoon } = project;
-  const { languages } = webtoon;
-  const episodes = overviewEpisodes(loaded);
-  const briefView = await loadBriefView(work.root);
-  const characters = webtoon.characters ?? [];
-
-  const totalCuts = episodes.reduce((sum, ep) => sum + ep.cutCount, 0);
+export default async function StoryPage({ params }: Params) {
+  const { workId } = await params;
+  const data = await workPageData(workId);
+  if (data.kind === "missing") notFound();
+  if (data.kind === "error") return <LoadError reason={data.reason} />;
+  const { work, loaded } = data;
+  const { webtoon } = loaded.project;
+  const base = `/w/${encodeURIComponent(work.id)}`;
+  const [episodes, briefView] = await Promise.all([
+    storyEpisodes(work.root, loaded),
+    loadBriefView(work.root),
+  ]);
+  const brief = briefView.brief?.brief ?? null;
+  const cast = castMembers(work.id, work.root, loaded);
+  const issues = loaded.validation.valid
+    ? []
+    : plainIssues(loaded.validation.issues, loaded.project, base);
+  const story: Array<{ label: string; value: string | string[] }> = [];
+  if (webtoon.synopsis) story.push({ label: "Synopsis", value: webtoon.synopsis });
+  if (brief?.world) story.push({ label: "World", value: brief.world });
+  if (brief?.audience) story.push({ label: "Audience", value: brief.audience });
+  if (brief?.storyGoals?.length) story.push({ label: "Goals", value: brief.storyGoals });
+  // The one-line story: the logline, or the brief's intent when no logline exists.
+  const lede = webtoon.logline?.trim() || brief?.intent?.trim() || "";
+  const hasStory = lede !== "" || story.length > 0;
 
   return (
-    <div data-testid="studio-dashboard">
-      <header className="page-head">
-        <div>
-          <p className="page-eyebrow">Story</p>
-          <h1 className="page-title" data-testid="project-title">
-            {webtoon.title}
-          </h1>
-          <div className="page-meta">
-            <span>
-              {episodes.length} {episodes.length === 1 ? "episode" : "episodes"} · {totalCuts} cuts
-              · {characters.length} characters
-            </span>
-            <span data-testid="validation-status">
-              {validation.valid ? null : (
-                <span className="chip chip-danger">{validation.issues.length} issue(s)</span>
-              )}
-            </span>
-          </div>
-        </div>
-        <div className="editor-actions">
-          <AskAgent message="Help me develop this story. Start with the central conflict and the character motivations.">
-            Develop with agent
-          </AskAgent>
-          <Link href="/" className="btn btn-ghost" data-testid="back-to-library">
-            &larr; Library
-          </Link>
-        </div>
+    <div className="page story-page" data-testid="studio-dashboard">
+      <LiveRefresh workId={work.id} />
+      <header className="story-head">
+        <WorkTitle workId={work.id} title={webtoon.title} />
+        {lede && <p className="story-logline">{lede}</p>}
       </header>
 
-      <div className="story-overview">
-        <Link href={`/w/${encodeURIComponent(work.id)}/characters`} data-testid="character-count">
-          <span>Cast</span>
-          <strong>{characters.length} characters</strong>
-          <small data-testid="character-references">
-            {characters.filter((c) => (c.references?.length ?? 0) > 0).length} with reference sheets
-          </small>
-        </Link>
-        <Link href={`/w/${encodeURIComponent(work.id)}/episodes`}>
-          <span>Episodes</span>
-          <strong>{episodes.length} in this story</strong>
-          <small>{totalCuts} cuts to shape and letter</small>
-        </Link>
-        <div>
-          <span>Dialogue</span>
-          <strong>{languages.dialogueLanguage}</strong>
-          <small>Your words, in every scene</small>
+      {issues.length > 0 && (
+        <section
+          className="attention"
+          aria-labelledby="attention-title"
+          data-testid="validation-status"
+        >
+          <h2 id="attention-title">Needs attention</h2>
+          <ul>
+            {issues.slice(0, 8).map((issue) => (
+              <li key={issue.key}>
+                {issue.href ? <Link href={issue.href}>{issue.where}</Link> : <b>{issue.where}</b>}
+                <span>{issue.text}</span>
+              </li>
+            ))}
+          </ul>
+          {issues.length > 8 && <p className="page-meta">And {issues.length - 8} more.</p>}
+          <p className="page-meta">You can also ask the agent to check and fix these.</p>
+        </section>
+      )}
+
+      <section className="story-section" aria-labelledby="story-title" data-testid="brief-section">
+        <h2 className="section-title" id="story-title">
+          Story
+        </h2>
+        {story.length > 0 ? (
+          <dl className="story-fields" data-testid="brief-fields">
+            {story.map((field) => (
+              <div key={field.label}>
+                <dt>{field.label}</dt>
+                <dd>
+                  {Array.isArray(field.value) ? (
+                    <ul>
+                      {field.value.map((goal) => (
+                        <li key={goal}>{goal}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    field.value
+                  )}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <p className="empty-note" data-testid="brief-empty">
+            {hasStory
+              ? "The rest of the story is not written yet."
+              : "No story yet. Tell the agent your idea in the chat, and it will write the story here."}{" "}
+            {briefView.unreadable &&
+              "The story notes file could not be read; ask the agent to repair it."}
+          </p>
+        )}
+      </section>
+
+      <section className="story-section" aria-labelledby="cast-title">
+        <div className="section-head">
+          <h2 className="section-title" id="cast-title">
+            Cast
+          </h2>
+          <Link href={`${base}/characters`} className="btn btn-ghost" data-testid="character-count">
+            {cast.length === 0 ? "Add characters" : "All characters"}
+          </Link>
         </div>
-      </div>
-
-      <section className="card-grid" data-testid="brief-section">
-        <BriefCard
-          brief={briefView.brief}
-          unreadable={briefView.unreadable}
-          characters={webtoon.characters ?? []}
-        />
+        {cast.length === 0 ? (
+          <p className="empty-note">No characters yet. Ask the agent to create the cast.</p>
+        ) : (
+          <ul className="cast-strip">
+            {cast.map((member) => (
+              <li key={member.id}>
+                <Link
+                  href={`${base}/characters#${encodeURIComponent(member.id)}`}
+                  className="cast-chip"
+                >
+                  <span className="avatar" aria-hidden="true">
+                    {member.portrait ? (
+                      // biome-ignore lint/performance/noImgElement: local reference sheet thumbnail.
+                      <img src={member.portrait} alt="" />
+                    ) : (
+                      (Array.from(member.name.trim())[0] ?? "?").toUpperCase()
+                    )}
+                  </span>
+                  <span className="cast-chip-text">
+                    <b className="cast-chip-name">{member.name}</b>
+                    {member.role && <small className="cast-chip-role">{member.role}</small>}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
-      <section>
-        <h2 className="section-title">Episodes</h2>
-        <EpisodeList workId={work.id} episodes={episodes} />
-      </section>
+      <EpisodeRows workId={work.id} episodes={episodes} />
     </div>
   );
 }

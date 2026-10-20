@@ -1,63 +1,69 @@
-// Per-work Characters page (#328): the registry every cut, cast note and script
-// line keys to, with each character's uses and reference sheets. Edits go
-// through `/api/characters`, which validates the whole project and writes only
-// `webtoon.json`.
+// The cast: one readable card per character (name, role, look, personality,
+// outfits, reference sheets, where they appear), edited in place one character
+// at a time.
 
-import Link from "next/link";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { CharacterEditor } from "@/components/character-editor";
+import { type CastCard, CharacterCards } from "@/components/character-cards";
+import { LiveRefresh } from "@/components/live-refresh";
 import { LoadError } from "@/components/load-error";
 import { characterRows } from "@/lib/characters";
-import { assetUrl, loadWork, ProjectIoError } from "@/lib/project";
-import { resolveWork } from "@/lib/workspace";
+import { workPageData, workTitle } from "@/lib/page-data";
+import { assetUrl } from "@/lib/project";
+import { cutNumberIn } from "@/lib/sequence-order";
 
 export const dynamic = "force-dynamic";
 
-export default async function CharactersPage({ params }: { params: Promise<{ workId: string }> }) {
+type Params = { params: Promise<{ workId: string }> };
+
+export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { workId } = await params;
-  const work = await resolveWork(decodeURIComponent(workId));
-  if (!work) notFound();
+  return { title: `Characters · ${await workTitle(workId)}` };
+}
 
-  let loaded: Awaited<ReturnType<typeof loadWork>>;
-  try {
-    loaded = await loadWork(work.root);
-  } catch (cause) {
-    const reason = cause instanceof ProjectIoError ? cause.message : String(cause);
-    return <LoadError reason={reason} />;
-  }
-
+export default async function CharactersPage({ params }: Params) {
+  const { workId } = await params;
+  const data = await workPageData(workId);
+  if (data.kind === "missing") notFound();
+  if (data.kind === "error") return <LoadError reason={data.reason} />;
+  const { work, loaded } = data;
+  const base = `/w/${encodeURIComponent(work.id)}`;
   const rows = await characterRows(work.root, loaded.project);
-  const initial = rows.map((row) => ({
-    character: row.character,
-    uses: row.uses,
-    sheets: row.sheets.map((sheet) => ({
-      ...sheet,
-      src: sheet.present ? assetUrl(work.id, work.root, sheet.path) : null,
-    })),
-  }));
+  const cards: CastCard[] = rows.map((row) => {
+    const appearances: CastCard["appearances"] = [];
+    for (const bundle of loaded.project.episodes) {
+      const cuts = row.uses
+        .filter((use) => use.episodeId === bundle.episode.id)
+        .map((use) => ({
+          number: cutNumberIn(bundle.episode.sequence, use.cutId),
+          href: `${base}/episodes/${encodeURIComponent(bundle.episode.id)}?item=${encodeURIComponent(`cut:${use.cutId}`)}`,
+        }))
+        .filter((cut) => cut.number > 0)
+        .sort((a, b) => a.number - b.number);
+      if (cuts.length > 0) appearances.push({ episode: bundle.episode.title, cuts });
+    }
+    return {
+      character: row.character,
+      sheets: row.sheets
+        .filter((sheet) => sheet.present)
+        .map((sheet) => assetUrl(work.id, work.root, sheet.path))
+        .filter((src): src is string => src !== null),
+      appearances,
+    };
+  });
 
   return (
-    <div data-testid="studio-characters">
+    <div className="page" data-testid="studio-characters">
+      <LiveRefresh workId={work.id} scopes={[{ kind: "characters" }, { kind: "episodes" }]} />
       <header className="page-head">
         <div>
-          <p className="page-eyebrow">{loaded.project.webtoon.title}</p>
           <h1 className="page-title">Characters</h1>
-          <div className="page-meta">
-            <span>
-              <b>{rows.length}</b> characters
-            </span>
-            <span>
-              <b>{rows.filter((row) => row.sheets.length > 0).length}</b> with a reference sheet
-            </span>
-          </div>
-        </div>
-        <div className="page-meta">
-          <Link href={`/w/${encodeURIComponent(work.id)}`} className="inspector-back">
-            &larr; Story
-          </Link>
+          <p className="page-lede">
+            Who appears in {loaded.project.webtoon.title}, how they look and how they talk.
+          </p>
         </div>
       </header>
-      <CharacterEditor workId={work.id} initial={initial} />
+      <CharacterCards workId={work.id} cards={cards} />
     </div>
   );
 }

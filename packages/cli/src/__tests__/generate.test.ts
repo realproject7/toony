@@ -1787,15 +1787,8 @@ test("the recorded fields are inert: the same art exports identically without th
     comfy.close();
   }
 
-  const exportArgs = ["platform", projectDir, "--episode", "ep-001", "--width", "400"];
-  const manifestPath = join(
-    projectDir,
-    "episodes",
-    "ep-001",
-    "exports",
-    "platform",
-    "manifest.json",
-  );
+  const exportArgs = ["ep-001", projectDir, "--output", "cuts", "--width", "400"];
+  const manifestPath = join(projectDir, "episodes", "ep-001", "exports", "cuts", "manifest.json");
   const withFields = capture();
   assert.equal(await runExport(exportArgs, withFields.io), EXIT_OK, withFields.err.join("\n"));
   const after = await readFile(manifestPath, "utf8");

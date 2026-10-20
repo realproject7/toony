@@ -99,11 +99,13 @@ the export raster and the studio reader also stage art-less cuts with.
 
 `lintManifestCompleteness(manifest, manifestId, resolveFile?)` consumes
 `@toony/export`'s manifest contract rather than redefining it: `validateManifest`
-owns structure, project-relative path safety, and quality bounds, and the
-PlotLink constraints come from the exported `PLOTLINK_*` constants. On top of the
-structural check it adds the PlotLink semantics (all WebP, ≤20 images, ≤1MB each,
-markdown present), a reading-order check on the declared file order, and — when a
-`resolveFile` probe is supplied — on-disk existence and `byteSize` consistency.
+owns structure, project-relative path safety, and quality bounds. On top of the
+structural check it adds a reading-order check on the declared file order and
+per-output consistency: every strip part and cut image has the output width,
+every social frame has the frame size, strip parts respect the part height and
+any size cap, a band split across files continues at the exact next row, and
+social files are grouped into consecutive posts. When a `resolveFile` probe is
+supplied it also checks on-disk existence and `byteSize` consistency.
 
 ## OCR (accidental text/logo/watermark detection)
 

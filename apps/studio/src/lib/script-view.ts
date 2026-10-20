@@ -32,7 +32,12 @@ import {
   sameFingerprint,
   writeDraft,
 } from "@toony/project-io";
-import type { Character, EpisodeBundle } from "@toony/schema";
+import { type Character, type EpisodeBundle, isPathSafeId } from "@toony/schema";
+import type { ProjectChange } from "./agent/protocol.js";
+import { type ActorInfo, contextFor } from "./ops/context.js";
+import { episodeLabel, findEpisode } from "./ops/labels.js";
+import { episodeFiles } from "./ops/paths.js";
+import { withProjectWrite } from "./ops/write.js";
 
 // --- Script -----------------------------------------------------------------
 
@@ -153,38 +158,90 @@ export function isDraftActionPayload(value: unknown): value is DraftActionPayloa
 }
 
 /**
- * Apply the episode's draft from the page the person reviewed.
+ * Apply the episode's draft from the page the person reviewed, through the
+ * project write path (lock, undo snapshot of the episode folder, journal, live
+ * event).
  *
  * The page rendered its diff against `reviewedAgainst`. When the project still
  * matches, that state is recorded on the draft (what `toony draft show` does)
  * and the shipped `applyDraft` runs. When it does not, nothing is written and
  * the refusal is the same one the CLI gives: review it again.
  */
+export async function applyFromStudioChange(
+  root: string,
+  episodeId: string,
+  reviewedAgainst: ProjectFingerprint,
+  info: ActorInfo = {},
+): Promise<{ result: ApplyResult; change: ProjectChange | null }> {
+  if (!isPathSafeId(episodeId)) {
+    return {
+      result: {
+        episodeId,
+        applied: false,
+        created: false,
+        diff: null,
+        refusal: { reason: "draft-missing" },
+      },
+      change: null,
+    };
+  }
+  return withProjectWrite(
+    contextFor(root, info),
+    {
+      summary: "Applied a draft",
+      scopes: [{ kind: "episodes" }, { kind: "episode", episodeId }],
+      trees: [episodeFiles(episodeId).folder],
+      errors: "as-is",
+    },
+    async (tx) => {
+      tx.setSummary(
+        `Applied the draft to ${episodeLabel(findEpisode(tx.before, episodeId), episodeId)}`,
+      );
+      const now = await fingerprintEpisode(tx.root, episodeId);
+      if (!sameFingerprint(now, reviewedAgainst)) {
+        return {
+          episodeId,
+          applied: false,
+          created: false,
+          diff: null,
+          refusal: { reason: "project-changed" },
+        } satisfies ApplyResult;
+      }
+      const loaded = await readDraft(tx.root, episodeId);
+      if (loaded.draft !== null) {
+        await writeDraft(tx.root, { ...loaded.draft, reviewedAgainst: now });
+      }
+      return applyDraft(tx.root, episodeId);
+    },
+  );
+}
+
+/** Apply the episode's draft. See `applyFromStudioChange`. */
 export async function applyFromStudio(
   root: string,
   episodeId: string,
   reviewedAgainst: ProjectFingerprint,
+  info: ActorInfo = {},
 ): Promise<ApplyResult> {
-  const now = await fingerprintEpisode(root, episodeId);
-  if (!sameFingerprint(now, reviewedAgainst)) {
-    return {
-      episodeId,
-      applied: false,
-      created: false,
-      diff: null,
-      refusal: { reason: "project-changed" },
-    };
-  }
-  const loaded = await readDraft(root, episodeId);
-  if (loaded.draft !== null) {
-    await writeDraft(root, { ...loaded.draft, reviewedAgainst: now });
-  }
-  return applyDraft(root, episodeId);
+  return (await applyFromStudioChange(root, episodeId, reviewedAgainst, info)).result;
 }
 
-/** Remove the episode's draft. The project is untouched. */
-export async function discardFromStudio(root: string, episodeId: string): Promise<boolean> {
-  return removeDraft(root, episodeId);
+/**
+ * Remove the episode's draft. The project is untouched. Runs under the
+ * project's lock; a draft is not project data, so it is not journaled.
+ */
+export async function discardFromStudio(
+  root: string,
+  episodeId: string,
+  info: ActorInfo = {},
+): Promise<boolean> {
+  if (!isPathSafeId(episodeId)) return false;
+  const { result } = await withProjectWrite(
+    contextFor(root, info),
+    { summary: "Discarded a draft", scopes: [{ kind: "episode", episodeId }], errors: "as-is" },
+    async (tx) => removeDraft(tx.root, episodeId),
+  );
+  return result;
 }
 
 /** One line a person can read for a refusal, path-free. */

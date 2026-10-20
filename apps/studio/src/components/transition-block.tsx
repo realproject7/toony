@@ -13,8 +13,8 @@
 // re-derived constants (the #112 single-source rule; #135/#138).
 //
 // The panel width is measured so the shared layout helpers get the same effective
-// dimensions the export canvas uses. `readOnly` (reader, #49) drops authoring
-// chrome — only the rendered panel remains; the preview keeps a small meta chip.
+// dimensions the export canvas uses. Every render site is read-only: only the
+// rendered panel appears.
 
 import {
   BAND_FONT_STACK,
@@ -197,11 +197,6 @@ export function TransitionBlock({
           {line.text}
         </span>
       ))}
-      {!readOnly && (
-        <span className="transition-meta">
-          {plan.label} · {plan.gutterHeight}px
-        </span>
-      )}
     </div>
   );
 }

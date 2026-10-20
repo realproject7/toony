@@ -1,36 +1,37 @@
-// Save one cut's lettering. Resolve the work path through the workspace, then
-// merge only that cut into the latest episode under the Studio write queue.
-import { safeErrorMessage } from "@/lib/errors";
-import { isCutLetteringPayload, saveCutLettering } from "@/lib/lettering-save";
+// Save one cut's lettering. Guarded (local origin, header, JSON, session), the
+// work path resolved through the workspace, then merged into the latest
+// episode on the project write path (lock, undo snapshot, journal, live event).
+import { handleWrite, json } from "@/lib/api-route";
+import { isCutLetteringPayload, saveCutLetteringChange } from "@/lib/lettering-save";
 import { resolveWork } from "@/lib/workspace";
 
 export const dynamic = "force-dynamic";
 
-function badRequest(message: string): Response {
-  return Response.json({ ok: false, error: message }, { status: 400 });
-}
-
 export async function POST(request: Request): Promise<Response> {
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
-    return badRequest("request body must be valid JSON");
-  }
-  if (!isCutLetteringPayload(payload)) {
-    return badRequest(
-      "request body must be { workId: string, episodeId: string, cutId: string, overlays: array }",
-    );
-  }
-  const work = await resolveWork(payload.workId);
-  if (!work) return badRequest(`unknown work "${payload.workId}"`);
-  try {
-    const result = await saveCutLettering(work.root, payload);
-    return Response.json(result, { status: result.ok ? 200 : result.conflict ? 409 : 400 });
-  } catch (cause) {
-    return Response.json(
-      { ok: false, error: safeErrorMessage(cause, "could not save the lettering") },
-      { status: 500 },
-    );
-  }
+  return handleWrite(
+    request,
+    async ({ body, info }) => {
+      if (!isCutLetteringPayload(body)) {
+        return json(
+          {
+            ok: false,
+            error:
+              "request body must be { workId: string, episodeId: string, cutId: string, overlays: array }",
+          },
+          400,
+        );
+      }
+      const work = await resolveWork(body.workId);
+      if (!work) return json({ ok: false, error: `unknown work "${body.workId}"` }, 400);
+      const { result, change } = await saveCutLetteringChange(work.root, body, {
+        ...info,
+        workId: work.id,
+      });
+      return json(
+        { ...result, ...(change ? { changeId: change.changeId } : {}) },
+        result.ok ? 200 : result.conflict ? 409 : 400,
+      );
+    },
+    "could not save the lettering",
+  );
 }

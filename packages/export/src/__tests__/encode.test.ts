@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createCanvas } from "@napi-rs/canvas";
-import { encodeCanvas, encodeWebpToFit } from "../encode.js";
+import { encodeCanvas } from "../encode.js";
 import { validateManifest } from "../manifest.js";
 
 function solid(width: number, height: number, color: string) {
@@ -24,102 +24,71 @@ test("encodeCanvas emits valid PNG, JPEG, and WebP", () => {
   assert.equal(tag(0) + tag(1) + tag(2) + tag(3), "RIFF");
 });
 
-test("encodeWebpToFit meets a tight byte budget by downscaling", () => {
-  const canvas = solid(800, 1200, "#246");
-  const fit = encodeWebpToFit(canvas, 2000);
-  assert.equal(fit.withinBudget, true);
-  assert.ok(fit.bytes.length <= 2000);
-  assert.ok(fit.width <= 800);
-});
-
-test("validateManifest rejects an absolute path", () => {
-  const problems = validateManifest({
-    manifestVersion: 1,
-    target: "platform",
+/** A well-formed v2 manifest of one strip image; tests change one thing at a time. */
+function manifest(file: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) {
+  return {
+    manifestVersion: 2,
+    kind: "strip",
+    output: "strip",
     projectId: "p",
     episodeId: "ep-001",
     width: 800,
+    options: { format: "png" },
     files: [
       {
-        path: "/etc/evil.png",
-        format: "png",
-        width: 1,
-        height: 1,
-        byteSize: 1,
-        quality: null,
-        sha256: "x",
-      },
-    ],
-    markdown: null,
-  });
-  assert.ok(problems.some((p) => p.includes("project-relative")));
-});
-
-test("validateManifest rejects lossy quality outside 0..100", () => {
-  const problems = validateManifest({
-    manifestVersion: 1,
-    target: "platform",
-    projectId: "p",
-    episodeId: "ep-001",
-    width: 800,
-    files: [
-      {
-        path: "episodes/ep-001/exports/platform/001.jpg",
-        format: "jpeg",
-        width: 1,
-        height: 1,
-        byteSize: 1,
-        quality: 999,
-        sha256: "a".repeat(64),
-      },
-    ],
-    markdown: null,
-  });
-  assert.ok(problems.some((p) => p.includes("quality")));
-});
-
-test("validateManifest requires null quality for png", () => {
-  const problems = validateManifest({
-    manifestVersion: 1,
-    target: "platform",
-    projectId: "p",
-    episodeId: "ep-001",
-    width: 800,
-    files: [
-      {
-        path: "episodes/ep-001/exports/platform/001.png",
-        format: "png",
-        width: 1,
-        height: 1,
-        byteSize: 1,
-        quality: 80,
-        sha256: "a".repeat(64),
-      },
-    ],
-    markdown: null,
-  });
-  assert.ok(problems.some((p) => p.includes("quality must be null")));
-});
-
-test("validateManifest accepts a well-formed manifest", () => {
-  const problems = validateManifest({
-    manifestVersion: 1,
-    target: "stitched",
-    projectId: "p",
-    episodeId: "ep-001",
-    width: 800,
-    files: [
-      {
-        path: "episodes/ep-001/exports/stitched/episode.png",
+        path: "episodes/ep-001/exports/strip/episode.png",
         format: "png",
         width: 800,
         height: 2400,
         byteSize: 1234,
         quality: null,
         sha256: "a".repeat(64),
+        role: "strip",
+        items: [{ type: "cut", id: "cut-001", index: 0 }],
+        ...file,
       },
     ],
-    markdown: null,
-  });
-  assert.deepEqual(problems, []);
+    warnings: [],
+    inputs: { sha256: "b".repeat(64) },
+    ...extra,
+  };
+}
+
+test("validateManifest accepts a well-formed manifest", () => {
+  assert.deepEqual(validateManifest(manifest()), []);
+});
+
+test("validateManifest rejects an absolute path", () => {
+  const problems = validateManifest(manifest({ path: "/etc/evil.png", sha256: "x" }));
+  assert.ok(problems.some((p) => p.includes("project-relative")));
+});
+
+test("validateManifest rejects lossy quality outside 0..100", () => {
+  const problems = validateManifest(manifest({ format: "jpeg", quality: 999 }));
+  assert.ok(problems.some((p) => p.includes("quality")));
+});
+
+test("validateManifest requires null quality for png", () => {
+  const problems = validateManifest(manifest({ quality: 80 }));
+  assert.ok(problems.some((p) => p.includes("quality must be null")));
+});
+
+test("validateManifest accepts only the current version, kinds and roles", () => {
+  for (const [extra, expected] of [
+    [{ manifestVersion: 1 }, "manifestVersion mismatch"],
+    [{ kind: "gif" }, "kind must be one of: strip, cuts, social"],
+    [{ output: "../escape" }, "output must be a path-safe id"],
+    [{ inputs: { sha256: "short" } }, "inputs.sha256 must be a 64-char hex digest"],
+    [{ warnings: [{ code: "x" }] }, "warnings[0] must have a code, a message and items"],
+  ] as const) {
+    assert.ok(validateManifest(manifest({}, extra)).includes(expected), expected);
+  }
+  assert.ok(
+    validateManifest(manifest({ role: "markdown" })).some((p) => p.includes("role must be one of")),
+  );
+  assert.ok(
+    validateManifest(manifest({ items: [{ type: "cut", id: "", index: -1 }] })).some((p) =>
+      p.includes("items[0].index"),
+    ),
+  );
 });

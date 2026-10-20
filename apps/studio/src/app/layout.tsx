@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 import { AgentWorkspace } from "@/components/agent-workspace";
+import { LiveProvider } from "@/lib/live/provider";
+import { THEME_BOOT_SCRIPT } from "@/lib/theme";
 import "./tokens.css";
 import "./studio.css";
 import "./agent-workspace.css";
@@ -10,8 +12,9 @@ import "./episode-editor.css";
 import "./lettering-fonts.css";
 
 export const metadata = {
-  title: "Toony Studio",
-  description: "Local-first webtoon production studio",
+  // Pages name themselves ("Story · <title>"); the template adds the product.
+  title: { default: "Toony", template: "%s · Toony" },
+  description: "Make webtoons with your own AI agent.",
   // Brand mark (v4): the operator's Toony tuxedo-cat icon. Served from /public
   // so the real favicon/app icon load.
   icons: {
@@ -25,9 +28,17 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    // The head script sets `data-theme` before the first paint, so the server
+    // markup and the browser differ on purpose for that one attribute.
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* biome-ignore lint/security/noDangerouslySetInnerHtml: a fixed, Studio-authored theme script must run before paint. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+      </head>
       <body>
-        <AgentWorkspace>{children}</AgentWorkspace>
+        <LiveProvider>
+          <AgentWorkspace>{children}</AgentWorkspace>
+        </LiveProvider>
       </body>
     </html>
   );

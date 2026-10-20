@@ -10,7 +10,7 @@
 // path-free posture.
 //
 // `ExportError` is handled separately by the export route: it is an actionable,
-// path-free engine error (e.g. PlotLink markdown too short) whose message is
+// path-free engine error (e.g. a margin that leaves no room for the cut) whose message is
 // safe to surface as-is.
 
 /**

@@ -26,8 +26,8 @@ export function FontCoverageNotice({
   if (compact && !missing.length)
     return (
       <details className="inspector-font-notice" data-testid="font-coverage-notice">
-        <summary>Font substitution</summary>
-        <p>{replacements.join(", ")}. Your selected font is preserved.</p>
+        <summary>Another font fills in</summary>
+        <p>{replacements.join(", ")}. Your choice is kept.</p>
       </details>
     );
   return (
@@ -37,16 +37,13 @@ export function FontCoverageNotice({
       role="status"
     >
       {replacements.length > 0 && (
-        <p>Bundled font fallback: {replacements.join(", ")}. Your selected font is preserved.</p>
+        <p>Another font fills in: {replacements.join(", ")}. Your choice is kept.</p>
       )}
       {missing.length > 0 && (
         <p>
-          No bundled font covers{" "}
-          {missing
-            .map((point) => `U+${point.toString(16).toUpperCase().padStart(4, "0")}`)
-            .join(", ")}
-          . Text is preserved, but system fallback may differ in export. Choose supported characters
-          before final export.
+          No bundled font has {missing.map((point) => String.fromCodePoint(point)).join(" ")}. The
+          export may draw {missing.length === 1 ? "it" : "them"} differently, so check the export or
+          use other characters.
         </p>
       )}
     </div>

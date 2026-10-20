@@ -19,6 +19,8 @@ import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   type AssetProvenance,
+  contentTypeFor,
+  detectImageFormat,
   extensionFor,
   type ProviderResult,
   stripImageMetadata,
@@ -387,4 +389,44 @@ export async function ingestImageAsset(
   });
 
   return { assetPath, bytesWritten: stripped.length, sha256, provenance: result.provenance };
+}
+
+/**
+ * The project-relative path an ingest of `bytes` into `target` writes, or null
+ * when the bytes are not a PNG, JPEG, WebP or GIF. Lets a caller snapshot that
+ * exact file before importing.
+ */
+export function importedAssetPath(target: AssetTarget, bytes: Uint8Array): string | null {
+  const format = detectImageFormat(bytes);
+  if (format === null) return null;
+  const recordId = targetRecordId(target);
+  const slotDir = target.kind === "cut" ? target.slot : "clean";
+  return `episodes/${target.episodeId}/assets/${slotDir}/${recordId}.${extensionFor(format)}`;
+}
+
+/**
+ * Import image bytes the person supplied (an upload, or a file their agent was
+ * pointed to) exactly the way `toony import-image` stores a manual import: the
+ * same provenance (`manual`), the same metadata stripping, file placement,
+ * record association and review reset. Only the source differs: bytes already
+ * in memory instead of a path. Throws `ProjectIoError` for bytes that are not a
+ * PNG, JPEG, WebP or GIF, before anything is written.
+ */
+export async function importImageBytes(
+  root: string,
+  target: AssetTarget,
+  bytes: Uint8Array,
+): Promise<IngestResult> {
+  const format = detectImageFormat(bytes);
+  if (format === null) {
+    throw new ProjectIoError(
+      "the file is not a recognized image (PNG, JPEG, WebP, or GIF).",
+      episodeDir(root, target.episodeId),
+    );
+  }
+  return ingestImageAsset(root, target, {
+    bytes,
+    format,
+    provenance: { source: "manual", providerId: "manual", contentType: contentTypeFor(format) },
+  });
 }

@@ -25,11 +25,17 @@ import { cutHeightAt, FALLBACK_CUT_ASPECT, resolveCutAspect } from "@toony/rende
 import {
   type Cut,
   type EpisodeBundle,
+  isPathSafeId,
   type LetteringOverlay,
   REVIEW_STATUSES,
   type ReviewStatus,
   type Transition,
 } from "@toony/schema";
+import type { ProjectChange } from "./agent/protocol.js";
+import { type ActorInfo, contextFor } from "./ops/context.js";
+import { cutLabel } from "./ops/labels.js";
+import { episodeFiles } from "./ops/paths.js";
+import { withProjectWrite } from "./ops/write.js";
 
 export type { EpisodeSummary, LoadedProject };
 export { ProjectIoError, summarizeEpisodes };
@@ -302,16 +308,56 @@ export function cutReviewCounts(cuts: readonly Cut[]): Record<ReviewStatus, numb
   return counts;
 }
 
+type SaveCutReviewResult = { ok: true } | { ok: false; error: string; conflict?: boolean };
+
 /**
- * Apply only the review field to the current on-disk cuts. The browser never
+ * Apply only the review field to the current on-disk cuts, through the project
+ * write path (lock, undo snapshot, journal, live event). The browser never
  * supplies cut records, so metadata edited since the page loaded is preserved.
  * Lettering has its own file and save guard and is never part of this write.
  */
+export async function saveCutReviewChange(
+  root: string,
+  payload: CutReviewPayload,
+  info: ActorInfo = {},
+): Promise<{ result: SaveCutReviewResult; change: ProjectChange | null }> {
+  if (!isPathSafeId(payload.episodeId)) {
+    return { result: { ok: false, error: `unknown episode "${payload.episodeId}"` }, change: null };
+  }
+  return withProjectWrite(
+    contextFor(root, { workId: payload.workId, ...info }),
+    {
+      summary: "Changed a cut's review",
+      scopes: [{ kind: "cut", episodeId: payload.episodeId, cutId: payload.cutId }],
+      files: [episodeFiles(payload.episodeId).cuts],
+      errors: "as-is",
+    },
+    async (tx) => {
+      const label = cutLabel(tx.before, payload.episodeId, payload.cutId);
+      tx.setSummary(
+        payload.reviewStatus === "final"
+          ? `Marked ${label} as final`
+          : `Changed the review of ${label}`,
+      );
+      return writeCutReview(tx.root, payload, tx.before);
+    },
+  );
+}
+
+/** Save a cut's review status. See `saveCutReviewChange`. */
 export async function saveCutReview(
   root: string,
   payload: CutReviewPayload,
-): Promise<{ ok: true } | { ok: false; error: string; conflict?: boolean }> {
-  const loaded = await loadProject(root);
+  info: ActorInfo = {},
+): Promise<SaveCutReviewResult> {
+  return (await saveCutReviewChange(root, payload, info)).result;
+}
+
+async function writeCutReview(
+  root: string,
+  payload: CutReviewPayload,
+  loaded: LoadedProject,
+): Promise<SaveCutReviewResult> {
   const bundle = loaded.project.episodes.find((b) => b.episode.id === payload.episodeId);
   if (!bundle) return { ok: false, error: `unknown episode "${payload.episodeId}"` };
   const cut = bundle.cuts.find((c) => c.id === payload.cutId);

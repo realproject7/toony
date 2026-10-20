@@ -1,28 +1,34 @@
 "use client";
 
-// "New webtoon" action for the workspace library (issue #51).
-//
-// Prompts for a title, POSTs it to `/api/work`, which scaffolds a valid project
-// folder inside the workspace (the same in-memory model `toony init` writes), and
-// on success navigates straight into the new work's dashboard at `/w/<id>`. All
-// path safety lives server-side: the route slugifies the title and refuses to
-// write outside the workspace or over an existing folder.
+// "New webtoon": asks only for a title, creates a blank webtoon through the
+// work route (the title is kept exactly as typed), and opens its story page.
 
 import { useRouter } from "next/navigation";
-import { useCallback, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { studioFetch } from "@/lib/studio-fetch";
 import { StudioIcon } from "./studio-icon";
 
-export function NewWorkButton({ genres }: { genres: readonly { id: string; title: string }[] }) {
+export function NewWorkButton({
+  label = "New webtoon",
+  variant = "primary",
+}: {
+  label?: string;
+  variant?: "primary" | "quiet";
+}) {
   const router = useRouter();
   const formId = useId();
+  const input = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [genre, setGenre] = useState("");
+  const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (open) input.current?.focus();
+  }, [open]);
+
   const submit = useCallback(async () => {
-    const trimmed = name.trim();
+    const trimmed = title.trim();
     if (trimmed.length === 0) {
       setError("Enter a title for the new webtoon.");
       return;
@@ -30,35 +36,32 @@ export function NewWorkButton({ genres }: { genres: readonly { id: string; title
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch("/api/work", {
+      const response = await studioFetch("/api/work", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: trimmed, ...(genre ? { genre } : {}) }),
+        body: JSON.stringify({ action: "create", title: trimmed }),
       });
       const data = (await response.json()) as { ok: boolean; id?: string; error?: string };
       if (!response.ok || !data.ok || !data.id) {
-        setError(data.error ?? "Could not create the work.");
-        router.refresh();
+        setError(data.error ?? "Toony could not create the webtoon. Try again.");
         return;
       }
       router.push(`/w/${encodeURIComponent(data.id)}`);
-      router.refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+    } catch {
+      setError("Toony could not reach the workspace. Check that Studio is still running.");
     } finally {
       setBusy(false);
     }
-  }, [name, genre, router]);
+  }, [title, router]);
 
   if (!open) {
     return (
       <button
         type="button"
-        className="btn btn-primary"
+        className={variant === "primary" ? "btn btn-primary" : "btn btn-ghost"}
         onClick={() => setOpen(true)}
         data-testid="new-work-open"
       >
-        <StudioIcon name="plus" /> New webtoon
+        {variant === "primary" && <StudioIcon name="plus" />} {label}
       </button>
     );
   }
@@ -73,87 +76,57 @@ export function NewWorkButton({ genres }: { genres: readonly { id: string; title
       }}
     >
       <label className="field">
-        <span>Webtoon title</span>
+        <span>Title</span>
         <input
+          ref={input}
           type="text"
-          className="new-work-input"
-          placeholder="Webtoon title"
-          aria-label="Webtoon title"
+          className="text-input"
+          placeholder="My webtoon"
           aria-invalid={!!error}
           aria-describedby={error ? `${formId}-error` : undefined}
-          value={name}
+          value={title}
+          maxLength={200}
           disabled={busy}
-          onChange={(e) => {
-            setName(e.target.value);
+          onChange={(event) => {
+            setTitle(event.target.value);
             setError(null);
           }}
-          onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) {
-              if (e.key === "Enter") e.preventDefault();
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
+              if (event.key === "Enter") event.preventDefault();
               return;
             }
-            if (e.key === "Escape") setOpen(false);
+            if (event.key === "Escape") setOpen(false);
           }}
           data-testid="new-work-name"
         />
       </label>
-      <label className="field">
-        <span>
-          Starter <small>(optional)</small>
-        </span>
-        <select
-          className="new-work-input"
-          aria-label="Starter (optional)"
-          data-testid="new-work-genre"
-          value={genre}
+      <div className="form-actions">
+        <button
+          type="submit"
+          className="btn btn-primary"
           disabled={busy}
-          onChange={(event) => {
-            setGenre(event.target.value);
+          data-testid="new-work-create"
+        >
+          {busy ? "Creating…" : "Create"}
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => {
+            setOpen(false);
             setError(null);
           }}
+          disabled={busy}
+          data-testid="new-work-cancel"
         >
-          <option value="">Blank story</option>
-          {genre && !genres.some((entry) => entry.id === genre) && (
-            <option value={genre} disabled>
-              {genre} (unavailable)
-            </option>
-          )}
-          {genres.map((entry) => (
-            <option key={entry.id} value={entry.id}>
-              {entry.title}
-            </option>
-          ))}
-        </select>
-      </label>
-      <button
-        type="submit"
-        className="btn btn-primary"
-        disabled={busy}
-        data-testid="new-work-create"
-      >
-        {busy ? "Creating…" : "Create"}
-      </button>
-      <button
-        type="button"
-        className="btn btn-ghost"
-        onClick={() => {
-          setOpen(false);
-          setError(null);
-        }}
-        disabled={busy}
-        data-testid="new-work-cancel"
-      >
-        Cancel
-      </button>
+          Cancel
+        </button>
+      </div>
       {error && (
-        <span
-          id={`${formId}-error`}
-          className="new-work-error"
-          role="alert"
-          data-testid="new-work-error"
-        >
+        <p id={`${formId}-error`} className="form-error" role="alert" data-testid="new-work-error">
           {error}
-        </span>
+        </p>
       )}
     </form>
   );

@@ -29,6 +29,7 @@ export function LetteringCanvas({
   artStyle,
   reserved,
   guides,
+  sceneText = null,
   onMove,
   onResize,
   onTail,
@@ -52,6 +53,8 @@ export function LetteringCanvas({
   artStyle: React.CSSProperties | undefined;
   reserved: boolean;
   guides: { x?: number; y?: number };
+  /** Scene text shown on a cut that has no artwork yet. */
+  sceneText?: string | null;
   onMove: (e: PointerEvent, b: LetteringOverlay) => void;
   onResize: (e: PointerEvent, b: LetteringOverlay, c: "nw" | "ne" | "sw" | "se") => void;
   onTail: (e: PointerEvent, b: LetteringOverlay) => void;
@@ -83,7 +86,9 @@ export function LetteringCanvas({
         // biome-ignore lint/performance/noImgElement: local project asset served directly.
         <img className="cut-art" style={artStyle} src={art.src} alt="Cut artwork" />
       ) : (
-        <span className="lettering-no-art">No image yet</span>
+        <div className="cut-scene-card" aria-hidden="true">
+          <p>{sceneText ?? ""}</p>
+        </div>
       )}
       <svg
         ref={svgRef}

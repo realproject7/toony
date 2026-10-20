@@ -6,15 +6,21 @@
 // reference are never touched here: they say what produced the art on disk, and
 // only a render may change them.
 
-import { loadProject, writeCuts } from "@toony/project-io";
+import { type LoadedProject, writeCuts } from "@toony/project-io";
 import {
   type Cut,
+  isPathSafeId,
   PANEL_ASPECT_MAX,
   PANEL_ASPECT_MIN,
   SHOT_TYPES,
   type ShotType,
   validateProject,
 } from "@toony/schema";
+import type { ProjectChange } from "./agent/protocol.js";
+import { type ActorInfo, contextFor } from "./ops/context.js";
+import { cutLabel } from "./ops/labels.js";
+import { episodeFiles } from "./ops/paths.js";
+import { withProjectWrite } from "./ops/write.js";
 
 export interface CutFields {
   imagePrompt: string;
@@ -123,18 +129,53 @@ export function describeCutFieldsProblem(fields: CutFields): string | null {
   return null;
 }
 
+type SaveCutFieldsResult = { ok: true; changed: string[] } | { ok: false; error: string };
+
 /**
- * Save one cut's fields. Validates the whole project with the cut replaced
- * before any byte is written, writes only the episode's `cuts.yaml`, and leaves
- * every other file byte-stable.
+ * Save one cut's fields through the project write path (lock, undo snapshot,
+ * journal, live event). Validates the whole project with the cut replaced
+ * before any byte is written, writes only the episode's `cuts.yaml`, and
+ * leaves every other file byte-stable.
  */
+export async function saveCutFieldsChange(
+  root: string,
+  payload: CutFieldsPayload,
+  info: ActorInfo = {},
+): Promise<{ result: SaveCutFieldsResult; change: ProjectChange | null }> {
+  const problem = describeCutFieldsProblem(payload.fields);
+  if (problem !== null) return { result: { ok: false, error: problem }, change: null };
+  if (!isPathSafeId(payload.episodeId)) {
+    return { result: { ok: false, error: `unknown episode "${payload.episodeId}"` }, change: null };
+  }
+  return withProjectWrite(
+    contextFor(root, { workId: payload.workId, ...info }),
+    {
+      summary: "Updated a cut",
+      scopes: [{ kind: "cut", episodeId: payload.episodeId, cutId: payload.cutId }],
+      files: [episodeFiles(payload.episodeId).cuts],
+      errors: "as-is",
+    },
+    async (tx) => {
+      tx.setSummary(`Updated ${cutLabel(tx.before, payload.episodeId, payload.cutId)}`);
+      return writeCutFields(tx.root, payload, tx.before);
+    },
+  );
+}
+
+/** Save one cut's fields. See `saveCutFieldsChange`. */
 export async function saveCutFields(
   root: string,
   payload: CutFieldsPayload,
-): Promise<{ ok: true; changed: string[] } | { ok: false; error: string }> {
-  const problem = describeCutFieldsProblem(payload.fields);
-  if (problem !== null) return { ok: false, error: problem };
-  const loaded = await loadProject(root);
+  info: ActorInfo = {},
+): Promise<SaveCutFieldsResult> {
+  return (await saveCutFieldsChange(root, payload, info)).result;
+}
+
+async function writeCutFields(
+  root: string,
+  payload: CutFieldsPayload,
+  loaded: LoadedProject,
+): Promise<SaveCutFieldsResult> {
   const index = loaded.project.episodes.findIndex((b) => b.episode.id === payload.episodeId);
   const bundle = loaded.project.episodes[index];
   if (bundle === undefined) return { ok: false, error: `unknown episode "${payload.episodeId}"` };

@@ -13,9 +13,9 @@
 // any error/warning finding is present; 2 for usage or IO failure.
 
 import { statSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { EXPORT_TARGET_KINDS, MANIFEST_FILE } from "@toony/export";
+import { MANIFEST_FILE } from "@toony/export";
 import {
   analyzeImageBuffer,
   type Finding,
@@ -30,7 +30,7 @@ import {
   readImageDimensions,
   sortFindings,
 } from "@toony/lint";
-import { loadProject, ProjectIoError } from "@toony/project-io";
+import { EXPORTS_DIR, LEGACY_EXPORT_DIRS, loadProject, ProjectIoError } from "@toony/project-io";
 import type { Character, EpisodeBundle } from "@toony/schema";
 import { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "../exit.js";
 
@@ -94,16 +94,41 @@ async function resolveCutImages(
   return images;
 }
 
-/** Lint export manifests that exist under the episode's `exports/<target>` dirs. */
+/** The output folders under an episode's `exports/`, minus those earlier versions wrote. */
+async function exportOutputDirs(root: string, episodeId: string): Promise<string[]> {
+  try {
+    const entries = await readdir(`${root}/${exportsDirOf(episodeId)}`, { withFileTypes: true });
+    return entries
+      .filter(
+        (entry) =>
+          entry.isDirectory() &&
+          !entry.name.startsWith(".") &&
+          !(LEGACY_EXPORT_DIRS as readonly string[]).includes(entry.name),
+      )
+      .map((entry) => entry.name)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+function exportsDirOf(episodeId: string): string {
+  return `episodes/${episodeId}/${EXPORTS_DIR}`;
+}
+
+/**
+ * Lint export manifests under the episode's `exports/<output>` folders. Folders
+ * written by earlier versions (`LEGACY_EXPORT_DIRS`) are left alone.
+ */
 async function lintEpisodeManifests(root: string, episodeId: string): Promise<Finding[]> {
   const findings: Finding[] = [];
-  for (const target of EXPORT_TARGET_KINDS) {
-    const rel = `episodes/${episodeId}/exports/${target}/${MANIFEST_FILE}`;
+  for (const output of await exportOutputDirs(root, episodeId)) {
+    const rel = `${exportsDirOf(episodeId)}/${output}/${MANIFEST_FILE}`;
     let text: string;
     try {
       text = await readFile(`${root}/${rel}`, "utf8");
     } catch {
-      // No export for this target — not a finding; exports are optional.
+      // A folder without a manifest is not an export output; exports are optional.
       continue;
     }
     let parsed: unknown;

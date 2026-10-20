@@ -16,6 +16,7 @@
     "test": "tsc -p tsconfig.test.json && node ../../scripts/run-tests.mjs dist-test"
   },
   "dependencies": {
+    "@toony/authoring": "workspace:*",
     "@toony/export": "workspace:*",
     "@toony/fonts": "workspace:*",
     "@toony/lint": "workspace:*",

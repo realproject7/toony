@@ -1,32 +1,12 @@
 "use client";
 
-// Workspace settings editor (issue #52).
-//
-// Edits the SHARED workspace config (`.toony/config.json`) that the CLI and
-// agents resolve generation settings from. The form fields mirror the
-// provider-neutral config shape: the ComfyUI endpoint URL, the checkpoint name,
-// and the workflow (a path or named workflow). Saving POSTs to `/api/config`,
-// which validates + writes the file server-side and returns the live connection
-// status; the badge reflects whether the configured endpoint answered its
-// `/system_stats` probe.
-//
-// Secrets never live here: the endpoint is the operator's own (typically local)
-// ComfyUI address, and `.toony/` is gitignored. Env vars still override this file
-// at generation time — the hint copy says so explicitly.
+// Artwork generator settings (ComfyUI) for the workspace, used by the command
+// line tools. Studio itself never generates artwork. One "Save and test" writes
+// the workspace file and probes the saved address, and always says what it found.
 
-import { useCallback, useState } from "react";
-import {
-  asValue,
-  type ConnectionState,
-  describeTestOutcome,
-  isDirty,
-  UNSAVED_EDITS_MESSAGE,
-} from "@/lib/settings-test-outcome";
-
-interface Connection {
-  state: ConnectionState;
-  detail?: string;
-}
+import { useState } from "react";
+import { asValue, type ConnectionState, describeTestOutcome } from "@/lib/settings-test-outcome";
+import { studioFetch } from "@/lib/studio-fetch";
 
 interface ComfyConfig {
   endpoint: string | null;
@@ -44,7 +24,7 @@ interface ConfigResponse {
 const BADGE: Record<ConnectionState, { text: string; tone: string }> = {
   reachable: { text: "Reachable", tone: "chip-ok" },
   unreachable: { text: "Not reachable", tone: "chip-danger" },
-  unconfigured: { text: "No endpoint set", tone: "chip" },
+  unconfigured: { text: "Not set up", tone: "chip" },
   unknown: { text: "Unknown", tone: "chip" },
 };
 
@@ -53,212 +33,125 @@ export interface SettingsFormProps {
   initialConnection: { state: Exclude<ConnectionState, "unknown">; detail?: string };
 }
 
+function sentenceCase(text: string): string {
+  return text.length > 0 ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+}
+
 export function SettingsForm({ initialConfig, initialConnection }: SettingsFormProps) {
   const [endpoint, setEndpoint] = useState(asValue(initialConfig.comfyui.endpoint));
   const [checkpoint, setCheckpoint] = useState(asValue(initialConfig.comfyui.checkpoint));
   const [workflow, setWorkflow] = useState(asValue(initialConfig.comfyui.workflow));
-  const [connection, setConnection] = useState<Connection>(initialConnection);
-  const [busy, setBusy] = useState<"save" | "test" | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  // What a test run reported. A probe usually resolves to the state already on
-  // the badge, so without this the screen is identical before and after and the
-  // button reads as broken (#223).
-  const [tested, setTested] = useState<string | null>(null);
-  // The values last written to disk. `test` probes the FILE, so it has to know
-  // whether the form still matches it.
-  const [savedConfig, setSavedConfig] = useState<ComfyConfig>(initialConfig.comfyui);
+  const [state, setState] = useState<ConnectionState>(initialConnection.state);
+  const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<{ text: string; error?: boolean } | null>(null);
 
-  const payload = useCallback(
-    () => ({
-      comfyui: {
-        endpoint: endpoint.trim(),
-        checkpoint: checkpoint.trim(),
-        workflow: workflow.trim(),
-      },
-    }),
-    [endpoint, checkpoint, workflow],
-  );
-
-  const dirty = isDirty({ endpoint, checkpoint, workflow }, savedConfig);
-
-  const save = useCallback(async () => {
-    setBusy("save");
-    setError(null);
-    setSaved(false);
-    setTested(null);
+  const saveAndTest = async () => {
+    setBusy(true);
+    setOutcome(null);
     try {
-      const body = payload();
-      const response = await fetch("/api/config", {
+      const response = await studioFetch("/api/config", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          comfyui: {
+            endpoint: endpoint.trim(),
+            checkpoint: checkpoint.trim(),
+            workflow: workflow.trim(),
+          },
+        }),
       });
       const data = (await response.json()) as ConfigResponse;
       if (!response.ok || !data.ok) {
-        setError(data.error ?? "Could not save settings.");
+        setOutcome({
+          text: sentenceCase(data.error ?? "Toony could not save these settings."),
+          error: true,
+        });
         return;
       }
-      if (data.connection) setConnection(data.connection);
-      // Track what reached disk from the SERVER's echo where it gives one, so a
-      // value the server normalized does not leave the form looking dirty.
-      setSavedConfig(data.config?.comfyui ?? body.comfyui);
-      setSaved(true);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const connection = data.connection;
+      setState(connection?.state ?? "unknown");
+      setOutcome({
+        text:
+          connection?.state === "unconfigured"
+            ? "Saved. No address is set, so the artwork generator stays off."
+            : `Saved. ${describeTestOutcome(connection?.state, connection?.detail)}`,
+        error: connection?.state === "unreachable",
+      });
+    } catch {
+      setOutcome({ text: "Toony could not reach the workspace service.", error: true });
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
-  }, [payload]);
-
-  // "Test connection" re-probes the SAVED config, not the form. That is the
-  // config the CLI and agents actually resolve, so a green badge for an unsaved
-  // value would be a badge for a state that does not exist on disk.
-  //
-  // The probe almost always resolves to the state already shown, so this must
-  // report an outcome every time it runs. Reporting nothing is what made the
-  // button look broken (#223).
-  const test = useCallback(async () => {
-    if (dirty) {
-      setError(null);
-      setTested(UNSAVED_EDITS_MESSAGE);
-      return;
-    }
-    setBusy("test");
-    setError(null);
-    setTested(null);
-    try {
-      const response = await fetch("/api/config", { method: "GET" });
-      const data = (await response.json()) as ConfigResponse;
-      if (!response.ok || !data.ok) {
-        setError(data.error ?? "Could not reach the settings service.");
-        return;
-      }
-      if (data.connection) setConnection(data.connection);
-      setTested(describeTestOutcome(data.connection?.state, data.connection?.detail));
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(null);
-    }
-  }, [dirty]);
-
-  const badge = BADGE[connection.state];
+  };
 
   return (
-    <section className="card settings-card" data-testid="settings-comfyui">
-      <div className="settings-card-head">
-        <div>
-          <h2 className="card-title">Artwork connection</h2>
-          <p className="field-hint">
-            Configure your artwork server for this workspace. Environment settings take precedence.
-          </p>
-        </div>
-        <span
-          className={`chip ${badge.tone}`}
-          data-testid="connection-badge"
-          data-state={connection.state}
-          title={connection.detail ?? undefined}
-        >
-          {badge.text}
-          {connection.detail ? ` · ${connection.detail}` : ""}
+    <form
+      className="settings-form"
+      data-testid="settings-comfyui"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void saveAndTest();
+      }}
+    >
+      <p className="page-meta">
+        Status{" "}
+        <span className={`chip ${BADGE[state].tone}`} data-testid="connection-badge">
+          {BADGE[state].text}
         </span>
-      </div>
-
-      <div className="settings-fields">
+      </p>
+      <label className="field">
+        <span>Address</span>
+        <input
+          className="text-input"
+          type="url"
+          value={endpoint}
+          placeholder="http://127.0.0.1:8188"
+          onChange={(event) => setEndpoint(event.target.value)}
+          data-testid="settings-endpoint"
+        />
+      </label>
+      <div className="form-grid">
         <label className="field">
-          <span>Endpoint URL</span>
+          <span>Model file (optional)</span>
           <input
-            type="text"
-            inputMode="url"
-            placeholder="http://127.0.0.1:8188"
-            value={endpoint}
-            disabled={busy !== null}
-            onChange={(e) => {
-              setEndpoint(e.target.value);
-              setSaved(false);
-              setTested(null);
-            }}
-            data-testid="settings-endpoint"
-          />
-          <span className="field-hint">The address of your artwork server.</span>
-        </label>
-
-        <label className="field">
-          <span>Checkpoint</span>
-          <input
-            type="text"
-            placeholder="Model filename (optional)"
+            className="text-input"
             value={checkpoint}
-            disabled={busy !== null}
-            onChange={(e) => {
-              setCheckpoint(e.target.value);
-              setSaved(false);
-              setTested(null);
-            }}
+            onChange={(event) => setCheckpoint(event.target.value)}
             data-testid="settings-checkpoint"
           />
-          <span className="field-hint">
-            Optional. The checkpoint/model filename to load on the server.
-          </span>
         </label>
-
         <label className="field">
-          <span>Workflow</span>
+          <span>Workflow (optional)</span>
           <input
-            type="text"
-            placeholder="e.g. ./workflows/txt2img.json"
+            className="text-input"
             value={workflow}
-            disabled={busy !== null}
-            onChange={(e) => {
-              setWorkflow(e.target.value);
-              setSaved(false);
-              setTested(null);
-            }}
+            placeholder="Built-in workflow"
+            onChange={(event) => setWorkflow(event.target.value)}
             data-testid="settings-workflow"
           />
-          <span className="field-hint">
-            Optional. Path to a ComfyUI workflow-graph JSON template. Leave blank to use the bundled
-            default workflow.
-          </span>
         </label>
       </div>
-
-      <div className="editor-actions settings-actions">
+      <p className="field-hint">
+        Environment settings on this computer take precedence over these.
+      </p>
+      <div className="form-actions">
         <button
-          type="button"
+          type="submit"
           className="btn btn-primary"
-          onClick={save}
-          disabled={busy !== null || !dirty}
+          disabled={busy}
           data-testid="settings-save"
         >
-          {busy === "save" ? "Saving…" : dirty ? "Save settings" : "Saved"}
+          {busy ? "Saving and testing…" : "Save and test"}
         </button>
-        <button
-          type="button"
-          className="btn btn-ghost"
-          onClick={test}
-          disabled={busy !== null}
-          data-testid="settings-test"
-        >
-          {busy === "test" ? "Testing…" : "Test connection"}
-        </button>
-        {saved && (
-          <span className="settings-ok" role="status" data-testid="settings-saved">
-            Saved
-          </span>
-        )}
-        {tested && (
-          <span className="field-hint" role="status" data-testid="settings-test-result">
-            {tested}
-          </span>
-        )}
-        {error && (
-          <span className="new-work-error" role="alert" data-testid="settings-error">
-            {error}
-          </span>
-        )}
       </div>
-    </section>
+      {outcome && (
+        <p
+          className={outcome.error ? "form-error" : "form-ok"}
+          role={outcome.error ? "alert" : "status"}
+          data-testid="settings-test-result"
+        >
+          {outcome.text}
+        </p>
+      )}
+    </form>
   );
 }

@@ -13,6 +13,9 @@
 //      with the familiar error codes.
 
 import {
+  EXPORT_LEGACY_FOLDERS,
+  EXPORT_OPTION_KEYS,
+  EXPORT_TARGET_ALIASES,
   EXPORT_TARGET_KINDS,
   IssueCollector,
   isArray,
@@ -22,11 +25,11 @@ import {
   isProjectRelativePath,
   isString,
   joinPath,
+  parseExportOptions,
+  resolveExportKind,
   type ValidationResult,
   validateEpisodeBundleRecords,
   validateEpisodeValue,
-  validateExportQuality,
-  validateExportWidth,
   validateGutterBandWidth,
 } from "@toony/schema";
 import {
@@ -68,7 +71,7 @@ const GENRE_KEYS = [
 const CRAFT_BAND_KEYS = ["id", "file"] as const;
 const FILE_ENTRY_KEYS = ["id", "file"] as const;
 const PRESET_KEYS = ["id", "target", "options"] as const;
-const PRESET_OPTION_KEYS = ["width", "format", "quality"] as const;
+const PRESET_OPTION_KEYS = EXPORT_OPTION_KEYS;
 
 // Mirrors `@toony/schema`'s own enum helper so these validators read the same as
 // the project validators they sit beside.
@@ -361,12 +364,23 @@ function validateExportPresets(value: unknown, path: string, c: IssueCollector):
         c,
       );
     }
+    // A preset's id names its output folder, so it must be one safe segment.
+    if (
+      isNonEmptyString(entry.id) &&
+      (!isPathSafeId(entry.id) || (EXPORT_LEGACY_FOLDERS as readonly string[]).includes(entry.id))
+    ) {
+      c.add(
+        joinPath(entryPath, "id"),
+        "pack.export-preset.id.unsafe",
+        `export preset id "${entry.id}" must be a single folder name (letters, digits, "-" or "_") and not ${EXPORT_LEGACY_FOLDERS.join(", ")}.`,
+      );
+    }
     // A preset SELECTS one of the built-in export engines; it can never add one.
-    if (!isOneOf(entry.target, EXPORT_TARGET_KINDS)) {
+    if (resolveExportKind(entry.target) === null) {
       c.add(
         joinPath(entryPath, "target"),
         "pack.export-preset.target",
-        `export preset target must be one of: ${EXPORT_TARGET_KINDS.join(", ")}.`,
+        `export preset target must be one of: ${EXPORT_TARGET_KINDS.join(", ")} (${Object.keys(EXPORT_TARGET_ALIASES).join(" and ")} still work).`,
       );
     }
     if (entry.options !== undefined) {
@@ -381,15 +395,17 @@ function validatePresetOptions(value: unknown, path: string, c: IssueCollector):
     return;
   }
   allowlistKeys(value, PRESET_OPTION_KEYS, path, "export preset options", c);
-  // Same bounds and wording the CLI and the Studio route enforce (#87). A
-  // non-numeric value fails the integer check inside, so the cast cannot lie.
-  if (value.width !== undefined) {
-    const error = validateExportWidth(value.width as number, "width");
-    if (error !== null) c.add(joinPath(path, "width"), "pack.export-preset.width", error);
-  }
-  if (value.quality !== undefined) {
-    const error = validateExportQuality(value.quality as number, "quality");
-    if (error !== null) c.add(joinPath(path, "quality"), "pack.export-preset.quality", error);
+  // Same bounds and wording the CLI and the Studio route enforce (#87).
+  // Unknown keys are reported by the allowlist above; the format is checked
+  // against the exact spellings a pack may use.
+  for (const problem of parseExportOptions(value).problems) {
+    if (
+      problem.key === "format" ||
+      !(PRESET_OPTION_KEYS as readonly string[]).includes(problem.key)
+    ) {
+      continue;
+    }
+    c.add(joinPath(path, problem.key), `pack.export-preset.${problem.key}`, `${problem.message}.`);
   }
   if (value.format !== undefined && !isOneOf(value.format, PACK_PRESET_FORMATS)) {
     c.add(

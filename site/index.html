@@ -58,7 +58,7 @@
             >
           </div>
           <p class="fineprint">
-            No account. No cloud sync. No telemetry. Free for noncommercial use.
+            No Toony account. No cloud sync. No telemetry. Free for noncommercial use.
           </p>
         </div>
         <div class="hero-art" aria-hidden="true">
@@ -116,7 +116,7 @@
               <li>Story bible, characters, and prompt composition</li>
               <li>Image generation through your own local provider</li>
               <li>Craft lint: rhythm, density, overflow, manifests</li>
-              <li>Platform, stitched, and PlotLink-ready exports</li>
+              <li>Episode strips, cut images, and Instagram and X images</li>
             </ul>
             <p class="card-note">
               It works the same files you do, over the CLI. Nothing is hidden in a
@@ -153,45 +153,47 @@
           <div class="step">
             <span class="step-n">1</span>
             <div>
-              <h3>Clone and build</h3>
+              <h3>Clone, build and open</h3>
               <pre><code>git clone https://github.com/realproject7/toony
 cd toony
 pnpm install
-pnpm build</code></pre>
+pnpm build
+node packages/cli/dist/bin.js studio</code></pre>
               <p class="step-note">
-                Nothing is published to a registry yet, so the CLI runs straight
-                from the build output. Give it a short name for the steps below:
+                Nothing is published to a registry yet, so Toony runs from the
+                build output. The last command opens the studio in your browser.
               </p>
-              <pre><code>alias toony="node $PWD/packages/cli/dist/bin.js"</code></pre>
             </div>
           </div>
           <div class="step">
             <span class="step-n">2</span>
             <div>
-              <h3>Start a project</h3>
-              <pre><code>toony init my-webtoon --genre thriller
-toony validate my-webtoon</code></pre>
+              <h3>Connect your agent</h3>
+              <p class="step-note">
+                Toony works with Claude Code or Codex on this computer. Sign in once
+                in a terminal (<code>claude auth login</code> or
+                <code>codex login</code>), then press Connect in the agent panel.
+              </p>
             </div>
           </div>
           <div class="step">
             <span class="step-n">3</span>
             <div>
-              <h3>Open the studio</h3>
-              <pre><code>toony studio my-webtoon</code></pre>
+              <h3>Describe your story</h3>
               <p class="step-note">
-                A local web studio over your project folder. It reads and writes
-                the same files the CLI does.
+                Tell the agent your idea. It creates the webtoon, the cast and the
+                first episode while you watch, and asks when a choice matters.
               </p>
             </div>
           </div>
           <div class="step">
             <span class="step-n">4</span>
             <div>
-              <h3>Export</h3>
-              <pre><code>toony export stitched my-webtoon --episode ep-001</code></pre>
+              <h3>Letter and export</h3>
               <p class="step-note">
-                Platform image sequence, one stitched episode image, or a
-                PlotLink-ready package, with a manifest.
+                Place and edit the balloons yourself, ask the agent for any other
+                change, then export one episode strip, an image per cut, Instagram
+                or X images, or 800 px parts for webtoon platforms. You post them.
               </p>
             </div>
           </div>
@@ -206,8 +208,9 @@ toony validate my-webtoon</code></pre>
             JSON, and images. Open it in any editor. Put it in your own git repo.
           </li>
           <li>
-            <strong>No account, ever.</strong> There is nothing to sign up for and
-            nothing to sign in to.
+            <strong>No Toony account.</strong> There is nothing to sign up for. Your
+            agent is the Claude Code or Codex CLI you already use, signed in with
+            your own subscription.
           </li>
           <li>
             <strong>Image generation is yours to point.</strong> Toony talks to an

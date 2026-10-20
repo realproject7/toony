@@ -18,9 +18,10 @@ my-webtoon/
         clean/
         final/
       exports/
-        plotlink/
-        platform/
-        stitched/
+        strip/            one folder per export output, each with manifest.json
+        cuts/
+        instagram/
+        webtoon/
       logs/
   assets/
   logs/
@@ -46,6 +47,35 @@ is unchanged. Whether a sheet is on disk and decodes is a lint check
 drawn. New scaffolds do not create an unused `characters/` folder; old
 folders remain untouched. `style-guide.md` is unchanged by this composition path.
 
+### Episodes: ids and order
+
+The `episodes/` folder always exists, even in a work with no episode yet, because
+the loader requires it. An episode id is its folder name. Every list of episodes
+reads in numeric-aware order of those names (`ep-2` before `ep-10`), so the order
+does not depend on how an id was padded. Toony creates new ids zero-padded, one
+past the highest `ep-<number>` already present: `ep-001`, `ep-002`, ...
+
+### `.toony/history/` and `.toony/agent/journal.jsonl`
+
+Studio writes every project change through one write path, which keeps two
+runtime records inside the project's `.toony/` folder (project local and never
+read by the loader):
+
+- `.toony/history/<changeId>/` holds an undo snapshot: `manifest.json` (who made
+  the change, a one-line summary, the scopes it touched, and for every file or
+  folder it planned to write whether it existed and the sha256 of its content
+  before and after) and `files/` (a copy of what existed before). Only the newest
+  50 snapshots are kept. Undo restores a change's files only while their content
+  still equals what that change wrote.
+- `.toony/agent/journal.jsonl` is the change journal, one JSON line per change or
+  undo: `{changeId, at, actor, summary, scopes, files, conversationId?, undoes?}`
+  with project-relative `files`. It travels with the project so a new agent
+  session can see what happened and who did it. It rotates to
+  `journal.1.jsonl` at 2 MB. The folder is private to the user (0700).
+
+Neither is project data: deleting `.toony/` loses undo and history, never the
+webtoon.
+
 ## `webtoon.json`
 
 ```json
@@ -67,6 +97,13 @@ folders remain untouched. `style-guide.md` is unchanged by this composition path
   }
 }
 ```
+
+`title` is the work's display name exactly as the author typed it, in any
+script. `projectId` and the folder name are a separate, path-safe id; Studio
+derives it from the title's Latin letters and digits, or uses `webtoon` (then
+`webtoon-2`, ...) when the title has none. Optional `logline` (one sentence)
+and `synopsis` (a short summary) are authored story text; nothing renders or
+exports them, and a project without them is unchanged.
 
 `referenceWidth` is the reading column, in px, the project's vertical
 measurements are written against. A transition's `gutterHeight` is a length on

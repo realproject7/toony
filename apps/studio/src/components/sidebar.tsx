@@ -1,69 +1,107 @@
 "use client";
 
+// The workspace rail: Library, then the open webtoon's Story, Characters and
+// Episodes, then Settings. The brand mark also returns to the library. The
+// webtoon group stays while visiting Settings (the last opened work is kept in
+// this browser). The rail also listens for the agent connection state on the
+// live feed so pages can show it without a request of their own.
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { setConnectionState } from "@/lib/connection-store";
+import { type LastWork, readLastWork } from "@/lib/last-work";
+import { useLiveEvent } from "@/lib/live/provider";
+import { StudioIcon, type StudioIconName } from "./studio-icon";
 
-const paths = {
-  Library: "M4 4h6v16H4zM14 4h6v16h-6z",
-  Story: "M5 3h14v18H5zM8 7h8M8 11h8M8 15h5",
-  Characters: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4 21v-2a8 6 0 0 1 16 0v2",
-  Episodes: "M3 4h18v6H3zM3 14h18v6H3z",
-  Settings: "M4 7h16M4 17h16M9 4v6M15 14v6",
-};
-export function Sidebar() {
-  const [dark, setDark] = useState(false);
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem("toony-theme") === "dark";
-      setDark(stored);
-      document.documentElement.dataset.theme = stored ? "dark" : "light";
-    } catch {
-      /* Default light theme remains usable without storage. */
-    }
-  }, []);
-  const toggleTheme = () => {
-    const next = !dark;
-    setDark(next);
-    document.documentElement.dataset.theme = next ? "dark" : "light";
-    try {
-      localStorage.setItem("toony-theme", next ? "dark" : "light");
-    } catch {
-      /* This tab keeps the choice. */
-    }
-  };
-  const pathname = usePathname() ?? "/";
+interface RailLink {
+  label: string;
+  icon: StudioIconName;
+  href: string;
+  testId: string;
+  current: boolean;
+}
+
+function workIdFrom(pathname: string): string | null {
   const raw = pathname.match(/^\/w\/([^/]+)/)?.[1];
-  const base = raw ? `/w/${raw}` : null;
-  const link = (label: keyof typeof paths, href: string, testId: string) => (
+  if (!raw) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+}
+
+export function Sidebar() {
+  const pathname = usePathname() ?? "/";
+  const routeWork = workIdFrom(pathname);
+  const [remembered, setRemembered] = useState<LastWork | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-read the remembered work on every navigation.
+  useEffect(() => {
+    setRemembered(readLastWork());
+  }, [pathname]);
+  useLiveEvent(["hello", "connection"], (event) => {
+    if (event.type === "hello" || event.type === "connection") setConnectionState(event.connection);
+  });
+
+  const workId = routeWork ?? (pathname === "/settings" ? (remembered?.id ?? null) : null);
+  const base = workId ? `/w/${encodeURIComponent(workId)}` : null;
+  const links: RailLink[] = [
+    {
+      label: "Library",
+      icon: "library",
+      href: "/",
+      testId: "nav-library",
+      current: pathname === "/",
+    },
+  ];
+  if (base) {
+    const inEpisode = pathname.startsWith(`${base}/episodes`);
+    links.push(
+      {
+        label: "Story",
+        icon: "story",
+        href: base,
+        testId: "nav-dashboard",
+        current: pathname === base,
+      },
+      {
+        label: "Characters",
+        icon: "characters",
+        href: `${base}/characters`,
+        testId: "nav-characters",
+        current: pathname.startsWith(`${base}/characters`),
+      },
+      {
+        label: "Episodes",
+        icon: "episodes",
+        href: `${base}#episodes`,
+        testId: "nav-episodes",
+        current: inEpisode,
+      },
+    );
+  }
+  const settings: RailLink = {
+    label: "Settings",
+    icon: "settings",
+    href: "/settings",
+    testId: "nav-settings",
+    current: pathname === "/settings",
+  };
+
+  const item = (link: RailLink) => (
     <Link
-      key={label}
-      href={href}
+      key={link.testId}
+      href={link.href}
       className="nav-link"
-      title={label}
-      data-testid={testId}
-      aria-current={
-        pathname === href || (label !== "Story" && href !== "/" && pathname.startsWith(`${href}/`))
-          ? "page"
-          : undefined
-      }
+      data-testid={link.testId}
+      aria-current={link.current ? "page" : undefined}
     >
-      <svg
-        width="21"
-        height="21"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d={paths[label]} />
-      </svg>
-      <span>{label}</span>
+      <StudioIcon name={link.icon} size={20} />
+      <span>{link.label}</span>
     </Link>
   );
+
   return (
     <aside className="sidebar">
       <Link href="/" className="brand" aria-label="Toony library">
@@ -71,36 +109,15 @@ export function Sidebar() {
         <img className="brand-mark" src="/brand/toony-icon.png" alt="" />
       </Link>
       <nav className="nav" aria-label="Primary">
-        {link("Library", "/", "nav-library")}
+        {item(links[0] as RailLink)}
         {base && (
           <div className="nav-work" data-testid="nav-current-work">
-            {link("Story", base, "nav-dashboard")}
-            {link("Characters", `${base}/characters`, "nav-characters")}
-            {link("Episodes", `${base}/episodes`, "nav-episodes")}
+            {links.slice(1).map(item)}
           </div>
         )}
       </nav>
       <nav className="nav nav-bottom" aria-label="Preferences">
-        <button
-          type="button"
-          className="nav-link nav-theme"
-          aria-label={dark ? "Use light theme" : "Use dark theme"}
-          onClick={toggleTheme}
-        >
-          <svg
-            width="21"
-            height="21"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            aria-hidden="true"
-          >
-            <path d="M20 14A8.5 8.5 0 0 1 10 4a8.5 8.5 0 1 0 10 10Z" />
-          </svg>
-          <span>{dark ? "Light" : "Dark"}</span>
-        </button>
-        {link("Settings", "/settings", "nav-settings")}
+        {item(settings)}
       </nav>
     </aside>
   );

@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { atomicWrite } from "./atomic.js";
 import { ProjectIoError } from "./errors.js";
 import { STORY_BIBLE_FILE } from "./paths.js";
 
@@ -21,4 +22,15 @@ export async function readStoryBible(root: string): Promise<string> {
   }
   const context = text.trim();
   return context.replace(/\r\n/g, "\n") === STORY_BIBLE_TEMPLATE.trim() ? "" : context;
+}
+
+/**
+ * Persist the story bible as authored Markdown. Line endings are normalized and
+ * one trailing newline is kept, so a byte-identical rewrite of the same text is
+ * a no-op for fingerprints. Blank text writes the scaffold template back, which
+ * every reader treats as "no authored context".
+ */
+export async function writeStoryBible(root: string, markdown: string): Promise<void> {
+  const text = markdown.replace(/\r\n?/g, "\n").trim();
+  await atomicWrite(join(root, STORY_BIBLE_FILE), text === "" ? STORY_BIBLE_TEMPLATE : `${text}\n`);
 }

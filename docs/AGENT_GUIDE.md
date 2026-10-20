@@ -10,6 +10,10 @@ command prints JSON with `--json` and exits 0 on success, 1 on a domain error, 2
 on a usage or IO error. Nothing here needs a network, a credential or a model
 choice of its own.
 
+This guide is for an agent working with the `toony` command and the project
+files. An agent connected inside Toony Studio works differently: see "Inside
+Toony Studio" at the end.
+
 ## The loop
 
 1. **Agree on the work.** Talk with the person. Write `script/brief.json`: what
@@ -109,15 +113,19 @@ choice of its own.
    installed, then export:
 
    ```sh
-   toony export platform --episode <id>
-   toony export stitched --episode <id>
-   toony export plotlink --episode <id>
+   toony export <id> --output strip                       # one tall image
+   toony export <id> --output strip --slice-height 1280   # parts that restack exactly
+   toony export <id> --output cuts --margin 40            # one image per cut
+   toony export <id> --output instagram                   # 1080 x 1350 carousel frames
+   toony export <id> --output x                           # 1600 x 900, 4 per post
+   toony export <id> --output webtoon                     # 800 px JPEG parts
    ```
 
-   Measurement and stitched export default to the project's `referenceWidth`
-   (800 px when absent). An explicit `--width` or export preset width wins.
-   Studio opens the stitched width control at the same project width. The raster
-   memory limit still applies; reduce width or split an episode that exceeds it.
+   Files land in `episodes/<id>/exports/<output>/` with a manifest. Cuts without
+   artwork export as plain panels and are listed as a note. Measurement and the
+   strip default to the project's `referenceWidth` (800 px when absent); an
+   explicit `--width` or preset width wins. A flag that does not apply to the
+   output is a usage error. Toony never posts anything.
 
 ## Files you write, files you never touch
 
@@ -155,3 +163,34 @@ change: revise it with a stated reason, and recompile every episode script that
 reports `script.brief-stale`.
 
 The exit codes, every flag and every subcommand: `toony --help`.
+
+## Inside Toony Studio
+
+When the person connects their Claude Code or Codex in Studio's agent panel,
+the agent has no shell, file or web access. It works only through the Toony
+tools Studio serves over MCP (server `toony`), and Studio checks every argument
+and writes through its own write path. The rules arrive as a system prompt or
+developer instructions; the person's message arrives with a line saying what
+they are looking at.
+
+- Start a new session with `get_status`: the work, cast, episodes with
+  progress, your task list, the open question, remembered notes and what
+  changed since your last turn.
+- Read with `read_story`, `read_characters`, `read_episode`, `view_cut` (the
+  cut as an image with its lettering) and `check_episode`.
+- Write with `create_work` (from a library chat only), `update_story`,
+  `save_characters`, `remove_character`, `create_episode`, `rename_episode`,
+  `delete_episode`, `edit_cuts`, `set_dialogue`, `set_transitions`,
+  `import_artwork` (a file the person points to), `export_episode` (files
+  only) and `undo_change`.
+- `create_episode` takes the episode script described above (beats, cuts,
+  dialogue, `transitionAfter`) without the format, id and brief revision
+  fields; Studio fills them, compiles the draft and applies it as the next
+  episode.
+- Plan with `update_tasks`, ask with `ask_user` (2 to 6 options, then end the
+  turn), keep durable decisions with `remember` and drop them with `forget`.
+- `set_dialogue` on a cut that already has lettering, and every write while the
+  person has "Let the agent make changes without asking" off, becomes a
+  proposal the person applies or dismisses. Do not repeat it; end the turn and
+  you will hear the decision.
+- There is no generation tool and no way to set review status.

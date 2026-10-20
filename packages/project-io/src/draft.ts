@@ -38,6 +38,7 @@ import {
   type Project,
   SCHEMA_VERSION,
   type ScriptCut,
+  type ScriptLine,
   type SequenceItem,
   type Transition,
   type ValidationIssue,
@@ -176,6 +177,76 @@ export interface CompileOptions {
   theme?: LetteringTheme;
 }
 
+/** Overlays compiled from one cut's dialogue lines, and the defaults they took. */
+export interface CompiledDialogue {
+  overlays: LetteringOverlay[];
+  defaults: DraftDefault[];
+}
+
+/**
+ * Letter one cut's dialogue lines the way a compiled draft does: one overlay
+ * per line, `speech` for a spoken line and `narration` for an unattributed one
+ * unless the line names a kind, speakers resolved to their registry names, the
+ * default white box stacked down the cut one line at a time, and the project's
+ * lettering theme applied on top. Overlay ids are `ov-<cutId>-<n>`; an id in
+ * `takenIds` is skipped, so lettering added to an existing episode never
+ * reuses one.
+ *
+ * Compile uses this for every scripted cut, and Studio uses it to letter a cut
+ * that has no bubbles yet, so both place a first set of bubbles identically.
+ */
+export function compileDialogueOverlays(
+  cutId: string,
+  dialogue: readonly ScriptLine[],
+  speakerNames: ReadonlyMap<string, string>,
+  options: CompileOptions & { takenIds?: ReadonlySet<string> } = {},
+): CompiledDialogue {
+  const overlays: LetteringOverlay[] = [];
+  const defaults: DraftDefault[] = [];
+  let next = 1;
+  dialogue.forEach((line, n) => {
+    while (options.takenIds?.has(`ov-${cutId}-${next}`)) next++;
+    const id = `ov-${cutId}-${next}`;
+    next++;
+    const kind = line.kind ?? (line.speaker === null ? "narration" : "speech");
+    const speaker = line.speaker === null ? "" : (speakerNames.get(line.speaker) ?? line.speaker);
+    const geometry = box(n);
+    const bare: LetteringOverlay = {
+      id,
+      cutId,
+      speaker,
+      kind,
+      text: line.text,
+      fill: "#ffffff",
+      opacity: 1,
+      border: null,
+      tail: null,
+      geometry,
+      overflow: false,
+      reviewStatus: "draft",
+    };
+    const overlay = options.theme === undefined ? bare : applyLetteringTheme(bare, options.theme);
+    overlays.push(overlay);
+    for (const field of ["fill", "opacity", "border", "tail", "geometry"] as const) {
+      defaults.push({ kind: "overlay", id, field, value: overlay[field] });
+    }
+    // Fields the theme set beyond the required ones are defaults too: the
+    // script stated none of them, the theme did.
+    for (const field of [
+      "fontFamily",
+      "fontWeight",
+      "textColor",
+      "cornerRadius",
+      "sfxMode",
+    ] as const) {
+      if (overlay[field] !== undefined) {
+        defaults.push({ kind: "overlay", id, field, value: overlay[field] });
+      }
+    }
+  });
+  return { overlays, defaults };
+}
+
 export function compileEpisodeScript(
   script: EpisodeScript,
   project: Project,
@@ -221,44 +292,9 @@ export function compileEpisodeScript(
     cuts.push(cut);
     sequence.push({ type: "cut", id: sc.id });
 
-    (sc.dialogue ?? []).forEach((line, n) => {
-      const id = `ov-${sc.id}-${n + 1}`;
-      const kind = line.kind ?? (line.speaker === null ? "narration" : "speech");
-      const speaker = line.speaker === null ? "" : (names.get(line.speaker) ?? line.speaker);
-      const geometry = box(n);
-      const bare: LetteringOverlay = {
-        id,
-        cutId: sc.id,
-        speaker,
-        kind,
-        text: line.text,
-        fill: "#ffffff",
-        opacity: 1,
-        border: null,
-        tail: null,
-        geometry,
-        overflow: false,
-        reviewStatus: "draft",
-      };
-      const overlay = options.theme === undefined ? bare : applyLetteringTheme(bare, options.theme);
-      lettering.push(overlay);
-      for (const field of ["fill", "opacity", "border", "tail", "geometry"] as const) {
-        defaults.push({ kind: "overlay", id, field, value: overlay[field] });
-      }
-      // Fields the theme set beyond the required ones are defaults too: the
-      // script stated none of them, the theme did.
-      for (const field of [
-        "fontFamily",
-        "fontWeight",
-        "textColor",
-        "cornerRadius",
-        "sfxMode",
-      ] as const) {
-        if (overlay[field] !== undefined) {
-          defaults.push({ kind: "overlay", id, field, value: overlay[field] });
-        }
-      }
-    });
+    const compiledLines = compileDialogueOverlays(sc.id, sc.dialogue ?? [], names, options);
+    lettering.push(...compiledLines.overlays);
+    defaults.push(...compiledLines.defaults);
 
     if (sc.transitionAfter !== undefined) {
       if (index === scriptCuts.length - 1) {

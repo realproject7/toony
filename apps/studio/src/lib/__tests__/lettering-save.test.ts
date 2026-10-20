@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { buildInitialProject, loadProject, writeProject } from "@toony/project-io";
+import { buildInitialProject, loadProject, stagingPathFor, writeProject } from "@toony/project-io";
 import type { LetteringOverlay } from "@toony/schema";
 import {
   cutLetteringRevision,
@@ -179,11 +179,11 @@ test("concurrent saves read the latest episode inside the queue and retain both 
 test("an actual disk write failure releases the queue for a later valid save", async (t) => {
   const f = await fixture(t);
   const before = await readFile(f.path);
-  await mkdir(`${f.path}.tmp`);
+  await mkdir(stagingPathFor(f.path));
   const request = payload("cut-001", [overlay("cut-001", "Retry after disk failure")]);
   await assert.rejects(saveCutLettering(f.root, request));
   assert.deepEqual(await readFile(f.path), before);
-  await rm(`${f.path}.tmp`, { recursive: true });
+  await rm(stagingPathFor(f.path), { recursive: true });
   assert.equal((await saveCutLettering(f.root, request)).ok, true);
   assert.equal((await f.read())?.length, 2);
 });

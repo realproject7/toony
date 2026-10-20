@@ -64,9 +64,9 @@ test("all real export targets and measure report the crashing art by cut, withou
   await writeProject(root, project);
   await writeFile(join(root, cut.image.clean as string), MALFORMED_PNG);
   for (const command of [
-    ["export", "platform"],
-    ["export", "stitched"],
-    ["export", "plotlink"],
+    ["export", "cuts"],
+    ["export", "strip"],
+    ["export", "instagram"],
     ["measure"],
   ]) {
     const result = run([...command, root, "--episode", "ep-001"]);
@@ -96,7 +96,7 @@ test("a huge cut and a large aggregate page fail before creating any exported fi
       bundle.episode.sequence = bundle.cuts.map((cut) => ({ type: "cut", id: cut.id }));
     }
     await writeProject(root, project);
-    for (const command of [["export", "stitched"], ["measure"]]) {
+    for (const command of [["export", "strip"], ["measure"]]) {
       const result = run(
         [...command, root, "--episode", "ep-001", "--width", aggregate ? "1000" : "100000"],
         true,
@@ -110,9 +110,7 @@ test("a huge cut and a large aggregate page fail before creating any exported fi
         aggregate ? /20 rasters, 1000 x 200000.*2048 MiB/ : /cut "cut-001".*100000 x 140000/,
       );
     }
-    for (const target of ["platform", "stitched", "plotlink"]) {
-      assert.deepEqual(await readdir(join(root, "episodes", "ep-001", "exports", target)), []);
-    }
+    assert.deepEqual(await readdir(join(root, "episodes", "ep-001", "exports")), []);
   }
 });
 
@@ -131,7 +129,7 @@ test("a 60-cut episode still exports and measures at a small test width", async 
   bundle.transitions = [];
   bundle.episode.sequence = bundle.cuts.map((cut) => ({ type: "cut", id: cut.id }));
   await writeProject(root, project);
-  for (const command of [["export", "stitched"], ["measure"]]) {
+  for (const command of [["export", "strip"], ["measure"]]) {
     const result = run([...command, root, "--episode", "ep-001", "--width", "16"]);
     assert.equal(result.signal, null);
     assert.equal(result.status, 0, result.stderr);
@@ -154,11 +152,11 @@ test("real CLI exports valid JPEG marker fill from an external cwd without pixel
   let original: Buffer | undefined;
   for (const bytes of [jpeg, filled]) {
     await writeFile(join(root, cut.image.clean as string), bytes);
-    const result = run(["export", "platform", root, "--episode", "ep-001", "--width", "12"]);
+    const result = run(["export", "ep-001", root, "--output", "cuts", "--width", "12"]);
     assert.equal(result.error, undefined);
     assert.equal(result.signal, null);
     assert.equal(result.status, 0, result.stderr);
-    const output = await readFile(join(root, "episodes/ep-001/exports/platform/001.png"));
+    const output = await readFile(join(root, "episodes/ep-001/exports/cuts/001.png"));
     if (original) assert.deepEqual(output, original);
     else original = output;
   }

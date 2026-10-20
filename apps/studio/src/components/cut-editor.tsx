@@ -1,7 +1,7 @@
 "use client";
 
-// Focused cut lettering editor (issue #8) — the interactive counterpart to the
-// read-only cut preview (#7).
+// The cut lettering editor, hosted by the episode editor. The interactive
+// counterpart to the read-only cut preview.
 //
 // One large cut canvas shows the artwork with its bubbles overlaid, laid out by
 // `@toony/render`'s `layoutCut` at the art's NATURAL pixel dimensions inside an
@@ -14,8 +14,9 @@
 // it (clamped to the 0..1 image bounds), drag the tail handle to aim the tail.
 // The inspector edits the selected bubble's speaker, kind, text, and style. Add,
 // duplicate, and delete operate on the selection. Save POSTs the overlay set to
-// `/api/lettering`, which validates and writes `lettering.json`; cancel returns
-// to the preview without writing.
+// `/api/lettering`, which validates and writes the episode's lettering. A cut
+// without artwork shows its scene text and takes an image by upload or drop.
+// The person marks a cut final here; the agent never does.
 
 import { layoutCut } from "@toony/render";
 import {
@@ -28,26 +29,26 @@ import {
   type ReviewStatus,
 } from "@toony/schema";
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBrowserMeasure } from "@/lib/browser-measure";
 import { clamp } from "@/lib/clamp";
-import type { CutFields } from "@/lib/cut-fields";
 import { resolveCutStage } from "@/lib/cut-stage";
 import { decodeEditorDraft, encodeEditorDraft } from "@/lib/editor-draft";
+import { isConflictMessage, plainSaveError } from "@/lib/editor-messages";
 import { persistWithGuard } from "@/lib/editor-save";
 import { letteringClipboard, parseLetteringClipboard } from "@/lib/lettering-clipboard";
+import { useEditorScope } from "@/lib/live/provider";
 import { BALLOON_LIBRARY, libraryOverlay, newOverlay, tailDragPatch } from "@/lib/new-overlay";
 import type { CutArt } from "@/lib/project";
-import { useAgentWorkspace } from "./agent-workspace";
+import { bubbleMissingSpeaker, defaultSpeaker, needsSpeaker, speakerChoices } from "@/lib/speaker";
+import { studioFetch } from "@/lib/studio-fetch";
 import { AlignmentSymbol } from "./alignment-symbol";
-import { ArtRevisions } from "./art-revisions";
-import { CutFieldsEditor } from "./cut-fields-editor";
-import { CutReviewControl } from "./cut-review-control";
+import type { InspectorTab } from "./bubble-inspector";
 import type { InlineTextHandle, TextSelection } from "./inline-lettering-text";
 import { LetteringCanvas } from "./lettering-canvas";
 import { LETTERING_PRESET_MIME, LetteringPresets } from "./lettering-presets";
+import { SaveState } from "./save-state";
 import { StudioIcon } from "./studio-icon";
 import { keyboardOwnedByField, useEditHistory } from "./use-edit-history";
 
@@ -58,26 +59,23 @@ import { keyboardOwnedByField, useEditHistory } from "./use-edit-history";
 const BubbleInspector = dynamic(() => import("./bubble-inspector").then((m) => m.BubbleInspector), {
   ssr: false,
   loading: () => (
-    <div className="inspector-form" data-testid="bubble-inspector-loading">
-      <p className="empty">Loading inspector…</p>
-    </div>
+    <div className="inspector-form" data-testid="bubble-inspector-loading" aria-busy="true" />
   ),
 });
 
+/** One cut's saved data, built by the episode page on the server. */
 export interface CutEditorProps {
-  integrated?: boolean;
-  registerNavigation?: (guard: ((next: () => void) => void) | null) => void;
-  onSaved?: (bubbles: LetteringOverlay[], revision: string) => void;
   workId: string;
   episodeId: string;
-  episodeTitle: string;
-  webtoonTitle: string;
   cutId: string;
+  /** 1-based place in reading order ("Cut 3"). */
+  cutNumber: number;
   art: CutArt;
+  /** Whether the cut has artwork on disk (art-less cuts show their scene text). */
+  hasArtwork: boolean;
   initialBubbles: LetteringOverlay[];
   initialLetteringRevision: string;
-  cutNavigation: { id: string; href: string }[];
-  initialReviewStatus?: ReviewStatus;
+  reviewStatus?: ReviewStatus;
   artworkRevision: string;
   /**
    * The project's declared dialogue language (`languages.dialogueLanguage`). It
@@ -92,16 +90,45 @@ export interface CutEditorProps {
    */
   gutterBandWidth: number;
   referenceWidth: number;
-  /** The cut's own editable fields (#332), shown beside the bubble inspector. */
-  cutFields: CutFields;
-  /** The project character registry, for the cut's character picker. */
+  /** The cut's scene description, shown read-only (the agent edits it). */
+  scene: string;
+  /** Characters the cut names, for the speaker picker. */
+  cutCharacterIds: string[];
+  /** The project's cast. */
   characters: readonly Character[];
-  /** What produced the art on disk, shown read-only. */
-  renderRecord: { imageSeed?: number; imageWorkflow?: string };
   /** The project's lettering theme (#334), or null when none applies. */
   theme: LetteringTheme | null;
   /** The selected theme id, shown when the pack providing it is not installed. */
   themeId: string | null;
+}
+
+/** What the episode editor adds while a cut editor is open. */
+export interface CutEditorRuntime {
+  registerNavigation?: (guard: ((next: () => void) => void) | null) => void;
+  onSaved?: (bubbles: LetteringOverlay[], revision: string) => void;
+  /** The selected bubble ids, for the agent's focus. */
+  onSelectionChange?: (bubbleIds: string[]) => void;
+  /** Artwork or the final mark changed on disk: refresh the page data. */
+  onProjectChanged?: () => void;
+  /** The speaker the person used last in this episode. */
+  lastSpeaker?: string | null;
+  onSpeakerUsed?: (speaker: string) => void;
+}
+
+const ARTWORK_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+/** From this editor width, Properties opens on its own. */
+const OPEN_INSPECTOR_WIDTH = 940;
+/**
+ * From this editor width, Properties sits beside the canvas (about 260 px) and
+ * the cut fit shrinks to make room. A laptop with the agent panel docked and
+ * the Cuts list open leaves the editor about 670 px. Narrower editors get a
+ * drawer below the toolbar instead.
+ */
+const INLINE_INSPECTOR_WIDTH = 640;
+
+/** Bubbles compared for the clean point: the stored overflow flag follows the render. */
+function stableBubbles(bubbles: readonly LetteringOverlay[]): string {
+  return JSON.stringify(bubbles.map(({ overflow: _overflow, ...rest }) => rest));
 }
 
 type DragMode =
@@ -121,30 +148,33 @@ type DragMode =
 export function CutEditor({
   workId,
   episodeId,
-  episodeTitle,
-  webtoonTitle,
   cutId,
+  cutNumber,
   art,
+  hasArtwork,
   initialBubbles,
   initialLetteringRevision,
-  cutNavigation,
-  initialReviewStatus,
+  reviewStatus,
   artworkRevision,
   dialogueLanguage,
   gutterBandWidth,
   referenceWidth,
-  cutFields,
+  scene,
+  cutCharacterIds,
   characters,
-  renderRecord,
   theme,
   themeId,
-  integrated,
   registerNavigation,
   onSaved,
-}: CutEditorProps) {
+  onSelectionChange,
+  onProjectChanged,
+  lastSpeaker,
+  onSpeakerUsed,
+}: CutEditorProps & CutEditorRuntime) {
   const router = useRouter();
-  const { ask } = useAgentWorkspace();
   const [bubbles, setBubbles] = useState<LetteringOverlay[]>(initialBubbles);
+  // The saved state, for the clean point: undoing back to it clears "unsaved".
+  const savedJsonRef = useRef(stableBubbles(initialBubbles));
   // Undo and redo over the bubble set (#333). Every mutation records the state
   // it is about to replace; a drag records once at its start.
   const history = useEditHistory<LetteringOverlay[]>(bubbles);
@@ -158,12 +188,28 @@ export function CutEditor({
   useEffect(() => setReady(true), []);
   const [inspectorPreference, setInspectorPreference] = useState<boolean | null>(null);
   const [wideWorkspace, setWideWorkspace] = useState(false);
+  const [inlineInspector, setInlineInspector] = useState(false);
   const inspectorOpen = inspectorPreference ?? wideWorkspace;
   useEffect(() => {
     const root = editorRoot.current;
     if (!root) return;
-    const observer = new ResizeObserver(() => setWideWorkspace(root.clientWidth >= 940));
+    const observer = new ResizeObserver(() => {
+      setWideWorkspace(root.clientWidth >= OPEN_INSPECTOR_WIDTH);
+      setInlineInspector(root.clientWidth >= INLINE_INSPECTOR_WIDTH);
+    });
     observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
+  // The drawer starts below the bubble toolbar, so the tools stay in reach.
+  const toolbarRowRef = useRef<HTMLDivElement>(null);
+  const [drawerTop, setDrawerTop] = useState(0);
+  useEffect(() => {
+    const row = toolbarRowRef.current;
+    if (!row) return;
+    const measure = () => setDrawerTop(Math.ceil(row.offsetTop + row.offsetHeight));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(row);
     return () => observer.disconnect();
   }, []);
   const [additionalIds, setAdditionalIds] = useState<string[]>([]);
@@ -172,19 +218,48 @@ export function CutEditor({
   const [textSelection, setTextSelection] = useState<TextSelection>({ start: 0, end: 0 });
   const [armed, setArmed] = useState<string | null>(null);
   const [zoom, setZoom] = useState(0.75),
-    [fitMode, setFitMode] = useState<false | "cut" | "width">(integrated ? "cut" : "width");
-  const [panMode, setPanMode] = useState(false),
-    [snap, setSnap] = useState(true);
+    [fitMode, setFitMode] = useState<false | "cut" | "width">("cut");
+  const [snap, setSnap] = useState(true);
   const [guides, setGuides] = useState<{ x?: number; y?: number }>({});
   const viewportRef = useRef<HTMLDivElement>(null),
     inlineRef = useRef<InlineTextHandle>(null);
   const panRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null),
     spaceRef = useRef(false);
+  // Align is a small menu: a click elsewhere closes it, except on the canvas,
+  // where the person may be picking the bubbles to align.
+  const alignMenuRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const close = (event: PointerEvent) => {
+      const menu = alignMenuRef.current;
+      const target = event.target as Node;
+      if (!menu?.open || menu.contains(target)) return;
+      if (viewportRef.current?.contains(target)) return;
+      menu.open = false;
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, []);
   const revisionRef = useRef(initialLetteringRevision),
     allowUnloadRef = useRef(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [requestTab, setRequestTab] = useState<{ tab: InspectorTab; nonce: number } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [dropActive, setDropActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [review, setReview] = useState<ReviewStatus>(reviewStatus ?? "draft");
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const beforeFinalRef = useRef<ReviewStatus>(
+    reviewStatus && reviewStatus !== "final" ? reviewStatus : "human-edited",
+  );
+  useEffect(() => {
+    setReview(reviewStatus ?? "draft");
+  }, [reviewStatus]);
+  // Live sync: a change from the agent never replaces unsaved lettering.
+  const dirtyRef = useRef(false);
+  dirtyRef.current = dirty || saving;
+  useEditorScope(`lettering:${episodeId}/${cutId}`, () => dirtyRef.current);
 
   useEffect(() => {
     registerNavigation?.((next) => {
@@ -312,25 +387,30 @@ export function CutEditor({
     [markDirty, history, bubbles],
   );
 
-  const undo = useCallback(() => {
-    const state = history.undo();
-    if (state === null) return;
-    setBubbles(state);
-    setSelectedId((id) =>
-      id !== null && state.some((b) => b.id === id) ? id : (state[0]?.id ?? null),
-    );
-    markDirty();
-  }, [history, markDirty]);
-
-  const redo = useCallback(() => {
-    const state = history.redo();
-    if (state === null) return;
-    setBubbles(state);
-    setSelectedId((id) =>
-      id !== null && state.some((b) => b.id === id) ? id : (state[0]?.id ?? null),
-    );
-    markDirty();
-  }, [history, markDirty]);
+  // Undo and redo know the saved state: stepping back to it is clean again.
+  const travel = useCallback(
+    (state: LetteringOverlay[] | null) => {
+      if (state === null) return;
+      setBubbles(state);
+      setSelectedId((id) =>
+        id !== null && state.some((b) => b.id === id) ? id : (state[0]?.id ?? null),
+      );
+      editGenRef.current += 1;
+      setMessage(null);
+      const clean = stableBubbles(state) === savedJsonRef.current;
+      setDirty(!clean);
+      if (clean) {
+        try {
+          sessionStorage.removeItem(draftKey);
+        } catch {
+          /* Storage may be disabled. */
+        }
+      }
+    },
+    [draftKey],
+  );
+  const undo = useCallback(() => travel(history.undo()), [history, travel]);
+  const redo = useCallback(() => travel(history.redo()), [history, travel]);
 
   // Convert a pointer event to normalized 0..1 image coordinates.
   const pointerToNorm = useCallback((event: { clientX: number; clientY: number }) => {
@@ -539,15 +619,35 @@ export function CutEditor({
     [capture, history],
   );
 
+  const speakerFor = useCallback(
+    () =>
+      defaultSpeaker({
+        lastUsed: lastSpeaker ?? null,
+        cutCharacterIds,
+        characters,
+        bubbles,
+      }),
+    [lastSpeaker, cutCharacterIds, characters, bubbles],
+  );
+  const withSpeaker = useCallback(
+    (overlay: LetteringOverlay): LetteringOverlay =>
+      needsSpeaker(overlay.kind) && overlay.speaker.trim() === ""
+        ? { ...overlay, speaker: speakerFor() }
+        : overlay,
+    [speakerFor],
+  );
+
   const addBubble = useCallback(() => {
-    const created = newOverlay(cutId, bubbles.length, theme ?? undefined, referenceWidth);
+    const created = withSpeaker(
+      newOverlay(cutId, bubbles.length, theme ?? undefined, referenceWidth),
+    );
     setAdditionalIds([]);
     history.record();
     setBubbles((prev) => [...prev, created]);
     setSelectedId(created.id);
     setEditingId(created.id);
     markDirty();
-  }, [cutId, bubbles.length, theme, referenceWidth, history, markDirty]);
+  }, [cutId, bubbles.length, theme, referenceWidth, history, markDirty, withSpeaker]);
 
   // Apply the project's theme to the selected bubble on request (#336): every
   // field the theme states for its kind is written; the rest stays.
@@ -607,12 +707,14 @@ export function CutEditor({
 
   const addPreset = useCallback(
     (presetId: string, point: { x: number; y: number }) => {
-      const created = libraryOverlay(cutId, bubbles.length, presetId, point, {
-        width,
-        height,
-        referenceWidth,
-        theme: theme ?? undefined,
-      });
+      const created = withSpeaker(
+        libraryOverlay(cutId, bubbles.length, presetId, point, {
+          width,
+          height,
+          referenceWidth,
+          theme: theme ?? undefined,
+        }),
+      );
       history.record();
       setBubbles((prev) => [...prev, created]);
       setSelectedId(created.id);
@@ -621,7 +723,7 @@ export function CutEditor({
       setEditingId(created.id);
       markDirty();
     },
-    [cutId, bubbles.length, width, height, referenceWidth, theme, history, markDirty],
+    [cutId, bubbles.length, width, height, referenceWidth, theme, history, markDirty, withSpeaker],
   );
 
   const copyBubbles = useCallback(
@@ -635,13 +737,13 @@ export function CutEditor({
         setMessage({
           kind: all ? "error" : "ok",
           text: all
-            ? "Draft copied in this tab. Reload, then paste to recover it."
-            : "Bubbles copied in this tab. Paste in this or another cut.",
+            ? "Your lettering is copied. Reload, then paste to get it back."
+            : "Copied. Paste in this or another cut.",
         });
       } catch {
         setMessage({
           kind: "error",
-          text: "Could not copy the lettering. Your edits are still here.",
+          text: "Toony could not copy the lettering. Your edits are still here.",
         });
       }
     },
@@ -669,18 +771,24 @@ export function CutEditor({
     },
     [cutId, history, markDirty],
   );
-  const pasteBubbles = useCallback(() => {
+  // One clipboard: the system clipboard when it holds copied bubbles, else the
+  // copy kept in this tab (which also survives a reload for draft recovery).
+  const pasteBubbles = useCallback(async () => {
+    let text: string | null = null;
     try {
-      const text = sessionStorage.getItem("toony-lettering-clipboard-v1");
-      if (!text)
-        throw new Error(
-          "Copy bubbles in this tab first, or use Cmd/Ctrl+V for the system clipboard.",
-        );
+      text = (await navigator.clipboard?.readText?.()) ?? null;
+      if (text !== null) parseLetteringClipboard(text);
+    } catch {
+      text = null;
+    }
+    try {
+      text ??= sessionStorage.getItem("toony-lettering-clipboard-v1");
+      if (!text) throw new Error("Copy some bubbles first, then paste.");
       insertCopied(parseLetteringClipboard(text));
     } catch (cause) {
       setMessage({
         kind: "error",
-        text: cause instanceof Error ? cause.message : "Could not paste lettering.",
+        text: cause instanceof Error ? cause.message : "Toony could not paste these bubbles.",
       });
     }
   }, [insertCopied]);
@@ -966,6 +1074,16 @@ export function CutEditor({
 
   const save = useCallback(async () => {
     if (saving || !dirty) return !saving && !dirty;
+    const silent = bubbleMissingSpeaker(bubbles);
+    if (silent) {
+      setSelectedId(silent.id);
+      setAdditionalIds([]);
+      setEditingId(null);
+      setInspectorPreference(true);
+      setRequestTab({ tab: "text", nonce: Date.now() });
+      setMessage({ kind: "error", text: "Choose who says this bubble, then save." });
+      return false;
+    }
     setSaving(true);
     setMessage(null);
     // Snapshot the payload AND the edit generation together. Persist the render
@@ -977,7 +1095,7 @@ export function CutEditor({
     try {
       const outcome = await persistWithGuard({
         request: () =>
-          fetch("/api/lettering", {
+          studioFetch("/api/lettering", {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
@@ -992,24 +1110,103 @@ export function CutEditor({
         readGeneration: () => editGenRef.current,
       });
       if (!outcome.ok) {
-        setMessage({ kind: "error", text: outcome.error });
+        setMessage({ kind: "error", text: plainSaveError(outcome.error) });
         return false;
       } else {
         // Do NOT write the snapshot back into state — an edit made during the
         // await would be reverted. Only clear dirty when no edit landed mid-save.
         if (outcome.revision) revisionRef.current = outcome.revision;
+        savedJsonRef.current = stableBubbles(payload);
         onSaved?.(payload, revisionRef.current);
         if (outcome.clean) {
           setDirty(false);
           clearDraft();
         }
-        setMessage({ kind: "ok", text: "Lettering saved." });
+        setMessage({ kind: "ok", text: "Saved." });
         return outcome.clean;
       }
     } finally {
       setSaving(false);
     }
   }, [bubbles, plans, workId, episodeId, cutId, saving, dirty, clearDraft, onSaved]);
+
+  // The selected bubbles, for the agent's focus chip.
+  const selectionRef = useRef(onSelectionChange);
+  selectionRef.current = onSelectionChange;
+  const selectionKey = activeIds.join(",");
+  useEffect(() => {
+    selectionRef.current?.(selectionKey === "" ? [] : selectionKey.split(","));
+  }, [selectionKey]);
+
+  // Remember the speaker the person picks, so the next new bubble starts with it.
+  const lastSpeakerRef = useRef(onSpeakerUsed);
+  lastSpeakerRef.current = onSpeakerUsed;
+  const selectedSpeaker = selected?.speaker.trim() ?? "";
+  useEffect(() => {
+    if (selectedSpeaker !== "") lastSpeakerRef.current?.(selectedSpeaker);
+  }, [selectedSpeaker]);
+
+  // Artwork for a cut that has none: upload a file or drop one on the cut.
+  const uploadArtwork = useCallback(
+    async (file: File) => {
+      if (!ARTWORK_TYPES.includes(file.type)) {
+        setMessage({ kind: "error", text: "Choose a PNG, JPEG, WebP or GIF image." });
+        return;
+      }
+      setUploading(true);
+      setMessage(null);
+      try {
+        const query = new URLSearchParams({ workId, episodeId, cutId });
+        const response = await studioFetch(`/api/artwork?${query.toString()}`, {
+          method: "POST",
+          headers: { "content-type": file.type },
+          body: file,
+        });
+        const data = (await response.json()) as { ok?: boolean; error?: string };
+        if (!response.ok || !data.ok) {
+          setMessage({ kind: "error", text: data.error ?? "Toony could not add this artwork." });
+          return;
+        }
+        setMessage({ kind: "ok", text: "Artwork added." });
+        onProjectChanged?.();
+      } catch {
+        setMessage({ kind: "error", text: "Toony could not add this artwork." });
+      } finally {
+        setUploading(false);
+      }
+    },
+    [workId, episodeId, cutId, onProjectChanged],
+  );
+
+  // "Mark as final" is the person's sign-off on the artwork; the agent never sets it.
+  const toggleFinal = useCallback(async () => {
+    const next: ReviewStatus = review === "final" ? beforeFinalRef.current : "final";
+    setReviewBusy(true);
+    try {
+      const response = await studioFetch("/api/cut-review", {
+        method: "POST",
+        body: JSON.stringify({ workId, episodeId, cutId, reviewStatus: next, artworkRevision }),
+      });
+      const data = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || !data.ok) {
+        setMessage({
+          kind: "error",
+          text:
+            response.status === 409
+              ? "The artwork changed since this page opened. Reload the episode, then try again."
+              : (data.error ?? "Toony could not change the final mark."),
+        });
+        return;
+      }
+      if (next === "final") beforeFinalRef.current = review === "final" ? "human-edited" : review;
+      setReview(next);
+      onProjectChanged?.();
+    } catch {
+      setMessage({ kind: "error", text: "Toony could not change the final mark." });
+    } finally {
+      setReviewBusy(false);
+    }
+  }, [review, workId, episodeId, cutId, artworkRevision, onProjectChanged]);
 
   const continueNavigation = () => {
     if (!pendingNavigation) return;
@@ -1153,15 +1350,19 @@ export function CutEditor({
     pendingNavigation,
   ]);
 
+  const final = review === "final";
+  const anyLocked = bubbles.some((b) => activeIds.includes(b.id) && b.locked);
+  const choices = speakerChoices(characters, cutCharacterIds);
+
   return (
     <section
       ref={editorRoot}
       inert={!ready}
       aria-busy={!ready}
-      aria-label="Lettering editor"
-      className={`editor editor-focus${integrated ? " integrated-cut" : ""}`}
+      aria-label={`Cut ${cutNumber} lettering`}
+      className="editor editor-focus integrated-cut"
       data-inspector-open={inspectorOpen}
-      data-workspace-wide={wideWorkspace}
+      data-inspector-inline={inlineInspector}
       data-testid={`cut-editor-${cutId}`}
     >
       {pendingNavigation && (
@@ -1207,57 +1408,40 @@ export function CutEditor({
           </div>
         </div>
       )}
-      <header className="page-head">
-        <div>
-          <p className="page-eyebrow">{webtoonTitle}</p>
-          <h1 className="page-title">Lettering</h1>
-          <div className="page-meta">
-            <span>
-              {!integrated && <>{episodeTitle} · </>}Cut <code>{cutId}</code>
+      <header className="cut-head">
+        <div className="cut-head-title">
+          <h2>Cut {cutNumber}</h2>
+          <span className="page-meta">
+            {bubbles.length} {bubbles.length === 1 ? "bubble" : "bubbles"}
+          </span>
+          {overflowCount > 0 && (
+            <span className="chip chip-warn" data-testid="editor-overflow-count">
+              {overflowCount} {overflowCount === 1 ? "does not fit" : "do not fit"}
             </span>
-            <span>
-              <b>{bubbles.length}</b> bubble{bubbles.length === 1 ? "" : "s"}
-            </span>
-            {overflowCount > 0 && (
-              <span className="chip chip-warn" data-testid="editor-overflow-count">
-                {overflowCount} overflowing
-              </span>
-            )}
-          </div>
+          )}
         </div>
         <div className="editor-actions">
-          {!integrated && (
-            <label className="lettering-cut-picker">
-              Cut
-              <select
-                aria-label="Edit cut"
-                value={cutId}
-                disabled={dirty}
-                onChange={(event) => {
-                  const target = cutNavigation.find((c) => c.id === event.target.value);
-                  if (target) router.push(target.href);
-                }}
-              >
-                {cutNavigation.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.id}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <SaveState
+            dirty={dirty}
+            saving={saving}
+            onSave={() => void save()}
+            testId="editor-save"
+          />
+          {hasArtwork && (
+            <button
+              type="button"
+              className={final ? "btn btn-final" : "btn"}
+              aria-pressed={final}
+              disabled={reviewBusy}
+              onClick={() => void toggleFinal()}
+              title={
+                final ? "Marked final. Click to undo the mark." : "Mark this cut's artwork as final"
+              }
+              data-testid="mark-final"
+            >
+              <StudioIcon name={final ? "check" : "star"} /> {final ? "Final" : "Mark as final"}
+            </button>
           )}
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() =>
-              ask(
-                "Help me improve this cut. Discuss the scene and dialogue before proposing changes.",
-                { episodeId, cutId },
-              )
-            }
-          >
-            Ask agent
-          </button>
           <button
             type="button"
             className="btn btn-ghost"
@@ -1266,51 +1450,24 @@ export function CutEditor({
           >
             Properties
           </button>
-          {!integrated && (
-            <Link
-              href={`/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}`}
-              className="btn btn-ghost"
-              onClick={(event) => {
-                if (dirty) {
-                  event.preventDefault();
-                  setPendingNavigation({
-                    href: `/w/${encodeURIComponent(workId)}/episodes/${encodeURIComponent(episodeId)}`,
-                  });
-                }
-              }}
-            >
-              Episode
-            </Link>
-          )}
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={save}
-            disabled={saving || !dirty}
-            data-testid="editor-save"
-          >
-            {saving ? "Saving…" : dirty ? "Save changes" : "Saved"}
-          </button>
         </div>
       </header>
 
       <div
-        hidden={integrated && !message && !dirty}
+        hidden={!message}
         className={`lettering-status${message?.kind === "error" ? " is-error" : ""}`}
         role={message?.kind === "error" ? "alert" : "status"}
       >
-        <span title={message?.text}>{message?.text ?? (dirty ? "Unsaved changes" : "Saved")}</span>
-        {message?.kind === "error" && (
+        <span>{message?.text}</span>
+        {message?.kind === "error" && isConflictMessage(message.text) && (
           <>
             <button type="button" className="btn btn-chip" onClick={() => copyBubbles(true)}>
-              Copy draft
+              Copy my lettering
             </button>
             <button
               type="button"
               className="btn btn-chip"
-              onClick={() => {
-                setPendingNavigation({ reload: true });
-              }}
+              onClick={() => setPendingNavigation({ reload: true })}
             >
               Reload saved version
             </button>
@@ -1319,8 +1476,8 @@ export function CutEditor({
         {message && (
           <button
             type="button"
-            className="btn btn-chip"
-            aria-label="Dismiss notification"
+            className="btn btn-chip btn-icon-only"
+            aria-label="Dismiss"
             onClick={() => setMessage(null)}
           >
             ×
@@ -1330,142 +1487,139 @@ export function CutEditor({
 
       <div className="editor-layout">
         <div className="editor-stage-wrap">
-          <fieldset className="editor-toolbar" aria-label="Bubble tools">
-            <button
-              type="button"
-              aria-label="Copy"
-              title="Copy"
-              className="btn btn-icon"
-              disabled={!activeIds.length}
-              onClick={() => void copyBubbles()}
-            >
-              <StudioIcon name="copy" />
-            </button>
-            <button
-              type="button"
-              aria-label="Paste"
-              className="btn btn-icon"
-              title="Paste bubbles copied in this tab. Cmd/Ctrl+V uses the system clipboard."
-              onClick={() => void pasteBubbles()}
-            >
-              <StudioIcon name="paste" />
-            </button>
-            <button
-              type="button"
-              className="btn btn-icon"
-              disabled={!activeIds.length}
-              onClick={toggleLock}
-              aria-label={
-                bubbles.some((b) => activeIds.includes(b.id) && b.locked) ? "Unlock" : "Lock"
-              }
-              title="Lock or unlock selection"
-            >
-              <StudioIcon
-                name={bubbles.some((b) => activeIds.includes(b.id) && b.locked) ? "unlock" : "lock"}
-              />
-            </button>
-            <button
-              type="button"
-              className="btn"
-              disabled={!selected || selected.locked}
-              onClick={() => selected && startEditing(selected.id)}
-            >
-              <StudioIcon name="text" /> Edit text
-            </button>
-            <button
-              type="button"
-              aria-label="Undo"
-              className="btn btn-icon"
-              onClick={undo}
-              disabled={!history.canUndo}
-              title="Undo (Cmd/Ctrl+Z)"
-              data-testid="editor-undo"
-            >
-              <StudioIcon name="undo" />
-            </button>
-            <button
-              type="button"
-              aria-label="Redo"
-              className="btn btn-icon"
-              onClick={redo}
-              disabled={!history.canRedo}
-              title="Redo (Shift+Cmd/Ctrl+Z)"
-              data-testid="editor-redo"
-            >
-              <StudioIcon name="redo" />
-            </button>
-            <button type="button" className="btn" onClick={addBubble} data-testid="editor-add">
-              <StudioIcon name="plus" /> Add bubble
-            </button>
-            <button
-              type="button"
-              aria-label="Duplicate"
-              className="btn btn-icon"
-              onClick={duplicateSelected}
-              disabled={!hasEditableSelection}
-              title="Duplicate (Cmd/Ctrl+D)"
-              data-testid="editor-duplicate"
-            >
-              <StudioIcon name="duplicate" />
-            </button>
-            <button
-              type="button"
-              aria-label="Delete"
-              className="btn btn-icon btn-danger"
-              onClick={deleteSelected}
-              disabled={!hasEditableSelection}
-              title="Delete (Delete key)"
-              data-testid="editor-delete"
-            >
-              <StudioIcon name="trash" />
-            </button>
-            {themeId !== null && (!integrated || theme !== null) && (
+          <div className="editor-toolbar-row" ref={toolbarRowRef}>
+            <fieldset className="editor-toolbar" aria-label="Bubble tools">
               <button
                 type="button"
-                className="btn"
-                onClick={applyThemeToSelected}
-                disabled={!selected || selected.locked || theme === null}
-                title={
-                  theme === null
-                    ? `Theme "${themeId}" is selected in webtoon.json but no installed pack provides it`
-                    : `Apply the "${themeId}" theme's defaults to this bubble`
-                }
-                data-testid="editor-apply-theme"
+                aria-label="Undo"
+                className="btn btn-icon"
+                onClick={undo}
+                disabled={!history.canUndo}
+                title="Undo (Cmd/Ctrl+Z)"
+                data-testid="editor-undo"
               >
-                Apply theme{theme === null ? " (not installed)" : ""}
+                <StudioIcon name="undo" />
               </button>
-            )}
-          </fieldset>
-
-          <details className="lettering-alignment-menu" aria-disabled={!activeIds.length}>
-            <summary>Align objects</summary>
-            <fieldset className="lettering-object-alignment" aria-label="Align objects">
-              <span>
-                {activeIds.length > 1
-                  ? `${activeIds.length} selected · align objects`
-                  : "Align to artwork"}
-              </span>
-              {(["left", "center", "right", "top", "middle", "bottom"] as const).map((mode) => (
+              <button
+                type="button"
+                aria-label="Redo"
+                className="btn btn-icon"
+                onClick={redo}
+                disabled={!history.canRedo}
+                title="Redo (Shift+Cmd/Ctrl+Z)"
+                data-testid="editor-redo"
+              >
+                <StudioIcon name="redo" />
+              </button>
+              <span className="toolbar-divider" aria-hidden="true" />
+              <button type="button" className="btn" onClick={addBubble} data-testid="editor-add">
+                <StudioIcon name="plus" /> Add bubble
+              </button>
+              <button
+                type="button"
+                aria-label="Copy"
+                title="Copy (Cmd/Ctrl+C)"
+                className="btn btn-icon"
+                disabled={!activeIds.length}
+                onClick={() => void copyBubbles()}
+              >
+                <StudioIcon name="copy" />
+              </button>
+              <button
+                type="button"
+                aria-label="Paste"
+                className="btn btn-icon"
+                title="Paste (Cmd/Ctrl+V)"
+                onClick={() => void pasteBubbles()}
+              >
+                <StudioIcon name="paste" />
+              </button>
+              <button
+                type="button"
+                aria-label="Duplicate"
+                className="btn btn-icon"
+                onClick={duplicateSelected}
+                disabled={!hasEditableSelection}
+                title="Duplicate (Cmd/Ctrl+D)"
+                data-testid="editor-duplicate"
+              >
+                <StudioIcon name="duplicate" />
+              </button>
+              <button
+                type="button"
+                className="btn btn-icon"
+                disabled={!activeIds.length}
+                onClick={toggleLock}
+                aria-label={anyLocked ? "Unlock" : "Lock"}
+                title={anyLocked ? "Unlock" : "Lock in place"}
+              >
+                <StudioIcon name={anyLocked ? "unlock" : "lock"} />
+              </button>
+              <button
+                type="button"
+                aria-label="Delete"
+                className="btn btn-icon btn-danger"
+                onClick={deleteSelected}
+                disabled={!hasEditableSelection}
+                title="Delete (Delete key)"
+                data-testid="editor-delete"
+              >
+                <StudioIcon name="trash" />
+              </button>
+              {themeId !== null && theme !== null && (
                 <button
                   type="button"
-                  className="btn btn-chip"
-                  key={mode}
-                  disabled={!hasEditableSelection}
-                  onClick={() => alignObjects(mode)}
-                  title={`Align objects ${mode}`}
+                  className="btn"
+                  onClick={applyThemeToSelected}
+                  disabled={!selected || selected.locked}
+                  title="Give this bubble the webtoon's lettering style"
+                  data-testid="editor-apply-theme"
                 >
-                  <AlignmentSymbol
-                    mode={mode}
-                    vertical={["top", "middle", "bottom"].includes(mode)}
-                  />
-                  {mode}
+                  Apply style
                 </button>
-              ))}
+              )}
+              <details
+                className="lettering-alignment-menu"
+                aria-disabled={!activeIds.length}
+                ref={alignMenuRef}
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  event.currentTarget.open = false;
+                  event.currentTarget.querySelector("summary")?.focus();
+                }}
+              >
+                <summary>
+                  Align <StudioIcon name="chevron" />
+                </summary>
+                <fieldset className="lettering-object-alignment" aria-label="Align bubbles">
+                  <span>
+                    {activeIds.length > 1 ? "Align the selected bubbles" : "Align to the cut"}
+                  </span>
+                  {(["left", "center", "right", "top", "middle", "bottom"] as const).map((mode) => (
+                    <button
+                      type="button"
+                      className="btn btn-chip"
+                      key={mode}
+                      disabled={!hasEditableSelection}
+                      onClick={() => alignObjects(mode)}
+                      aria-label={`Align ${mode}`}
+                    >
+                      <AlignmentSymbol
+                        mode={mode}
+                        vertical={["top", "middle", "bottom"].includes(mode)}
+                      />
+                      {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                    </button>
+                  ))}
+                </fieldset>
+              </details>
             </fieldset>
-          </details>
+          </div>
           <div className="lettering-view-controls">
             <button
-              className="btn btn-chip"
+              className="btn btn-chip btn-icon-only"
               type="button"
               onClick={() => {
                 setFitMode(false);
@@ -1475,9 +1629,9 @@ export function CutEditor({
             >
               <StudioIcon name="minus" />
             </button>
-            <output>{Math.round(zoom * 100)}%</output>
+            <output aria-label="Zoom">{Math.round(zoom * 100)}%</output>
             <button
-              className="btn btn-chip"
+              className="btn btn-chip btn-icon-only"
               type="button"
               onClick={() => {
                 setFitMode(false);
@@ -1503,57 +1657,54 @@ export function CutEditor({
             >
               Fit cut
             </button>
-            <button
-              className="btn btn-chip"
-              type="button"
-              aria-pressed={panMode}
-              onClick={() => {
-                setPanMode((p) => !p);
-                viewportRef.current?.focus();
-              }}
-            >
-              Pan
-            </button>
-            <label>
+            <label className="check-label">
               <input type="checkbox" checked={snap} onChange={(e) => setSnap(e.target.checked)} />{" "}
-              Snap guides
+              Snap
             </label>
-            {editingId && (
-              <button className="btn btn-primary" type="button" onClick={() => setEditingId(null)}>
-                Done typing
-              </button>
-            )}
-            <span>
+            <span className="view-hint">
               {editingId
-                ? "Select words for text formatting. Esc finishes."
+                ? "Select words to style them. Esc finishes."
                 : armed
-                  ? "Click the art to place, or drag a preset."
-                  : "Click text to type. Drag to move. Shift-click to select several."}
+                  ? "Click the cut to place the bubble."
+                  : "Click text to type. Drag to move. Hold Space to pan."}
             </span>
           </div>
-          {legacyRequest && (
-            <div className="editor-toast editor-toast-warn">
-              Direct text editing uses consistent text sizing and bundled font fallback. Convert
-              this bubble to enable it.
-              <button
-                type="button"
-                className="btn btn-chip"
-                onClick={() => {
-                  const b = bubbles.find((b) => b.id === legacyRequest);
-                  if (!b) return;
-                  update(b.id, {
-                    textLayout: b.textLayout ?? defaultLetteringTextLayout(referenceWidth),
-                    textRanges: b.textRanges ?? [],
-                  });
-                  setEditingId(b.id);
-                  setLegacyRequest(null);
+          <p className="scene-caption" title={scene}>
+            <b className="scene-caption-label">Scene</b>{" "}
+            {scene.trim() || "No scene description yet."}{" "}
+            <span className="scene-caption-hint">Ask the agent to change this.</span>
+          </p>
+          {!hasArtwork && (
+            <div
+              className={`artwork-drop${dropActive ? " is-active" : ""}`}
+              data-testid="artwork-drop"
+            >
+              <StudioIcon name="image" />
+              <span>
+                {uploading ? "Adding artwork…" : "No artwork yet. Drop an image on the cut, or"}
+              </span>
+              {!uploading && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => fileInputRef.current?.click()}
+                  data-testid="add-artwork"
+                >
+                  <StudioIcon name="upload" /> Add artwork
+                </button>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={ARTWORK_TYPES.join(",")}
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) void uploadArtwork(file);
                 }}
-              >
-                Enable direct editing
-              </button>
-              <button type="button" className="btn btn-chip" onClick={() => setLegacyRequest(null)}>
-                Keep current layout
-              </button>
+                data-testid="artwork-file"
+              />
             </div>
           )}
           <div className="lettering-workspace">
@@ -1572,7 +1723,7 @@ export function CutEditor({
             />
             <section
               className="lettering-viewport"
-              aria-label="Artwork viewport"
+              aria-label="Cut canvas"
               tabIndex={-1}
               ref={viewportRef}
               data-testid="lettering-viewport"
@@ -1590,16 +1741,27 @@ export function CutEditor({
                 if (event.dataTransfer.types.includes(LETTERING_PRESET_MIME)) {
                   event.preventDefault();
                   event.dataTransfer.dropEffect = "copy";
+                } else if (!hasArtwork && event.dataTransfer.types.includes("Files")) {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "copy";
+                  setDropActive(true);
                 }
               }}
+              onDragLeave={() => setDropActive(false)}
               onDrop={(event) => {
                 event.preventDefault();
+                setDropActive(false);
+                const file = event.dataTransfer.files?.[0];
+                if (!hasArtwork && file) {
+                  void uploadArtwork(file);
+                  return;
+                }
                 const kind = event.dataTransfer.getData(LETTERING_PRESET_MIME);
                 const pt = pointerToNorm(event);
                 if (pt && BALLOON_LIBRARY.some((preset) => preset.id === kind)) addPreset(kind, pt);
               }}
               onPointerDownCapture={(event) => {
-                if ((panMode || spaceRef.current || event.button === 1) && !editingId) {
+                if ((spaceRef.current || event.button === 1) && !editingId) {
                   event.preventDefault();
                   event.stopPropagation();
                   const el = event.currentTarget;
@@ -1639,6 +1801,7 @@ export function CutEditor({
                 displayWidth={referenceWidth * zoom}
                 artStyle={artStyle}
                 reserved={reserved}
+                sceneText={hasArtwork ? null : scene.trim() || "No scene description yet."}
                 onMove={startMove}
                 onResize={startResize}
                 onTail={startTail}
@@ -1664,6 +1827,36 @@ export function CutEditor({
                 onRedo={redo}
               />
             </section>
+            {legacyRequest && (
+              <div className="editor-toast editor-toast-warn legacy-layout-notice">
+                <span>
+                  This bubble uses an older text layout. Update it to type directly on the cut.
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-chip"
+                  onClick={() => {
+                    const b = bubbles.find((b) => b.id === legacyRequest);
+                    if (!b) return;
+                    update(b.id, {
+                      textLayout: b.textLayout ?? defaultLetteringTextLayout(referenceWidth),
+                      textRanges: b.textRanges ?? [],
+                    });
+                    setEditingId(b.id);
+                    setLegacyRequest(null);
+                  }}
+                >
+                  Update it
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-chip"
+                  onClick={() => setLegacyRequest(null)}
+                >
+                  Keep as is
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1671,9 +1864,10 @@ export function CutEditor({
           className="editor-inspector"
           hidden={!inspectorOpen}
           data-testid="editor-inspector"
-          aria-label="Lettering properties"
+          aria-label="Bubble properties"
+          style={{ "--inspector-drawer-top": `${drawerTop}px` } as CSSProperties}
         >
-          {!wideWorkspace && (
+          {!inlineInspector && (
             <div className="inspector-drawer-heading">
               <span>Properties</span>
               <button
@@ -1686,9 +1880,6 @@ export function CutEditor({
               </button>
             </div>
           )}
-          {/* The cut's own fields (#332): prompt, cast, shot, palette, shape.
-              Collapsed by default so the bubble stays the inspector's subject;
-              saves on its own path and never touches the render record. */}
           {selected ? (
             <fieldset className="lettering-object-settings" disabled={Boolean(selected.locked)}>
               <BubbleInspector
@@ -1706,51 +1897,21 @@ export function CutEditor({
                 onSendBackward={sendBackward}
                 onBringToFront={bringToFront}
                 onSendToBack={sendToBack}
-                onNudge={nudgeSelected}
                 projectPalette={projectPalette}
                 dialogueLanguage={dialogueLanguage}
+                speakerChoices={choices}
+                defaultSpeaker={speakerFor()}
+                requestTab={requestTab}
               />
             </fieldset>
           ) : (
             <div className="inspector-empty">
-              <h2 className="card-title">Inspector</h2>
-              <p className="empty">
-                Select a bubble on the canvas, or add one, to edit its speaker, text, and style.
+              <h2 className="card-title">No bubble selected</h2>
+              <p className="empty-note">
+                Click a bubble on the cut, or add one from the library on the left.
               </p>
             </div>
           )}
-          <details className="lettering-art-review">
-            <summary>Artwork review</summary>
-            <CutReviewControl
-              key={artworkRevision}
-              workId={workId}
-              episodeId={episodeId}
-              cutId={cutId}
-              initialReviewStatus={initialReviewStatus}
-              artworkRevision={artworkRevision}
-            />
-          </details>
-          <ArtRevisions
-            workId={workId}
-            episodeId={episodeId}
-            cutId={cutId}
-            sourceDigest={
-              art.src ? new URL(art.src, "http://local.invalid").searchParams.get("revision") : null
-            }
-            characters={characters}
-            dirty={dirty}
-          />
-          <details className="inspector-cut-context">
-            <summary>Scene details</summary>
-            <CutFieldsEditor
-              workId={workId}
-              episodeId={episodeId}
-              cutId={cutId}
-              initial={cutFields}
-              characters={characters}
-              renderRecord={renderRecord}
-            />
-          </details>
         </aside>
       </div>
     </section>

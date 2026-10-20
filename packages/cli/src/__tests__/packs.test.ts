@@ -303,31 +303,31 @@ test("a pack that is installed but not selected changes nothing export writes", 
   const dir = join(workdir, "demo");
   const withoutPack = capture();
   assert.equal(
-    await runExport(["platform", dir, "--episode", "ep-001", "--width", "400"], withoutPack.io),
+    await runExport(["ep-001", dir, "--output", "cuts", "--width", "400"], withoutPack.io),
     EXIT_OK,
     withoutPack.err.join("\n"),
   );
   const before = await readFile(
-    join(dir, "episodes", "ep-001", "exports", "platform", "manifest.json"),
+    join(dir, "episodes", "ep-001", "exports", "cuts", "manifest.json"),
     "utf8",
   );
 
   await installPack();
   const withPack = capture();
   assert.equal(
-    await runExport(["platform", dir, "--episode", "ep-001", "--width", "400"], withPack.io),
+    await runExport(["ep-001", dir, "--output", "cuts", "--width", "400"], withPack.io),
     EXIT_OK,
     withPack.err.join("\n"),
   );
   const after = await readFile(
-    join(dir, "episodes", "ep-001", "exports", "platform", "manifest.json"),
+    join(dir, "episodes", "ep-001", "exports", "cuts", "manifest.json"),
     "utf8",
   );
   assert.equal(after, before);
   assert.deepEqual(withoutPack.out, withPack.out);
 });
 
-test("with no packs installed the export targets and genres are the pre-seam vocabulary", async () => {
+test("with no packs installed the export outputs and genres are the built-in vocabulary", async () => {
   const genre = capture();
   assert.equal(await runInit(["demo", "--genre", "horror"], genre.io), EXIT_USAGE);
   assert.match(
@@ -339,12 +339,12 @@ test("with no packs installed the export targets and genres are the pre-seam voc
   assert.equal(await runInit(["demo"], init.io), EXIT_OK);
   const target = capture();
   assert.equal(
-    await runExport(["gif", join(workdir, "demo"), "--episode", "ep-001"], target.io),
+    await runExport(["ep-001", join(workdir, "demo"), "--output", "gif"], target.io),
     EXIT_USAGE,
   );
   assert.match(
     target.err.join("\n"),
-    /first argument must be one of: platform, stitched, plotlink$/m,
+    /--output must be one of: strip, cuts, instagram, instagram-square, x, webtoon$/m,
   );
 });
 
@@ -375,16 +375,21 @@ test("a pack export preset selects an engine and pins its render options", async
 
   const c = capture();
   assert.equal(
-    await runExport(["webtoon-tall", dir, "--episode", "ep-001"], c.io),
+    await runExport(["ep-001", dir, "--output", "webtoon-tall"], c.io),
     EXIT_OK,
     c.err.join("\n"),
   );
   assert.match(c.out.join("\n"), /exported webtoon-tall/);
 
+  // A preset writes to its own folder; its engine alias resolves to cut images.
   const manifest = JSON.parse(
-    await readFile(join(dir, "episodes", "ep-001", "exports", "platform", "manifest.json"), "utf8"),
+    await readFile(
+      join(dir, "episodes", "ep-001", "exports", "webtoon-tall", "manifest.json"),
+      "utf8",
+    ),
   );
-  assert.equal(manifest.target, "platform");
+  assert.equal(manifest.kind, "cuts");
+  assert.equal(manifest.output, "webtoon-tall");
   assert.equal(manifest.width, 640);
   assert.equal(manifest.files[0].format, "jpeg");
   assert.equal(manifest.files[0].quality, 88);
@@ -403,7 +408,10 @@ test("an explicit flag still overrides what a preset pins", async () => {
     c.err.join("\n"),
   );
   const manifest = JSON.parse(
-    await readFile(join(dir, "episodes", "ep-001", "exports", "platform", "manifest.json"), "utf8"),
+    await readFile(
+      join(dir, "episodes", "ep-001", "exports", "webtoon-tall", "manifest.json"),
+      "utf8",
+    ),
   );
   assert.equal(manifest.width, 320);
   assert.equal(manifest.files[0].format, "jpeg", "the preset's format is still applied");

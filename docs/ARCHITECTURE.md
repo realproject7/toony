@@ -17,8 +17,8 @@ sequence:
     id: cut-002
 ```
 
-Markdown can be generated as a support artifact for export targets, but it is
-not the source of truth for webtoon production.
+Exports write image files and a manifest; they are never the source of truth
+for webtoon production.
 
 ## Local-First Model
 
@@ -283,6 +283,13 @@ A compiled cut's `imagePrompt` is the script's scene text and nothing else. The
 story bible, the character lockstrings and the palette clause compose on top of
 it at generate time, exactly as they do for a hand-authored cut.
 
+The compile orchestration (script read and refusals, the project's lettering
+theme, validation with the project, the draft lints, plan geometry, diff and
+conflicts, and the written draft) lives in `@toony/authoring`. `toony draft
+compile` formats its result; Studio uses the same function to create a new
+episode from an agent-written script and then applies the draft with the same
+`applyDraft`, so both paths produce the same records.
+
 ## Controlled production
 
 `toony produce` is how an agent spends provider time without starting anything
@@ -332,30 +339,34 @@ rolls a new seed per cut and records it, so a different take needs no invented
 number. A run whose write-back replaces an authored prompt prints one line with
 the count and the ids, however many cuts it touched.
 
-## Export Targets
+## Export Outputs
 
-Platform export:
+Three engines draw from one composition path (`composeCut` and
+`composeTransitionBand`), planned by one pure layout module that the Studio
+preview also uses:
 
-- ordered JPG or PNG files
-- configurable width
-- compression options
+- **strip**: the episode as one tall PNG or JPEG, preserving cuts, gutters,
+  transitions and lettering. With a part height it writes parts that break
+  between whole cuts and restack to exactly the same pixels; a cut taller than a
+  part is split at exact rows. An optional byte cap per part is met by real
+  encodes, never by lowering width or quality. Parts never allocate the whole page.
+- **cuts**: one opaque image per cut at the chosen width, with an optional margin,
+  and optionally each text-card transition as its own image.
+- **social**: fixed frames with content inside safe insets and whole cuts per
+  frame. A cut taller than the frame is split into rows, or fitted whole when its
+  lettering stays legible. Frames are grouped into posts.
 
-Stitched export:
+Built-in outputs: `strip`, `cuts`, `instagram` (1080 x 1350), `instagram-square`
+(1080 x 1080), `x` (1600 x 900, up to 4 images per post) and `webtoon` (800 px
+wide, 1280 px JPEG parts at quality 90). Each writes
+`episodes/<id>/exports/<output>/` with a manifest that maps every file to the
+sequence items it shows and records the options, warnings (for example cuts
+without artwork) and a hash of the inputs. A folder is replaced atomically, and
+only files the previous manifest owns are removed. `stitched` and `platform`
+remain names for `strip` and `cuts`. Export folders written by earlier versions
+are left on disk and never read.
 
-- one long JPG or PNG
-- preserves cuts, gutters, transitions, and lettering
-
-PlotLink-ready export:
-
-- WebP images
-- max 20 image strips per episode (multiple consecutive cuts per strip)
-- max 1,000,000 bytes per image, max 16,383px per dimension
-- complete reading sequence preserved, including lettering and transition bands
-- requested width and quality retained; impossible fits fail before replacing prior output
-- generated markdown between 500 and 10,000 characters
-- manifest included
-
-Toony prepares PlotLink-ready content only. It does not upload or publish.
+Toony writes files only. It does not post or publish anywhere.
 
 ## Packs
 
@@ -382,7 +393,7 @@ The format is documented in [PACK_FORMAT.md](./PACK_FORMAT.md).
 ## Craft measurement
 
 A pack's own output can be graded rather than eyeballed. `toony measure` composes
-an episode exactly as the stitched export does and reads the page back as craft
+an episode exactly as the strip export does and reads the page back as craft
 signals — the geometry and colour of the composed page, plus the transition
 vocabulary read off the episode's declared records — so a pack is finished when
 its output lands inside a target band. The measurement is provider-free and
@@ -407,32 +418,66 @@ and resizing use document coordinates across zoom and pan. Locks persist as edit
 metadata; group alignment and optional guides do not change rendering semantics.
 
 Modern cut saves include a `baseRevision` content hash for that cut's lettering.
-The process write queue compares it with current saved content before merging. A
+The project write lock compares it with current saved content before merging. A
 stale save returns HTTP409 without writing. Successful saves return the new
 revision, including saves that leave newer local edits dirty. The UI preserves a
 failed draft and offers copy/reload. Legacy API callers may omit the revision;
 this is not a multi-process lock or a guarantee against unconditional external
 writers. The one-external-writer project rule remains.
 
-Explicit bubble copy stores a clipboard envelope in the tab session,
-which survives reloads and cut navigation. Paste validates the envelope, inserts new objects and never
-replaces existing lettering automatically. Native system paste is handled through
-the clipboard event; text fields keep their normal text paste. Reload/discard
+Explicit bubble copy writes a clipboard envelope to the system clipboard and to
+the tab session, which survives reloads and cut navigation. Paste reads the system
+clipboard when it holds copied bubbles and falls back to the tab copy; it validates
+the envelope, inserts new objects and never replaces existing lettering
+automatically. Native system paste is handled through the clipboard event; text
+fields keep their normal text paste. Reload/discard
 confirmation stays inside the editor so its focus, recovery and cancellation
 remain accessible without a blocking browser dialog.
 
 The selected-object inspector groups text, bubble appearance and layout separately.
-Advanced spacing, placement and review controls use explicit disclosures. A native
-text selection exposes range formatting in place of whole-bubble typography.
-The type picker stays above these groups and preserves content, position, colors
-and text ranges when explicitly changing a kind; incompatible tails and shape
-overrides are reset. New or explicitly selected shout presets use a sharp outline.
+Rare text options and exact positions use explicit disclosures. A native text
+selection exposes range formatting in place of whole-bubble typography. The Bubble
+tab's type choice (speech, thought, shout, whisper, narration, free text) preserves
+content, position, colors and text ranges when explicitly changing a kind;
+incompatible tails and shape overrides are reset. New or explicitly selected shout presets use a sharp outline.
 Saved overlays are never restyled automatically.
 
 Palette and type-picker thumbnails consume the same preset/type-change factories,
 render plans and SVG body as the artwork. Thumbnail strokes use a fixed display
 weight for legibility; the body/tail path and themed colors are shared. No separate
 illustrative icon geometry represents a different generated silhouette.
+
+## Human workspace
+
+The left side of Studio is for checking results and for the craft a person does
+best: lettering and the rhythm between cuts. Everything else is reachable by
+asking the agent, so the pages read calmly and carry few controls.
+
+- Rail: Library, then the open webtoon's Story, Characters and Episodes, then
+  Settings. The last opened webtoon is remembered per browser, so the rail keeps it
+  on Settings and the library offers "Continue". The theme follows the system
+  unless chosen in Settings; a head script applies it before the first paint.
+- Pages report what the person is looking at (page, episode, cut or transition,
+  selected bubbles) to the agent panel through the shared focus store.
+- Every write goes through the guarded routes and the single write path, so it is
+  journaled and undoable. Episode create, rename and delete, cut add, remove and
+  move, and one-character cast edits (`POST /api/cast`, merged by id so a stale
+  page never overwrites another character) answer with a change id the page
+  offers as Undo.
+- The episode editor follows the live feed. A clean editor picks up saved changes
+  in place: the cut editor is keyed by the lettering revision it started from
+  (its own saves keep the key, so undo history survives), and the transition
+  editor adopts a new saved revision. An editor with unsaved work shows a banner,
+  "Reload it" or "Keep editing"; keeping edits leaves the save to the existing
+  revision check (HTTP 409).
+- A cut without artwork shows its scene text and takes an image by upload or
+  drop (`POST /api/artwork`). "Mark as final" is the person's sign-off on a cut's
+  artwork; the agent never sets it. Scene text is read-only here; the agent edits
+  it.
+- New dialogue bubbles start with a speaker (the last one used, a character the
+  cut names, or the only cast member), and the editor points at a bubble that
+  still has none before it saves.
+
 ## Connected creative workspace
 
 Studio keeps a project conversation beside the human workspace. Story, characters,
@@ -442,30 +487,149 @@ navigation uses client routing; unsaved lettering has a session-local recovery
 copy with its original save revision, so recovery still uses the existing save
 conflict guard.
 
-The initial agent adapter is read-only. It runs the user's installed Claude Code
-or Codex CLI from an empty private directory with native tools, hooks, plugins,
-MCP and project discovery restricted. It passes only allowlisted environment
-variables. Authentication remains with the official CLI. Toony neither collects
-credentials nor initiates login. Compatibility is currently pinned to inspected
-CLI versions: Codex 0.158.0 and Claude Code 2.1.293, with required restriction flags
-checked before inference. Other versions fail closed until verified.
+### The in-app agent
 
-`POST /api/agent` requires a loopback host, matching browser origin, a custom JSON
-header and a strict HTTP-only local session cookie. Run Studio bound to loopback.
-The development scripts and CLI launcher bind to loopback by default. Do not
-override that binding or expose this local account adapter through a public proxy. Native output is
-bounded and validated as events arrive; prohibited actions stop the process
-group. Raw diagnostic output is never sent to the browser. Timeout, cancellation
-and disconnect reject late responses.
+The agent is the person's own Claude Code or Codex CLI, run on this computer
+with their subscription sign-in. Toony never collects credentials or starts a
+login. The runtime lives in `apps/studio/src/lib/agent/`.
 
-Toony owns conversation IDs and replays a bounded conversation plus an allowlisted
-snapshot of saved story, character and selected-scene text. This is application
-history, not a resumed native CLI session. Images, unsaved editor changes and
-provider configuration are excluded. A context switch never redirects an admitted
-request. Saved conversation files live in `.toony-agent` under the workspace,
-outside individual projects, with private file permissions. Retention can be
-disabled for new conversations. Interrupted responses are not restarted after a
-server restart. Provider retention is separate.
+Readiness (`readiness.ts`) finds the CLI on the allowlisted `PATH` and in the
+usual install folders, accepts version ranges (Claude Code 2.1.259 up to 2.2,
+Codex 0.158 up to 0.170) and checks every option Toony passes in the CLI's own
+`--help`. Version and help checks are cached per binary (real path, size,
+modification time), never run per turn. The sign-in check reads only
+`loggedIn`, `authMethod` and `apiProvider` from `claude auth status --json`, or
+the exit code and "Logged in using ChatGPT" from `codex login status`; command
+output is never logged. Other sign-in methods are explained, not used.
+Connecting runs this check and saves `.toony-agent/settings.json` (version 2,
+mode 0600); it does not run a model turn. A version 1 file migrates on load.
 
-Project mutations, image editing and generation are not agent tools in this
-increment. Conversation results cannot automatically become project canon.
+A turn is one CLI process in the conversation's private folder
+(`.toony-agent/sessions/<conversationId>/`, 0700) with the allowlisted
+environment, resuming the conversation's native session:
+
+- Claude Code: `-p --output-format stream-json --verbose
+  --include-partial-messages --restricted --tools "" --strict-mcp-config
+  --mcp-config <run>/mcp.json --permission-mode dontAsk --allowedTools
+  mcp__toony --no-chrome --append-system-prompt-file <run>/toony-rules.md`,
+  then `--session-id` (new) or `--resume`. No built-in tool is available, only
+  the Toony MCP server, and nothing can prompt.
+- Codex: `exec --json` (or `exec resume <thread>`), user config and rules
+  ignored, `sandbox_mode="read-only"`, `approval_policy="never"`, web search
+  off, the Toony MCP server with `default_tools_approval_mode="approve"`, the
+  rules as developer instructions, and shell, exec, browser, image, plugin,
+  hook, memory and multi-agent features off. The code-mode host stays on
+  because the model reaches MCP tools through it.
+
+The prompt goes on stdin. Parsers accept unknown event types and turn the rest
+into text deltas, finished text, tool steps, completion, sign-in failure (stopped
+early, with the exact `claude auth login` or `codex login` command shown), usage
+limit and other failure. A session the CLI no longer has is replaced by a fresh
+one that starts from the recovery brief and the recent messages. Stop sends
+SIGINT, then SIGTERM, then SIGKILL to the process group; late output is
+dropped. A turn ends after 15 minutes, or after 5 minutes without any sign of
+life.
+
+The agent works only through typed Toony tools. Studio writes a small MCP
+bridge (Node built-ins only) into a private per-turn run folder with its config
+(Studio URL, a random bearer token for this turn, the tool list). The bridge
+answers `initialize`, `ping` and `tools/list` itself and forwards `tools/call`
+(name and arguments only, never `_meta`) to `POST /api/agent/tools`. That route
+serves loopback hosts only, refuses browser requests and accepts only the live
+token of a running turn (compared in constant time, revoked when the turn
+ends). Tools read the project, or write through `withProjectWrite` as the agent
+with the conversation id, so every change is journaled, undoable and published
+on the live feed. Reads: `get_status`, `list_works`, `read_story`,
+`read_characters`, `read_episode`, `view_cut` (the cut composed with lettering
+by the export renderer, at most 768 px, as an MCP image; text when artwork
+viewing is off) and `check_episode`. Writes: `create_work`, `update_story`,
+`save_characters`, `remove_character`, `create_episode`, `rename_episode`,
+`delete_episode`, `edit_cuts`, `set_dialogue`, `set_transitions`,
+`import_artwork`, `export_episode` and `undo_change`. Collaboration:
+`update_tasks`, `ask_user`, `remember` and `forget`. There is no generation
+tool.
+
+With "Let the agent make changes without asking" on, writes apply and each
+leaves an undoable change card. Off, each write becomes a proposal card the
+person applies or dismisses; replacing existing lettering is always a proposal.
+A proposal is refused as stale when the project changed where it would write.
+A question or a proposal ends the turn in "waiting"; the answer, or the last
+decision of that turn, starts the next turn with a plain note. Agent edits
+never set review status.
+
+Conversations are stored as `.toony-agent/conversations/v2/<id>.json` (0600,
+atomic, bounded items; trimming never drops an unanswered question or a pending
+proposal). They hold the native session per provider, idempotency keys and the
+data of pending proposals. A conversation the person chose not to keep is never
+written. Older conversations stay readable as history but cannot be continued.
+A library conversation moves to the work its agent creates. One turn runs per
+conversation.
+
+Memory travels with the project: `.toony/agent/memory.json` (notes and the task
+list) beside the change journal. The recovery brief (at most 8 KB: work, cast,
+episodes with progress, tasks, the open question, notes, recent changes and what
+changed since the last turn) opens every new native session and answers
+`get_status`. Every turn prompt carries a focus line naming what the person is
+looking at ("Episode 2 (The Letter), Cut 3. Selected bubbles: 2"); a page for an
+episode that does not exist yet is described, not refused.
+
+`POST /api/agent` carries the panel's actions (`AgentAction` in
+`lib/agent/protocol.ts`) behind the shared request guard. Every state change
+reaches each tab on `GET /api/live`: `connection`, `providers`, `conversation`,
+`item`, `turn`, `delta`, `tasks`, `rebind`, `navigate`, plus the `project` and
+`export` events of the write path and export jobs. Run Studio bound to loopback;
+do not expose it through a proxy.
+
+## Studio write path and live feed
+
+Every change Studio makes to a project, whether a person's save, another tab's
+or the agent's, runs through one function, `withProjectWrite`
+(`apps/studio/src/lib/ops/`):
+
+1. take the project's lock (one per canonical project root, in this process);
+2. load the project as the validation baseline;
+3. snapshot every file and folder the change plans to write into
+   `.toony/history/<changeId>/`, with a manifest of what existed;
+4. run the change;
+5. if no planned file changed, drop the snapshot and record nothing;
+6. reload and refuse any new validation error in the touched scope;
+7. write the manifest, append `.toony/agent/journal.jsonl`, keep the newest 50
+   snapshots and publish a `project` event on the live bus.
+
+A failure in steps 4 to 6 restores the snapshot before the error surfaces.
+`undoChange` reverses a change from its snapshot only while every file it wrote
+still holds exactly what it wrote; otherwise it answers "Newer edits depend on
+this change. Undo those first." (a later Studio change wrote them) or that the
+files changed elsewhere. The lettering, transition, cut field, cut review,
+character, draft and art revision routes run inside this path with their
+original revision checks and HTTP 409 conflicts unchanged. Atomic writes stage
+into unique sibling files, so two writers never share a staging file. The CLI
+and other tools are still separate processes: the one-external-writer rule
+remains.
+
+Every mutating Studio route uses one request guard (`lib/request-guard.ts`): a
+loopback host, an Origin equal to that host, `x-toony-agent: 1`, the declared body
+type (JSON, or an image for uploads), same-origin fetch metadata when sent, and
+the HTTP-only, SameSite=Strict session cookie (path `/api`) this server process
+issued through `POST /api/session`. Browser code calls `studioFetch`, which
+bootstraps the session once and retries once after a server restart. Reads
+that reveal local state (`GET /api/live`, `GET /api/workspace`) require the
+header, the cookie, a loopback host and same-origin metadata.
+
+Project operations shared by agent tools and the left workspace (create and
+rename a work, update the story, merge characters by id, create an episode from
+a script, add or edit cuts with sequence integrity, set dialogue, set
+transitions, import artwork bytes) are plain functions over this path. Setting
+dialogue on a cut that already has lettering never writes: it returns a
+replacement for a person to approve.
+
+`GET /api/live` is one NDJSON stream per tab: `hello`, the events the tab missed
+since `?since=<seq>` (or `resync` when they are no longer held; the bus keeps
+2000), then every new event, with a `ping` every 15 seconds. The browser's
+`LiveProvider` keeps the stream open and reconnects. Pages call
+`useProjectSync(workId, scopes)`: a project change that touches the page refreshes
+it, unless an open editor registered with `useEditorScope` holds unsaved edits
+the change overlaps; then the hook reports `changedWhileDirty` so the editor can
+offer "Reload it" or "Keep editing", and the editor's own revision check still
+guards its next save.
+

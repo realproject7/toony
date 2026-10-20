@@ -24,7 +24,6 @@ import {
   EPISODE_RASTER_BYTES_MAX,
   IMAGE_FILE_BYTES_MAX,
   IMAGE_PIXELS_MAX,
-  PLOTLINK_MAX_IMAGES,
   RASTER_DIMENSION_MAX,
 } from "@toony/export";
 import { loadProject, writeProject } from "@toony/project-io";
@@ -151,8 +150,7 @@ function seconds(ms: number): number {
 async function manifestOf(root: string, target: string) {
   const dir = join(root, "episodes", EPISODE_ID, "exports", target);
   const manifest = JSON.parse(await readFile(join(dir, "manifest.json"), "utf8")) as {
-    files: Array<{ path: string; width: number; height: number; byteSize: number }>;
-    markdown: { characters: number } | null;
+    files: Array<{ path: string; width: number; height: number; byteSize: number; post?: number }>;
   };
   return { dir, manifest, ...(await volume(dir)) };
 }
@@ -398,59 +396,69 @@ test("sixty cuts run every shipped stage in order, and the run records what each
     },
   });
 
-  // --- export stitched, platform, plotlink ---
-  r = spawnStage(["export", "stitched", root, "--episode", EPISODE_ID], LIVENESS_COMPOSE_MS);
+  // --- export strip, cuts, webtoon parts, Instagram frames ---
+  r = spawnStage(["export", EPISODE_ID, root, "--output", "strip"], LIVENESS_COMPOSE_MS);
   assert.equal(r.status, EXIT_OK, r.stderr);
-  const stitched = await manifestOf(root, "stitched");
-  assert.ok(stitched.manifest.files.length >= 1);
+  const strip = await manifestOf(root, "strip");
+  assert.ok(strip.manifest.files.length >= 1);
   record({
-    stage: "export-stitched",
-    command: "toony export stitched --episode",
+    stage: "export-strip",
+    command: "toony export <episode> --output strip",
     exit: r.status,
     seconds: seconds(r.ms),
     ms: r.ms,
-    files: stitched.files,
-    bytes: stitched.bytes,
-    pages: stitched.manifest.files.map((f) => [f.width, f.height, f.byteSize]),
+    files: strip.files,
+    bytes: strip.bytes,
+    pages: strip.manifest.files.map((f) => [f.width, f.height, f.byteSize]),
   });
 
-  r = spawnStage(["export", "platform", root, "--episode", EPISODE_ID], LIVENESS_COMPOSE_MS);
+  r = spawnStage(["export", EPISODE_ID, root, "--output", "cuts"], LIVENESS_COMPOSE_MS);
   assert.equal(r.status, EXIT_OK, r.stderr);
-  const platform = await manifestOf(root, "platform");
-  assert.equal(platform.manifest.files.length, SIXTY);
-  const platformHeights = platform.manifest.files.map((f) => f.height);
+  const cuts = await manifestOf(root, "cuts");
+  assert.equal(cuts.manifest.files.length, SIXTY);
+  const cutHeights = cuts.manifest.files.map((f) => f.height);
   record({
-    stage: "export-platform",
-    command: "toony export platform --episode",
+    stage: "export-cuts",
+    command: "toony export <episode> --output cuts",
     exit: r.status,
     seconds: seconds(r.ms),
     ms: r.ms,
-    files: platform.files,
-    bytes: platform.bytes,
-    cutFiles: platform.manifest.files.length,
-    cutHeightRange: [Math.min(...platformHeights), Math.max(...platformHeights)],
+    files: cuts.files,
+    bytes: cuts.bytes,
+    cutFiles: cuts.manifest.files.length,
+    cutHeightRange: [Math.min(...cutHeights), Math.max(...cutHeights)],
   });
 
-  r = spawnStage(["export", "plotlink", root, "--episode", EPISODE_ID], LIVENESS_COMPOSE_MS);
-  assert.equal(
-    r.status,
-    EXIT_OK,
-    `plotlink: ${r.stderr} (a refusal here is a result to record and file, not a reason to shrink the fixture)`,
-  );
-  const plotlink = await manifestOf(root, "plotlink");
-  assert.ok(plotlink.manifest.files.length <= PLOTLINK_MAX_IMAGES);
+  r = spawnStage(["export", EPISODE_ID, root, "--output", "webtoon"], LIVENESS_COMPOSE_MS);
+  assert.equal(r.status, EXIT_OK, r.stderr);
+  const webtoon = await manifestOf(root, "webtoon");
+  assert.ok(webtoon.manifest.files.every((f) => f.width === 800 && f.height <= 1280));
   record({
-    stage: "export-plotlink",
-    command: "toony export plotlink --episode",
+    stage: "export-webtoon",
+    command: "toony export <episode> --output webtoon",
     exit: r.status,
     seconds: seconds(r.ms),
     ms: r.ms,
-    files: plotlink.files,
-    bytes: plotlink.bytes,
-    strips: plotlink.manifest.files.length,
-    stripCeiling: PLOTLINK_MAX_IMAGES,
-    stripHeights: plotlink.manifest.files.map((f) => f.height),
-    markdownChars: plotlink.manifest.markdown?.characters ?? null,
+    files: webtoon.files,
+    bytes: webtoon.bytes,
+    parts: webtoon.manifest.files.length,
+    partRows: webtoon.manifest.files.reduce((sum, f) => sum + f.height, 0),
+  });
+
+  r = spawnStage(["export", EPISODE_ID, root, "--output", "instagram"], LIVENESS_COMPOSE_MS);
+  assert.equal(r.status, EXIT_OK, r.stderr);
+  const instagram = await manifestOf(root, "instagram");
+  assert.ok(instagram.manifest.files.every((f) => f.width === 1080 && f.height === 1350));
+  record({
+    stage: "export-instagram",
+    command: "toony export <episode> --output instagram",
+    exit: r.status,
+    seconds: seconds(r.ms),
+    ms: r.ms,
+    files: instagram.files,
+    bytes: instagram.bytes,
+    frames: instagram.manifest.files.length,
+    posts: instagram.manifest.files.at(-1)?.post ?? 0,
   });
 
   // --- ranges: nothing the fixture records is a constant across its cuts ---

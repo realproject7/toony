@@ -13,7 +13,7 @@ import type {
   SequenceItem,
   Transition,
 } from "@toony/schema";
-import { atomicWrite } from "../atomic.js";
+import { atomicWrite, stagingPathFor } from "../atomic.js";
 import { decodeYaml } from "../format.js";
 import { ProjectIoError } from "../index.js";
 import { cutsFile, episodeFile, letteringFile, transitionsFile, webtoonPath } from "../paths.js";
@@ -842,7 +842,7 @@ test("a deletion interrupted before the record prune leaves no dangling referenc
 
   // Interrupt the SECOND rename (the prune): make the transitions temp a
   // directory so its staging fails with EISDIR after episode.yaml is committed.
-  await mkdir(`${transitionsFile(root, "ep-001")}.tmp`);
+  await mkdir(stagingPathFor(transitionsFile(root, "ep-001")));
   await assert.rejects(writeTransitions(root, "ep-001", episodeWith(sequence), remaining, cuts));
 
   // episode.yaml is the new (deleted) sequence; transitions.yaml still holds the
@@ -877,7 +877,7 @@ test("a mixed edit interrupted after the union pass leaves no dangling reference
   // Interrupt the episode rename (phase 2): make episode.yaml's temp a directory.
   // The union pass has committed, but the sequence is still the OLD one, which
   // references tr-002 — present only because the union kept it.
-  await mkdir(`${episodeFile(root, "ep-001")}.tmp`);
+  await mkdir(stagingPathFor(episodeFile(root, "ep-001")));
   await assert.rejects(writeTransitions(root, "ep-001", episodeWith(sequence), next, cuts));
 
   await assertNoDanglingReference(root, "ep-001");
@@ -932,8 +932,8 @@ test("a mixed edit interrupted during the final prune leaves no dangling referen
   ];
 
   // The phase-3 prune interruption cannot be isolated with a static-fs fault
-  // inside one writeTransitions call — phases 1 and 3 both stage into
-  // transitions.yaml.tmp, so a directory there would trip phase 1 first. So
+  // inside one writeTransitions call — phases 1 and 3 both stage into the same
+  // transitions staging file, so a directory there would trip phase 1 first. So
   // drive the SAME ordered commit the writer builds: run phases 1+2 for real,
   // then interrupt phase 3 (the prune) via EISDIR on its staging temp.
   const transitionsPath = transitionsFile(root, "ep-001");
@@ -951,7 +951,7 @@ test("a mixed edit interrupted during the final prune leaves no dangling referen
 
   await atomicWrite(phase1.file, phase1.data); // phase 1: transitions = old ∪ new
   await atomicWrite(phase2.file, phase2.data); // phase 2: episode = new sequence
-  await mkdir(`${transitionsPath}.tmp`);
+  await mkdir(stagingPathFor(transitionsPath));
   await assert.rejects(atomicWrite(phase3.file, phase3.data)); // phase 3: prune, interrupted
 
   // transitions.yaml is still the union superset; episode.yaml is the new

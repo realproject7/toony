@@ -1067,3 +1067,12 @@ test("a declared gutter strip must be a fraction inside the craft bounds", () =>
     );
   }
 });
+
+test("logline and synopsis are optional story text and must be strings", () => {
+  const project = cloneValidProject();
+  assert.equal(validateWebtoon(project.webtoon).valid, true, "absent is valid");
+  Object.assign(project.webtoon, { logline: "A ferry pilot hears a voice.", synopsis: "" });
+  assert.equal(validateWebtoon(project.webtoon).valid, true);
+  Object.assign(project.webtoon, { logline: 42 });
+  assert.ok(codes(validateWebtoon(project.webtoon)).includes("webtoon.story-text"));
+});

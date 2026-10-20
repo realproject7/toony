@@ -231,6 +231,12 @@ export function validateWebtoonValue(value: unknown, path: string, c: IssueColle
   if (value.characters !== undefined) {
     validateCharactersValue(value.characters, joinPath(path, "characters"), c);
   }
+  // The logline and synopsis are optional authored text; absent means none.
+  for (const key of ["logline", "synopsis"] as const) {
+    if (value[key] !== undefined && typeof value[key] !== "string") {
+      c.add(joinPath(path, key), "webtoon.story-text", `${key} must be a string.`);
+    }
+  }
   // A selected pack theme or lexicon (#334, #335) is an id; whether an installed
   // pack provides it is the consumer's question, the way a workflow name is.
   for (const key of ["letteringTheme", "styleLexicon"] as const) {

@@ -41,9 +41,9 @@ done
 
 toony validate
 toony lint
-toony export platform --episode ep-001 --width 800 --format jpg
-toony export stitched --episode ep-001 --width 800 --format png
-toony export plotlink  --episode ep-001
+toony export ep-001 --output cuts --width 800 --format jpg
+toony export ep-001 --output strip --width 800
+toony export ep-001 --output instagram
 ```
 
 Open the studio to preview/edit instead: `toony studio` (from this folder).

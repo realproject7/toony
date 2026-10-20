@@ -7,6 +7,10 @@ import {
   RevisionError,
   readArtRevision,
 } from "@toony/project-io";
+import { isPathSafeId } from "@toony/schema";
+import { contextFor, withProjectWrite } from "@/lib/ops";
+import { cutLabel } from "@/lib/ops/labels";
+import { clientIdOf, guardFailure, guardJsonWrite } from "@/lib/request-guard";
 import { resolveWork } from "@/lib/workspace";
 export const dynamic = "force-dynamic";
 
@@ -47,17 +51,30 @@ function failure(e: unknown) {
   );
 }
 export async function POST(request: Request): Promise<Response> {
+  let p: Record<string, unknown>;
   try {
-    const p = await request.json();
+    p = await guardJsonWrite(request);
+  } catch (error) {
+    return guardFailure(error) ?? failure(new RevisionError("Invalid revision action."));
+  }
+  const clientId = clientIdOf(request);
+  try {
     if (
-      !p ||
       typeof p.workId !== "string" ||
       typeof p.episodeId !== "string" ||
-      typeof p.cutId !== "string"
+      typeof p.cutId !== "string" ||
+      !isPathSafeId(p.episodeId)
     )
       return failure(new RevisionError("Provide a work, episode and cut."));
     const work = await resolveWork(p.workId);
     if (!work) return failure(new RevisionError("Unknown work."));
+    const episodeId = p.episodeId;
+    const cutId = p.cutId;
+    const ctx = contextFor(work.root, {
+      actor: "human",
+      workId: work.id,
+      ...(clientId ? { clientId } : {}),
+    });
     if (
       p.action === "create" &&
       typeof p.contextRevision === "string" &&
@@ -65,22 +82,54 @@ export async function POST(request: Request): Promise<Response> {
       typeof p.preserve === "string" &&
       (p.characterId === undefined || typeof p.characterId === "string")
     ) {
-      const r = await createArtRevision(work.root, {
-        episodeId: p.episodeId,
-        cutId: p.cutId,
-        contextRevision: p.contextRevision,
-        change: p.change,
-        preserve: p.preserve,
-        characterId: p.characterId,
-      });
-      return Response.json({ ok: true, id: r.id });
+      const { contextRevision, change, preserve } = p;
+      const characterId = p.characterId as string | undefined;
+      // A request is runtime state under `.toony/`, not project data: it is
+      // serialized with every other write but leaves no undo snapshot.
+      const { result } = await withProjectWrite(
+        ctx,
+        {
+          summary: "Requested an art change",
+          scopes: [{ kind: "artwork", episodeId, cutId }],
+          errors: "as-is",
+        },
+        (tx) =>
+          createArtRevision(tx.root, {
+            episodeId,
+            cutId,
+            contextRevision,
+            change,
+            preserve,
+            characterId,
+          }),
+      );
+      return Response.json({ ok: true, id: result.id });
     }
-    if (p.action === "apply" && typeof p.id === "string" && typeof p.candidateDigest === "string") {
-      const r = await readArtRevision(work.root, p.id);
-      if (r.episodeId !== p.episodeId || r.cutId !== p.cutId)
+    if (
+      p.action === "apply" &&
+      typeof p.id === "string" &&
+      /^[0-9a-f-]{36}$/.test(p.id) &&
+      typeof p.candidateDigest === "string"
+    ) {
+      const id = p.id;
+      const candidateDigest = p.candidateDigest;
+      const r = await readArtRevision(work.root, id);
+      if (r.episodeId !== episodeId || r.cutId !== cutId)
         return failure(new RevisionError("Request belongs to another cut."));
-      await applyArtRevision(work.root, p.id, p.candidateDigest);
-      return Response.json({ ok: true });
+      const { change } = await withProjectWrite(
+        ctx,
+        {
+          summary: "Used the revised artwork",
+          scopes: [{ kind: "artwork", episodeId, cutId }],
+          files: [`episodes/${episodeId}/cuts.yaml`, `.toony/revisions/${id}/request.json`],
+          errors: "as-is",
+        },
+        async (tx) => {
+          tx.setSummary(`Used the revised artwork on ${cutLabel(tx.before, episodeId, cutId)}`);
+          await applyArtRevision(tx.root, id, candidateDigest);
+        },
+      );
+      return Response.json({ ok: true, ...(change ? { changeId: change.changeId } : {}) });
     }
     return failure(new RevisionError("Invalid revision action."));
   } catch (e) {

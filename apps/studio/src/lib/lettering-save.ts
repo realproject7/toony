@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
-import { realpath } from "node:fs/promises";
-import { loadProject, writeLettering } from "@toony/project-io";
-import { type LetteringOverlay, type Project, validateProject } from "@toony/schema";
+import { type LoadedProject, writeLettering } from "@toony/project-io";
+import { isPathSafeId, type LetteringOverlay, type Project, validateProject } from "@toony/schema";
+import type { ProjectChange } from "./agent/protocol.js";
+import { type ActorInfo, contextFor } from "./ops/context.js";
+import { cutLabel } from "./ops/labels.js";
+import { episodeFiles } from "./ops/paths.js";
+import { withProjectWrite } from "./ops/write.js";
 
 export interface CutLetteringPayload {
   workId: string;
@@ -46,34 +50,51 @@ type SaveResult =
   | { ok: true; count: number; revision?: string }
   | { ok: false; error: string; conflict?: boolean };
 
-// Serialize read/merge/write within this Studio process, including empty saves.
-// External CLI/Studio processes still require the project's single-writer rule.
-const writes = new Map<string, Promise<void>>();
+/**
+ * Save one cut's lettering through the project write path: under the
+ * project's lock (so concurrent saves read the latest episode), with an undo
+ * snapshot, a journal entry and a live event. Returns the save result and the
+ * recorded change (null when nothing changed).
+ */
+export async function saveCutLetteringChange(
+  root: string,
+  payload: CutLetteringPayload,
+  info: ActorInfo = {},
+): Promise<{ result: SaveResult; change: ProjectChange | null }> {
+  const { episodeId, cutId } = payload;
+  if (!isPathSafeId(episodeId)) {
+    return { result: { ok: false, error: `unknown episode "${episodeId}"` }, change: null };
+  }
+  return withProjectWrite(
+    contextFor(root, { workId: payload.workId, ...info }),
+    {
+      summary: "Updated lettering",
+      scopes: [{ kind: "lettering", episodeId, cutId }],
+      files: [episodeFiles(episodeId).lettering],
+      errors: "as-is",
+    },
+    async (tx) => {
+      tx.setSummary(`Updated lettering on ${cutLabel(tx.before, episodeId, cutId)}`);
+      return mergeAndWrite(tx.root, payload, tx.before);
+    },
+  );
+}
 
+/** Save one cut's lettering. See `saveCutLetteringChange`. */
 export async function saveCutLettering(
   root: string,
   payload: CutLetteringPayload,
+  info: ActorInfo = {},
 ): Promise<SaveResult> {
-  const canonicalRoot = await realpath(root);
-  const key = JSON.stringify([canonicalRoot, payload.episodeId]);
-  const previous = writes.get(key) ?? Promise.resolve();
-  const pending = previous.then(() => mergeAndWrite(canonicalRoot, payload));
-  // A failed write must release the queue rather than poison later saves.
-  const settled = pending.then(
-    () => {},
-    () => {},
-  );
-  writes.set(key, settled);
-  try {
-    return await pending;
-  } finally {
-    if (writes.get(key) === settled) writes.delete(key);
-  }
+  return (await saveCutLetteringChange(root, payload, info)).result;
 }
 
-async function mergeAndWrite(root: string, payload: CutLetteringPayload): Promise<SaveResult> {
+async function mergeAndWrite(
+  root: string,
+  payload: CutLetteringPayload,
+  loaded: LoadedProject,
+): Promise<SaveResult> {
   const { episodeId, cutId, overlays } = payload;
-  const loaded = await loadProject(root);
   const bundleIndex = loaded.project.episodes.findIndex((b) => b.episode.id === episodeId);
   const bundle = loaded.project.episodes[bundleIndex];
   if (!bundle) return { ok: false, error: `unknown episode "${episodeId}"` };

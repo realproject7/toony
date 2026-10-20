@@ -9,7 +9,9 @@ usage:
   toony studio [path]      launch the web studio over a workspace (or a single project)
   toony import-image ...   import/ingest an image asset for a cut or transition
   toony generate ...       generate a cut/transition image via a provider (comfyui)
-  toony export <target> ...  export platform/stitched/plotlink for an episode
+  toony export <episode> --output <id>
+                           write an episode strip, cut images, or Instagram,
+                           X or webtoon platform images
   toony lint [path]        lint a whole project (schema, images, overflow, manifests)
   toony lint-episode <id>  lint a single episode by id
   toony plan [path] (--episode <id> | --spec <file>)
@@ -35,8 +37,9 @@ options:
                            also fail when a cut an episode renders has no image
                            asset; opt-in, because \`image: null\` is legitimate
                            mid-production and the shipped examples rely on it
-  studio --port <n>        port for the studio server (in-repo dev default 4477;
-                           installed: a free port is chosen automatically)
+  studio --port <n>        port for the studio server (default 4477; installed
+                           mode picks a free port when 4477 is taken)
+  studio --no-open         do not open the browser once the studio is ready
   import-image --episode <id> (--cut <id> [--slot clean|final] | --transition <id>)
                --from <file> [--provider manual]
                            strips image metadata at ingest; provider-neutral
@@ -68,11 +71,20 @@ options:
                            and records it. A run that replaces authored prompts
                            through the write-back says so on one line, with the
                            cut ids
-  export <platform|stitched|plotlink|preset> [path] --episode <id>
-         [--width <px>] [--format png|jpg] [--quality <0-100>]
-                           writes into the project's exports/ folder + manifest;
-                           the first argument is an export preset — the three
-                           built-ins, or one an installed pack contributes
+  export <episode> [path] --output <id> [--width <px>] [--slice-height <px>]
+         [--format png|jpg] [--quality <0-100>] [--margin <px>]
+         [--max-bytes <n>] [--text-cards] [--tall-cuts split|fit]
+                           writes episodes/<id>/exports/<output>/ with a
+                           manifest. Outputs: strip (one tall image; with
+                           --slice-height, parts that restack exactly), cuts
+                           (one image per cut; --margin, --text-cards),
+                           instagram (1080x1350), instagram-square (1080x1080),
+                           x (1600x900; frames grouped into posts), webtoon
+                           (800 px wide, 1280 px JPEG parts). Default: strip.
+                           --target is the same as --output, and stitched and
+                           platform still name strip and cuts. A pack may add
+                           outputs. A flag that does not apply to the output is
+                           a usage error. Files only: nothing is posted
   lint [path] --json       emit findings as JSON instead of text
   lint-episode <id> [path] [--json]
                            lint only the named episode
@@ -99,7 +111,7 @@ options:
                            passed: nothing was checked, so there is no verdict
   measure [path] --episode <id> [--against <band-id|band.json>] [--json]
           [--width <px>] [--screen-aspect <n>]
-                           renders the episode the way \`export stitched\` does —
+                           renders the episode the way \`export --output strip\` does —
                            no provider, no prior export — and reports gutter,
                            panel, and colour signals; --against grades them
                            against a band file or a band an installed pack ships
