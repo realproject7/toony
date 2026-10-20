@@ -321,7 +321,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     kind: "write",
     step: "Editing cuts",
     description:
-      "Add, update, remove or move cuts of an episode in one change. Removing a cut removes its lettering and any transition left dangling. Never changes review status.",
+      "Add, update, remove or move cuts of an episode in one change. An update can also set a cut's shape (height as a multiple of width: wide, square or tall) and the part of its picture it shows (view). Removing a cut removes its lettering and any transition left dangling. Never changes review status.",
     inputSchema: obj(
       {
         episodeId,
@@ -363,7 +363,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     kind: "write",
     step: "Drawing",
     description:
-      "Draw cut artwork with the person's artwork engine (ComfyUI on this computer). For each cut, write the image prompt in English: subject, action, setting, framing, mood and style, as comma-separated phrases; the engine adds the cast's look and the story context. A cut that already has art is redrawn (the old image can be undone). Drawing takes about a minute or more per cut: this waits a few minutes, and when cuts are still drawing it returns, the rest continue in the background, and you get a message when the job is done.",
+      "Draw cut artwork with the person's artwork engine (ComfyUI on this computer). For each cut, write the image prompt in English: how many people, then framing, action, key objects, setting, light and style, as comma-separated phrases; it is sent on its own, and the engine adds only the cast's look. Set a wide or tall cut's shape with edit_cuts before drawing it. A cut that already has art is redrawn (the old image can be undone). Drawing takes about a minute or more per cut: this waits a few minutes, and when cuts are still drawing it returns, the rest continue in the background, and you get a message when the job is done.",
     inputSchema: obj(
       {
         episodeId,
