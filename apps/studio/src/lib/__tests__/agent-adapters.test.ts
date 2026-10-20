@@ -13,6 +13,8 @@ import {
   type RunFiles,
   toonyToolName,
 } from "../agent/adapters.js";
+import { HOST_NOTICE, turnRules } from "../agent/host-notice.js";
+import { AGENT_RULES } from "../agent/rules.js";
 
 const files: RunFiles = {
   node: "/synthetic/node",
@@ -87,6 +89,8 @@ test("Codex turns run read-only, never ask, approve the Toony server and read st
     ),
   );
   assert.ok(config.includes('mcp_servers.toony.default_tools_approval_mode="approve"'));
+  assert.ok(config.includes("skills.include_instructions=false"), "no skills catalog");
+  assert.ok(config.includes("project_doc_max_bytes=0"), "no project AGENTS.md");
   assert.ok(config.includes('developer_instructions="Say \\"hello\\".\\nSecond line."'));
   for (const feature of CODEX_DISABLED_FEATURES) {
     assert.ok(config.includes(`features.${feature}=false`), feature);
@@ -103,6 +107,16 @@ test("Codex turns run read-only, never ask, approve the Toony server and read st
   assert.ok(!resumed.includes("-s") && !resumed.includes("-C"));
   assert.equal(after(resumed, "-m"), "slug-1");
   assert.equal(resumed.at(-1), "-");
+});
+
+test("every turn's rules open with the notice that outside agent instructions do not apply", () => {
+  const rules = turnRules(AGENT_RULES);
+  assert.ok(rules.startsWith(`${HOST_NOTICE}\n\n`));
+  assert.ok(rules.endsWith(AGENT_RULES));
+  for (const named of ["AGENTS.md", "CLAUDE.md", "do not apply here", "Follow only these rules"]) {
+    assert.ok(HOST_NOTICE.includes(named), named);
+  }
+  assert.ok(Buffer.byteLength(rules) < 4096, "rules stay under 4 KB");
 });
 
 const line = (value: unknown) => JSON.stringify(value);
