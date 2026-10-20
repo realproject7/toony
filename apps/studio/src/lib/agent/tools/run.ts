@@ -62,6 +62,7 @@ import {
 } from "../../ops/index.js";
 import { cutNumber } from "../../ops/labels.js";
 import { projectPath } from "../../ops/paths.js";
+import { saveCutSuggestions, suggestionFlags } from "../../suggestions/store.js";
 import {
   episodeName,
   newNoteId,
@@ -1563,6 +1564,7 @@ const DONE_TITLES: Record<string, string> = {
   check_art_engine: "Checked the artwork engine",
   export_episode: "Exported",
   undo_change: "Undid a change",
+  suggest_dialogue: "Suggested lines",
   remember: "Remembered a note",
   forget: "Forgot a note",
 };
@@ -1715,6 +1717,7 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown): P
     activity(host, rowId, spec, "done", {
       title: DONE_TITLES[name] ?? spec.step,
       ...(result.detail ? { detail: result.detail } : {}),
+      ...(result.targets ? { targets: result.targets } : {}),
     });
     return result.result;
   } catch (error) {
@@ -1729,7 +1732,7 @@ async function runRead(
   host: ToolHost,
   name: string,
   rawArgs: unknown,
-): Promise<{ result: ToolResult; detail?: string }> {
+): Promise<{ result: ToolResult; detail?: string; targets?: AgentTarget[] }> {
   switch (name) {
     case "get_status":
       A.noArgs(rawArgs);
@@ -1842,6 +1845,40 @@ async function runRead(
           questionId,
           note: "The question is shown to the person. End your turn now; their answer arrives as your next message.",
         }),
+      };
+    }
+    case "suggest_dialogue": {
+      const args = A.suggestDialogueArgs(rawArgs);
+      const work = await requireWork(host);
+      const loaded = await loadProject(work.root);
+      const bundle = findBundle(loaded, args.episodeId);
+      const cut = bundle?.cuts.find((c) => c.id === args.cutId);
+      if (!bundle || !cut)
+        throw new ToolInputError("This cut is not in the episode. read_episode lists the cuts.");
+      const cast = loaded.project.webtoon.characters ?? [];
+      const unknown = args.options.find(
+        (option) => option.speaker !== undefined && !cast.some((c) => c.id === option.speaker),
+      );
+      if (unknown) {
+        throw new ToolInputError(
+          `${unknown.speaker} is not in the cast. Speakers are character ids: ${cast.map((c) => c.id).join(", ") || "none yet"}.`,
+        );
+      }
+      const saved = await saveCutSuggestions(work.root, work.id, args.episodeId, cut, args.options);
+      const flagged = saved
+        .map((option) => ({ option, flags: suggestionFlags(option, cast, cut.characters ?? []) }))
+        .filter((entry) => entry.flags.length > 0)
+        .map((entry) => ({ text: entry.option.text ?? "(silent)", flags: entry.flags }));
+      const label = shortCut(cutLabelOf(loaded, args.episodeId, args.cutId));
+      return {
+        result: textResult({
+          suggested: saved.length,
+          cut: label,
+          ...(flagged.length > 0 ? { flagged } : {}),
+          note: "The person sees these beside the cut's art and inserts what they want. They are not lettering.",
+        }),
+        detail: `${label}: ${saved.length} ${saved.length === 1 ? "line" : "lines"}`,
+        targets: [cutTarget(work.id, args.episodeId, args.cutId, label)],
       };
     }
     case "remember": {

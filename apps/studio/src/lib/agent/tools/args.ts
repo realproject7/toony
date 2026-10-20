@@ -19,6 +19,12 @@ import type {
   StoryPatch,
   TransitionItem,
 } from "../../ops/index.js";
+import {
+  SUGGESTION_KINDS,
+  SUGGESTION_TEXT_MAX,
+  SUGGESTIONS_MAX,
+  type SuggestionKind,
+} from "../../suggestions/types.js";
 import type { MemoryNote, QuestionOption, TaskItem } from "../protocol.js";
 import { EXPORT_OUTPUTS } from "./catalog.js";
 
@@ -694,6 +700,44 @@ export function askArgs(raw: unknown): AskArgs {
     multiSelect: bool(args, "multiSelect") ?? false,
     allowOther: bool(args, "allowOther") ?? true,
   };
+}
+
+export function suggestDialogueArgs(raw: unknown): {
+  episodeId: string;
+  cutId: string;
+  options: Array<{ kind: SuggestionKind; speaker?: string; text?: string; note?: string }>;
+} {
+  const args = argsObject(raw);
+  noExtra(args, ["episodeId", "cutId", "options"]);
+  const episodeId = id(args, "episodeId", "an episode");
+  const cutId = id(args, "cutId", "a cut");
+  const options = list(args.options, "options", 1, SUGGESTIONS_MAX).map((value, index) => {
+    const where = `options[${index}]`;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      fail(`${where} must be an object with kind and text.`);
+    }
+    const item = value as Args;
+    noExtra(item, ["kind", "speaker", "text", "note"], where);
+    const kind = item.kind as SuggestionKind;
+    if (!SUGGESTION_KINDS.includes(kind)) {
+      fail(`${where}.kind must be one of ${SUGGESTION_KINDS.join(", ")}.`);
+    }
+    const note = optionalText(item, "note", 200, `${where}.note`)?.trim();
+    if (kind === "silent") {
+      if (item.text !== undefined || item.speaker !== undefined) {
+        fail(`${where}: a silent option has no text and no speaker.`);
+      }
+      return { kind, ...(note ? { note } : {}) };
+    }
+    const line = text(item, "text", SUGGESTION_TEXT_MAX, `${where}.text`).trim();
+    if (kind === "narration") {
+      if (item.speaker !== undefined) fail(`${where}: narration has no speaker.`);
+      return { kind, text: line, ...(note ? { note } : {}) };
+    }
+    const speaker = id(item, "speaker", "a character");
+    return { kind, speaker, text: line, ...(note ? { note } : {}) };
+  });
+  return { episodeId, cutId, options };
 }
 
 export function rememberArgs(raw: unknown): { text: string; kind: MemoryNote["kind"] } {

@@ -44,8 +44,11 @@ import { BALLOON_LIBRARY, libraryOverlay, newOverlay, tailDragPatch } from "@/li
 import type { CutArt } from "@/lib/project";
 import { bubbleMissingSpeaker, defaultSpeaker, needsSpeaker, speakerChoices } from "@/lib/speaker";
 import { studioFetch } from "@/lib/studio-fetch";
+import { suggestionOverlay, suggestionReplacePatch } from "@/lib/suggestions/insert";
+import type { DialogueSuggestion } from "@/lib/suggestions/types";
 import { AlignmentSymbol } from "./alignment-symbol";
 import type { InspectorTab } from "./bubble-inspector";
+import { DialogueSuggestions } from "./dialogue-suggestions";
 import type { InlineTextHandle, TextSelection } from "./inline-lettering-text";
 import { LetteringCanvas } from "./lettering-canvas";
 import { LETTERING_PRESET_MIME, LetteringPresets } from "./lettering-presets";
@@ -654,6 +657,33 @@ export function CutEditor({
     setEditingId(created.id);
     markDirty();
   }, [cutId, bubbles.length, theme, referenceWidth, history, markDirty, withSpeaker]);
+
+  // A suggested line becomes lettering only here, on the person's click: a new
+  // bubble of its kind, or the text of the selected bubble. Both can be undone.
+  const insertSuggestion = useCallback(
+    (option: DialogueSuggestion, text: string, speakerName?: string) => {
+      const base = newOverlay(cutId, bubbles.length, theme ?? undefined, referenceWidth);
+      const created = suggestionOverlay(base, option, text, speakerName);
+      setEditingId(null);
+      setAdditionalIds([]);
+      history.record();
+      setBubbles((prev) => [...prev, created]);
+      setSelectedId(created.id);
+      markDirty();
+    },
+    [cutId, bubbles.length, theme, referenceWidth, history, markDirty],
+  );
+  const replaceWithSuggestion = useCallback(
+    (option: DialogueSuggestion, text: string, speakerName?: string) => {
+      if (!selected || selected.locked) return;
+      const patch = suggestionReplacePatch(selected, option, text, speakerName);
+      setEditingId(null);
+      history.record();
+      setBubbles((prev) => prev.map((b) => (b.id === selected.id ? { ...b, ...patch } : b)));
+      markDirty();
+    },
+    [selected, history, markDirty],
+  );
 
   // Apply the project's theme to the selected bubble on request (#336): every
   // field the theme states for its kind is written; the rest stays.
@@ -1880,6 +1910,14 @@ export function CutEditor({
               </button>
             </div>
           )}
+          <DialogueSuggestions
+            workId={workId}
+            episodeId={episodeId}
+            cutId={cutId}
+            canReplace={Boolean(selected && !selected.locked)}
+            onInsert={insertSuggestion}
+            onReplace={replaceWithSuggestion}
+          />
           {selected ? (
             <fieldset className="lettering-object-settings" disabled={Boolean(selected.locked)}>
               <BubbleInspector

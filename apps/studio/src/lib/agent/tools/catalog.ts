@@ -501,6 +501,36 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     ),
   },
   {
+    name: "suggest_dialogue",
+    kind: "collab",
+    step: "Suggesting lines",
+    description:
+      "Offer a few short alternative lines for one cut, shown beside its art. The person copies, edits or inserts one; nothing is lettered and existing lettering never changes. New suggestions for a cut replace the earlier ones.",
+    inputSchema: obj(
+      {
+        episodeId,
+        cutId,
+        options: arr(
+          obj(
+            {
+              kind: str(
+                "speech or thought (needs a speaker), narration, or silent (no line: the art carries the beat).",
+                { enum: ["speech", "thought", "narration", "silent"] },
+              ),
+              speaker: str("Character id of the speaker, for speech and thought."),
+              text: str("The line, short enough for one bubble. Not for silent."),
+              note: str("What the line does, in a few words."),
+            },
+            ["kind"],
+          ),
+          "Two to five alternatives.",
+          { minItems: 1, maxItems: 5 },
+        ),
+      },
+      ["episodeId", "cutId", "options"],
+    ),
+  },
+  {
     name: "remember",
     kind: "collab",
     step: "Remembering",

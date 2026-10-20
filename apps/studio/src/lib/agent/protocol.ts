@@ -277,7 +277,9 @@ export type LiveEvent =
       reason: "work-created" | "episode-created";
     }
   | { type: "export"; seq: number; job: ExportJobView }
-  | { type: "art"; seq: number; job: ArtJobView };
+  | { type: "art"; seq: number; job: ArtJobView }
+  /** The agent offered new dialogue suggestions for a cut. */
+  | { type: "suggestions"; seq: number; workId: string; episodeId: string; cutId: string };
 
 /** One cut of a drawing job. */
 export interface ArtJobCut {
