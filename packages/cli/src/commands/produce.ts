@@ -1,14 +1,15 @@
 // `toony produce <inspect|run>` — the controlled execution loop (#313).
 //
 // Generation is the one step that spends minutes per cut and can reset a
-// reviewed cut to draft, so nothing here starts a provider call before the run
-// has been shown and accepted. `inspect` resolves a target set exactly as
+// reviewed cut to draft, so a run first states what it will touch and then
+// runs on exactly that set. `inspect` resolves a target set exactly as
 // `toony generate` would, through the same selectors, and prints what the run
 // would touch: the ids, how many already carry an image, how many carry recorded
 // render inputs, how many carry a non-draft review that the run would reset, and
 // every reason the run would have to stop. It makes no provider call. `run`
-// prints the same disclosure, checks that the operator accepted this exact
-// target set, records the planned run, and then drives the shipped `generate`
+// prints the same disclosure, checks that the caller named this exact target
+// set (selectors that now resolve differently stop the run), records the
+// planned run, and then drives the shipped `generate`
 // (or `import-image`) in-process with explicit `--cut` ids. It writes no cut
 // field, no review state and no ingest entry itself: those keep their one
 // writer. It records what it resolved, what each target came back as, and why it
@@ -21,7 +22,7 @@
 // re-issues a run with the flags a repeat refusal printed.
 //
 // Exit codes: 0 completed (for `inspect`, nothing would stop the run); 1 a stop
-// or a domain error, including a refused approval and a failed cut; 2 usage or
+// or a domain error, including an unnamed target set and a failed cut; 2 usage or
 // IO failure.
 
 import { createHash } from "node:crypto";
@@ -490,13 +491,14 @@ async function runRun(parsed: Parsed, io: ProduceIo): Promise<number> {
   else if (changed.length === 0 && anyRecord) kind = "repeat";
   else kind = "render";
 
-  // Approval: the operator accepted THIS resolved set, named by its id.
+  // The caller names THIS resolved set by its id, so a run never draws cuts
+  // the inspect step did not list.
   const accept = parsed.values.get("--accept");
   if (accept === undefined) {
     d.stops.push({
       target: d.targets.join(", "),
       reason: "not-accepted",
-      message: `waiting for approval of target set ${d.targetSet}; re-run with --accept ${d.targetSet} once the person has seen this`,
+      message: `target set ${d.targetSet} is not named; re-run with --accept ${d.targetSet} to run exactly this set`,
     });
   } else if (accept !== d.targetSet) {
     d.stops.push({
@@ -578,6 +580,7 @@ async function runRun(parsed: Parsed, io: ProduceIo): Promise<number> {
     },
     env: io.env,
     report: (event: GenerateEvent) => {
+      if (event.kind === "started") return;
       if (event.kind === "rewrote-prompt") rewrote.push(event.id);
       else outcomes[event.id] = event.kind;
     },

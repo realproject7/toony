@@ -1,9 +1,9 @@
 // `toony import-image` — import or ingest an image asset for a cut or transition.
 //
-// Phase: headless core + CLI. Uses the provider-neutral contract to produce
-// bytes (manual import today; generation providers register here later) and the
-// project-io ingest path to strip metadata, place the file, and associate it
-// with the target record. Studio UI is out of scope (issue #6 owns it).
+// Imports an image the person already has (generation is `toony generate`).
+// Uses the provider-neutral contract to produce the bytes and the project-io
+// ingest path to strip metadata, place the file, and associate it with the
+// target record. Studio uploads go through the same ingest.
 
 import { resolve } from "node:path";
 import { type AssetTarget, ingestImageAsset, loadProject, ProjectIoError } from "@toony/project-io";

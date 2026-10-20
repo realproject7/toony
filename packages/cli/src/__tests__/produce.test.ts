@@ -179,7 +179,7 @@ test("run without an accepted target set stops, names the set, and calls no prov
     assert.equal(code, EXIT_VALIDATION);
     assert.match(
       c.err.join("\n"),
-      /stop \[not-accepted\] cut-001: waiting for approval of target set [0-9a-f]{16}/,
+      /stop \[not-accepted\] cut-001: target set [0-9a-f]{16} is not named/,
     );
     assert.equal(comfy.calls(), 0);
 

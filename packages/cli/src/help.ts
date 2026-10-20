@@ -25,10 +25,12 @@ usage:
   toony draft <compile|show|apply> --episode <id> ...
                            compile an authored episode script into a draft,
                            show what applying it would change, apply it
-  toony revision <list|show|create|stage> [path] ...
+  toony revision <list|show|create|stage|apply> [path] ...
+                           queue an art change made outside Studio: snapshot
+                           the cut, stage a candidate image, apply it
   toony produce <inspect|run> --episode <id> ...
                            show what a generation run would touch, then run
-                           the accepted target set through generate or import
+                           that exact target set through generate or import
   toony --help             show this help
 
 options:
@@ -47,6 +49,7 @@ options:
                            | --transition <id>)
            --prompt <text> [--negative <text>] [--width <px>] [--height <px>]
            [--seed <n>|fresh] [--workflow <name>] [--provider comfyui] [--allow-remote]
+           [--source current [--strength <0-1>]]
                            generates and ingests an image; the provider endpoint
                            and workflow come from local runtime config/env
                            (e.g. TOONY_COMFYUI_URL), never from webtoon.json;
@@ -70,7 +73,10 @@ options:
                            recorded seed; --seed fresh rolls a new one per cut
                            and records it. A run that replaces authored prompts
                            through the write-back says so on one line, with the
-                           cut ids
+                           cut ids. --source current edits the image the cut
+                           holds instead of drawing from noise (image to image);
+                           --strength (default 0.5) is how much may change, and
+                           the source's sha256 is recorded in the ingest log
   export <episode> [path] --output <id> [--width <px>] [--slice-height <px>]
          [--format png|jpg] [--quality <0-100>] [--margin <px>]
          [--max-bytes <n>] [--text-cards] [--tall-cuts split|fit]
@@ -164,8 +170,9 @@ options:
           [--workflow <name>] [--width <px>] [--height <px>]
           [--slot clean|final] [--provider <id>] [--allow-remote] [--json]
                            the same disclosure, then the run. --accept names
-                           the exact target set inspect printed; a set that
-                           resolves differently stops. A run that changes an
+                           the exact target set inspect printed, so a set that
+                           resolves differently stops instead of drawing cuts
+                           nobody listed. A run that changes an
                            input on cuts that recorded a render is a revision
                            and needs --reason; one that changes nothing is a
                            repeat. Drives generate (or import-image with

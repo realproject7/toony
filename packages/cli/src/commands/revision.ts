@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import {
+  applyArtRevision,
   artRevisionBrief,
   artRevisionContext,
   createArtRevision,
@@ -12,7 +13,7 @@ import { ManualImportProvider, ProviderError } from "@toony/providers";
 import { EXIT_OK, EXIT_USAGE } from "../exit.js";
 
 const USAGE =
-  "usage: toony revision <list|show|create|stage> [path] [--episode <id> --cut <id>] [--id <request-id>] [--change <text> --preserve <text> --character <id>] [--file <image> --note <text>] [--json]";
+  "usage: toony revision <list|show|create|stage|apply> [path] [--episode <id> --cut <id>] [--id <request-id>] [--change <text> --preserve <text> --character <id>] [--file <image> --note <text>] [--candidate <sha256>] [--json]";
 export async function runRevision(
   args: string[],
   io: { cwd: string; out(line: string): void; err(line: string): void },
@@ -31,6 +32,7 @@ export async function runRevision(
     "--character",
     "--file",
     "--note",
+    "--candidate",
   ]);
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i] ?? "";
@@ -83,7 +85,7 @@ export async function runRevision(
       io.out(
         json
           ? JSON.stringify(request)
-          : `Saved request ${request.id}. No provider called; current artwork is unchanged.`,
+          : `Saved request ${request.id}. The current artwork is unchanged; stage a candidate with toony revision stage --id ${request.id} --file <image> --note <changes>.`,
       );
     } else if (action === "stage") {
       const id = need("--id"),
@@ -95,7 +97,15 @@ export async function runRevision(
       io.out(
         json
           ? JSON.stringify(request)
-          : `Candidate ready for ${id}. Compare and apply it in Studio.`,
+          : `Candidate ready for ${id}. Apply it with toony revision apply --id ${id} --candidate ${request.candidate?.sha256 ?? "<sha256>"}.`,
+      );
+    } else if (action === "apply") {
+      const id = need("--id");
+      const request = await applyArtRevision(root, id, need("--candidate"));
+      io.out(
+        json
+          ? JSON.stringify(request)
+          : `Applied ${id}. The cut now shows the candidate as a draft; the source is kept in the request.`,
       );
     } else {
       io.err(USAGE);

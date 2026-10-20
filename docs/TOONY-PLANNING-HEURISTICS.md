@@ -15,7 +15,7 @@ Every `toony init` result is a **starter fragment**, not a completed episode.
 The command reports the cut and transition counts from the resolved project it
 wrote — including a selected pack scaffold — so the number is evidence about
 that exact starting point rather than a claim about every template. Develop the
-fragment into an episode plan before paying for a large generation run:
+fragment into an episode plan before a large generation run:
 
 ```sh
 toony plan --episode <starter-episode-id>

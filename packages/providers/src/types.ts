@@ -45,6 +45,12 @@ export interface ImageRequest {
    * workflow without such an input refuses rather than dropping it silently.
    */
   reference?: { bytes: Uint8Array; name: string };
+  /**
+   * An existing image to edit instead of drawing from noise: the bytes, a file
+   * name for the upload and the strength (0 to 1) the sampler may change it by.
+   * The provider encodes it as the starting latent; the result keeps its size.
+   */
+  source?: { bytes: Uint8Array; name: string; strength: number };
 }
 
 /**

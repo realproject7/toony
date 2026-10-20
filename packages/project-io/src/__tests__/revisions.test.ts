@@ -73,7 +73,8 @@ test("request snapshots exact source and context without touching active art or 
   assert.deepEqual(await readFile(join(root, request.source.snapshotPath)), current.bytes);
   assert.deepEqual(await readFile(join(root, request.source.assetPath)), current.bytes);
   assert.equal((await listArtRevisions(root, "ep-001", "cut-001"))[0]?.id, request.id);
-  assert.match(artRevisionBrief(request), /does not edit source pixels/);
+  assert.match(artRevisionBrief(request), /toony revision apply/);
+  assert.doesNotMatch(artRevisionBrief(request), /authorization|budget/);
   assert.deepEqual(
     (await loadProject(root)).project.episodes[0]?.lettering,
     current.bundle.lettering,

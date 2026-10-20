@@ -54,9 +54,10 @@ name list is an unchecked scope, not a pass. Keep that list outside tracking.
 
 Research may contribute general craft principles and synthetic test cases.
 Do not copy reference characters, dialogue, panels or distinctive scene layouts.
-Packs remain data and do not supply story semantics during planning. Previously
-retired provider experiments stay retired; a new capability experiment needs a
-local outcome ticket and the operator's experiment authorization.
+Packs remain data and do not supply story semantics during planning. Building
+and running agent drawing and art changes through the local ComfyUI engine is
+core product work and needs no experiment ticket or budget approval. A paid
+remote provider still needs the operator's yes.
 
 ## Implementation rules
 

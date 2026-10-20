@@ -29,10 +29,11 @@ local-only (`transmitsRemotely: false`), never touches the network, and detects
 the format from magic bytes. Read failures do not echo the path (fs errors embed
 absolute paths, which must not leak).
 
-Generation providers (hosted cloud image APIs, ComfyUI, constrained cloud, custom) are
-added later against the same contract. Remote ones set `transmitsRemotely: true`
-so callers gate them behind an explicit opt-in; cloud/remote generation never
-transmits private content by default.
+The ComfyUI provider renders through a ComfyUI server against the same contract:
+from noise, or from an existing image (`request.source`, image to image, where
+the sampler starts from the encoded source at the requested strength). A
+loopback endpoint keeps content on the machine; any other endpoint sets
+`transmitsRemotely: true`, so callers gate it behind an explicit opt-in.
 
 ## ComfyUI deadlines and cancellation
 

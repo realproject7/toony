@@ -3,14 +3,16 @@
 Toony is a local webtoon studio where you make episodes together with your own
 AI agent. The agent (Claude Code or Codex, running on your computer with your
 own subscription) plans the story, the cast and the episodes through Toony's
-tools while you watch the webtoon take shape. You do the craft that needs a
-person: lettering, balloons and the pauses between cuts. Then you export strips,
-cut images or platform posts.
+tools and draws every cut with ComfyUI on your computer, while you watch the
+webtoon take shape. Ask it in chat to redraw or change a cut and it does. You do
+the craft that needs a person: lettering, balloons and the pauses between cuts.
+Then you export strips, cut images or platform posts.
 
 ## Quick start
 
-You need Node 20 or newer, pnpm, and Claude Code or Codex installed and signed in
-on this computer (`claude auth login` or `codex login`).
+You need Node 20 or newer, pnpm, Claude Code or Codex installed and signed in
+on this computer (`claude auth login` or `codex login`), and ComfyUI running on
+this computer with a checkpoint for the agent to draw with.
 
 ```bash
 git clone https://github.com/realproject7/toony
@@ -23,11 +25,14 @@ node packages/cli/dist/bin.js studio
 The last command opens Toony in your browser. Then:
 
 1. Connect your agent in the panel on the right. Toony finds the installed CLI
-   and checks the sign-in; nothing else to configure.
-2. Describe your story in the chat. The agent creates the webtoon, the cast and
-   the first episode, and you see each change on the left as it happens.
-3. Letter and adjust each cut in the editor, ask the agent for changes in plain
-   words, and export when the episode is ready.
+   and checks the sign-in.
+2. Add ComfyUI's address (for example `http://127.0.0.1:8188`) in Settings,
+   Artwork engine.
+3. Describe your story in the chat. The agent creates the webtoon, the cast and
+   the first episode, then draws its cuts; you see each change on the left as
+   it happens.
+4. Letter and adjust each cut in the editor, ask the agent to redraw or change
+   any cut in plain words, and export when the episode is ready.
 
 Projects live in `~/Documents/Toony` unless `TOONY_WORKSPACE_DIR` points
 elsewhere. Every agent change is recorded in the project and can be undone, and
@@ -46,7 +51,8 @@ Toony includes:
 - local project folders
 - story bible and character planning
 - episode, cut, transition, and lettering schemas
-- provider-neutral image generation and manual image import workflows
+- agent drawing and art changes through a local ComfyUI (provider-neutral), plus
+  import of your own art
 - local web studio editing
 - webtoon-specific lint and review tools
 - exports: the episode as one tall strip (or split into parts), one image per
@@ -95,8 +101,8 @@ what counts as commercial use and how to ask for a license.
 
 ## Status
 
-Active development focuses on stronger artwork composition and an easier human
-lettering workflow. These are development goals, not a claim of professional
+Active development focuses on agent-drawn artwork through a local ComfyUI,
+art changes requested in chat, and the human lettering editor. These are development goals, not a claim of professional
 episode quality. The delivery flow is [docs/PO_WORKFLOW.md](./docs/PO_WORKFLOW.md).
 Planning, research and work records are maintained locally. GitHub issues are
 not the development backlog.
