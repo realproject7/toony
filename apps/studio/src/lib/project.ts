@@ -21,7 +21,13 @@ import {
   summarizeEpisodes,
   writeCuts,
 } from "@toony/project-io";
-import { cutHeightAt, FALLBACK_CUT_ASPECT, resolveCutAspect } from "@toony/render";
+import {
+  cutHeightAt,
+  FALLBACK_CUT_ASPECT,
+  imageViewPixels,
+  isWholeImage,
+  resolveCutAspect,
+} from "@toony/render";
 import {
   type Cut,
   type EpisodeBundle,
@@ -138,8 +144,39 @@ export function findEpisodeBundle(
  */
 export interface CutArt {
   src: string | null;
+  /** The size the cut shows: the whole image, or the part its image view picks. */
   width: number;
   height: number;
+  /** The part of the source the cut shows (CMP-01), in source pixels. Absent: all of it. */
+  view?: CutArtView;
+}
+
+export interface CutArtView {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  sourceWidth: number;
+  sourceHeight: number;
+}
+
+/** The art for a source of this size as the cut shows it, through the shared view helper. */
+export function viewedArt(
+  src: string | null,
+  sourceWidth: number,
+  sourceHeight: number,
+  view: Cut["imageView"],
+): CutArt {
+  const rect = imageViewPixels(view, sourceWidth, sourceHeight);
+  if (isWholeImage(rect, sourceWidth, sourceHeight)) {
+    return { src, width: sourceWidth, height: sourceHeight };
+  }
+  return {
+    src,
+    width: rect.width,
+    height: rect.height,
+    view: { ...rect, sourceWidth, sourceHeight },
+  };
 }
 
 /** Nominal natural width of the default page frame. Only the RATIO reaches the
@@ -184,7 +221,7 @@ export async function resolveCutArt(workId: string, workRoot: string, cut: Cut):
     const bytes = await readFile(absolute);
     const dims = readImageDimensions(new Uint8Array(bytes));
     if (!dims || dims.width <= 0 || dims.height <= 0) return artlessStage(cut, src);
-    return { src, width: dims.width, height: dims.height };
+    return viewedArt(src, dims.width, dims.height, cut.imageView);
   } catch {
     return artlessStage(cut, src);
   }
@@ -292,12 +329,12 @@ export async function resolveCutReviewArtwork(
     return { art: fallback, artworkRevision: revision };
   }
   const dimensions = readImageDimensions(visible.bytes);
+  const src = `${url}&revision=${visible.digest}`;
   return {
-    art: {
-      ...fallback,
-      ...(dimensions && dimensions.width > 0 && dimensions.height > 0 ? dimensions : {}),
-      src: `${url}&revision=${visible.digest}`,
-    },
+    art:
+      dimensions && dimensions.width > 0 && dimensions.height > 0
+        ? viewedArt(src, dimensions.width, dimensions.height, cut.imageView)
+        : { ...fallback, src },
     artworkRevision: revision,
   };
 }

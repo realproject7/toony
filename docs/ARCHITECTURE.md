@@ -367,6 +367,13 @@ only files the previous manifest owns are removed. `stitched` and `platform`
 remain names for `strip` and `cuts`. Export folders written by earlier versions
 are left on disk and never read.
 
+A cut's `imageView` (a crop in fractions of its picture) is applied once, in
+the export loader: the decoded picture is cropped before any output, plan or
+measurement sees it, so all of them draw the same pixels. Studio's preview, the
+cut editor, thumbnails, the export preview and the agent's `view_cut` resolve
+the same rectangle through `imageViewPixels`; the browser draws it as an SVG
+whose viewBox is that rectangle.
+
 Toony writes files only. It does not post or publish anywhere.
 
 ## Packs

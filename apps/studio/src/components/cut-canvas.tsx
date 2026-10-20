@@ -15,6 +15,7 @@ import { ARTLESS_CUT_FILL, GUTTER_MARGIN_FILL } from "@toony/render";
 import type { Cut, LetteringOverlay } from "@toony/schema";
 import { resolveCutStage } from "@/lib/cut-stage";
 import type { CutArt } from "@/lib/project";
+import { CutArtImage } from "./cut-art-image";
 import { CutOverlay } from "./cut-overlay";
 
 export interface CutCanvasProps {
@@ -63,13 +64,7 @@ export function CutCanvas({
         data-testid={`cut-stage-${cut.id}`}
       >
         {hasArt ? (
-          // biome-ignore lint/performance/noImgElement: local-first studio serves project files directly, not via the Next image optimizer.
-          <img
-            className="cut-art"
-            style={artStyle}
-            src={art.src ?? undefined}
-            alt={`Cut ${number}`}
-          />
+          <CutArtImage art={art} className="cut-art" style={artStyle} alt={`Cut ${number}`} />
         ) : (
           // The neutral paper the export fills the same rect with.
           <div

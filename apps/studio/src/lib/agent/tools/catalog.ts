@@ -106,7 +106,7 @@ const characterInput = obj({
 const cutOperation = {
   type: "object",
   description:
-    'One edit. op "add" (after: cut id, null for first, absent for last; scene, shotType, characters, palette, shape), "update" (cutId; scene, shotType, characters, palette, shape), "remove" (cutId) or "move" (cutId, after).',
+    'One edit. op "add" (after: cut id, null for first, absent for last; scene, shotType, characters, palette, shape), "update" (cutId; scene, shotType, characters, palette, shape, view), "remove" (cutId) or "move" (cutId, after).',
   properties: {
     op: str("add, update, remove or move.", { enum: ["add", "update", "remove", "move"] }),
     cutId: str("The cut to update, remove or move."),
@@ -119,6 +119,17 @@ const cutOperation = {
       type: ["number", "null"],
       description:
         "Panel height as a multiple of its width, set before drawing: about 0.6 for a wide view, 1 square, up to 2.2 for a tall reveal (taller repeats figures). null returns to the default.",
+    },
+    view: {
+      type: ["object", "null"],
+      description:
+        "Update only: the part of the cut's picture it shows, {x, y, width, height} in fractions of the picture, for example the lower half {x: 0, y: 0.5, width: 1, height: 0.5}. null shows all of it. The picture itself is not changed.",
+      properties: {
+        x: { type: "number" },
+        y: { type: "number" },
+        width: { type: "number" },
+        height: { type: "number" },
+      },
     },
   },
   required: ["op"],

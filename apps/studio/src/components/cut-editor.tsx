@@ -49,6 +49,7 @@ import type { DialogueSuggestion } from "@/lib/suggestions/types";
 import { AlignmentSymbol } from "./alignment-symbol";
 import type { InspectorTab } from "./bubble-inspector";
 import { DialogueSuggestions } from "./dialogue-suggestions";
+import { FrameDialog, type FramePicture } from "./frame-dialog";
 import type { InlineTextHandle, TextSelection } from "./inline-lettering-text";
 import { LetteringCanvas } from "./lettering-canvas";
 import { LETTERING_PRESET_MIME, LetteringPresets } from "./lettering-presets";
@@ -117,6 +118,8 @@ export interface CutEditorRuntime {
   /** The speaker the person used last in this episode. */
   lastSpeaker?: string | null;
   onSpeakerUsed?: (speaker: string) => void;
+  /** Other cuts of the episode with a picture, for framing part of one here. */
+  pictures?: readonly FramePicture[];
 }
 
 const ARTWORK_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
@@ -174,7 +177,9 @@ export function CutEditor({
   onProjectChanged,
   lastSpeaker,
   onSpeakerUsed,
+  pictures = [],
 }: CutEditorProps & CutEditorRuntime) {
+  const [frameOpen, setFrameOpen] = useState(false);
   const router = useRouter();
   const [bubbles, setBubbles] = useState<LetteringOverlay[]>(initialBubbles);
   // The saved state, for the clean point: undoing back to it clears "unsaved".
@@ -1721,7 +1726,29 @@ export function CutEditor({
                 <StudioIcon name="chat" /> Change the art
               </button>
             )}
+            {(hasArtwork || pictures.length > 0) && (
+              <button
+                type="button"
+                className="btn btn-quiet"
+                onClick={() => setFrameOpen(true)}
+                title="Choose the part of a picture this cut shows"
+                data-testid="frame-cut"
+              >
+                <StudioIcon name="image" /> Frame
+              </button>
+            )}
           </div>
+          <FrameDialog
+            open={frameOpen}
+            workId={workId}
+            episodeId={episodeId}
+            cutId={cutId}
+            cutNumber={cutNumber}
+            art={hasArtwork ? art : { ...art, src: null }}
+            pictures={pictures}
+            onClose={() => setFrameOpen(false)}
+            onSaved={() => onProjectChanged?.()}
+          />
           {!hasArtwork && (
             <div
               className={`artwork-drop${dropActive ? " is-active" : ""}`}

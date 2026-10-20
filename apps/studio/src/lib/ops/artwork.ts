@@ -5,13 +5,16 @@
 // the episode's assets, the cut pointed at it, its review reset, the ingest
 // log appended). Nothing else about the cut changes.
 
+import { constants } from "node:fs";
+import { open, realpath } from "node:fs/promises";
+import { sep } from "node:path";
 import { IMAGE_FILE_BYTES_MAX, IMAGE_PIXELS_MAX, RASTER_DIMENSION_MAX } from "@toony/export";
 import { readImageDimensions } from "@toony/lint";
 import { importedAssetPath, importImageBytes } from "@toony/project-io";
 import type { ProjectChange } from "../agent/protocol.js";
 import { OpError } from "./errors.js";
 import { cutLabel, findEpisode } from "./labels.js";
-import { assertSafeId, episodeFiles } from "./paths.js";
+import { assertSafeId, episodeFiles, projectPath } from "./paths.js";
 import { type OpContext, withProjectWrite } from "./write.js";
 
 /** The largest upload Studio accepts, below export's own source image limit. */
@@ -41,6 +44,32 @@ export function checkArtworkBytes(bytes: Uint8Array): { width: number; height: n
     );
   }
   return { width, height };
+}
+
+/**
+ * A picture already in the project, read the careful way: a regular file inside
+ * the work (no symlink at the end, no folder link leading out of it), no larger
+ * than an upload may be, and passing the same checks as one. Null when it is
+ * not there or not readable as such.
+ */
+export async function readProjectPicture(root: string, ref: string): Promise<Uint8Array | null> {
+  try {
+    const file = projectPath(root, ref);
+    const [base, real] = await Promise.all([realpath(root), realpath(file)]);
+    if (!real.startsWith(base + sep)) return null;
+    const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const info = await handle.stat();
+      if (!info.isFile() || info.size > ARTWORK_BYTES_MAX) return null;
+      const bytes = new Uint8Array(await handle.readFile());
+      checkArtworkBytes(bytes);
+      return bytes;
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return null;
+  }
 }
 
 export interface ImportedArtwork {

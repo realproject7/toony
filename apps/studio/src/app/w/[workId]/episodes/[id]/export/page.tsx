@@ -23,6 +23,7 @@ import {
   loadWork,
   ProjectIoError,
   resolveWorkAsset,
+  viewedArt,
 } from "@/lib/project";
 import { resolveWork } from "@/lib/workspace";
 import "./export.css";
@@ -97,7 +98,7 @@ export default async function EpisodeExportPage({
         type: "cut",
         id: cut.id,
         ...(cut.panelAspect === undefined ? {} : { panelAspect: cut.panelAspect }),
-        art: size && src ? { ...size, src } : null,
+        art: size && src ? viewedArt(src, size.width, size.height, cut.imageView) : null,
       });
     } else {
       const transition = transitionById.get(item.id);

@@ -6,6 +6,8 @@
 import {
   BUBBLE_KINDS,
   type BubbleKind,
+  IMAGE_VIEW_MIN,
+  type ImageView,
   SHOT_TYPES,
   type ShotType,
   TRANSITION_TYPES,
@@ -409,6 +411,29 @@ function cutShape(value: unknown, where: string): number | null | undefined {
   return Math.round(value * 100) / 100;
 }
 
+function cutView(value: unknown, where: string): ImageView | null | undefined {
+  if (value === undefined || value === null) return value;
+  const message = `${where}.view must be {x, y, width, height} in fractions of the picture (0 to 1, inside it), or null to show all of it.`;
+  if (typeof value !== "object" || Array.isArray(value)) fail(message);
+  const v = value as Args;
+  noExtra(v, ["x", "y", "width", "height"], `${where}.view`);
+  const num = (value: unknown): number =>
+    typeof value === "number" && Number.isFinite(value) ? value : fail(message);
+  const [x, y, width, height] = [num(v.x), num(v.y), num(v.width), num(v.height)];
+  if (
+    x < 0 ||
+    y < 0 ||
+    width < IMAGE_VIEW_MIN ||
+    height < IMAGE_VIEW_MIN ||
+    x + width > 1.000001 ||
+    y + height > 1.000001
+  ) {
+    fail(message);
+  }
+  const round = (value: number) => Math.round(value * 10_000) / 10_000;
+  return { x: round(x), y: round(y), width: round(width), height: round(height) };
+}
+
 export function editCutsArgs(raw: unknown): { episodeId: string; operations: CutOperation[] } {
   const args = argsObject(raw);
   noExtra(args, ["episodeId", "operations"]);
@@ -459,10 +484,11 @@ export function editCutsArgs(raw: unknown): { episodeId: string; operations: Cut
       case "update": {
         noExtra(
           op,
-          ["op", "cutId", "scene", "shotType", "characters", "palette", "shape"],
+          ["op", "cutId", "scene", "shotType", "characters", "palette", "shape", "view"],
           `fields in ${where}`,
         );
         const shape = cutShape(op.shape, where);
+        const view = cutView(op.view, where);
         return {
           op: "update",
           cutId: id(op, "cutId", "a cut"),
@@ -476,6 +502,7 @@ export function editCutsArgs(raw: unknown): { episodeId: string; operations: Cut
             ? {}
             : { palette: op.palette === null ? null : String(op.palette).slice(0, 200) }),
           ...(shape === undefined ? {} : { panelAspect: shape }),
+          ...(view === undefined ? {} : { imageView: view }),
         };
       }
       case "remove":

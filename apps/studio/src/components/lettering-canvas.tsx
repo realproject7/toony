@@ -11,6 +11,7 @@ import type { PointerEvent, Ref } from "react";
 import type { CutArt } from "@/lib/project";
 import { BubbleBody } from "./bubble-body";
 import { BubbleText } from "./bubble-text";
+import { CutArtImage } from "./cut-art-image";
 import {
   InlineLetteringText,
   type InlineTextHandle,
@@ -83,8 +84,7 @@ export function LetteringCanvas({
       data-testid="lettering-canvas"
     >
       {art.src ? (
-        // biome-ignore lint/performance/noImgElement: local project asset served directly.
-        <img className="cut-art" style={artStyle} src={art.src} alt="Cut artwork" />
+        <CutArtImage art={art} className="cut-art" style={artStyle} alt="Cut artwork" />
       ) : (
         <div className="cut-scene-card" aria-hidden="true">
           <p>{sceneText ?? ""}</p>

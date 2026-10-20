@@ -23,7 +23,9 @@ import {
   previewBands,
   previewPlan,
 } from "@/lib/export-view";
+import type { CutArt } from "@/lib/project";
 import { studioFetch } from "@/lib/studio-fetch";
+import { CutArtImage } from "./cut-art-image";
 
 /** A finished export shown when the page opens. */
 export interface SavedExportView extends ExportJobView {
@@ -487,7 +489,7 @@ function LayoutPreview({
     () =>
       new Map(
         items.flatMap((item) =>
-          item.type === "cut" && item.art ? [[item.id, item.art.src] as const] : [],
+          item.type === "cut" && item.art?.src ? [[item.id, item.art] as const] : [],
         ),
       ),
     [items],
@@ -539,7 +541,7 @@ function PreviewFile({
   /** Preview px per output px. */
   scale: number;
   bands: readonly LayoutBand[];
-  art: ReadonlyMap<string, string>;
+  art: ReadonlyMap<string, CutArt>;
   index: number;
   /** How many posts the whole plan needs. */
   posts: number;
@@ -575,9 +577,8 @@ function PreviewFile({
               }}
             >
               {src ? (
-                // biome-ignore lint/performance/noImgElement: local artwork served by /api/asset.
-                <img
-                  src={src}
+                <CutArtImage
+                  art={src}
                   alt=""
                   loading="lazy"
                   style={{

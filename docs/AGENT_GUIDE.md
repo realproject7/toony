@@ -190,7 +190,10 @@ they are looking at.
 - Draw cuts with `draw_cuts`: an English image prompt per cut, sent on its
   own (the story bible does not wrap it), and the engine adds the cast's
   lockstrings. Set a wide or tall cut's shape first with `edit_cuts` (`shape`,
-  height as a multiple of width, 0.5 to 2.5). Change a cut's art with
+  height as a multiple of width, 0.5 to 2.5). `edit_cuts` can also frame a cut
+  that has a picture (`view`, the part it shows in fractions of the picture, or
+  null for all of it); the person frames cuts and reuses another cut's picture
+  from the cut editor's Frame button. Change a cut's art with
   `edit_cut_art`, which starts from the current image (`strength` 0.1 to 0.9).
   Both run as a background job on the person's local ComfyUI: the tool waits a
   few minutes, returns while the rest is drawn, and a follow-up message reaches

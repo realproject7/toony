@@ -12,6 +12,7 @@ import {
   resolveOutputOptions,
 } from "@toony/export/layout";
 import type { ExportOptionValues, Transition } from "@toony/schema";
+import type { CutArt } from "./project";
 
 /** The outputs the export page lists, in order. */
 export type OutputChoice = "strip" | "cuts" | "instagram" | "x" | "webtoon";
@@ -94,7 +95,8 @@ export type PreviewItem =
       type: "cut";
       id: string;
       panelAspect?: number;
-      art: { width: number; height: number; src: string } | null;
+      /** The cut's art as it shows it (its image view applied), or null. */
+      art: CutArt | null;
     }
   | { type: "transition"; id: string; transition: Transition };
 

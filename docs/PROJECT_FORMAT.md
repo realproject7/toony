@@ -201,6 +201,18 @@ in the log, and `toony generate` uses it to refuse a run that would replace an
 image rather than repeat it — see
 [ARCHITECTURE.md](ARCHITECTURE.md#what-a-render-records).
 
+### Image views
+
+A cut may show part of its picture: `imageView` is `{x, y, width, height}` in
+fractions of the source image (0 to 1, inside it, each side at least 0.02).
+Absent means the whole picture, so older cuts are unchanged. The source file is
+never rewritten; removing the view shows all of it again. The cut is staged,
+measured, linted and exported at the size of that part, and every output reads
+it through one helper (`imageViewPixels` in `@toony/render`). Two cuts may show
+different parts of the same picture, for example the upper and lower halves of
+one tall drawing with a transition between them: Studio copies the picture into
+the second cut, so redrawing one cut never changes what the other shows.
+
 ## Canonical Episode Sequence
 
 Cuts and transitions must appear in reader order.

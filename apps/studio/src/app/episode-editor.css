@@ -149,7 +149,8 @@
   border-radius: var(--radius-1);
   background: var(--color-surface-sunken);
 }
-.rail-thumb img {
+.rail-thumb img,
+.rail-thumb svg {
   display: block;
   width: 100%;
   height: 100%;
@@ -296,7 +297,8 @@
   background: var(--color-surface-sunken);
   opacity: 0.6;
 }
-.transition-neighbor img {
+.transition-neighbor img,
+.transition-neighbor svg {
   display: block;
   width: 100%;
   height: 100%;

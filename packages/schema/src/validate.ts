@@ -42,6 +42,7 @@ import {
   FONT_WEIGHTS,
   GUTTER_HEIGHT_MAX_PX,
   GUTTER_HEIGHT_MIN_PX,
+  IMAGE_VIEW_MIN,
   LETTER_SPACING_MAX_EM,
   LETTER_SPACING_MIN_EM,
   LINE_HEIGHT_MAX,
@@ -383,6 +384,33 @@ export function validateWebtoon(value: unknown): ValidationResult {
 
 // --- Cut --------------------------------------------------------------------
 
+const VIEW_EPSILON = 1e-6;
+
+export function validateImageView(value: unknown, path: string, c: IssueCollector): void {
+  const message = `imageView must be {x, y, width, height} in fractions of the image: inside 0..1, each side at least ${IMAGE_VIEW_MIN}.`;
+  if (!isPlainObject(value)) {
+    c.add(path, "cut.image-view", message);
+    return;
+  }
+  const { x, y, width, height } = value;
+  const extra = Object.keys(value).filter((key) => !["x", "y", "width", "height"].includes(key));
+  if (
+    extra.length > 0 ||
+    !isFiniteNumber(x) ||
+    !isFiniteNumber(y) ||
+    !isFiniteNumber(width) ||
+    !isFiniteNumber(height) ||
+    x < 0 ||
+    y < 0 ||
+    width < IMAGE_VIEW_MIN ||
+    height < IMAGE_VIEW_MIN ||
+    x + width > 1 + VIEW_EPSILON ||
+    y + height > 1 + VIEW_EPSILON
+  ) {
+    c.add(path, "cut.image-view", message);
+  }
+}
+
 export function validateCutValue(value: unknown, path: string, c: IssueCollector): void {
   if (!isPlainObject(value)) {
     c.add(path, "cut.type", "cut must be an object.");
@@ -467,6 +495,10 @@ export function validateCutValue(value: unknown, path: string, c: IssueCollector
       );
     }
   }
+  // Image view (CMP-01) — OPTIONAL: the part of the image the cut shows, in
+  // fractions of the source. It must lie inside the source and keep a usable size.
+  if (value.imageView !== undefined)
+    validateImageView(value.imageView, joinPath(path, "imageView"), c);
   // Render inputs (#240) — OPTIONAL, and written by `toony generate` rather than
   // authored: they record what produced the cut's current image so the run can
   // be repeated. Absent on every cut that has never been generated, which is why

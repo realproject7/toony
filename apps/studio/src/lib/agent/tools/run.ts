@@ -15,7 +15,7 @@ import { constants } from "node:fs";
 import { open, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { composeCut, encodeCanvas } from "@toony/export";
+import { composeCut, encodeCanvas, viewedImageBytes } from "@toony/export";
 import { lintBubbleOverflow, lintCraft, lintPanelShape } from "@toony/lint";
 import {
   type LoadedProject,
@@ -1331,6 +1331,7 @@ async function readEpisode(host: ToolHost, episodeId: string): Promise<Record<st
       scene: clip(cut?.imagePrompt ?? "", sceneMax),
       ...(cut?.shotType ? { shotType: cut.shotType } : {}),
       ...(cut?.panelAspect === undefined ? {} : { shape: cut.panelAspect }),
+      ...(cut?.imageView === undefined ? {} : { view: cut.imageView }),
       ...(cut?.characters?.length ? { characters: cut.characters } : {}),
       hasArtwork: Boolean(cut?.image?.final || cut?.image?.clean),
       markedFinal: cut?.reviewStatus === "final",
@@ -1432,7 +1433,9 @@ async function viewCut(host: ToolHost, episodeId: string, cutId: string): Promis
       dialogue: overlays.map((o) => ({ speaker: o.speaker, text: o.text, kind: o.kind })),
     });
   }
-  const bytes = ref ? await readBounded(work.root, ref) : null;
+  const raw = ref ? await readBounded(work.root, ref) : null;
+  // The cut as it shows: its image view (CMP-01) applied, as every export does.
+  const bytes = raw ? await viewedImageBytes(raw, cut.imageView, label) : null;
   const w = loaded.project.webtoon;
   const options = {
     imageLabel: label,

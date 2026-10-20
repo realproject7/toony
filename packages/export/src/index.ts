@@ -134,5 +134,6 @@ export {
   IMAGE_FILE_BYTES_MAX,
   IMAGE_PIXELS_MAX,
   RASTER_DIMENSION_MAX,
+  viewedImageBytes,
 } from "./raster-safety.js";
 export { type EpisodeBand, type StitchedEpisode, stitchEpisode } from "./targets.js";
