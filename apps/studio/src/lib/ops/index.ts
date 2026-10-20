@@ -45,6 +45,7 @@ export { type ChangeManifest, HISTORY_KEEP, listManifests } from "./history.js";
 export { type JournalEntry, readJournal } from "./journal.js";
 export { type StoryPatch, updateStory } from "./story.js";
 export { applyTransitionItems, setTransitions, type TransitionItem } from "./transitions.js";
+export { reuseCutPicture, setCutImageView } from "./views.js";
 export {
   type CreatedWork,
   type CreateWorkOptions,

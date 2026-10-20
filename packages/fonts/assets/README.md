@@ -25,9 +25,9 @@ all import it so the SAME face renders in the SVG preview and the exported raste
 The files are subsets; a family's script label is a browsing aid, not proof that
 any particular character is present. Coverage differs between the Korean faces,
 and the Gaegu files have no grave accent (`` ` ``). Do not infer glyph
-availability from a filename or the family name. Noto Sans KR draws every
-Hangul syllable; the Gaegu and Nanum Pen Script subsets are partial, and Korean
-text they cannot draw moves to Noto Sans KR.
+availability from a filename or the family name. Noto Sans KR and Nanum Pen Script draw every
+Hangul syllable. Gaegu draws the 2,350 syllables of KS X 1001, all its upstream
+release has; Korean text it cannot draw moves to Noto Sans KR.
 
 `../src/coverage-data.ts` records each file's SHA-256 and actual cmap intervals.
 Tests tie this metadata to the bundled bytes. Regenerate from the repository root
@@ -62,6 +62,14 @@ and drops the hinting program, as the upstream glyphs are unhinted. Glyphs and
 advances of every codepoint the earlier 4,788-syllable subset mapped are
 unchanged, so existing Korean lettering lays out exactly as before.
 
+Gaegu (Version 1.00, 400 and 700) and Nanum Pen Script (Version 1.10) are the
+google/fonts `ofl/gaegu` and `ofl/nanumpenscript` static releases, subset to every
+Hangul syllable and Hangul Jamo codepoint they map plus the Latin, punctuation and
+symbol codepoints the earlier subsets carried. Like the earlier files they keep
+every layout feature, drop the hinting program, and keep glyph names only where
+the earlier file had them (Gaegu). Outlines and advances of every codepoint the
+earlier subsets mapped are unchanged.
+
 Anton is the google/fonts Anton 2.116 release subset to the Google Fonts latin and
 latin-ext ranges (Basic Latin, Latin-1, Latin Extended, common punctuation). It
 keeps hinting, glyph names and the `ccmp`, `locl`, `kern`, `mark` and `mkmk`
@@ -80,9 +88,9 @@ features.
 | `noto-sans-kr-700.woff2` | 648 KB  |
 | `noto-sans-jp-400.woff2` | 417 KB  |
 | `noto-sans-jp-700.woff2` | 426 KB  |
-| `gaegu-400.woff2`        | 68 KB   |
-| `gaegu-700.woff2`        | 189 KB  |
-| `nanum-pen-400.woff2`    | 372 KB  |
+| `gaegu-400.woff2`        | 77 KB   |
+| `gaegu-700.woff2`        | 219 KB  |
+| `nanum-pen-400.woff2`    | 447 KB  |
 | **total**                | ~2.9 MB |
 
 The Latin editor faces total about 160 KB. The studio declares all curated

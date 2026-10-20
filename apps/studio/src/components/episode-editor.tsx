@@ -43,6 +43,7 @@ import { planTransitionInsert } from "@/lib/transition-insert";
 import { episodeFocus } from "@/lib/workspace-focus";
 import { ActionMenu } from "./action-menu";
 import { ConfirmDialog } from "./confirm-dialog";
+import { CutArtImage } from "./cut-art-image";
 import { CutEditor, type CutEditorProps } from "./cut-editor";
 import { SaveState } from "./save-state";
 import { StudioIcon } from "./studio-icon";
@@ -549,8 +550,10 @@ export function EpisodeEditor({
     );
     const before = rhythm.sequence[index - 1];
     const after = rhythm.sequence[index + 1];
-    const art = (item: SequenceItem | undefined) =>
-      item?.type === "cut" ? (cuts.find((c) => c.cutId === item.id)?.art.src ?? null) : null;
+    const art = (item: SequenceItem | undefined) => {
+      const found = item?.type === "cut" ? cuts.find((c) => c.cutId === item.id)?.art : undefined;
+      return found?.src ? found : null;
+    };
     return { before: art(before), after: art(after) };
   };
 
@@ -752,8 +755,7 @@ export function EpisodeEditor({
                             </span>
                           )}
                           {data?.hasArtwork && data.art.src ? (
-                            // biome-ignore lint/performance/noImgElement: local cut thumbnail.
-                            <img src={data.art.src} alt="" loading="lazy" />
+                            <CutArtImage art={data.art} alt="" loading="lazy" cover="middle" />
                           ) : (
                             <span className="rail-thumb-empty" aria-hidden="true">
                               <StudioIcon name="image" />
@@ -796,6 +798,13 @@ export function EpisodeEditor({
               onSpeakerUsed={setLastSpeaker}
               onSelectionChange={setBubbleIds}
               onProjectChanged={() => router.refresh()}
+              pictures={cuts
+                .filter((c) => c.cutId !== selectedCut.cutId && c.hasArtwork && c.art.src)
+                .map((c) => ({
+                  cutId: c.cutId,
+                  number: cutNumberIn(rhythm.sequence, c.cutId) || c.cutNumber,
+                  art: c.art,
+                }))}
               onSaved={(bubbles, savedRevisionValue) =>
                 setSavedCuts((prev) => ({
                   ...prev,
@@ -889,8 +898,7 @@ export function EpisodeEditor({
                           <>
                             <div className="transition-neighbor is-before" aria-hidden="true">
                               {near.before && (
-                                // biome-ignore lint/performance/noImgElement: local cut thumbnail.
-                                <img src={near.before} alt="" />
+                                <CutArtImage art={near.before} alt="" cover="bottom" />
                               )}
                             </div>
                             <div className="episode-band-preview">
@@ -901,10 +909,7 @@ export function EpisodeEditor({
                               />
                             </div>
                             <div className="transition-neighbor is-after" aria-hidden="true">
-                              {near.after && (
-                                // biome-ignore lint/performance/noImgElement: local cut thumbnail.
-                                <img src={near.after} alt="" />
-                              )}
+                              {near.after && <CutArtImage art={near.after} alt="" cover="top" />}
                             </div>
                           </>
                         );

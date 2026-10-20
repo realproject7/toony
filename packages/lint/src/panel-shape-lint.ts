@@ -65,7 +65,7 @@ export function lintPanelShape(bundle: EpisodeBundle, resolveImage: ResolveCutIm
   const findings: Finding[] = [];
 
   for (const cut of bundle.cuts) {
-    const dims = readCutDimensions(resolveImage(cut.id));
+    const dims = readCutDimensions(resolveImage(cut.id), cut.imageView);
     if (dims === null) continue;
 
     // Two questions to one resolver. The first is asked WITHOUT the art, the

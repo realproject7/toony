@@ -17,6 +17,7 @@ import {
   loadProject,
   writeCuts,
   writeProject,
+  writeStoryBible,
   writeWebtoon,
 } from "@toony/project-io";
 import { EXIT_OK, EXIT_USAGE } from "../exit.js";
@@ -187,6 +188,28 @@ test("keepCutPrompt leaves the scene text and still records the seed and the sub
     await readFile(join(dir, "episodes", episodeId, "logs", "ingest.json"), "utf8"),
   ) as Array<{ renderInputs?: { basePrompt?: string } }>;
   assert.equal(log.at(-1)?.renderInputs?.basePrompt, "a rainy pier, night");
+});
+
+test("a standalone prompt is sent without the story bible around it", async () => {
+  // Studio's agent writes a whole prompt per cut. Wrapped in the story bible,
+  // other cuts' continuity notes and words like "speech bubbles" reached the
+  // image model and drew a workshop instead of a close-up, and bubbles.
+  const { dir, episodeId, cutId } = await project();
+  await writeStoryBible(dir, "## Continuity\nSame workshop. No speech bubbles.");
+  const run = (extra: Partial<GenerateIo>) =>
+    runGenerate(
+      [dir, "--episode", episodeId, "--cut", cutId, "--prompt", "a coiled spring", "--seed", "5"],
+      io({ keepCutPrompt: true, ...extra }),
+    );
+  assert.equal(await run({}), EXIT_OK);
+  assert.equal(await run({ standalonePrompt: true }), EXIT_OK);
+  const log = JSON.parse(
+    await readFile(join(dir, "episodes", episodeId, "logs", "ingest.json"), "utf8"),
+  ) as Array<{ renderInputs?: { prompt?: string } }>;
+  assert.match(log.at(-2)?.renderInputs?.prompt ?? "", /^Story context:[\s\S]*Same workshop/);
+  assert.equal(log.at(-1)?.renderInputs?.prompt, "a coiled spring");
+  const sent = JSON.stringify(comfy.graphs().at(-1));
+  assert.ok(sent.includes("a coiled spring") && !sent.includes("Same workshop"));
 });
 
 test("--source current edits the image the cut holds at the given strength and records it", async () => {

@@ -441,6 +441,23 @@ export interface ImageAssetRef {
 }
 
 /**
+ * The part of a cut's image the cut shows (CMP-01): a rectangle in fractions
+ * of the source image, so it does not depend on the image's resolution or the
+ * screen's zoom. The source pixels are never rewritten; removing the view shows
+ * the whole image again. Absent means the whole image, as before this existed.
+ * Preview, measurement and every export resolve it through the same helper.
+ */
+export interface ImageView {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** The smallest side of an image view, as a fraction of the source. */
+export const IMAGE_VIEW_MIN = 0.02;
+
+/**
  * A cut record. Image assets are referenced project-relative, never absolute.
  *
  * `imagePrompt` is the positive generation prompt for the cut's artwork and
@@ -500,6 +517,12 @@ export interface Cut {
    * size is injected for it at all.
    */
   panelAspect?: number;
+  /**
+   * The part of the cut's image this cut shows (CMP-01). Absent shows all of
+   * it. Two cuts may show different parts of the same picture: each keeps its
+   * own copy of the source and its own view of it.
+   */
+  imageView?: ImageView;
   /**
    * The seed that produced this cut's CURRENT image (#240), written back by
    * `toony generate` after a successful run. A non-negative integer.

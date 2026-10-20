@@ -14,6 +14,7 @@ import { type LayoutBand, layoutBands } from "./layout.js";
 import { sha256Hex } from "./manifest.js";
 import {
   assertRasterBudget,
+  cropPrepared,
   IMAGE_FILE_BYTES_MAX,
   type PreparedImage,
   prepareImage,
@@ -126,7 +127,7 @@ export async function loadEpisode(root: string, episodeId: string): Promise<Load
         `episode "${episodeId}" source cut "${cut.id}" (${shape.width} x ${shape.height})`,
       );
     }
-    const image = await prepareImage(bytes, `cut "${cut.id}"`);
+    const image = await cropPrepared(await prepareImage(bytes, `cut "${cut.id}"`), cut.imageView);
     // Conservatively include source bytes, normalized bytes, and all source
     // pixel storage rather than depending on native garbage-collection timing.
     imageDataBytes += bytes.byteLength + image.bytes.byteLength + image.width * image.height * 4;
@@ -221,6 +222,7 @@ export function computeInputsHash(
         cuts: bundle.cuts.map((cut) => ({
           id: cut.id,
           panelAspect: cut.panelAspect ?? null,
+          imageView: cut.imageView ?? null,
           art: artHashes.get(cut.id) ?? null,
         })),
         transitions: bundle.transitions.map(

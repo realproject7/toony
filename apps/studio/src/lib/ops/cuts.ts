@@ -10,7 +10,7 @@
 //     its shape and no transition is lost.
 // Agent and Studio edits never change a cut's review status.
 
-import type { Cut, EpisodeBundle, SequenceItem, ShotType } from "@toony/schema";
+import type { Cut, EpisodeBundle, ImageView, SequenceItem, ShotType } from "@toony/schema";
 import { SHOT_TYPES } from "@toony/schema";
 import type { ProjectChange } from "../agent/protocol.js";
 import { OpError } from "./errors.js";
@@ -28,6 +28,8 @@ export type CutOperation =
       shotType?: ShotType;
       characters?: string[];
       palette?: string;
+      /** Panel height as a multiple of its width. */
+      panelAspect?: number;
     }
   | {
       op: "update";
@@ -36,6 +38,10 @@ export type CutOperation =
       shotType?: ShotType | null;
       characters?: string[];
       palette?: string | null;
+      /** Panel height as a multiple of its width; null returns to the default. */
+      panelAspect?: number | null;
+      /** The part of the cut's picture it shows (CMP-01); null shows all of it. */
+      imageView?: ImageView | null;
     }
   | { op: "remove"; cutId: string }
   | { op: "move"; cutId: string; after: string | null };
@@ -150,6 +156,7 @@ export function applyCutOperations(
         };
         if (operation.shotType !== undefined) cut.shotType = operation.shotType;
         if (operation.palette?.trim()) cut.palette = operation.palette.trim();
+        if (operation.panelAspect !== undefined) cut.panelAspect = operation.panelAspect;
         const characters = checkCharacters(operation.characters ?? []);
         if (characters.length > 0) cut.characters = characters;
         const at = position(operation.after);
@@ -179,6 +186,15 @@ export function applyCutOperations(
           const palette = operation.palette?.trim() ?? "";
           if (palette === "") delete cut.palette;
           else cut.palette = palette;
+        }
+        if (operation.panelAspect === null) delete cut.panelAspect;
+        else if (operation.panelAspect !== undefined) cut.panelAspect = operation.panelAspect;
+        if (operation.imageView === null) delete cut.imageView;
+        else if (operation.imageView !== undefined) {
+          if (!(cut.image?.final ?? cut.image?.clean)) {
+            throw new OpError("refused", "Draw or add the cut's picture before framing it.");
+          }
+          cut.imageView = operation.imageView;
         }
         touched.add(cut.id);
         break;

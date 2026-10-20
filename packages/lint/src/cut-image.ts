@@ -7,6 +7,8 @@
 // here", and a lint that disagreed with the other about that would size a cut
 // one way and report on it another.
 
+import { imageViewPixels } from "@toony/render";
+import type { ImageView } from "@toony/schema";
 import { type ImageDimensions, readImageDimensions } from "./image/dimensions.js";
 
 /** Resolve a cut's encoded image bytes, or null when no image is associated. */
@@ -17,9 +19,15 @@ export type ResolveCutImage = (cutId: string) => Uint8Array | null;
  * art, the header is not one this reader recognizes, or it reports an axis of
  * zero — which is not a stage anything can be laid out on.
  */
-export function readCutDimensions(bytes: Uint8Array | null): ImageDimensions | null {
+export function readCutDimensions(
+  bytes: Uint8Array | null,
+  view?: ImageView,
+): ImageDimensions | null {
   if (!bytes) return null;
   const dims = readImageDimensions(bytes);
   if (!dims || dims.width <= 0 || dims.height <= 0) return null;
-  return dims;
+  if (view === undefined) return dims;
+  // A cut that shows part of its image (CMP-01) is staged at that part's size.
+  const rect = imageViewPixels(view, dims.width, dims.height);
+  return { ...dims, width: rect.width, height: rect.height };
 }

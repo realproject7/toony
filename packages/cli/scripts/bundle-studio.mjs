@@ -183,6 +183,32 @@ if (existsSync(join(studioApp, "public"))) {
 //    stand-in is safe and keeps the published tarball free of private paths.
 const TEXT_EXT = new Set([".js", ".cjs", ".mjs", ".json", ".map"]);
 const NEUTRAL_ROOT = "/toony";
+// The build may come from turbo's cache, made in another checkout of this
+// repository; its server files then carry that checkout's root, not ours. Next
+// records the root it built from in `required-server-files.json`, so rewrite
+// that root as well.
+const roots = new Set([repoRoot]);
+try {
+  const required = JSON.parse(
+    readFileSync(join(destStudio, ".next", "required-server-files.json"), "utf8"),
+  );
+  const suffix = `/${required.relativeAppDir ?? ""}`;
+  if (typeof required.appDir === "string" && required.appDir.endsWith(suffix)) {
+    roots.add(required.appDir.slice(0, -suffix.length));
+  }
+  for (const value of [required.config?.outputFileTracingRoot, required.config?.turbopack?.root]) {
+    if (typeof value === "string" && value.startsWith("/")) roots.add(value);
+  }
+} catch {
+  // No record: only this checkout's root is known.
+}
+// Longest first, so a root inside another is rewritten before its parent.
+const buildRoots = [...roots].filter((root) => root.length > 1).sort((a, b) => b.length - a.length);
+function sanitizeText(text) {
+  let out = text;
+  for (const root of buildRoots) out = out.replaceAll(root, NEUTRAL_ROOT);
+  return out;
+}
 let sanitizedCount = 0;
 function sanitizeTree(dir) {
   for (const name of readdirSync(dir)) {
@@ -194,8 +220,9 @@ function sanitizeTree(dir) {
     }
     if (!TEXT_EXT.has(extname(full))) continue;
     const original = readFileSync(full, "utf8");
-    if (!original.includes(repoRoot)) continue;
-    writeFileSync(full, original.replaceAll(repoRoot, NEUTRAL_ROOT));
+    const clean = sanitizeText(original);
+    if (clean === original) continue;
+    writeFileSync(full, clean);
     sanitizedCount++;
   }
 }
@@ -206,8 +233,9 @@ sanitizeTree(join(destStudio, ".next"));
 const serverJs = join(destStudio, "server.js");
 {
   const original = readFileSync(serverJs, "utf8");
-  if (original.includes(repoRoot)) {
-    writeFileSync(serverJs, original.replaceAll(repoRoot, NEUTRAL_ROOT));
+  const clean = sanitizeText(original);
+  if (clean !== original) {
+    writeFileSync(serverJs, clean);
     sanitizedCount++;
   }
 }

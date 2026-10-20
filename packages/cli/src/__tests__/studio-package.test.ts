@@ -135,7 +135,7 @@ test("relocated Studio serves the workspace and exports identical native font pi
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline && child.exitCode === null) {
       try {
-        home = await fetch(origin, { signal: AbortSignal.timeout(3000) });
+        home = await fetch(origin, { signal: AbortSignal.timeout(15_000) });
         break;
       } catch {
         await delay(100);

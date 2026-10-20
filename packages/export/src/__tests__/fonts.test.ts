@@ -207,12 +207,16 @@ test("a Korean line renders the CJK subset face (non-empty ink, not a blank fall
 });
 
 /** The raster of one string drawn alone, as a speech bubble pinned to a face and weight. */
-async function rasterOf(text: string, fontWeight: 400 | 700): Promise<Buffer> {
+async function rasterOf(
+  text: string,
+  fontWeight: 400 | 700,
+  fontFamily: LetteringOverlay["fontFamily"] = "noto-sans-kr",
+): Promise<Buffer> {
   const overlay: LetteringOverlay = {
     ...defaultSpeechOverlay(),
     id: "ov-glyph",
     text,
-    fontFamily: "noto-sans-kr",
+    fontFamily,
     fontWeight,
     fontSize: 40,
   };
@@ -240,5 +244,30 @@ test("exported Korean draws a real glyph for every syllable, never the missing-g
     }
     // Distinct syllables draw distinct glyphs, not one shared fallback shape.
     assert.equal(seen.size, common.length + spread.length, `${weight}: syllables share a raster`);
+  }
+});
+
+test("exported handwriting Korean draws real glyphs across the syllables its face covers", async () => {
+  // Nanum Pen Script covers every syllable, Gaegu the 2,350 common ones. A
+  // syllable either face lacks would export from the dialogue face instead, so
+  // compare each one with the same syllable drawn by Noto Sans KR as well as
+  // with the missing-glyph box.
+  registerToonyFonts();
+  const common = [..."없었했왔겠씨뭘봤"];
+  const spread: string[] = [];
+  for (let point = 0xac00; point <= 0xd7a3; point += 997) spread.push(String.fromCodePoint(point));
+  const cases: Array<[LetteringOverlay["fontFamily"], 400 | 700, string[]]> = [
+    ["nanum-pen", 400, [...common, ...spread]],
+    ["gaegu", 400, common],
+    ["gaegu", 700, common],
+  ];
+  for (const [family, weight, syllables] of cases) {
+    const box = await rasterOf("\ue000", weight, family);
+    for (const syllable of syllables) {
+      const raster = await rasterOf(syllable, weight, family);
+      assert.ok(!raster.equals(box), `${syllable} (${family} ${weight}) exported as a box`);
+      const dialogue = await rasterOf(syllable, weight, "noto-sans-kr");
+      assert.ok(!raster.equals(dialogue), `${syllable} (${family} ${weight}) fell back to Noto`);
+    }
   }
 });

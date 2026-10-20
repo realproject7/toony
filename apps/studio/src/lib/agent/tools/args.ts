@@ -6,6 +6,8 @@
 import {
   BUBBLE_KINDS,
   type BubbleKind,
+  IMAGE_VIEW_MIN,
+  type ImageView,
   SHOT_TYPES,
   type ShotType,
   TRANSITION_TYPES,
@@ -19,6 +21,12 @@ import type {
   StoryPatch,
   TransitionItem,
 } from "../../ops/index.js";
+import {
+  SUGGESTION_KINDS,
+  SUGGESTION_TEXT_MAX,
+  SUGGESTIONS_MAX,
+  type SuggestionKind,
+} from "../../suggestions/types.js";
 import type { MemoryNote, QuestionOption, TaskItem } from "../protocol.js";
 import { EXPORT_OUTPUTS } from "./catalog.js";
 
@@ -384,6 +392,48 @@ export function renameEpisodeArgs(raw: unknown): { episodeId: string; title: str
   return { episodeId: id(args, "episodeId", "an episode"), title: text(args, "title", 200) };
 }
 
+/** The narrowest and tallest cut shapes the agent may set: height as a multiple of width. */
+export const CUT_SHAPE_MIN = 0.5;
+export const CUT_SHAPE_MAX = 2.5;
+
+function cutShape(value: unknown, where: string): number | null | undefined {
+  if (value === undefined || value === null) return value;
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < CUT_SHAPE_MIN ||
+    value > CUT_SHAPE_MAX
+  ) {
+    fail(
+      `${where}.shape must be a number from ${CUT_SHAPE_MIN} (wide) to ${CUT_SHAPE_MAX} (tall), or null for the default.`,
+    );
+  }
+  return Math.round(value * 100) / 100;
+}
+
+function cutView(value: unknown, where: string): ImageView | null | undefined {
+  if (value === undefined || value === null) return value;
+  const message = `${where}.view must be {x, y, width, height} in fractions of the picture (0 to 1, inside it), or null to show all of it.`;
+  if (typeof value !== "object" || Array.isArray(value)) fail(message);
+  const v = value as Args;
+  noExtra(v, ["x", "y", "width", "height"], `${where}.view`);
+  const num = (value: unknown): number =>
+    typeof value === "number" && Number.isFinite(value) ? value : fail(message);
+  const [x, y, width, height] = [num(v.x), num(v.y), num(v.width), num(v.height)];
+  if (
+    x < 0 ||
+    y < 0 ||
+    width < IMAGE_VIEW_MIN ||
+    height < IMAGE_VIEW_MIN ||
+    x + width > 1.000001 ||
+    y + height > 1.000001
+  ) {
+    fail(message);
+  }
+  const round = (value: number) => Math.round(value * 10_000) / 10_000;
+  return { x: round(x), y: round(y), width: round(width), height: round(height) };
+}
+
 export function editCutsArgs(raw: unknown): { episodeId: string; operations: CutOperation[] } {
   const args = argsObject(raw);
   noExtra(args, ["episodeId", "operations"]);
@@ -413,10 +463,11 @@ export function editCutsArgs(raw: unknown): { episodeId: string; operations: Cut
       case "add": {
         noExtra(
           op,
-          ["op", "after", "scene", "shotType", "characters", "palette"],
+          ["op", "after", "scene", "shotType", "characters", "palette", "shape"],
           `fields in ${where}`,
         );
         const placed = after();
+        const shape = cutShape(op.shape, where);
         return {
           op: "add",
           ...(placed === undefined ? {} : { after: placed }),
@@ -427,14 +478,17 @@ export function editCutsArgs(raw: unknown): { episodeId: string; operations: Cut
           ...(typeof op.palette === "string" && op.palette.trim()
             ? { palette: op.palette.slice(0, 200) }
             : {}),
+          ...(shape === undefined || shape === null ? {} : { panelAspect: shape }),
         };
       }
       case "update": {
         noExtra(
           op,
-          ["op", "cutId", "scene", "shotType", "characters", "palette"],
+          ["op", "cutId", "scene", "shotType", "characters", "palette", "shape", "view"],
           `fields in ${where}`,
         );
+        const shape = cutShape(op.shape, where);
+        const view = cutView(op.view, where);
         return {
           op: "update",
           cutId: id(op, "cutId", "a cut"),
@@ -447,6 +501,8 @@ export function editCutsArgs(raw: unknown): { episodeId: string; operations: Cut
           ...(op.palette === undefined
             ? {}
             : { palette: op.palette === null ? null : String(op.palette).slice(0, 200) }),
+          ...(shape === undefined ? {} : { panelAspect: shape }),
+          ...(view === undefined ? {} : { imageView: view }),
         };
       }
       case "remove":
@@ -694,6 +750,44 @@ export function askArgs(raw: unknown): AskArgs {
     multiSelect: bool(args, "multiSelect") ?? false,
     allowOther: bool(args, "allowOther") ?? true,
   };
+}
+
+export function suggestDialogueArgs(raw: unknown): {
+  episodeId: string;
+  cutId: string;
+  options: Array<{ kind: SuggestionKind; speaker?: string; text?: string; note?: string }>;
+} {
+  const args = argsObject(raw);
+  noExtra(args, ["episodeId", "cutId", "options"]);
+  const episodeId = id(args, "episodeId", "an episode");
+  const cutId = id(args, "cutId", "a cut");
+  const options = list(args.options, "options", 1, SUGGESTIONS_MAX).map((value, index) => {
+    const where = `options[${index}]`;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      fail(`${where} must be an object with kind and text.`);
+    }
+    const item = value as Args;
+    noExtra(item, ["kind", "speaker", "text", "note"], where);
+    const kind = item.kind as SuggestionKind;
+    if (!SUGGESTION_KINDS.includes(kind)) {
+      fail(`${where}.kind must be one of ${SUGGESTION_KINDS.join(", ")}.`);
+    }
+    const note = optionalText(item, "note", 200, `${where}.note`)?.trim();
+    if (kind === "silent") {
+      if (item.text !== undefined || item.speaker !== undefined) {
+        fail(`${where}: a silent option has no text and no speaker.`);
+      }
+      return { kind, ...(note ? { note } : {}) };
+    }
+    const line = text(item, "text", SUGGESTION_TEXT_MAX, `${where}.text`).trim();
+    if (kind === "narration") {
+      if (item.speaker !== undefined) fail(`${where}: narration has no speaker.`);
+      return { kind, text: line, ...(note ? { note } : {}) };
+    }
+    const speaker = id(item, "speaker", "a character");
+    return { kind, speaker, text: line, ...(note ? { note } : {}) };
+  });
+  return { episodeId, cutId, options };
 }
 
 export function rememberArgs(raw: unknown): { text: string; kind: MemoryNote["kind"] } {

@@ -3,6 +3,9 @@
 // own encoder produced comes back into the export process.
 import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
+import { createCanvas, loadImage } from "@napi-rs/canvas";
+import { imageViewPixels, isWholeImage } from "@toony/render";
+import type { ImageView } from "@toony/schema";
 import { ExportError } from "./errors.js";
 import { readImageDimensions } from "./image-dimensions.js";
 
@@ -178,4 +181,38 @@ export async function prepareImage(bytes: Uint8Array, label: string): Promise<Pr
   prepared.set(bytes, result);
   prepared.set(result.bytes, result);
   return result;
+}
+
+/**
+ * The part of a prepared image a cut shows (CMP-01), as a prepared image of its
+ * own. The input is our own encoder's output, so it is decoded in process. Every
+ * output reads cut images through the loader, so all of them show this crop.
+ */
+export async function cropPrepared(
+  image: PreparedImage,
+  view: ImageView | undefined,
+): Promise<PreparedImage> {
+  const rect = imageViewPixels(view, image.width, image.height);
+  if (isWholeImage(rect, image.width, image.height)) return image;
+  const source = await loadImage(Buffer.from(image.bytes));
+  const canvas = createCanvas(rect.width, rect.height);
+  canvas
+    .getContext("2d")
+    .drawImage(source, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height);
+  const result = {
+    bytes: new Uint8Array(canvas.toBuffer("image/png")),
+    width: rect.width,
+    height: rect.height,
+  };
+  prepared.set(result.bytes, result);
+  return result;
+}
+
+/** A cut image's bytes as the cut shows them: decoded safely, then cropped to its view. */
+export async function viewedImageBytes(
+  bytes: Uint8Array,
+  view: ImageView | undefined,
+  label: string,
+): Promise<Uint8Array> {
+  return (await cropPrepared(await prepareImage(bytes, label), view)).bytes;
 }

@@ -33,6 +33,7 @@ export {
   impactDecoration,
   speechTailGeometry,
 } from "./geometry.js";
+export { imageViewPixels, isWholeImage, type PixelRect } from "./image-view.js";
 export type {
   BubbleRender,
   LayoutOptions,

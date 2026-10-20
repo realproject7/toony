@@ -282,6 +282,15 @@ export function plainFailure(lines: readonly string[], root: string): string {
   return clean.length > MESSAGE_MAX ? `${clean.slice(0, MESSAGE_MAX - 1)}…` : clean;
 }
 
+/**
+ * Asked of the engine on every agent drawing, after the agent's own negative:
+ * one picture, not a comic page, and no lettering. In the first benchmark the
+ * engine drew panel grids and fake-text bubbles on a third of the cuts; with
+ * these words, same seed, it drew one clean picture.
+ */
+export const AGENT_NEGATIVE_BASE =
+  "multiple panels, comic page, panel border, split screen, speech bubble, text, watermark";
+
 /** A prompt as one safe argument: the run reads a leading dash as a flag. */
 function promptArg(text: string): string {
   return text.trim().replace(/^-+\s*/, "");
@@ -297,9 +306,13 @@ async function drawOne(record: JobRecord, cut: ArtJobCut, item: ArtJobItem): Pro
   const args = [ctx.root, "--episode", episodeId, "--cut", item.cutId];
   const prompt = item.prompt === undefined ? "" : promptArg(item.prompt);
   if (prompt !== "") args.push("--prompt", prompt);
-  if (item.negative !== undefined && promptArg(item.negative) !== "") {
-    args.push("--negative", promptArg(item.negative));
-  }
+  const negative = [
+    item.negative === undefined ? "" : promptArg(item.negative),
+    AGENT_NEGATIVE_BASE,
+  ]
+    .filter((part) => part !== "")
+    .join(", ");
+  args.push("--negative", negative);
   if (item.seed !== undefined) args.push("--seed", String(item.seed));
   if (params.kind === "edit") {
     args.push("--source", "current", "--strength", String(params.strength ?? 0.5));
@@ -316,6 +329,7 @@ async function drawOne(record: JobRecord, cut: ArtJobCut, item: ArtJobItem): Pro
     err: (line) => lines.push(line),
     env: params.env ?? process.env,
     keepCutPrompt: true,
+    standalonePrompt: true,
     report: (event) => {
       if (event.kind === "started") {
         cut.state = "drawing";

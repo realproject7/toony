@@ -72,6 +72,44 @@ test("the Korean dialogue face draws every Hangul syllable at both weights", () 
   );
 });
 
+/** The 2,350 Hangul syllables of KS X 1001, the set Korean handwriting faces most often draw. */
+function ksx1001Syllables(): number[] {
+  const decoder = new TextDecoder("euc-kr");
+  const points: number[] = [];
+  for (let lead = 0xb0; lead <= 0xc8; lead++)
+    for (let trail = 0xa1; trail <= 0xfe; trail++)
+      points.push(decoder.decode(Uint8Array.of(lead, trail)).codePointAt(0) as number);
+  return points;
+}
+
+test("the Korean handwriting faces draw every syllable their upstream release draws", () => {
+  // The earlier subsets dropped common syllables, so a handwritten line switched
+  // to the dialogue face in the middle of a word. Nanum Pen Script's release
+  // draws all 11,172 syllables; Gaegu's draws the 2,350 of KS X 1001.
+  const missing: string[] = [];
+  for (let point = 0xac00; point <= 0xd7a3; point++)
+    if (!fontHasCodepoint("nanum-pen", point, 400)) missing.push(String.fromCodePoint(point));
+  assert.equal(missing.length, 0, `nanum-pen lacks ${missing.slice(0, 20).join("")}`);
+  const common = ksx1001Syllables();
+  assert.equal(new Set(common).size, 2350);
+  for (const weight of [400, 700]) {
+    const gaps = common.filter((point) => !fontHasCodepoint("gaegu", point, weight));
+    assert.deepEqual(
+      gaps.map((point) => String.fromCodePoint(point)),
+      [],
+      `gaegu ${weight}`,
+    );
+  }
+  for (const family of ["gaegu", "nanum-pen"] as const) {
+    const runs = resolveFontRuns("아무도 없었다. 그래서 했다. 왔다.", family);
+    assert.deepEqual(
+      runs.map((run) => run.fontFamily),
+      [family],
+      `${family} keeps a common Korean line in one face`,
+    );
+  }
+});
+
 test("supported requested faces stay selected; missing Latin and Korean use bundled fallbacks", () => {
   for (const weight of [400, 700]) {
     assert.equal(resolveFontRuns("Hello", "nunito", weight)[0]?.fontFamily, "nunito");

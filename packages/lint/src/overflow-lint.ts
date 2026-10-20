@@ -67,7 +67,7 @@ export function lintBubbleOverflow(
     const overlays = bundle.lettering.filter((overlay) => overlay.cutId === cut.id);
     if (overlays.length === 0) continue;
 
-    const dims = readCutDimensions(resolveImage(cut.id));
+    const dims = readCutDimensions(resolveImage(cut.id), cut.imageView);
     let width: number;
     let height: number;
     if (dims) {

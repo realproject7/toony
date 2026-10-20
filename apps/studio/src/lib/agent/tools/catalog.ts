@@ -106,7 +106,7 @@ const characterInput = obj({
 const cutOperation = {
   type: "object",
   description:
-    'One edit. op "add" (after: cut id, null for first, absent for last; scene, shotType, characters, palette), "update" (cutId; scene, shotType, characters, palette), "remove" (cutId) or "move" (cutId, after).',
+    'One edit. op "add" (after: cut id, null for first, absent for last; scene, shotType, characters, palette, shape), "update" (cutId; scene, shotType, characters, palette, shape, view), "remove" (cutId) or "move" (cutId, after).',
   properties: {
     op: str("add, update, remove or move.", { enum: ["add", "update", "remove", "move"] }),
     cutId: str("The cut to update, remove or move."),
@@ -115,6 +115,22 @@ const cutOperation = {
     shotType: { type: ["string", "null"], enum: [...SHOT_TYPES, null] },
     characters: arr(str("Character id"), "Character ids in the cut."),
     palette: { type: ["string", "null"], description: "Color mood; null removes it." },
+    shape: {
+      type: ["number", "null"],
+      description:
+        "Panel height as a multiple of its width, set before drawing: about 0.6 for a wide view, 1 square, up to 2.2 for a tall reveal (taller repeats figures). null returns to the default.",
+    },
+    view: {
+      type: ["object", "null"],
+      description:
+        "Update only: the part of the cut's picture it shows, {x, y, width, height} in fractions of the picture, for example the lower half {x: 0, y: 0.5, width: 1, height: 0.5}. null shows all of it. The picture itself is not changed.",
+      properties: {
+        x: { type: "number" },
+        y: { type: "number" },
+        width: { type: "number" },
+        height: { type: "number" },
+      },
+    },
   },
   required: ["op"],
   additionalProperties: false,
@@ -498,6 +514,36 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
         allowOther: { type: "boolean", description: "Offer a free-text answer too. Default true." },
       },
       ["question", "options"],
+    ),
+  },
+  {
+    name: "suggest_dialogue",
+    kind: "collab",
+    step: "Suggesting lines",
+    description:
+      "Offer a few short alternative lines for one cut, shown beside its art. The person copies, edits or inserts one; nothing is lettered and existing lettering never changes. New suggestions for a cut replace the earlier ones.",
+    inputSchema: obj(
+      {
+        episodeId,
+        cutId,
+        options: arr(
+          obj(
+            {
+              kind: str(
+                "speech or thought (needs a speaker), narration, or silent (no line: the art carries the beat).",
+                { enum: ["speech", "thought", "narration", "silent"] },
+              ),
+              speaker: str("Character id of the speaker, for speech and thought."),
+              text: str("The line, short enough for one bubble. Not for silent."),
+              note: str("What the line does, in a few words."),
+            },
+            ["kind"],
+          ),
+          "Two to five alternatives.",
+          { minItems: 1, maxItems: 5 },
+        ),
+      },
+      ["episodeId", "cutId", "options"],
     ),
   },
   {
