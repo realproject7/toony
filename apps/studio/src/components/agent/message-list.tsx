@@ -86,7 +86,7 @@ function greetingFor(kind: RouteKind): { title: string; body: string } {
     default:
       return {
         title: "Working on this episode?",
-        body: "I can edit cuts, dialogue and transitions. You keep the final say on lettering.",
+        body: "I can draw and change the art, and edit cuts, dialogue and transitions. You keep the final say on lettering.",
       };
   }
 }

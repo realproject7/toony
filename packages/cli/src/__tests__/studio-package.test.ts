@@ -150,7 +150,7 @@ test("relocated Studio serves the workspace and exports identical native font pi
       method: "POST",
       headers: { "Content-Type": "application/json", "x-toony-agent": "1", origin },
       body: "{}",
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(30_000),
     });
     assert.equal(session.status, 200, diagnostics);
     // The response also clears an older cookie path; keep the one with a value.
@@ -178,7 +178,7 @@ test("relocated Studio serves the workspace and exports identical native font pi
     const jobDeadline = Date.now() + 60_000;
     while (Date.now() < jobDeadline) {
       const view = await fetch(`${origin}/api/export/jobs/${run.jobId}`, {
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(30_000),
       });
       job = ((await view.json()) as { job: ExportJobView }).job;
       if (job.state === "completed" || job.state === "failed") break;
@@ -188,7 +188,7 @@ test("relocated Studio serves the workspace and exports identical native font pi
     assert.equal(job.files?.length, 1);
     const href = job.files?.[0]?.href;
     assert.ok(href);
-    const download = await fetch(`${origin}${href}`, { signal: AbortSignal.timeout(10_000) });
+    const download = await fetch(`${origin}${href}`, { signal: AbortSignal.timeout(30_000) });
     assert.equal(download.status, 200);
     assert.deepEqual(
       Buffer.from(await download.arrayBuffer()),

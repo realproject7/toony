@@ -114,7 +114,11 @@ export function InlineLetteringText({
   const composing = useRef(false),
     pendingFinish = useRef(false);
   const firstRender = useRef(true);
-  const lastSelection = useRef<TextSelection>({ start: 0, end: overlay.text.length });
+  // Editing starts with the caret after the text, not with the text selected.
+  const lastSelection = useRef<TextSelection>({
+    start: overlay.text.length,
+    end: overlay.text.length,
+  });
   const latest = useRef({ overlay, onChange, onSelection, onFinish, onUndo, onRedo });
   latest.current = { overlay, onChange, onSelection, onFinish, onUndo, onRedo };
   const readSelection = useCallback(() => {

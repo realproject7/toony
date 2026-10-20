@@ -572,7 +572,12 @@ four and a half minutes; when cuts are still drawing it returns, the job goes
 on, its changes are posted to the chat as they land, and the agent receives a
 follow-up turn when the job ends. A message after which the next cut would fail
 the same way (the engine stopped answering) skips the rest. Progress is a live
-`art` event and one activity row in the chat.
+`art` event and one activity row in the chat. The work keeps its 20 newest jobs
+in `.toony/agent/art-jobs.json`. After a Studio restart a job that was queued
+or running reads as interrupted: the cut being drawn is marked failed, cuts not
+started are skipped, nothing is drawn again by itself, and `get_status` tells
+the agent to check those cuts. A conversation read back from disk shows no step
+still running.
 
 With "Let the agent make changes without asking" on, writes apply and each
 leaves an undoable change card. Off, each write becomes a proposal card the

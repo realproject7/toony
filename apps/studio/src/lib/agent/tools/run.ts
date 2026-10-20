@@ -942,7 +942,7 @@ function shortCut(label: string): string {
 }
 
 function artFinished(view: ArtJobView): boolean {
-  return view.state === "finished" || view.state === "stopped";
+  return view.state === "finished" || view.state === "stopped" || view.state === "interrupted";
 }
 
 /** One line on how far a job is, for the panel. */
@@ -956,6 +956,7 @@ export function artProgressLine(view: ArtJobView): string {
   if (drawing) parts.push(`drawing ${drawing.label}`);
   else if (view.state === "queued") parts.push("waiting for the engine");
   else if (view.state === "stopped") parts.push("stopped");
+  else if (view.state === "interrupted") parts.push("interrupted when Studio stopped");
   return parts.join(" · ");
 }
 
@@ -1248,15 +1249,22 @@ async function getStatus(host: ToolHost): Promise<string> {
     openQuestions: host.openQuestions(),
     tasks: memory.tasks,
   });
-  return `${brief}\n\n${await artworkStatus(host, work.id)}`;
+  return `${brief}\n\n${await artworkStatus(host, work.id, work.root)}`;
 }
 
 /** The artwork part of get_status: the engine, and drawing jobs still running. */
-async function artworkStatus(host: ToolHost, workId: string): Promise<string> {
+async function artworkStatus(host: ToolHost, workId: string, root: string): Promise<string> {
   const engine = await artEngineStatus(host.workspace);
   const lines = ["## Artwork", `Engine: ${engine.message}`];
-  for (const job of listArtJobs(workId).filter((view) => !artFinished(view))) {
+  const jobs = await listArtJobs(workId, root);
+  for (const job of jobs.filter((view) => !artFinished(view))) {
     lines.push(`Drawing job ${job.id}: ${artProgressLine(job)}`);
+  }
+  const interrupted = jobs.find((view) => view.state === "interrupted");
+  if (interrupted) {
+    lines.push(
+      `Drawing job ${interrupted.id} was interrupted when Studio stopped: ${artProgressLine(interrupted)}. Check those cuts with art_status and draw what is missing.`,
+    );
   }
   return lines.join("\n");
 }
@@ -1752,24 +1760,24 @@ async function runRead(
     case "art_status": {
       const args = A.artStatusArgs(rawArgs);
       const work = await requireWork(host);
-      const pick = (): ArtJobView[] => {
-        if (args.jobId === undefined) return listArtJobs(work.id).slice(0, 5);
+      const pick = async (): Promise<ArtJobView[]> => {
+        if (args.jobId === undefined) return (await listArtJobs(work.id, work.root)).slice(0, 5);
         const job = getArtJob(args.jobId);
         if (!job || job.workId !== work.id) {
           throw new ToolInputError("There is no drawing job with this id in this work.");
         }
         return [job];
       };
-      let jobs = pick();
+      let jobs = await pick();
       const waitFor = jobs.find((job) => !artFinished(job));
       if (args.wait > 0 && waitFor) {
         await waitForArtJob(waitFor.id, args.wait * 1000, () => host.touch());
-        jobs = pick();
+        jobs = await pick();
       }
       return {
         result: textResult({
           jobs: jobs.map(artJobSummary),
-          ...(jobs.length === 0 ? { note: "Nothing has been drawn in this session yet." } : {}),
+          ...(jobs.length === 0 ? { note: "Nothing has been drawn in this work yet." } : {}),
         }),
       };
     }
@@ -1778,7 +1786,7 @@ async function runRead(
       const work = await requireWork(host);
       const job =
         args.jobId === undefined
-          ? listArtJobs(work.id).find((view) => !artFinished(view))
+          ? (await listArtJobs(work.id, work.root)).find((view) => !artFinished(view))
           : getArtJob(args.jobId);
       if (!job || job.workId !== work.id || artFinished(job)) {
         throw new ToolInputError("No drawing job is running in this work.");

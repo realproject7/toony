@@ -1,10 +1,13 @@
 "use client";
 
-// First run: no webtoons yet. One clear path (connect your own agent and
-// describe a story) and a manual escape hatch (a blank webtoon).
+// First run: no webtoons yet. One clear path (connect your own agent, start the
+// artwork engine it draws with, describe a story) and a manual escape hatch
+// (a blank webtoon).
 
+import Link from "next/link";
 import { useSyncExternalStore } from "react";
 import { openAgentPanel } from "@/lib/agent/focus-store";
+import type { ArtEngineStatus } from "@/lib/art/engine";
 import { getConnectionState, subscribeConnectionState } from "@/lib/connection-store";
 import { NewWorkButton } from "./new-work-button";
 
@@ -12,6 +15,10 @@ const STEPS = [
   {
     title: "Connect your agent",
     text: "Claude Code or Codex on this computer, with your own subscription.",
+  },
+  {
+    title: "Start the artwork engine",
+    text: "ComfyUI on this computer draws the cuts. Add its address in Settings.",
   },
   {
     title: "Describe your story",
@@ -27,7 +34,7 @@ export function useConnection() {
   return useSyncExternalStore(subscribeConnectionState, getConnectionState, () => null);
 }
 
-export function LibraryWelcome() {
+export function LibraryWelcome({ engine }: { engine?: ArtEngineStatus }) {
   const connection = useConnection();
   const connected = connection?.status === "connected";
   return (
@@ -38,7 +45,7 @@ export function LibraryWelcome() {
         Make webtoons with your own AI agent
       </h1>
       <p className="page-lede">
-        You talk with your agent in the chat. Your webtoon takes shape here, and you do the
+        You talk with your agent in the chat. It writes and draws your webtoon here, and you do the
         lettering.
       </p>
       <ol className="welcome-steps">
@@ -50,6 +57,14 @@ export function LibraryWelcome() {
             <div>
               <h2>{step.title}</h2>
               <p>{step.text}</p>
+              {step.title === "Start the artwork engine" && engine && (
+                <p className="welcome-engine" data-testid="welcome-engine">
+                  <span className={`chip ${engine.ready ? "chip-ok" : "chip"}`}>
+                    {engine.ready ? "Ready" : "Not ready"}
+                  </span>{" "}
+                  {!engine.ready && <Link href="/settings">Open Settings</Link>}
+                </p>
+              )}
             </div>
           </li>
         ))}

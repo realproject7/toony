@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { listWorkspace, loadProject } from "@toony/project-io";
 import type { NativeEvent } from "../agent/adapters.js";
-import { trimItems } from "../agent/conversations.js";
+import { parseRecord, trimItems } from "../agent/conversations.js";
 import type { Launcher, LaunchSpec } from "../agent/launcher.js";
 import type {
   AgentPreferences,
@@ -77,7 +77,13 @@ async function setup(
   } = {},
 ) {
   const dir = await realpath(await mkdtemp(join(tmpdir(), "toony-runtime-")));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  // Write what the store still has pending before removing the folder: on a
+  // busy machine a debounced save could land during the removal.
+  let flush = async () => {};
+  t.after(async () => {
+    await flush().catch(() => {});
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  });
   await options.prepare?.(dir);
   const bus = new LiveBus();
   const events: LiveEvent[] = [];
@@ -116,6 +122,7 @@ async function setup(
         episodeCount: w.episodeCount,
       })),
   });
+  flush = () => runtime.store.flush();
   await runtime.init();
   return { dir, bus, events, scripts, launches, runtime };
 }
@@ -596,4 +603,44 @@ test("conversations kept only in memory are never written; trimming keeps open i
   assert.ok(trimmed.some((i) => i.id === "q"));
   assert.ok(trimmed.some((i) => i.id === "p"));
   assert.equal(trimmed.at(-1)?.id, "a499");
+});
+
+test("a conversation read back after a restart shows no step still running", () => {
+  const id = randomUUID();
+  const at = "2026-10-20T00:00:00.000Z";
+  const record = parseRecord(
+    {
+      version: 2,
+      id,
+      workId: null,
+      items: [
+        {
+          kind: "activity",
+          id: "a1",
+          at,
+          turnId: "t",
+          tool: "draw_cuts",
+          title: "Draw",
+          status: "running",
+        },
+        {
+          kind: "activity",
+          id: "a2",
+          at,
+          turnId: "t",
+          tool: "read_story",
+          title: "Read",
+          status: "done",
+        },
+      ],
+      turn: { id: "t", state: "running", startedAt: at },
+    },
+    id,
+  );
+  assert.ok(record);
+  const [first, second] = record.items;
+  assert.ok(first?.kind === "activity" && first.status === "failed");
+  assert.match(first.detail ?? "", /Studio restarted/);
+  assert.ok(second?.kind === "activity" && second.status === "done");
+  assert.equal(record.turn?.state, "failed");
 });

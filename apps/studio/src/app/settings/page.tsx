@@ -6,6 +6,7 @@ import { defaultConfig, readConfig, type ToonyConfig } from "@toony/project-io";
 import { SettingsForm } from "@/components/settings-form";
 import { AgentStatusCard, CopyText, ThemePicker } from "@/components/settings-panels";
 import { RouteFocus } from "@/components/work-presence";
+import { artEngineStatus } from "@/lib/art/engine";
 import { probeComfyui } from "@/lib/comfyui-probe";
 import { redactPaths } from "@/lib/redact";
 import { workspaceDisplayPath, workspaceRoot } from "@/lib/workspace";
@@ -26,9 +27,13 @@ export default async function SettingsPage() {
     config = defaultConfig();
     configUnreadable = true;
   }
-  const [connection, packs] = await Promise.all([
+  // An address set for this computer (TOONY_COMFYUI_URL) is what the agent
+  // draws with, ahead of the address saved below.
+  const fromEnvironment = Boolean(process.env.TOONY_COMFYUI_URL?.trim());
+  const [connection, packs, engine] = await Promise.all([
     probeComfyui(config.comfyui.endpoint),
     loadPacks(root, process.env).catch(() => null),
+    artEngineStatus(root, process.env, { fresh: true }),
   ]);
   const displayPath = workspaceDisplayPath(root);
 
@@ -67,7 +72,16 @@ export default async function SettingsPage() {
 
       <section className="settings-section" aria-labelledby="settings-artwork">
         <h2 id="settings-artwork">Artwork engine</h2>
-        <details className="disclosure" open={connection.state !== "reachable"}>
+        {fromEnvironment && (
+          <p className="page-meta" data-testid="engine-from-environment">
+            This computer sets the engine address, and the agent uses it before the one below.{" "}
+            {engine.message}
+          </p>
+        )}
+        <details
+          className="disclosure"
+          open={fromEnvironment ? !engine.ready : connection.state !== "reachable"}
+        >
           <summary>ComfyUI on this computer, which your agent draws with</summary>
           {configUnreadable && (
             <p className="form-error" role="alert" data-testid="settings-config-error">

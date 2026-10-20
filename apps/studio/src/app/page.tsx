@@ -8,6 +8,7 @@ import { LibraryWelcome } from "@/components/library-welcome";
 import { LibraryRefresh } from "@/components/live-refresh";
 import { NewWorkButton } from "@/components/new-work-button";
 import { RouteFocus } from "@/components/work-presence";
+import { artEngineStatus } from "@/lib/art/engine";
 import { assetUrl } from "@/lib/project";
 import { editedLabel } from "@/lib/relative-time";
 import { listWorks, workspaceRoot } from "@/lib/workspace";
@@ -27,7 +28,7 @@ export default async function LibraryPage() {
       <RouteFocus route="library" />
       <LibraryRefresh />
       {works.length === 0 ? (
-        <LibraryWelcome />
+        <LibraryWelcome engine={await artEngineStatus(root)} />
       ) : (
         <>
           <header className="page-head">
