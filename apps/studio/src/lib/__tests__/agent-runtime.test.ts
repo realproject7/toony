@@ -77,7 +77,13 @@ async function setup(
   } = {},
 ) {
   const dir = await realpath(await mkdtemp(join(tmpdir(), "toony-runtime-")));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  // Write what the store still has pending before removing the folder: on a
+  // busy machine a debounced save could land during the removal.
+  let flush = async () => {};
+  t.after(async () => {
+    await flush().catch(() => {});
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  });
   await options.prepare?.(dir);
   const bus = new LiveBus();
   const events: LiveEvent[] = [];
@@ -116,6 +122,7 @@ async function setup(
         episodeCount: w.episodeCount,
       })),
   });
+  flush = () => runtime.store.flush();
   await runtime.init();
   return { dir, bus, events, scripts, launches, runtime };
 }
