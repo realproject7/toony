@@ -232,7 +232,12 @@ export function parseRecord(value: unknown, fileId: string): ConversationRecord 
     title: typeof v.title === "string" ? v.title.slice(0, 120) : "New chat",
     createdAt: typeof v.createdAt === "string" ? v.createdAt : now(),
     updatedAt: typeof v.updatedAt === "string" ? v.updatedAt : now(),
-    items: trimItems(cleanItems(v.items)),
+    // Nothing can still be running in a conversation read back from disk.
+    items: trimItems(cleanItems(v.items)).map((item) =>
+      item.kind === "activity" && item.status === "running"
+        ? { ...item, status: "failed" as const, detail: "Stopped when Studio restarted." }
+        : item,
+    ),
     tasks: Array.isArray(v.tasks) ? (v.tasks as TaskItem[]).slice(0, 30) : [],
     native,
     provider: isProvider(v.provider) ? v.provider : null,

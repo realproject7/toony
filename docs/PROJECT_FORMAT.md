@@ -72,6 +72,8 @@ read by the loader):
   with project-relative `files`. It travels with the project so a new agent
   session can see what happened and who did it. It rotates to
   `journal.1.jsonl` at 2 MB. The folder is private to the user (0700).
+- `.toony/agent/art-jobs.json` holds the newest 20 drawing jobs the agent ran
+  in this work, so a job cut short by a Studio restart reads as interrupted.
 
 Neither is project data: deleting `.toony/` loses undo and history, never the
 webtoon.

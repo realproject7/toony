@@ -19,11 +19,10 @@
 // ask the agent from here, or bring their own image by upload or drop.
 // The person marks a cut final here; the agent never does.
 
-import { layoutCut } from "@toony/render";
+import { layoutCut, legacyTextLayout } from "@toony/render";
 import {
   applyLetteringTheme,
   type Character,
-  defaultLetteringTextLayout,
   LETTERING_STYLE_DEFAULTS,
   type LetteringOverlay,
   type LetteringTheme,
@@ -216,7 +215,6 @@ export function CutEditor({
   }, []);
   const [additionalIds, setAdditionalIds] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [legacyRequest, setLegacyRequest] = useState<string | null>(null);
   const [textSelection, setTextSelection] = useState<TextSelection>({ start: 0, end: 0 });
   const [armed, setArmed] = useState<string | null>(null);
   const [zoom, setZoom] = useState(0.75),
@@ -514,14 +512,20 @@ export function CutEditor({
       setAdditionalIds([]);
       setSelectedId(id);
       setArmed(null);
+      // Lettering saved before editable text layouts (for example what the
+      // agent lettered) converts on the first edit, keeping the size it had.
       if (plan.lines.some((line) => line.sourceStart === undefined)) {
-        setLegacyRequest(id);
-        return;
+        update(b.id, {
+          textLayout: b.textLayout ?? legacyTextLayout(b, { width, height }, referenceWidth),
+          textRanges: b.textRanges ?? [],
+        });
       }
       setEditingId(id);
-      setTextSelection({ start: 0, end: b.text.length });
+      // The caret starts after the text, so typing adds to it instead of
+      // replacing a line the person meant to fix.
+      setTextSelection({ start: b.text.length, end: b.text.length });
     },
-    [bubbles, plans],
+    [bubbles, plans, update, width, height, referenceWidth],
   );
   // Capture the pointer on the SVG itself (the element that owns the move/up
   // handlers), not on the individual handle. Handles are re-created on every
@@ -1853,36 +1857,6 @@ export function CutEditor({
                 onRedo={redo}
               />
             </section>
-            {legacyRequest && (
-              <div className="editor-toast editor-toast-warn legacy-layout-notice">
-                <span>
-                  This bubble uses an older text layout. Update it to type directly on the cut.
-                </span>
-                <button
-                  type="button"
-                  className="btn btn-chip"
-                  onClick={() => {
-                    const b = bubbles.find((b) => b.id === legacyRequest);
-                    if (!b) return;
-                    update(b.id, {
-                      textLayout: b.textLayout ?? defaultLetteringTextLayout(referenceWidth),
-                      textRanges: b.textRanges ?? [],
-                    });
-                    setEditingId(b.id);
-                    setLegacyRequest(null);
-                  }}
-                >
-                  Update it
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-chip"
-                  onClick={() => setLegacyRequest(null)}
-                >
-                  Keep as is
-                </button>
-              </div>
-            )}
           </div>
         </div>
 

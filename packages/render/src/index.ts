@@ -47,6 +47,7 @@ export {
   layoutBubble,
   layoutCut,
 } from "./layout.js";
+export { legacyTextLayout } from "./legacy-text-layout.js";
 export { approximateMeasure } from "./measure.js";
 export type { CutAspectSource, CutImageSize, ResolvedCutAspect } from "./panel-shape.js";
 export { cutHeightAt, resolveCutAspect } from "./panel-shape.js";

@@ -1,5 +1,7 @@
 // Drawing jobs: the agent's requests to draw or edit cut artwork, run in the
-// background one at a time (the engine draws one image at a time). Each cut is
+// background one at a time (the engine draws one image at a time). Each work
+// keeps its recent jobs in `.toony/agent/art-jobs.json`, so a Studio restart
+// shows a job it cut short as interrupted; nothing is drawn again by itself. Each cut is
 // one run of the shared generate path (`@toony/generate`) in-process, exactly
 // as `toony generate` draws it. The slow render happens outside the project
 // lock; each finished image is written through Studio's write path, so it is
@@ -7,9 +9,11 @@
 // Views never carry absolute paths.
 
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { type GenerateEvent, runGenerate } from "@toony/generate";
 import { importedAssetPath, ProjectIoError } from "@toony/project-io";
 import type { ArtJobCut, ArtJobView, ProjectChange } from "../agent/protocol.js";
+import { readPrivateJson, writePrivateJson } from "../agent/storage.js";
 import { liveBus } from "../live/bus.js";
 import { OpError } from "../ops/errors.js";
 import { cutLabel } from "../ops/labels.js";
@@ -57,7 +61,16 @@ interface Registry {
   jobs: Map<string, JobRecord>;
   queue: Promise<unknown>;
   runner: GenerateRunner;
+  /** Work folders whose saved jobs were read back in this process. */
+  restored: Set<string>;
+  /** The last save per work root, so saves land in order. */
+  saving: Map<string, Promise<void>>;
 }
+
+/** Where a work keeps its recent drawing jobs. */
+export const ART_JOBS_FILE = ".toony/agent/art-jobs.json";
+/** Jobs kept in that file per work, newest last. */
+const SAVED_JOBS_KEPT = 20;
 
 const FINISHED_JOBS_KEPT = 50;
 /** A prompt or message longer than this is cut, so a view stays small. */
@@ -65,7 +78,13 @@ const MESSAGE_MAX = 400;
 
 const state = globalThis as typeof globalThis & { toonyArtJobs?: Registry };
 function registry(): Registry {
-  state.toonyArtJobs ??= { jobs: new Map(), queue: Promise.resolve(), runner: runGenerate };
+  state.toonyArtJobs ??= {
+    jobs: new Map(),
+    queue: Promise.resolve(),
+    runner: runGenerate,
+    restored: new Set(),
+    saving: new Map(),
+  };
   return state.toonyArtJobs;
 }
 
@@ -77,11 +96,106 @@ export function setGenerateRunner(runner: GenerateRunner): GenerateRunner {
 }
 
 function finished(view: ArtJobView): boolean {
-  return view.state === "finished" || view.state === "stopped";
+  return view.state === "finished" || view.state === "stopped" || view.state === "interrupted";
+}
+
+/** A work's jobs, oldest first. */
+function jobsOf(workId: string): ArtJobView[] {
+  return [...registry().jobs.values()]
+    .filter((record) => record.view.workId === workId)
+    .map((record) => record.view)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+/**
+ * Save the work's recent jobs, after reading back the ones saved before a
+ * restart so they are kept. Best effort: the live job stays authoritative.
+ */
+function save(workId: string, root: string): void {
+  const reg = registry();
+  const previous = reg.saving.get(root) ?? Promise.resolve();
+  const next = previous
+    .then(() => restoreArtJobs(workId, root))
+    .then(() =>
+      writePrivateJson(join(root, ART_JOBS_FILE), {
+        version: 1,
+        jobs: jobsOf(workId).slice(-SAVED_JOBS_KEPT),
+      }),
+    )
+    .catch(() => {});
+  reg.saving.set(root, next);
+}
+
+function isJobView(value: unknown): value is ArtJobView {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Partial<ArtJobView>;
+  return (
+    typeof v.id === "string" &&
+    typeof v.workId === "string" &&
+    typeof v.episodeId === "string" &&
+    (v.kind === "draw" || v.kind === "edit") &&
+    typeof v.state === "string" &&
+    Array.isArray(v.cuts) &&
+    v.cuts.every((cut) => cut && typeof cut.cutId === "string" && typeof cut.label === "string")
+  );
+}
+
+/**
+ * Read a work's saved jobs once per process. A job that was queued or running
+ * when Studio stopped becomes interrupted: its unfinished cuts say what
+ * happened, and it is never started again by itself.
+ */
+export async function restoreArtJobs(workId: string, root: string): Promise<void> {
+  const reg = registry();
+  if (reg.restored.has(root)) return;
+  reg.restored.add(root);
+  let saved: unknown;
+  try {
+    saved = await readPrivateJson(join(root, ART_JOBS_FILE));
+  } catch {
+    return;
+  }
+  const jobs = (saved as { jobs?: unknown } | null)?.jobs;
+  if (!Array.isArray(jobs)) return;
+  let changed = false;
+  for (const value of jobs) {
+    if (!isJobView(value) || value.workId !== workId || reg.jobs.has(value.id)) continue;
+    const view = structuredClone(value);
+    if (!finished(view)) {
+      changed = true;
+      view.state = "interrupted";
+      view.finishedAt = new Date().toISOString();
+      for (const cut of view.cuts) {
+        if (cut.state === "drawing") {
+          cut.state = "failed";
+          cut.message =
+            "Studio stopped while this cut was being drawn. Look at the cut; draw it again if it did not change.";
+        } else if (cut.state === "queued") {
+          cut.state = "skipped";
+          cut.message = "Studio stopped before this cut was drawn.";
+        }
+      }
+    }
+    reg.jobs.set(view.id, {
+      view,
+      params: {
+        ctx: { workId, root, actor: "agent" },
+        episodeId: view.episodeId,
+        kind: view.kind,
+        items: [],
+      },
+      listeners: new Set(),
+      changes: [],
+      stop: false,
+      done: Promise.resolve(view),
+    });
+  }
+  if (changed) save(workId, root);
 }
 
 function publish(record: JobRecord): void {
   const view = structuredClone(record.view);
+  save(record.view.workId, record.params.ctx.root);
   try {
     liveBus().publish({ type: "art", job: view });
   } catch {
@@ -289,11 +403,16 @@ export function artJobChanges(id: string): ProjectChange[] {
   return [...(registry().jobs.get(id)?.changes ?? [])];
 }
 
-/** Jobs for a work, newest first. */
-export function listArtJobs(workId: string): ArtJobView[] {
-  return [...registry().jobs.values()]
-    .filter((record) => record.view.workId === workId)
-    .map((record) => structuredClone(record.view))
+/** Wait for the job saves in flight (tests remove the work folder after). */
+export async function artJobsSaved(): Promise<void> {
+  await Promise.all(registry().saving.values());
+}
+
+/** Jobs for a work, newest first; with `root`, saved jobs from before a restart too. */
+export async function listArtJobs(workId: string, root?: string): Promise<ArtJobView[]> {
+  if (root !== undefined) await restoreArtJobs(workId, root);
+  return jobsOf(workId)
+    .map((view) => structuredClone(view))
     .reverse();
 }
 

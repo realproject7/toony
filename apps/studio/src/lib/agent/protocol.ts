@@ -297,7 +297,8 @@ export interface ArtJobView {
   workId: string;
   episodeId: string;
   kind: "draw" | "edit";
-  state: "queued" | "running" | "finished" | "stopped";
+  /** "interrupted": Studio stopped while the job was queued or running. */
+  state: "queued" | "running" | "finished" | "stopped" | "interrupted";
   cuts: ArtJobCut[];
   createdAt: string;
   startedAt?: string;

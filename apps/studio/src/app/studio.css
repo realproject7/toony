@@ -1534,27 +1534,6 @@ button.transition-block {
   grid-column: 2;
   grid-row: 1;
 }
-.legacy-layout-notice {
-  grid-column: 2;
-  grid-row: 1;
-  align-self: end;
-  z-index: 3;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  margin: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid color-mix(in srgb, var(--color-warning) 35%, var(--color-line));
-  box-shadow: var(--shadow-2);
-}
-.legacy-layout-notice > span {
-  flex: 1 1 15rem;
-  min-width: 0;
-}
-.legacy-layout-notice > .btn {
-  flex-shrink: 0;
-}
 .lettering-confirm-backdrop {
   position: fixed;
   inset: 0;
@@ -2614,6 +2593,12 @@ textarea.text-input {
   font-size: var(--text-sm);
   color: var(--color-muted);
   line-height: var(--leading-normal);
+}
+.welcome-engine {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
 }
 .welcome-step-number {
   display: inline-grid;
