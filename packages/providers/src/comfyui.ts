@@ -28,6 +28,7 @@ import {
   type ReferenceImage,
   type WorkflowParams,
   withReferenceImages,
+  withSideBySide,
   withSourceImage,
 } from "./comfyui-workflow.js";
 import { ProviderError } from "./errors.js";
@@ -183,6 +184,7 @@ export class ComfyUIProvider implements ImageProvider {
           injected.push({
             image: await this.upload(reference, `${reference.side} reference image`),
             side: reference.side,
+            ...(reference.prompt === undefined ? {} : { prompt: reference.prompt }),
           });
         }
       } else {
@@ -194,7 +196,25 @@ export class ComfyUIProvider implements ImageProvider {
     }
 
     let graph = buildWorkflow(this.config.workflow, params, map);
-    if (injected.length > 0) graph = withReferenceImages(graph, map, injected);
+    // Two people with their own prompts, drawn fresh: each in their half first.
+    // An edit keeps the people where its source has them, so it only masks.
+    const [first, second] = injected;
+    if (
+      injected.length === 2 &&
+      request.source === undefined &&
+      first?.side !== undefined &&
+      first.prompt !== undefined &&
+      second?.side !== undefined &&
+      second.prompt !== undefined &&
+      first.side !== second.side
+    ) {
+      graph = withSideBySide(graph, map, [
+        { image: first.image, side: first.side, prompt: first.prompt },
+        { image: second.image, side: second.side, prompt: second.prompt },
+      ]);
+    } else if (injected.length > 0) {
+      graph = withReferenceImages(graph, map, injected);
+    }
     if (request.source !== undefined) {
       // Check the graph can take a source before anything is uploaded.
       withSourceImage(graph, this.config.injectionMap, "", request.source.strength);

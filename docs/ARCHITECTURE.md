@@ -192,7 +192,15 @@ community nodes, through those nodes added to any workflow's model chain
 (`withReferenceImages` in `@toony/providers`: weight 0.6, "prompt is more
 important", starting at 0.15 of the steps, chosen on same-seed renders so the
 prompt keeps the composition). Two people get one adapter each, masked to their
-side of the frame. The ingest log records which characters' pictures the run
+side of the frame. A fresh two-person picture is drawn side by side first
+(`withSideBySide`): each person alone in their own half of the frame (their
+lockstring, turned toward the other, and the setting phrases of the cut's
+prompt, from `sidePrompt`) with their reference, the halves joined in latent
+space with a soft seam, and the cut's own sampler then draws the whole frame over
+them at 0.5 with both references on their sides. The halves fix who stands
+where; the prompt alone put people on the wrong side in four of five same-seed
+renders. An edit or a continued cut keeps the people where its source has them
+and only masks. The ingest log records which characters' pictures the run
 conditioned on, with sides and the sha256 of the bytes uploaded, and the repeat
 instruction names a changed or newly attached picture as an input nothing can
 ask for, the way a changed palette is named.

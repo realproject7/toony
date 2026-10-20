@@ -309,6 +309,8 @@ export interface ReferenceImage {
   image: string;
   /** Keep this reference to one side of the frame (a two-person picture). Absent: the whole frame. */
   side?: "left" | "right";
+  /** That person alone in the setting, for a picture drawn side by side. */
+  prompt?: string;
 }
 
 /**
@@ -386,6 +388,140 @@ export function withReferenceImages(
     model = [apply, 0];
   });
   sampler.inputs.model = model;
+  return graph;
+}
+
+/** A two-person picture's halves: each person alone, drawn where they stand. */
+export interface SideBySidePerson {
+  /** The uploaded reference image's name on the engine. */
+  image: string;
+  side: "left" | "right";
+  /** That person alone in the setting, the way the picture's own prompt is written. */
+  prompt: string;
+}
+
+/** The node ids Toony adds for a side-by-side picture (suffixed with the side). */
+export const HALF_TEXT_NODE = "toony_half_text";
+export const HALF_SAMPLER_NODE = "toony_half_sampler";
+export const HALVES_JOINED_NODE = "toony_halves_joined";
+/** Each half is this share of the width, so the halves overlap in the middle. */
+const HALF_SHARE = 0.62;
+/**
+ * How much the whole picture is redrawn over the joined halves: enough to
+ * join them into one scene and light, little enough that each person stays
+ * where their half put them. Chosen on same-seed renders.
+ */
+export const SIDE_BY_SIDE_BLEND = 0.5;
+
+const round8 = (value: number) => Math.max(8, Math.floor(value / 8) * 8);
+
+/**
+ * Draw a two-person picture side by side, in a COPY: each person is drawn
+ * alone in their own half of the frame (their prompt and reference), the two
+ * halves are joined in latent space with a soft seam, and the graph's own
+ * sampler then redraws the whole frame from the joined halves at
+ * `SIDE_BY_SIDE_BLEND`, with both references kept to their sides. The picture's
+ * prompt decides the scene; the halves decide who stands where, which the
+ * prompt alone does not (the model put people on the wrong side in most
+ * same-seed renders). Needs the graph's latent size, a sampler with a linked
+ * model, `latent_image` and `denoise`, and a text encoder at the positive node.
+ */
+export function withSideBySide(
+  template: ComfyWorkflowGraph,
+  map: WorkflowInjectionMap,
+  people: readonly [SideBySidePerson, SideBySidePerson],
+): ComfyWorkflowGraph {
+  const width = template[map.widthNode]?.inputs[map.widthInput];
+  const height = template[map.heightNode]?.inputs[map.heightInput];
+  const encoder = template[map.positiveNode];
+  const sampler = template[map.seedNode];
+  if (
+    typeof width !== "number" ||
+    typeof height !== "number" ||
+    encoder === undefined ||
+    !Array.isArray(encoder.inputs.clip) ||
+    sampler === undefined ||
+    !Array.isArray(sampler.inputs.latent_image) ||
+    !("denoise" in sampler.inputs)
+  ) {
+    throw new ProviderError(
+      "comfyui.no-side-by-side",
+      "this workflow cannot draw two people side by side: it needs a numeric latent size, a text encoder at the positive node and a sampler with latent_image and denoise inputs.",
+    );
+  }
+  const graph = withReferenceImages(
+    template,
+    map,
+    people.map((person) => ({ image: person.image, side: person.side })),
+  );
+  const blend = graph[map.seedNode] as ComfyWorkflowNode;
+  const seed = typeof blend.inputs.seed === "number" ? blend.inputs.seed : 0;
+  const half = round8(width * HALF_SHARE);
+  const overlap = Math.max(0, 2 * half - width);
+  const halves = people.map((person, index) => {
+    const id = (base: string) => `${base}_${person.side}`;
+    graph[id("toony_half_load")] = { class_type: "LoadImage", inputs: { image: person.image } };
+    graph[id("toony_half_apply")] = {
+      class_type: "IPAdapter",
+      inputs: {
+        model: [REFERENCE_ADAPTER_NODE, 0],
+        ipadapter: [REFERENCE_ADAPTER_NODE, 1],
+        image: [id("toony_half_load"), 0],
+        weight: REFERENCE_WEIGHT,
+        start_at: REFERENCE_START,
+        end_at: 1,
+        weight_type: REFERENCE_WEIGHT_TYPE,
+      },
+    };
+    graph[id(HALF_TEXT_NODE)] = {
+      class_type: "CLIPTextEncode",
+      inputs: { text: person.prompt, clip: structuredClone(encoder.inputs.clip) },
+    };
+    graph[id("toony_half_latent")] = {
+      class_type: "EmptyLatentImage",
+      inputs: { width: half, height, batch_size: 1 },
+    };
+    graph[id(HALF_SAMPLER_NODE)] = {
+      class_type: sampler.class_type,
+      inputs: {
+        ...structuredClone(sampler.inputs),
+        model: [id("toony_half_apply"), 0],
+        positive: [id(HALF_TEXT_NODE), 0],
+        latent_image: [id("toony_half_latent"), 0],
+        seed: seed + index + 1,
+        denoise: 1,
+      },
+    };
+    return { side: person.side, latent: [id(HALF_SAMPLER_NODE), 0] };
+  });
+  const left = halves.find((h) => h.side === "left") ?? halves[0];
+  const right = halves.find((h) => h.side === "right") ?? halves[1];
+  graph.toony_halves_canvas = {
+    class_type: "EmptyLatentImage",
+    inputs: { width, height, batch_size: 1 },
+  };
+  graph.toony_halves_left = {
+    class_type: "LatentComposite",
+    inputs: {
+      samples_to: ["toony_halves_canvas", 0],
+      samples_from: left?.latent,
+      x: 0,
+      y: 0,
+      feather: 0,
+    },
+  };
+  graph[HALVES_JOINED_NODE] = {
+    class_type: "LatentComposite",
+    inputs: {
+      samples_to: ["toony_halves_left", 0],
+      samples_from: right?.latent,
+      x: width - half,
+      y: 0,
+      feather: Math.min(128, round8(overlap / 2)),
+    },
+  };
+  blend.inputs.latent_image = [HALVES_JOINED_NODE, 0];
+  blend.inputs.denoise = SIDE_BY_SIDE_BLEND;
   return graph;
 }
 

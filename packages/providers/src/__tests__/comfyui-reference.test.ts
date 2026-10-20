@@ -11,11 +11,15 @@ import {
   buildWorkflow,
   type ComfyWorkflowGraph,
   DEFAULT_INJECTION_MAP,
+  HALF_SAMPLER_NODE,
+  HALF_TEXT_NODE,
+  HALVES_JOINED_NODE,
   REFERENCE_ADAPTER_NODE,
   REFERENCE_APPLY_NODE,
   REFERENCE_LOAD_NODE,
   REFERENCE_WEIGHT,
   REFERENCE_WEIGHT_TYPE,
+  SIDE_BY_SIDE_BLEND,
 } from "../comfyui-workflow.js";
 
 const PROMPT_ID = "f1e2d3c4-0000-4000-8000-aaaabbbbcccc";
@@ -270,4 +274,64 @@ test("two people get one reference each, masked to their side of the frame", asy
     "each band covers a little more than half",
   );
   assert.equal(graph[REFERENCE_LOAD_NODE]?.inputs.image, "sheet-7.png");
+});
+
+test("two people with their own prompts are drawn side by side, then together", async () => {
+  const seen = { uploads: 0, graphs: [] as unknown[] };
+  const withModel = config(false);
+  withModel.workflow["3"] = {
+    class_type: "KSampler",
+    inputs: { seed: 1, model: ["4", 0], latent_image: ["5", 0], denoise: 1, steps: 25 },
+  };
+  withModel.workflow["6"] = { class_type: "CLIPTextEncode", inputs: { text: "", clip: ["4", 1] } };
+  withModel.workflow["8"] = {
+    class_type: "VAEDecode",
+    inputs: { samples: ["3", 0], vae: ["4", 2] },
+  };
+  const provider = new ComfyUIProvider(withModel, {
+    fetch: fakeFetchWithAdapter(seen),
+    sleep: async () => {},
+  });
+  await provider.produce({
+    prompt: "two people at a table",
+    options: { seed: 40 },
+    references: [
+      { bytes: PNG, name: "mara.png", side: "left", prompt: "one person, mara, facing right" },
+      { bytes: PNG, name: "ren.png", side: "right", prompt: "one person, ren, facing left" },
+    ],
+  });
+  type Node = { class_type: string; inputs: Record<string, unknown> };
+  const graph = seen.graphs[0] as Record<string, Node>;
+  const left = graph[`${HALF_SAMPLER_NODE}_left`];
+  const right = graph[`${HALF_SAMPLER_NODE}_right`];
+  assert.ok(left && right, "each person has a half of their own");
+  assert.equal(graph[`${HALF_TEXT_NODE}_left`]?.inputs.text, "one person, mara, facing right");
+  assert.equal(graph[`${HALF_TEXT_NODE}_right`]?.inputs.text, "one person, ren, facing left");
+  assert.deepEqual([left.inputs.seed, right.inputs.seed], [41, 42]);
+  assert.equal(left.inputs.steps, 25, "a half samples the way the picture does");
+  const halfLatent = graph[(left.inputs.latent_image as [string, number])[0]];
+  assert.deepEqual([halfLatent?.inputs.width, halfLatent?.inputs.height], [512, 1216]);
+  const joined = graph[HALVES_JOINED_NODE];
+  assert.equal(joined?.inputs.x, 832 - 512, "the right half ends at the right edge");
+  assert.ok(Number(joined?.inputs.feather) > 0, "the seam is soft");
+  assert.deepEqual(graph["3"]?.inputs.latent_image, [HALVES_JOINED_NODE, 0]);
+  assert.equal(graph["3"]?.inputs.denoise, SIDE_BY_SIDE_BLEND);
+  assert.deepEqual(
+    graph["3"]?.inputs.model,
+    [`${REFERENCE_APPLY_NODE}_2`, 0],
+    "the whole picture keeps both references on their sides",
+  );
+
+  // An edit keeps the people where its source has them: masks only, no halves.
+  await provider.produce({
+    prompt: "two people at a table",
+    references: [
+      { bytes: PNG, name: "mara.png", side: "left", prompt: "one person, mara" },
+      { bytes: PNG, name: "ren.png", side: "right", prompt: "one person, ren" },
+    ],
+    source: { bytes: PNG, name: "cut.png", strength: 0.5 },
+  });
+  const edited = seen.graphs[1] as Record<string, Node>;
+  assert.equal(edited[`${HALF_SAMPLER_NODE}_left`], undefined);
+  assert.ok(edited[`${REFERENCE_APPLY_NODE}_2`]);
 });

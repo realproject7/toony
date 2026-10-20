@@ -464,6 +464,34 @@ interface ReferenceCandidate {
   characterId: string;
   path: string;
   side?: "left" | "right";
+  /** For a two-person cut: that person alone in the setting, drawn in their half first. */
+  prompt?: string;
+}
+
+/** A phrase that names people or what they do together, which a one-person half must not draw. */
+const PEOPLE_PHRASE =
+  /\b(?:two|three|both|people|persons?|crowd|couple|pair|woman|women|man|men|girls?|boys?|they|them|their|he|she|his|her|hers|each other|together)\b/i;
+
+/**
+ * The prompt one person of a two-person cut is drawn with in their own half:
+ * one person, their look, turned toward the other, and the setting phrases of
+ * the cut's prompt. The cut's prompt names how many people first and then who
+ * does what (the agent rules ask for that), so phrases about people are left
+ * to the pass that draws the whole picture.
+ */
+export function sidePrompt(lockstring: string, side: "left" | "right", basePrompt: string): string {
+  const setting = basePrompt
+    .split(",")
+    .map((phrase) => phrase.trim())
+    .filter((phrase) => phrase !== "" && !PEOPLE_PHRASE.test(phrase));
+  return [
+    "one person",
+    lockstring.trim(),
+    side === "left" ? "facing right" : "facing left",
+    ...setting,
+  ]
+    .filter((part) => part !== "")
+    .join(", ");
 }
 
 /** The first reference sheet among the characters a cut names, in cut order. */
@@ -597,6 +625,7 @@ async function attachReferences(
               bytes,
               name: basename(candidate.path),
               side: candidate.side ?? "left",
+              ...(candidate.prompt === undefined ? {} : { prompt: candidate.prompt }),
             })),
           };
   }
@@ -926,7 +955,26 @@ function planJobs(
     );
     if (resolvedFraming !== undefined) inputs.framing = resolvedFraming;
     if (cut?.artDirection) inputs.artDirection = structuredClone(cut.artDirection);
-    const references = resolvedFraming === "detail" ? [] : referenceCandidates(cut, registry);
+    // Each person of a two-person cut gets the prompt their half is drawn with,
+    // styled like the cut's own (palette and lexicon, no story bible).
+    const references = (resolvedFraming === "detail" ? [] : referenceCandidates(cut, registry)).map(
+      (candidate) => {
+        const lockstring = registry.find((c) => c.id === candidate.characterId)?.lockstring ?? "";
+        return candidate.side === undefined || cut === undefined
+          ? candidate
+          : {
+              ...candidate,
+              prompt: composePrompt(
+                sidePrompt(lockstring, candidate.side, cutPrompt),
+                { ...cut, characters: [], artDirection: undefined },
+                registry,
+                "",
+                lexicon?.lexicon,
+                "scene",
+              ).trim(),
+            };
+      },
+    );
     const firstReference =
       resolvedFraming === "detail" ? undefined : firstReferenceOf(cut, registry);
     jobs.push({

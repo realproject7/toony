@@ -31,6 +31,9 @@ export {
   type ComfyWorkflowGraph,
   type ComfyWorkflowNode,
   DEFAULT_INJECTION_MAP,
+  HALF_SAMPLER_NODE,
+  HALF_TEXT_NODE,
+  HALVES_JOINED_NODE,
   parseWorkflowGraph,
   REFERENCE_ADAPTER_NODE,
   REFERENCE_APPLY_NODE,
@@ -39,6 +42,8 @@ export {
   REFERENCE_WEIGHT,
   REFERENCE_WEIGHT_TYPE,
   type ReferenceImage,
+  SIDE_BY_SIDE_BLEND,
+  type SideBySidePerson,
   SOURCE_ENCODE_NODE,
   SOURCE_LOAD_NODE,
   SOURCE_SCALE_NODE,
@@ -46,6 +51,7 @@ export {
   type WorkflowParams,
   withReferenceImage,
   withReferenceImages,
+  withSideBySide,
   withSourceImage,
 } from "./comfyui-workflow.js";
 export { ProviderError } from "./errors.js";
