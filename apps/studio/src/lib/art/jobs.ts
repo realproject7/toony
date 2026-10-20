@@ -330,6 +330,7 @@ async function drawOne(record: JobRecord, cut: ArtJobCut, item: ArtJobItem): Pro
     env: params.env ?? process.env,
     keepCutPrompt: true,
     standalonePrompt: true,
+    keepDetail: true,
     report: (event) => {
       if (event.kind === "started") {
         cut.state = "drawing";

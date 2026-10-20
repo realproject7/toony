@@ -559,6 +559,11 @@ test("the agent sets a cut's shape before drawing, and the drawing is sent witho
   );
   await waitForArtJob(String(started.jobId), 5000);
   assert.equal(runner.ios.at(-1)?.standalonePrompt, true, "the agent's prompt is sent alone");
+  assert.equal(
+    runner.ios.at(-1)?.keepDetail,
+    true,
+    "a wide shape widens the canvas, not shrinks it",
+  );
 });
 
 test("drawing arguments, rules and summaries", () => {

@@ -212,6 +212,61 @@ test("a standalone prompt is sent without the story bible around it", async () =
   assert.ok(sent.includes("a coiled spring") && !sent.includes("Same workshop"));
 });
 
+test("a wide shape is drawn at the baseline detail when the caller keeps detail", async () => {
+  // Studio's route cannot pass a width, and the guard that refuses a smaller
+  // canvas made a wide cut undrawable there. With keepDetail the column widens
+  // so the panel holds at least the workflow's baseline pixels.
+  const { dir, episodeId, cutId } = await project();
+  const base = [dir, "--episode", episodeId, "--cut", cutId, "--prompt", "a harbor", "--seed", "4"];
+  assert.equal(await runGenerate(base, io({ keepCutPrompt: true })), EXIT_OK);
+  const latentOf = (
+    graph: Record<string, { class_type: string; inputs: Record<string, unknown> }>,
+  ) =>
+    Object.values(graph).find((node) => node.class_type === "EmptyLatentImage")?.inputs as {
+      width: number;
+      height: number;
+    };
+  const baseline = latentOf(comfy.graphs().at(-1) ?? {});
+  assert.ok(baseline.width > 0 && baseline.height > baseline.width, "a portrait baseline");
+
+  const loaded = await loadProject(dir);
+  const bundle = loaded.project.episodes[0];
+  assert.ok(bundle);
+  await writeCuts(
+    dir,
+    episodeId,
+    bundle.cuts.map((cut) => (cut.id === cutId ? { ...cut, panelAspect: 0.6 } : cut)),
+  );
+  const refused = io({ keepCutPrompt: true });
+  assert.notEqual(
+    await runGenerate(base, refused),
+    EXIT_OK,
+    "without keepDetail the small canvas is refused",
+  );
+  assert.match(String(refused), /reduced-generation-canvas/);
+  assert.equal(comfy.graphs().length, 1, "nothing was submitted");
+
+  assert.equal(await runGenerate(base, io({ keepCutPrompt: true, keepDetail: true })), EXIT_OK);
+  const wide = latentOf(comfy.graphs().at(-1) ?? {});
+  assert.ok(
+    wide.width * wide.height >= baseline.width * baseline.height,
+    "no fewer pixels than the baseline",
+  );
+  assert.ok(
+    Math.abs(wide.height / wide.width - 0.6) < 0.02,
+    `shape kept: ${wide.width}x${wide.height}`,
+  );
+  assert.equal(wide.width % 8, 0);
+  const log = JSON.parse(
+    await readFile(join(dir, "episodes", episodeId, "logs", "ingest.json"), "utf8"),
+  ) as Array<{ renderInputs?: { width?: number; height?: number } }>;
+  assert.deepEqual(
+    [log.at(-1)?.renderInputs?.width, log.at(-1)?.renderInputs?.height],
+    [wide.width, wide.height],
+    "the widened size is what the record keeps",
+  );
+});
+
 test("--source current edits the image the cut holds at the given strength and records it", async () => {
   const { dir, episodeId, cutId } = await project();
   const base = [dir, "--episode", episodeId, "--cut", cutId, "--prompt", "a rainy pier"];

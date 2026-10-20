@@ -571,7 +571,9 @@ the submitted prompt goes to the ingest log, and `standalonePrompt`, so the
 story bible does not wrap the agent's prompt (its other cuts' continuity notes
 and prose pulled the model away from the cut). A short negative base is added
 after the agent's own negative: one picture, not a comic page, no lettering. A cut's `panelAspect`, which
-the agent sets as `shape` through `edit_cuts`, sizes the latent. `edit_cut_art` adds
+the agent sets as `shape` through `edit_cuts`, sizes the latent; a shape
+shorter than the workflow's latent widens the column to keep the baseline
+pixel count (`keepDetail`), where the CLI refuses without an explicit width. `edit_cut_art` adds
 `--source current --strength <n>`: the provider loads the current image,
 encodes it with the graph's own VAE and starts the sampler from it (image to
 image). The render runs outside the project lock; the run's `commit` hook wraps
