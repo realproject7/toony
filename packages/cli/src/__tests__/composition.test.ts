@@ -69,6 +69,7 @@ test("capabilities never present prompt instructions as spatial controls or imag
   const c = compositionCapabilities(d, true);
   assert.equal(c.identityReference, "one-image");
   assert.equal(c.wardrobe, "prompt-only");
-  assert.equal(c.sourceImageEditing, "unsupported");
+  assert.equal(c.sourceImageEditing, "not-requested");
   assert.equal(c.multiCharacterReferences, "unsupported");
+  assert.equal(compositionCapabilities(d, false, true).sourceImageEditing, "image-to-image");
 });

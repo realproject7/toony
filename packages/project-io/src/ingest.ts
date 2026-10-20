@@ -103,6 +103,12 @@ export interface RenderInputs {
    */
   reference?: { characterId: string; sha256: string };
   /**
+   * The image the run edited (image to image): the sha256 of the source bytes
+   * and how much of it the run was allowed to change (the sampler's denoise,
+   * 0 to 1). Absent for a render from noise.
+   */
+  source?: { sha256: string; strength: number };
+  /**
    * The style lexicon composed into the prompt (#335): the pack entry's id and
    * the strings as submitted, with the prefix and the story context setting
    * when the lexicon states them (#351). Absent when the project selects none.

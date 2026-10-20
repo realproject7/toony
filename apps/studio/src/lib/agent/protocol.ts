@@ -276,7 +276,35 @@ export type LiveEvent =
       href: string;
       reason: "work-created" | "episode-created";
     }
-  | { type: "export"; seq: number; job: ExportJobView };
+  | { type: "export"; seq: number; job: ExportJobView }
+  | { type: "art"; seq: number; job: ArtJobView };
+
+/** One cut of a drawing job. */
+export interface ArtJobCut {
+  cutId: string;
+  /** How the cut reads to a person, for example "Cut 3". */
+  label: string;
+  state: "queued" | "drawing" | "done" | "failed" | "skipped";
+  /** Why it failed or was skipped, in plain words. */
+  message?: string;
+  /** The change that stored the new image, so it can be undone. */
+  changeId?: string;
+}
+
+/** The agent drawing or editing cut artwork with the artwork engine, one cut at a time. */
+export interface ArtJobView {
+  id: string;
+  workId: string;
+  episodeId: string;
+  kind: "draw" | "edit";
+  state: "queued" | "running" | "finished" | "stopped";
+  cuts: ArtJobCut[];
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  /** The chat whose agent asked for it. */
+  conversationId?: string;
+}
 
 export interface ExportJobView {
   id: string;

@@ -32,8 +32,11 @@ export {
   type ComfyWorkflowNode,
   DEFAULT_INJECTION_MAP,
   parseWorkflowGraph,
+  SOURCE_ENCODE_NODE,
+  SOURCE_LOAD_NODE,
   type WorkflowInjectionMap,
   type WorkflowParams,
+  withSourceImage,
 } from "./comfyui-workflow.js";
 export { ProviderError } from "./errors.js";
 export { contentTypeFor, detectImageFormat, extensionFor } from "./format.js";

@@ -29,6 +29,9 @@ importers:
       '@toony/fonts':
         specifier: workspace:*
         version: link:../../packages/fonts
+      '@toony/generate':
+        specifier: workspace:*
+        version: link:../../packages/generate
       '@toony/lint':
         specifier: workspace:*
         version: link:../../packages/lint
@@ -38,6 +41,9 @@ importers:
       '@toony/project-io':
         specifier: workspace:*
         version: link:../../packages/project-io
+      '@toony/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
       '@toony/render':
         specifier: workspace:*
         version: link:../../packages/render
@@ -101,6 +107,9 @@ importers:
       '@toony/export':
         specifier: workspace:*
         version: link:../export
+      '@toony/generate':
+        specifier: workspace:*
+        version: link:../generate
       '@toony/lint':
         specifier: workspace:*
         version: link:../lint
@@ -156,6 +165,28 @@ importers:
 
   packages/fonts:
     dependencies:
+      '@toony/schema':
+        specifier: workspace:*
+        version: link:../schema
+    devDependencies:
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.13.2
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
+  packages/generate:
+    dependencies:
+      '@toony/packs':
+        specifier: workspace:*
+        version: link:../packs
+      '@toony/project-io':
+        specifier: workspace:*
+        version: link:../project-io
+      '@toony/providers':
+        specifier: workspace:*
+        version: link:../providers
       '@toony/schema':
         specifier: workspace:*
         version: link:../schema

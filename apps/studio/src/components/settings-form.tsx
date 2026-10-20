@@ -1,8 +1,9 @@
 "use client";
 
-// Artwork generator settings (ComfyUI) for the workspace, used by the command
-// line tools. Studio itself never generates artwork. One "Save and test" writes
-// the workspace file and probes the saved address, and always says what it found.
+// Artwork engine settings (ComfyUI on this computer) for the workspace. The
+// agent draws and edits cut artwork with this engine, and the command line tools
+// use the same settings. One "Save and test" writes the workspace file and
+// probes the saved address, and always says what it found.
 
 import { useState } from "react";
 import { asValue, type ConnectionState, describeTestOutcome } from "@/lib/settings-test-outcome";
@@ -72,7 +73,7 @@ export function SettingsForm({ initialConfig, initialConnection }: SettingsFormP
       setOutcome({
         text:
           connection?.state === "unconfigured"
-            ? "Saved. No address is set, so the artwork generator stays off."
+            ? "Saved. No address is set, so the agent cannot draw yet."
             : `Saved. ${describeTestOutcome(connection?.state, connection?.detail)}`,
         error: connection?.state === "unreachable",
       });

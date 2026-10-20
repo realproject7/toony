@@ -10,7 +10,9 @@ GitHub ticket-first workflow. Read `docs/VERIFICATION.md` before delivery.
   requested. Use concise PRs to deliver compatible completed work together.
 - One implementer by default. Independent review is opt-in.
 - Never push directly to `main`. The local Node 20 and 24 gate remains required.
-- Preserve the operator's pauses, experiment limits and final visual decisions.
+- The person's connected agent draws and changes cut artwork through the local
+  ComfyUI engine; that is the product's core path, not an experiment. The
+  person keeps the final visual decisions.
 - Keep code history free of private research, assets, paths and credentials even
   while the repository is private.
 - Historical issue numbers belong to the legacy repository. Current development

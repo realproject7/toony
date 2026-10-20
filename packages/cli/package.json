@@ -36,6 +36,7 @@
   "devDependencies": {
     "@toony/authoring": "workspace:*",
     "@toony/export": "workspace:*",
+    "@toony/generate": "workspace:*",
     "@toony/lint": "workspace:*",
     "@toony/packs": "workspace:*",
     "@toony/project-io": "workspace:*",

@@ -269,6 +269,12 @@ class TurnHost implements ToolHost {
   touch(): void {
     if (this.run) this.run.lastEventAt = Date.now();
   }
+  canWait(): boolean {
+    return this.run !== null && !this.run.cancelled;
+  }
+  followUp(text: string): void {
+    this.runtime.followUp(this.record, text);
+  }
 }
 
 export class AgentRuntime {
@@ -686,6 +692,16 @@ export class AgentRuntime {
     }
     record.lastTrigger = { text, ...(focus ? { focus } : {}), kind };
     this.startTurn(record, { text, ...(focus ? { focus } : {}), kind });
+  }
+
+  /**
+   * Tell the agent something after the turn that started it has ended (a
+   * drawing job finished): a follow-up turn starts when the agent is idle, or
+   * the note waits for the next turn.
+   */
+  followUp(record: ConversationRecord, text: string): void {
+    if (this.store.get(record.id) !== record) return;
+    this.continueWith(record, text, "continuation");
   }
 
   private lastFocus(record: ConversationRecord): AgentFocus | undefined {

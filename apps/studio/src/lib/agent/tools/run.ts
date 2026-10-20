@@ -8,6 +8,8 @@
 //      ids it needs, never an absolute path).
 // With "Let the agent make changes without asking" off, a write becomes a
 // proposal card instead; replacing existing lettering is always a proposal.
+// Drawing and editing cut art run as background jobs (lib/art): the tool waits
+// a few minutes, then the rest continues and the agent hears when it is done.
 
 import { constants } from "node:fs";
 import { open, readFile } from "node:fs/promises";
@@ -20,9 +22,20 @@ import {
   loadProject,
   readBrief,
   readStoryBible,
+  recordedRenderInputs,
   sortEpisodeIds,
 } from "@toony/project-io";
 import { type EpisodeBundle, parseExportOptions } from "@toony/schema";
+import { artEngineStatus } from "../../art/engine.js";
+import {
+  type ArtJobItem,
+  artJobChanges,
+  getArtJob,
+  listArtJobs,
+  startArtJob,
+  stopArtJob,
+  waitForArtJob,
+} from "../../art/jobs.js";
 import { getExportJob, startExportJob } from "../../export-jobs.js";
 import { scopesOverlap } from "../../live/scope.js";
 import {
@@ -60,6 +73,7 @@ import {
 import type {
   AgentPreferences,
   AgentTarget,
+  ArtJobView,
   ChangeScope,
   ConversationItem,
   ExportJobView,
@@ -130,6 +144,13 @@ export interface ToolHost {
   addProposal(proposal: StoredProposal): void;
   /** Keep the turn alive while a long tool runs. */
   touch(): void;
+  /** Whether a turn is running, so a tool may wait for background work. */
+  canWait(): boolean;
+  /**
+   * Tell the agent something after this turn (a drawing job finished): starts
+   * a follow-up turn when the agent is idle, or keeps the note for the next one.
+   */
+  followUp(text: string): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -290,6 +311,8 @@ interface Performed {
   detail?: string;
   /** A lettering replacement that must become a proposal. */
   replacement?: { replacement: DialogueReplacement; title: string; targets: AgentTarget[] };
+  /** Links for one change card, when each change has its own (one drawn cut each). */
+  changeTargets?: (change: ProjectChange) => AgentTarget[];
 }
 
 interface Described {
@@ -679,6 +702,75 @@ const WRITES: Record<string, WriteTool> = {
       };
     },
   },
+  draw_cuts: {
+    parse: A.drawCutsArgs,
+    describe: async (host, args: ReturnType<typeof A.drawCutsArgs>) => {
+      const work = await requireWork(host);
+      const loaded = await load(work.root);
+      const label = epLabel(loaded, args.episodeId);
+      const names = args.cuts.map((cut) => cutLabelOf(loaded, args.episodeId, cut.cutId));
+      return {
+        title: "Draw artwork",
+        summary:
+          args.cuts.length === 1 ? `Draw ${names[0]}` : `Draw ${args.cuts.length} cuts of ${label}`,
+        preview: {
+          kind: "text",
+          text: args.cuts
+            .map((cut, index) => `${shortCut(names[index] ?? cut.cutId)}: ${clip(cut.prompt, 160)}`)
+            .join("\n"),
+        },
+        targets: [episodeTarget(work.id, args.episodeId, label)],
+        scopes: args.cuts.map((cut) => ({
+          kind: "artwork" as const,
+          episodeId: args.episodeId,
+          cutId: cut.cutId,
+        })),
+      };
+    },
+    perform: async (host, args: ReturnType<typeof A.drawCutsArgs>) =>
+      runArt(
+        host,
+        "draw",
+        args.episodeId,
+        args.cuts.map((cut) => ({
+          cutId: cut.cutId,
+          label: cut.cutId,
+          prompt: cut.prompt,
+          ...(cut.negative === undefined ? {} : { negative: cut.negative }),
+          ...(args.newTake ? { seed: "fresh" as const } : {}),
+        })),
+      ),
+  },
+  edit_cut_art: {
+    parse: A.editCutArtArgs,
+    describe: async (host, args: ReturnType<typeof A.editCutArtArgs>) => {
+      const work = await requireWork(host);
+      const loaded = await load(work.root);
+      const label = cutLabelOf(loaded, args.episodeId, args.cutId);
+      return {
+        title: "Change the artwork",
+        summary: `Change the artwork of ${label}`,
+        preview: { kind: "text", text: clip(args.prompt, 400) ?? "" },
+        targets: [cutTarget(work.id, args.episodeId, args.cutId, label)],
+        scopes: [{ kind: "artwork", episodeId: args.episodeId, cutId: args.cutId }],
+      };
+    },
+    perform: async (host, args: ReturnType<typeof A.editCutArtArgs>) =>
+      runArt(
+        host,
+        "edit",
+        args.episodeId,
+        [
+          {
+            cutId: args.cutId,
+            label: args.cutId,
+            prompt: args.prompt,
+            ...(args.negative === undefined ? {} : { negative: args.negative }),
+          },
+        ],
+        args.strength,
+      ),
+  },
   import_artwork: {
     parse: A.importArtworkArgs,
     describe: async (host, args: ReturnType<typeof A.importArtworkArgs>) => {
@@ -838,6 +930,192 @@ async function readImageFile(path: string): Promise<Uint8Array> {
 
 const EXPORT_WAIT_MS = 5 * 60_000;
 
+// ---------------------------------------------------------------------------
+// Drawing
+
+/** How long a drawing tool waits for its job; the rest continues in the background. */
+export const ART_WAIT_MS = 270_000;
+
+/** "Cut 3 of Episode 1" as "Cut 3", for lists inside one episode. */
+function shortCut(label: string): string {
+  return label.replace(/ of .*$/, "");
+}
+
+function artFinished(view: ArtJobView): boolean {
+  return view.state === "finished" || view.state === "stopped";
+}
+
+/** One line on how far a job is, for the panel. */
+export function artProgressLine(view: ArtJobView): string {
+  const total = view.cuts.length;
+  const done = view.cuts.filter((cut) => cut.state === "done").length;
+  const failed = view.cuts.filter((cut) => cut.state === "failed").length;
+  const drawing = view.cuts.find((cut) => cut.state === "drawing");
+  const parts = [`${done} of ${total} drawn`];
+  if (failed > 0) parts.push(`${failed} failed`);
+  if (drawing) parts.push(`drawing ${drawing.label}`);
+  else if (view.state === "queued") parts.push("waiting for the engine");
+  else if (view.state === "stopped") parts.push("stopped");
+  return parts.join(" · ");
+}
+
+function artJobSummary(view: ArtJobView): Record<string, unknown> {
+  return {
+    jobId: view.id,
+    kind: view.kind,
+    state: view.state,
+    progress: artProgressLine(view),
+    cuts: view.cuts.map((cut) => ({
+      cut: cut.label,
+      cutId: cut.cutId,
+      state: cut.state,
+      ...(cut.message ? { message: cut.message } : {}),
+      ...(cut.changeId ? { changeId: cut.changeId } : {}),
+    })),
+  };
+}
+
+/** What the agent hears when a job it left running ends. */
+export function artFollowUp(view: ArtJobView, episode: string): string {
+  const drawn = view.cuts.filter((cut) => cut.state === "done").map((cut) => cut.label);
+  const failed = view.cuts.filter((cut) => cut.state === "failed");
+  const skipped = view.cuts.filter((cut) => cut.state === "skipped").length;
+  const what = view.kind === "edit" ? "art change" : "drawing";
+  const lines = [
+    `Your ${what} job for ${episode} ${view.state === "stopped" ? "was stopped" : "finished"}.`,
+  ];
+  if (drawn.length > 0) lines.push(`Done: ${drawn.join(", ")}.`);
+  for (const cut of failed) lines.push(`${cut.label} failed: ${cut.message ?? "unknown reason"}`);
+  if (skipped > 0) lines.push(`${skipped} not drawn.`);
+  lines.push(
+    drawn.length > 0
+      ? "Look at the new art with view_cut, redraw a cut that misses its scene (at most twice each), then tell the person what is done."
+      : "Tell the person what happened and what they can do.",
+  );
+  return lines.join("\n");
+}
+
+async function runArt(
+  host: ToolHost,
+  kind: "draw" | "edit",
+  episodeId: string,
+  requested: ArtJobItem[],
+  strength?: number,
+): Promise<Performed> {
+  const work = await requireWork(host);
+  const loaded = await load(work.root);
+  const bundle = loaded ? findBundle(loaded, episodeId) : undefined;
+  if (!loaded || !bundle) {
+    throw new ToolInputError("This episode does not exist. get_status lists the episodes.");
+  }
+  const items: ArtJobItem[] = requested.map((item) => {
+    const cut = bundle.cuts.find((c) => c.id === item.cutId);
+    if (!cut) {
+      throw new ToolInputError(
+        `${item.cutId} is not in this episode. read_episode lists the cuts.`,
+      );
+    }
+    const label = shortCut(cutLabelOf(loaded, episodeId, item.cutId));
+    if (cut.image?.final) {
+      throw new ToolInputError(
+        `${label} shows finished artwork the person added, which Toony keeps. Ask the person before replacing it.`,
+      );
+    }
+    if (kind === "edit" && !cut.image?.clean) {
+      throw new ToolInputError(`${label} has no artwork yet. Draw it first with draw_cuts.`);
+    }
+    return { ...item, label };
+  });
+  const engine = await artEngineStatus(host.workspace, process.env, { fresh: true });
+  if (!engine.ready) throw new ToolInputError(engine.message);
+
+  const episode = epLabel(loaded, episodeId);
+  const labels = new Map(items.map((item) => [item.cutId, item.label]));
+  const targetOf = (cutId: string) =>
+    cutTarget(work.id, episodeId, cutId, `${labels.get(cutId) ?? cutId} of ${episode}`);
+  const cutTargets = items.map((item) => targetOf(item.cutId));
+  /** The cut a drawing change stored, as the card's one link. */
+  const changeTargets = (change: ProjectChange): AgentTarget[] => {
+    const scope = change.scopes.find((s) => s.kind === "artwork");
+    return scope && "cutId" in scope ? [targetOf(scope.cutId)] : cutTargets;
+  };
+  const title =
+    kind === "edit"
+      ? `Changing the art of ${items[0]?.label ?? "a cut"}`
+      : `Drawing ${items.length === 1 ? (items[0]?.label ?? "a cut") : episode}`;
+  // One link on the progress row: the cut, or the episode for several cuts.
+  const progressTargets =
+    cutTargets.length === 1 ? cutTargets : [episodeTarget(work.id, episodeId, episode)];
+  const progressRow = itemId("act");
+  const showProgress = (view: ArtJobView) => {
+    const allFailed = view.cuts.every((cut) => cut.state === "failed" || cut.state === "skipped");
+    host.item({
+      kind: "activity",
+      id: progressRow,
+      at: now(),
+      turnId: host.turnId,
+      tool: "art_progress",
+      title,
+      status: artFinished(view) ? (allFailed ? "failed" : "done") : "running",
+      detail: artProgressLine(view),
+      targets: progressTargets,
+    });
+  };
+
+  // Changes written after the tool returned are posted by the job itself, with
+  // a follow-up for the agent once the job ends.
+  const state = { detached: false, posted: 0, toldAgent: false };
+  const job = startArtJob(
+    {
+      ctx: opContext(host, work),
+      episodeId,
+      kind,
+      items,
+      ...(strength === undefined ? {} : { strength }),
+      env: process.env,
+    },
+    (view, changes) => {
+      host.touch();
+      showProgress(view);
+      if (!state.detached) return;
+      for (const change of changes.slice(state.posted)) {
+        host.item(changeItem(host, change, changeTargets(change)));
+      }
+      state.posted = changes.length;
+      if (artFinished(view) && !state.toldAgent) {
+        state.toldAgent = true;
+        host.followUp(artFollowUp(view, episode));
+      }
+    },
+  );
+  showProgress(job);
+  const view =
+    (host.canWait() ? await waitForArtJob(job.id, ART_WAIT_MS, () => host.touch()) : null) ??
+    getArtJob(job.id) ??
+    job;
+  const changes = artJobChanges(job.id);
+  state.posted = changes.length;
+  const finishedNow = artFinished(view);
+  if (!finishedNow) state.detached = true;
+  const drawn = view.cuts.filter((cut) => cut.state === "done").length;
+  if (finishedNow && drawn === 0) {
+    const first = view.cuts.find((cut) => cut.message)?.message;
+    throw new ToolInputError(first ?? "The artwork engine could not draw these cuts.");
+  }
+  return {
+    result: {
+      ...artJobSummary(view),
+      note: finishedNow
+        ? "Look at each new image with view_cut. Redraw a cut that misses its scene (draw_cuts with a better prompt, or newTake), at most twice each, then tell the person."
+        : "Drawing continues in the background and the cuts appear on the left as they finish. End your turn now and tell the person; you will get a message when the job is done.",
+    },
+    changes,
+    targets: progressTargets,
+    changeTargets,
+    detail: artProgressLine(view),
+  };
+}
+
 async function runExport(
   host: ToolHost,
   args: ReturnType<typeof A.exportArgs>,
@@ -962,7 +1240,7 @@ async function getStatus(host: ToolHost): Promise<string> {
     readMemory(work.root),
     readJournal(work.root, 200),
   ]);
-  return recoveryBrief({
+  const brief = recoveryBrief({
     project: loaded.project,
     memory,
     journal,
@@ -970,6 +1248,17 @@ async function getStatus(host: ToolHost): Promise<string> {
     openQuestions: host.openQuestions(),
     tasks: memory.tasks,
   });
+  return `${brief}\n\n${await artworkStatus(host, work.id)}`;
+}
+
+/** The artwork part of get_status: the engine, and drawing jobs still running. */
+async function artworkStatus(host: ToolHost, workId: string): Promise<string> {
+  const engine = await artEngineStatus(host.workspace);
+  const lines = ["## Artwork", `Engine: ${engine.message}`];
+  for (const job of listArtJobs(workId).filter((view) => !artFinished(view))) {
+    lines.push(`Drawing job ${job.id}: ${artProgressLine(job)}`);
+  }
+  return lines.join("\n");
 }
 
 async function readStory(host: ToolHost): Promise<Record<string, unknown>> {
@@ -1092,6 +1381,26 @@ async function readBounded(root: string, ref: string): Promise<Uint8Array | null
 
 export const VIEW_MAX_PX = 768;
 
+/** What drew a cut's clean image (from the ingest log), for the agent to build on. */
+async function artInputs(
+  root: string,
+  episodeId: string,
+  assetPath: string | null,
+): Promise<{ prompt: string; seed: number; edited?: true } | null> {
+  if (assetPath === null) return null;
+  try {
+    const inputs = await recordedRenderInputs(root, episodeId, assetPath);
+    if (!inputs) return null;
+    return {
+      prompt: clip(inputs.basePrompt, 1000) ?? "",
+      seed: inputs.seed,
+      ...(inputs.source ? { edited: true as const } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function viewCut(host: ToolHost, episodeId: string, cutId: string): Promise<ToolResult> {
   const work = await requireWork(host);
   const loaded = await loadProject(work.root);
@@ -1102,12 +1411,14 @@ async function viewCut(host: ToolHost, episodeId: string, cutId: string): Promis
   const label = cutLabelOf(loaded, episodeId, cutId);
   const ref = cut.image?.final ?? cut.image?.clean ?? null;
   const overlays = bundle.lettering.filter((overlay) => overlay.cutId === cutId);
+  const art = await artInputs(work.root, episodeId, cut.image?.clean ?? null);
   if (!host.preferences().viewArtwork) {
     return textResult({
       cut: label,
       note: "Artwork viewing is off in the agent settings, so here is the cut as text.",
       scene: clip(cut.imagePrompt, 1000),
       hasArtwork: ref !== null,
+      ...(art ? { art } : {}),
       dialogue: overlays.map((o) => ({ speaker: o.speaker, text: o.text, kind: o.kind })),
     });
   }
@@ -1134,6 +1445,7 @@ async function viewCut(host: ToolHost, episodeId: string, cutId: string): Promis
           width: composed.width,
           height: composed.height,
           hasArtwork: bytes !== null,
+          ...(art ? { art } : {}),
           bubbles: overlays.length,
         }),
       },
@@ -1236,6 +1548,11 @@ const DONE_TITLES: Record<string, string> = {
   set_dialogue: "Lettered a cut",
   set_transitions: "Set transitions",
   import_artwork: "Added artwork",
+  draw_cuts: "Drew artwork",
+  edit_cut_art: "Changed the artwork",
+  art_status: "Checked the drawing",
+  stop_drawing: "Stopped the drawing",
+  check_art_engine: "Checked the artwork engine",
   export_episode: "Exported",
   undo_change: "Undid a change",
   remember: "Remembered a note",
@@ -1269,7 +1586,9 @@ function changeItem(
 /** Post the change cards of a performed write. */
 function postChanges(host: ToolHost, performed: Performed): void {
   for (const change of performed.changes) {
-    if (change !== null) host.item(changeItem(host, change, performed.targets));
+    if (change === null) continue;
+    const targets = performed.changeTargets?.(change) ?? performed.targets;
+    host.item(changeItem(host, change, targets));
   }
 }
 
@@ -1429,6 +1748,53 @@ async function runRead(
     case "view_cut": {
       const { episodeId, cutId } = A.cutArgs(rawArgs);
       return { result: await viewCut(host, episodeId, cutId) };
+    }
+    case "art_status": {
+      const args = A.artStatusArgs(rawArgs);
+      const work = await requireWork(host);
+      const pick = (): ArtJobView[] => {
+        if (args.jobId === undefined) return listArtJobs(work.id).slice(0, 5);
+        const job = getArtJob(args.jobId);
+        if (!job || job.workId !== work.id) {
+          throw new ToolInputError("There is no drawing job with this id in this work.");
+        }
+        return [job];
+      };
+      let jobs = pick();
+      const waitFor = jobs.find((job) => !artFinished(job));
+      if (args.wait > 0 && waitFor) {
+        await waitForArtJob(waitFor.id, args.wait * 1000, () => host.touch());
+        jobs = pick();
+      }
+      return {
+        result: textResult({
+          jobs: jobs.map(artJobSummary),
+          ...(jobs.length === 0 ? { note: "Nothing has been drawn in this session yet." } : {}),
+        }),
+      };
+    }
+    case "stop_drawing": {
+      const args = A.stopDrawingArgs(rawArgs);
+      const work = await requireWork(host);
+      const job =
+        args.jobId === undefined
+          ? listArtJobs(work.id).find((view) => !artFinished(view))
+          : getArtJob(args.jobId);
+      if (!job || job.workId !== work.id || artFinished(job)) {
+        throw new ToolInputError("No drawing job is running in this work.");
+      }
+      const stopped = stopArtJob(job.id) ?? job;
+      return {
+        result: textResult({
+          ...artJobSummary(stopped),
+          note: "Cuts not started yet are skipped. A cut the engine is drawing now still finishes.",
+        }),
+      };
+    }
+    case "check_art_engine": {
+      A.noArgs(rawArgs);
+      const status = await artEngineStatus(host.workspace, process.env, { fresh: true });
+      return { result: textResult(status), detail: status.ready ? "Ready" : "Not ready" };
     }
     case "check_episode": {
       const { episodeId } = A.episodeArgs(rawArgs);

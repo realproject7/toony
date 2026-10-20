@@ -22,7 +22,12 @@ import {
   parsePromptId,
   readHistory,
 } from "./comfyui-protocol.js";
-import { buildWorkflow, type ComfyWorkflowGraph, type WorkflowParams } from "./comfyui-workflow.js";
+import {
+  buildWorkflow,
+  type ComfyWorkflowGraph,
+  type WorkflowParams,
+  withSourceImage,
+} from "./comfyui-workflow.js";
 import { ProviderError } from "./errors.js";
 import { contentTypeFor, detectImageFormat } from "./format.js";
 import type { ImageProvider, ImageRequest, ProviderResult } from "./types.js";
@@ -163,10 +168,16 @@ export class ComfyUIProvider implements ImageProvider {
           "a reference image was supplied but the workflow declares no reference input; select a workflow that does, or generate without one.",
         );
       }
-      params.referenceImage = await this.upload(request.reference);
+      params.referenceImage = await this.upload(request.reference, "reference image");
     }
 
-    const graph = buildWorkflow(this.config.workflow, params, this.config.injectionMap);
+    let graph = buildWorkflow(this.config.workflow, params, this.config.injectionMap);
+    if (request.source !== undefined) {
+      // Check the graph can take a source before anything is uploaded.
+      withSourceImage(graph, this.config.injectionMap, "", request.source.strength);
+      const uploaded = await this.upload(request.source, "image to edit");
+      graph = withSourceImage(graph, this.config.injectionMap, uploaded, request.source.strength);
+    }
     const clientId = randomUUID();
 
     const promptId = await this.submit(graph, clientId);
@@ -194,14 +205,14 @@ export class ComfyUIProvider implements ImageProvider {
   }
 
   /**
-   * Upload a reference image to ComfyUI's input folder (#327) and return the
-   * name the graph refers to it by. `/upload/image` takes a multipart form with
+   * Upload an image (a reference sheet, #327, or an image to edit) to
+   * ComfyUI's input folder and return the name the graph refers to it by. `/upload/image` takes a multipart form with
    * the file under `image`; the response names the stored file and its
    * subfolder, which together are what a LoadImage node reads.
    */
-  private async upload(reference: { bytes: Uint8Array; name: string }): Promise<string> {
+  private async upload(file: { bytes: Uint8Array; name: string }, what: string): Promise<string> {
     const form = new FormData();
-    form.append("image", new Blob([reference.bytes]), reference.name);
+    form.append("image", new Blob([file.bytes]), file.name);
     form.append("overwrite", "true");
     let response: Response;
     try {
@@ -212,7 +223,7 @@ export class ComfyUIProvider implements ImageProvider {
     } catch {
       throw new ProviderError(
         "comfyui.connect",
-        "could not reach the ComfyUI server to upload the reference image.",
+        `could not reach the ComfyUI server to upload the ${what}.`,
       );
     }
     if (!response.ok) {
@@ -227,7 +238,7 @@ export class ComfyUIProvider implements ImageProvider {
     if (parsed === undefined || typeof parsed.name !== "string" || parsed.name.length === 0) {
       throw new ProviderError(
         "comfyui.upload-shape",
-        "ComfyUI /upload/image returned no file name for the reference image.",
+        `ComfyUI /upload/image returned no file name for the ${what}.`,
       );
     }
     return typeof parsed.subfolder === "string" && parsed.subfolder.length > 0

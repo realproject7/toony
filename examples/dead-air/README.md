@@ -36,7 +36,7 @@ export TOONY_COMFYUI_CHECKPOINT=<your-checkpoint>.safetensors
 # generate each cut from its stored imagePrompt + character lockstrings
 for n in 001 002 003 004 005 006 007; do
   toony generate --episode ep-001 --cut cut-$n --slot clean \
-    --width 832 --height 1216 --allow-remote
+    --width 832 --height 1216
 done
 
 toony validate

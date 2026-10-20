@@ -24,9 +24,16 @@ const nextConfig = {
   // requires it at runtime instead of trying to bundle the binary.
   // Keep URL-relative native/font resolution in real ESM files. Bundling these
   // imports would turn their runtime URLs into nonportable build-time paths.
-  serverExternalPackages: ["@napi-rs/canvas", "@toony/export"],
+  // `@toony/generate` and `@toony/providers` read the default ComfyUI workflow
+  // next to their own module, so they stay real ESM files too.
+  serverExternalPackages: [
+    "@napi-rs/canvas",
+    "@toony/export",
+    "@toony/generate",
+    "@toony/providers",
+  ],
   outputFileTracingIncludes: {
-    "/*": ["../../packages/fonts/assets/**/*"],
+    "/*": ["../../packages/fonts/assets/**/*", "../../packages/providers/dist/assets/**/*"],
   },
   webpack: (config, { isServer }) => {
     // Shared server helpers also compile to ESM for the Node test runner.
@@ -43,7 +50,7 @@ const nextConfig = {
         // Next's package opt-out matches node_modules paths. Workspace links
         // resolve outside that directory, so keep this ESM boundary explicitly.
         ({ request }, callback) => {
-          if (request && /^@toony\/export(?:\/|$)/.test(request)) {
+          if (request && /^@toony\/(?:export|generate|providers)(?:\/|$)/.test(request)) {
             return callback(null, `module ${request}`);
           }
           return callback();

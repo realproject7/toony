@@ -518,6 +518,113 @@ export function importArtworkArgs(raw: unknown): {
   };
 }
 
+/** One cut to draw, with the image prompt the engine receives. */
+export interface DrawCutInput {
+  cutId: string;
+  prompt: string;
+  negative?: string;
+}
+
+const PROMPT_MAX = 2000;
+export const DRAW_CUTS_MAX = 24;
+/** How much of the current image an edit may change, when the agent names no strength. */
+export const EDIT_STRENGTH_DEFAULT = 0.5;
+export const EDIT_STRENGTH_MIN = 0.1;
+export const EDIT_STRENGTH_MAX = 0.9;
+/** The longest an art status call waits for progress, in seconds. */
+export const ART_STATUS_WAIT_MAX = 240;
+
+export function drawCutsArgs(raw: unknown): {
+  episodeId: string;
+  cuts: DrawCutInput[];
+  newTake: boolean;
+} {
+  const args = argsObject(raw);
+  noExtra(args, ["episodeId", "cuts", "newTake"]);
+  const episodeId = id(args, "episodeId", "an episode");
+  const seen = new Set<string>();
+  const cuts = list(args.cuts, "cuts", 1, DRAW_CUTS_MAX).map((value, index) => {
+    const where = `cuts[${index}]`;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      fail(`${where} must be an object with cutId and prompt.`);
+    }
+    const item = value as Args;
+    noExtra(item, ["cutId", "prompt", "negative"], where);
+    const cutId = id(item, "cutId", "a cut");
+    if (seen.has(cutId)) fail(`${where}: ${cutId} is listed twice.`);
+    seen.add(cutId);
+    const negative = optionalText(item, "negative", PROMPT_MAX, `${where}.negative`);
+    return {
+      cutId,
+      prompt: text(item, "prompt", PROMPT_MAX, `${where}.prompt`),
+      ...(negative === undefined ? {} : { negative }),
+    };
+  });
+  return { episodeId, cuts, newTake: bool(args, "newTake") ?? false };
+}
+
+export function editCutArtArgs(raw: unknown): {
+  episodeId: string;
+  cutId: string;
+  prompt: string;
+  negative?: string;
+  strength: number;
+} {
+  const args = argsObject(raw);
+  noExtra(args, ["episodeId", "cutId", "prompt", "negative", "strength"]);
+  const strength = args.strength ?? EDIT_STRENGTH_DEFAULT;
+  if (
+    typeof strength !== "number" ||
+    !Number.isFinite(strength) ||
+    strength < EDIT_STRENGTH_MIN ||
+    strength > EDIT_STRENGTH_MAX
+  ) {
+    fail(`strength must be a number from ${EDIT_STRENGTH_MIN} to ${EDIT_STRENGTH_MAX}.`);
+  }
+  const negative = optionalText(args, "negative", PROMPT_MAX);
+  return {
+    episodeId: id(args, "episodeId", "an episode"),
+    cutId: id(args, "cutId", "a cut"),
+    prompt: text(args, "prompt", PROMPT_MAX),
+    ...(negative === undefined ? {} : { negative }),
+    strength,
+  };
+}
+
+const JOB_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function optionalJobId(args: Args): string | undefined {
+  const value = args.jobId;
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !JOB_ID.test(value)) {
+    fail("jobId must be a drawing job id from draw_cuts, edit_cut_art or art_status.");
+  }
+  return value;
+}
+
+export function artStatusArgs(raw: unknown): { jobId?: string; wait: number } {
+  const args = argsObject(raw);
+  noExtra(args, ["jobId", "wait"]);
+  const wait = args.wait ?? 0;
+  if (
+    typeof wait !== "number" ||
+    !Number.isInteger(wait) ||
+    wait < 0 ||
+    wait > ART_STATUS_WAIT_MAX
+  ) {
+    fail(`wait must be a whole number of seconds from 0 to ${ART_STATUS_WAIT_MAX}.`);
+  }
+  const jobId = optionalJobId(args);
+  return { ...(jobId === undefined ? {} : { jobId }), wait };
+}
+
+export function stopDrawingArgs(raw: unknown): { jobId?: string } {
+  const args = argsObject(raw);
+  noExtra(args, ["jobId"]);
+  const jobId = optionalJobId(args);
+  return jobId === undefined ? {} : { jobId };
+}
+
 export function exportArgs(raw: unknown): { episodeId: string; output: string; options: unknown } {
   const args = argsObject(raw);
   noExtra(args, ["episodeId", "output", "options"]);

@@ -178,7 +178,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     kind: "read",
     step: "Looking at a cut",
     description:
-      "See one cut as an image with its lettering (at most 768 px). Use it to judge art and bubble placement. Cuts without art show a plain panel.",
+      "See one cut as an image with its lettering (at most 768 px), plus the prompt and seed that drew its art. Use it to judge art and bubble placement. Cuts without art show a plain panel.",
     inputSchema: obj({ episodeId, cutId }, ["episodeId", "cutId"]),
   },
   {
@@ -343,6 +343,80 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     ),
   },
   {
+    name: "draw_cuts",
+    kind: "write",
+    step: "Drawing",
+    description:
+      "Draw cut artwork with the person's artwork engine (ComfyUI on this computer). For each cut, write the image prompt in English: subject, action, setting, framing, mood and style, as comma-separated phrases; the engine adds the cast's look and the story context. A cut that already has art is redrawn (the old image can be undone). Drawing takes about a minute or more per cut: this waits a few minutes, and when cuts are still drawing it returns, the rest continue in the background, and you get a message when the job is done.",
+    inputSchema: obj(
+      {
+        episodeId,
+        cuts: arr(
+          obj(
+            {
+              cutId,
+              prompt: str("The image prompt, in English."),
+              negative: str("Optional: what to keep out of the picture, in English."),
+            },
+            ["cutId", "prompt"],
+          ),
+          "The cuts to draw, in reading order.",
+          { minItems: 1, maxItems: 24 },
+        ),
+        newTake: {
+          type: "boolean",
+          description:
+            "true for a different take (a new random seed). Default false: a cut drawn before keeps its seed, so a changed prompt keeps a similar composition.",
+        },
+      },
+      ["episodeId", "cuts"],
+    ),
+  },
+  {
+    name: "edit_cut_art",
+    kind: "write",
+    step: "Changing the art",
+    description:
+      "Change a cut's existing artwork while keeping its composition: the engine starts from the current image. Write the prompt in English as the whole picture should look after the change (view_cut shows the prompt that drew it). strength is how much may change: 0.3 small touch-ups (color, light, expression), 0.5 default, 0.7 larger changes (pose, clothing). To change the composition, use draw_cuts instead.",
+    inputSchema: obj(
+      {
+        episodeId,
+        cutId,
+        prompt: str("The image prompt after the change, in English."),
+        negative: str("Optional: what to keep out of the picture, in English."),
+        strength: { type: "number", description: "From 0.1 to 0.9. Default 0.5." },
+      },
+      ["episodeId", "cutId", "prompt"],
+    ),
+  },
+  {
+    name: "art_status",
+    kind: "read",
+    step: "Checking the drawing",
+    description:
+      "Drawing jobs of this work (newest first) and each cut's state, or one job by id. wait (seconds, up to 240) waits for the job to move on before answering.",
+    inputSchema: obj({
+      jobId: str("Optional job id."),
+      wait: { type: "integer", description: "Optional seconds to wait, 0 to 240." },
+    }),
+  },
+  {
+    name: "stop_drawing",
+    kind: "collab",
+    step: "Stopping the drawing",
+    description:
+      "Stop a drawing job (the newest running one of this work, or one by id). Cuts not started yet are skipped; a cut being drawn still finishes.",
+    inputSchema: obj({ jobId: str("Optional job id.") }),
+  },
+  {
+    name: "check_art_engine",
+    kind: "read",
+    step: "Checking the artwork engine",
+    description:
+      "Whether the artwork engine is ready to draw, and what the person should do when it is not.",
+    inputSchema: obj({}),
+  },
+  {
     name: "import_artwork",
     kind: "write",
     step: "Adding artwork",
@@ -474,6 +548,9 @@ export function stepLabel(name: string, input?: unknown): string {
   }
   if (name === "create_work" && typeof args.title === "string" && args.title.trim()) {
     return `Creating "${args.title.trim().slice(0, 60)}"`;
+  }
+  if (name === "draw_cuts" && Array.isArray(args.cuts)) {
+    return `Drawing ${args.cuts.length} ${args.cuts.length === 1 ? "cut" : "cuts"}`;
   }
   if (name === "export_episode" && typeof args.output === "string") {
     return `Exporting (${args.output.slice(0, 20)})`;

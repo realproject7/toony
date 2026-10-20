@@ -388,10 +388,19 @@ function coveringFamily(
     resolveFontFamily(undefined, kind, korean ? "ko" : "ja"),
     resolveFontFamily(korean ? "noto-sans-kr" : "noto-sans-jp", kind),
   ];
+  const best = candidates
+    .map((candidate) => ({
+      candidate,
+      drawn: script.filter((point) => fontHasCodepoint(candidate.id, point, weight)).length,
+    }))
+    .reduce((a, b) => (b.drawn > a.drawn ? b : a));
   return (
     candidates.find((candidate) => familyCovers(candidate, points, weight)) ??
     candidates.find((candidate) => familyCovers(candidate, script, weight)) ??
-    requested
+    // No bundled face draws every letter (the Korean subset lacks some
+    // syllables): take the face that draws the most of them, so a few letters
+    // may be missing rather than all of them.
+    (best.drawn > 0 ? best.candidate : requested)
   );
 }
 

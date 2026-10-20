@@ -4,8 +4,8 @@ Read this first. It says, in order, how an agent takes a person's idea through
 Toony to an exported episode, which command answers which question, and what the
 tool enforces so you do not have to remember it.
 
-Toony is a tool a person and an agent use together. You propose; the person
-decides. Everything you do is a local file or a `toony` command, and every
+Toony is a tool a person and an agent use together. You do the work, including
+drawing and changing the cut art; the person directs, letters and signs off. Everything you do is a local file or a `toony` command, and every
 command prints JSON with `--json` and exits 0 on success, 1 on a domain error, 2
 on a usage or IO error. Nothing here needs a network, a credential or a model
 choice of its own.
@@ -54,16 +54,17 @@ Toony Studio" at the end.
    when the project changed since the last report, or when the project does not
    validate. There is no force flag. A conflict means a person or a previous run
    authored that record; ask before you redraft around it.
-5. **Generate the cuts the person selected, through the controller.**
+5. **Draw the episode's cuts through the controller.**
 
    ```sh
    toony produce inspect --episode <id> --cut <cut> [--cut <cut> ...] --json
-   toony produce run --episode <id> --cut <cut> [--cut <cut> ...] --accept <target-set> --provider comfyui --allow-remote
+   toony produce run --episode <id> --cut <cut> [--cut <cut> ...] --accept <target-set> --provider comfyui
    ```
 
    Inspect shows what the run would touch and every reason it would stop, with
-   no provider call. Show that to the person. Run needs `--accept` with the
-   target set inspect printed; it stops if the set resolves differently. A run
+   no provider call. Run needs `--accept` with the target set inspect printed;
+   it stops if the set resolves differently. A local engine (localhost or
+   127.0.0.1) needs no `--allow-remote`. A run
    that changes a prompt, seed, workflow or size on cuts that recorded a render
    is a revision and needs `--reason`. The cut's own `imagePrompt` is the
    script's scene text; the story bible, the character lockstrings and the
@@ -73,10 +74,11 @@ Toony Studio" at the end.
    Ask for a different take with `--seed fresh`. A run that rewrites authored
    prompts says so on one line, with the ids. Import a person's own art with
    `toony produce run ... --from <file>`. `toony generate` and
-   `toony import-image` remain available for a single cut when the person has
-   already said yes.
-   Before approving generation, inspect the resolved provider inputs without
-   submitting an image request:
+   `toony import-image` work on single cuts, and
+   `toony generate --cut <cut> --source current --strength 0.5 --prompt <text>`
+   changes a cut's current image while keeping its composition.
+   Before a run, inspect the resolved provider inputs without submitting an
+   image request:
 
    ```sh
    toony generate --episode <id> --cut <cut> --dry-run --json
@@ -146,7 +148,7 @@ them breaks replay.
 - A draft never calls a provider and never writes an image.
 - Apply never silently replaces an authored record.
 - No provider is reached before the run's disclosure exists, and never on a
-  target set the person did not accept.
+  target set other than the one the inspect step printed.
 - A rendered cut is repeatable from its record; a size the run does not pin is
   checked against the log before anything is sent.
 - Packs are data. They add workflows, genre scaffolds, export presets, craft
@@ -157,8 +159,9 @@ them breaks replay.
 
 ## When to ask the person
 
-Before apply, always. Before any generation run that costs more than one cut.
-Whenever a conflict names a record you did not write. Whenever the brief would
+Before apply, always. Whenever a conflict names a record you did not write.
+Drawing with the person's local engine needs no question; ask before using a
+paid remote provider. Whenever the brief would
 change: revise it with a stated reason, and recompile every episode script that
 reports `script.brief-stale`.
 
@@ -177,12 +180,21 @@ they are looking at.
   progress, your task list, the open question, remembered notes and what
   changed since your last turn.
 - Read with `read_story`, `read_characters`, `read_episode`, `view_cut` (the
-  cut as an image with its lettering) and `check_episode`.
+  cut as an image with its lettering, and the prompt and seed that drew it) and
+  `check_episode`.
 - Write with `create_work` (from a library chat only), `update_story`,
   `save_characters`, `remove_character`, `create_episode`, `rename_episode`,
   `delete_episode`, `edit_cuts`, `set_dialogue`, `set_transitions`,
-  `import_artwork` (a file the person points to), `export_episode` (files
-  only) and `undo_change`.
+  `draw_cuts`, `edit_cut_art`, `import_artwork` (a file the person points to),
+  `export_episode` (files only) and `undo_change`.
+- Draw cuts with `draw_cuts`: an English image prompt per cut, and the engine
+  adds the cast's lockstrings and the story context. Change a cut's art with
+  `edit_cut_art`, which starts from the current image (`strength` 0.1 to 0.9).
+  Both run as a background job on the person's local ComfyUI: the tool waits a
+  few minutes, returns while the rest is drawn, and a follow-up message reaches
+  the agent when the job ends. `art_status` follows a job, `stop_drawing` stops
+  one and `check_art_engine` says whether the engine is ready. Each finished
+  image is one undoable change.
 - `create_episode` takes the episode script described above (beats, cuts,
   dialogue, `transitionAfter`) without the format, id and brief revision
   fields; Studio fills them, compiles the draft and applies it as the next
@@ -193,4 +205,4 @@ they are looking at.
   person has "Let the agent make changes without asking" off, becomes a
   proposal the person applies or dismisses. Do not repeat it; end the turn and
   you will hear the decision.
-- There is no generation tool and no way to set review status.
+- There is no way to set review status; the person marks a cut final.

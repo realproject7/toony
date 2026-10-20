@@ -563,12 +563,15 @@ test("starters depend on where the person is", () => {
   assert.deepEqual(
     startersFor("episode").map((starter) => starter.label),
     [
+      "Draw this episode's art",
+      "Change a cut's art",
       "Check this episode's dialogue",
-      "Add a cut after this one",
       "Export this episode for Instagram",
     ],
   );
   assert.equal(startersFor("library")[0]?.send, false, "an idea starter waits for the idea");
+  assert.equal(startersFor("episode")[0]?.send, true, "drawing starts at once");
+  assert.equal(startersFor("episode")[1]?.send, false, "a change waits for what to change");
 });
 
 test("server answers are read tolerantly", () => {

@@ -74,7 +74,7 @@ function greetingFor(kind: RouteKind): { title: string; body: string } {
     case "other":
       return {
         title: "What should we make?",
-        body: "Tell me about your story. I will set up the webtoon, its characters and the first episode while you watch.",
+        body: "Tell me about your story. I will set up the webtoon, its characters and the first episode, and draw it while you watch.",
       };
     case "story":
     case "characters":

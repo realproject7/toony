@@ -1,5 +1,5 @@
 // Settings for this workspace: the agent, where webtoons are saved, the look of
-// Studio, the optional artwork generator and installed packs.
+// Studio, the artwork engine the agent draws with and installed packs.
 
 import { loadPacks } from "@toony/packs";
 import { defaultConfig, readConfig, type ToonyConfig } from "@toony/project-io";
@@ -66,9 +66,9 @@ export default async function SettingsPage() {
       </section>
 
       <section className="settings-section" aria-labelledby="settings-artwork">
-        <h2 id="settings-artwork">Artwork generator</h2>
-        <details className="disclosure">
-          <summary>ComfyUI connection for the command line tools (optional)</summary>
+        <h2 id="settings-artwork">Artwork engine</h2>
+        <details className="disclosure" open={connection.state !== "reachable"}>
+          <summary>ComfyUI on this computer, which your agent draws with</summary>
           {configUnreadable && (
             <p className="form-error" role="alert" data-testid="settings-config-error">
               The settings file could not be read. Saving replaces it.

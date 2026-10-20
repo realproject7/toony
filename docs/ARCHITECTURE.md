@@ -292,8 +292,9 @@ episode from an agent-written script and then applies the draft with the same
 
 ## Controlled production
 
-`toony produce` is how an agent spends provider time without starting anything
-a person has not seen. It adds no planning model, no provider and no second
+`toony produce` is how an agent runs a batch of renders with a recorded
+disclosure: what it will touch, what it will reset and why it would stop. It
+adds no planning model, no provider and no second
 store: it resolves targets with the selectors `toony generate` already accepts,
 reads review state through the project loader and craft results through the
 shipped `--json` reports, and drives `generate` or `import-image` in-process
@@ -309,7 +310,7 @@ many already carry an image, how many carry recorded render inputs, and how many
 carry a non-draft review the run would reset, plus every reason the run would
 stop. `run` also needs `--accept` to name the exact target set `inspect`
 printed; a set that resolves differently stops, so a `--review-status` selector
-that moved under the operator never runs on cuts they did not see.
+that moved never runs on cuts the inspect step did not list.
 
 **Revision, repeat, render.** A run that changes an input (`--prompt`,
 `--negative`, `--seed`, `--workflow`, `--width`, `--height`) on cuts that
@@ -470,8 +471,10 @@ asking the agent, so the pages read calmly and carry few controls.
   editor adopts a new saved revision. An editor with unsaved work shows a banner,
   "Reload it" or "Keep editing"; keeping edits leaves the save to the existing
   revision check (HTTP 409).
-- A cut without artwork shows its scene text and takes an image by upload or
-  drop (`POST /api/artwork`). "Mark as final" is the person's sign-off on a cut's
+- A cut without artwork shows its scene text until the agent draws it; its
+  first action asks the agent, and the person can also upload or drop their own
+  image (`POST /api/artwork`). A cut with artwork offers "Change the art", which
+  asks the agent. "Mark as final" is the person's sign-off on a cut's
   artwork; the agent never sets it. Scene text is read-only here; the agent edits
   it.
 - New dialogue bubbles start with a speaker (the last one used, a character the
@@ -548,9 +551,28 @@ by the export renderer, at most 768 px, as an MCP image; text when artwork
 viewing is off) and `check_episode`. Writes: `create_work`, `update_story`,
 `save_characters`, `remove_character`, `create_episode`, `rename_episode`,
 `delete_episode`, `edit_cuts`, `set_dialogue`, `set_transitions`,
-`import_artwork`, `export_episode` and `undo_change`. Collaboration:
-`update_tasks`, `ask_user`, `remember` and `forget`. There is no generation
-tool.
+`draw_cuts`, `edit_cut_art`, `import_artwork`, `export_episode` and
+`undo_change`. Collaboration: `update_tasks`, `ask_user`, `remember`, `forget`
+and `stop_drawing`; drawing reads: `art_status` and `check_art_engine`.
+
+The agent draws the art. `draw_cuts` and `edit_cut_art` queue a drawing job
+(`lib/art/jobs.ts`, one job at a time, since the engine draws one image at a
+time). Each cut is one in-process run of `runGenerate` from `@toony/generate`,
+the same code `toony generate` runs, with the agent's English image prompt and
+`keepCutPrompt`, so the cut's scene text stays in the person's language and
+the submitted prompt goes to the ingest log. `edit_cut_art` adds
+`--source current --strength <n>`: the provider loads the current image,
+encodes it with the graph's own VAE and starts the sampler from it (image to
+image). The render runs outside the project lock; the run's `commit` hook wraps
+each finished image's ingest and record in `withProjectWrite`, so every image
+is one journaled, undoable change and the left workspace refreshes as it lands.
+The engine must be a ComfyUI on this computer (`TOONY_COMFYUI_URL`, then the
+workspace settings); a remote address is refused. A tool waits up to about
+four and a half minutes; when cuts are still drawing it returns, the job goes
+on, its changes are posted to the chat as they land, and the agent receives a
+follow-up turn when the job ends. A message after which the next cut would fail
+the same way (the engine stopped answering) skips the rest. Progress is a live
+`art` event and one activity row in the chat.
 
 With "Let the agent make changes without asking" on, writes apply and each
 leaves an undoable change card. Off, each write becomes a proposal card the

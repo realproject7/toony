@@ -628,28 +628,34 @@ intent into cuts and derives their visible cast when no character list is given.
 Generation scopes identity and wardrobe to each subject and composes the shot
 before style. Inspection reports capability limits: spatial composition and
 wardrobe are prompt instructions, not enforced masks; the current adapter can
-condition on one character reference when configured and does not edit a source
-image. Render provenance carries the art direction and a digest of the resolved
+condition on one character reference when configured, and it edits a cut's
+current image as a whole (image to image, `--source current --strength`; no
+masks yet). An edit's ingest-log inputs carry `source: { sha256, strength }`,
+the image it started from. Render provenance carries the art direction and a digest of the resolved
 workflow; the provider records a separate digest of the submitted graph. These
 records do not certify visual quality or deterministic execution.
 
 
 ## Per-cut art revision requests
 
-Studio can save a local request with change/preserve instructions and an optional
-target character. The request snapshots the source bytes, content digest, current
-cut, adjacent cuts, character registry, story bible and lettering. No provider or
-messaging service runs. `toony revision list` and `show` expose requests to agents;
-`create` can author one and `stage --id … --file … --note …` imports a candidate.
+In Studio, the person asks the agent in chat and the agent changes the art
+directly (`edit_cut_art` or `draw_cuts`), as one undoable change. The revision
+queue below is for an art change made outside Studio's agent.
+
+A request holds change/preserve instructions and an optional target character.
+It snapshots the source bytes, content digest, current cut, adjacent cuts,
+character registry, story bible and lettering. Creating one calls no provider.
+`toony revision list` and `show` expose requests to agents; `create` authors one,
+`stage --id … --file … --note …` imports a candidate (made with the local engine,
+or supplied by the person), and `apply --id … --candidate <sha256>` adopts it.
 
 Requests and immutable source snapshots live under `.toony/revisions/`. Staged
 images have unique content-addressed names under the episode's assets/revisions.
-Studio shows the original and candidate before explicit adoption. Adoption checks
-the candidate digest and current source/context, changes one cut image pointer,
-and resets artwork review to draft. It preserves old image bytes, all lettering
-and other cuts. A changed source, character registry, story bible or adjacent cut
-invalidates the request. This local workflow requires one writer per work and an
-editing-capable agent tool; it does not add source-image editing to generation.
+Adoption names the candidate by its digest, checks it and the current
+source/context, changes one cut image pointer, and resets artwork review to
+draft. It preserves old image bytes, all lettering and other cuts. A changed
+source, character registry, story bible or adjacent cut invalidates the request.
+This local workflow requires one writer per work.
 
 The authored balloon library adds `soft`, `rectangle`, `wobble`, `burst-box`,
 `spikes`, `radial` and `electric` silhouettes alongside `oval`, `rounded`, `cloud`

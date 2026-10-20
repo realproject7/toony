@@ -29,7 +29,7 @@ import {
   type SavedCut,
   startingLettering,
 } from "@/lib/lettering-cache";
-import { useEditorScope } from "@/lib/live/provider";
+import { useEditorScope, useLiveEvent } from "@/lib/live/provider";
 import { useProjectSync } from "@/lib/live/use-project-sync";
 import {
   cutNumberIn,
@@ -134,6 +134,22 @@ export function EpisodeEditor({
   rhythmDirty.current = dirty || saving;
   useEditorScope(`sequence:${episodeId}`, () => rhythmDirty.current);
   const sync = useProjectSync(workId, [{ kind: "episode", episodeId }]);
+  // Cuts the agent is drawing or about to draw, from the live drawing jobs.
+  const [drawing, setDrawing] = useState<Record<string, "queued" | "drawing">>({});
+  useLiveEvent("art", (event) => {
+    if (event.type !== "art" || event.job.workId !== workId) return;
+    if (event.job.episodeId !== episodeId) return;
+    const open = event.job.state === "queued" || event.job.state === "running";
+    setDrawing((previous) => {
+      const next = { ...previous };
+      for (const cut of event.job.cuts) {
+        if (open && (cut.state === "queued" || cut.state === "drawing"))
+          next[cut.cutId] = cut.state;
+        else delete next[cut.cutId];
+      }
+      return next;
+    });
+  });
   // biome-ignore lint/correctness/useExhaustiveDependencies: follow a new saved revision only.
   useEffect(() => {
     if (initialRevision === savedRevision.current || rhythmDirty.current) return;
@@ -727,6 +743,14 @@ export function EpisodeEditor({
                     {item.type === "cut" ? (
                       <>
                         <span className="rail-thumb">
+                          {drawing[item.id] && (
+                            <span
+                              className={`rail-drawing is-${drawing[item.id]}`}
+                              data-testid={`drawing-${item.id}`}
+                            >
+                              {drawing[item.id] === "drawing" ? "Drawing…" : "Up next"}
+                            </span>
+                          )}
                           {data?.hasArtwork && data.art.src ? (
                             // biome-ignore lint/performance/noImgElement: local cut thumbnail.
                             <img src={data.art.src} alt="" loading="lazy" />

@@ -3198,6 +3198,18 @@ textarea.text-input {
 .view-hint {
   color: var(--color-muted);
 }
+.scene-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.scene-row .scene-caption {
+  flex: 1;
+  min-width: 0;
+}
+.scene-row .btn {
+  flex: none;
+}
 .scene-caption {
   display: -webkit-box;
   margin: 0;

@@ -568,11 +568,16 @@ export function startersFor(kind: RouteKind): Starter[] {
     default:
       return [
         {
+          label: "Draw this episode's art",
+          text: "Draw the cuts of this episode that have no artwork yet.",
+          send: true,
+        },
+        { label: "Change a cut's art", text: "Change the art of this cut: ", send: false },
+        {
           label: "Check this episode's dialogue",
           text: "Check this episode's dialogue for clarity, voice and length.",
           send: true,
         },
-        { label: "Add a cut after this one", text: "Add a cut after this one: ", send: false },
         {
           label: "Export this episode for Instagram",
           text: "Export this episode for Instagram.",

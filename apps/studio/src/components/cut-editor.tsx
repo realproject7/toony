@@ -15,7 +15,8 @@
 // The inspector edits the selected bubble's speaker, kind, text, and style. Add,
 // duplicate, and delete operate on the selection. Save POSTs the overlay set to
 // `/api/lettering`, which validates and writes the episode's lettering. A cut
-// without artwork shows its scene text and takes an image by upload or drop.
+// without artwork shows its scene text until the agent draws it; the person can
+// ask the agent from here, or bring their own image by upload or drop.
 // The person marks a cut final here; the agent never does.
 
 import { layoutCut } from "@toony/render";
@@ -31,6 +32,7 @@ import {
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { openAgentPanel } from "@/lib/agent/focus-store";
 import { useBrowserMeasure } from "@/lib/browser-measure";
 import { clamp } from "@/lib/clamp";
 import { resolveCutStage } from "@/lib/cut-stage";
@@ -1669,11 +1671,23 @@ export function CutEditor({
                   : "Click text to type. Drag to move. Hold Space to pan."}
             </span>
           </div>
-          <p className="scene-caption" title={scene}>
-            <b className="scene-caption-label">Scene</b>{" "}
-            {scene.trim() || "No scene description yet."}{" "}
-            <span className="scene-caption-hint">Ask the agent to change this.</span>
-          </p>
+          <div className="scene-row">
+            <p className="scene-caption" title={scene}>
+              <b className="scene-caption-label">Scene</b>{" "}
+              {scene.trim() || "No scene description yet."}{" "}
+              <span className="scene-caption-hint">Ask the agent to change this.</span>
+            </p>
+            {hasArtwork && (
+              <button
+                type="button"
+                className="btn btn-quiet"
+                onClick={() => openAgentPanel({ view: "chat", prefill: "Change this cut's art: " })}
+                data-testid="ask-change-art"
+              >
+                <StudioIcon name="chat" /> Change the art
+              </button>
+            )}
+          </div>
           {!hasArtwork && (
             <div
               className={`artwork-drop${dropActive ? " is-active" : ""}`}
@@ -1681,17 +1695,29 @@ export function CutEditor({
             >
               <StudioIcon name="image" />
               <span>
-                {uploading ? "Adding artwork…" : "No artwork yet. Drop an image on the cut, or"}
+                {uploading
+                  ? "Adding artwork…"
+                  : "No artwork yet. Ask the agent to draw this cut, or drop your own image here."}
               </span>
               {!uploading && (
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => fileInputRef.current?.click()}
-                  data-testid="add-artwork"
-                >
-                  <StudioIcon name="upload" /> Add artwork
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => openAgentPanel({ view: "chat", prefill: "Draw this cut." })}
+                    data-testid="ask-draw-art"
+                  >
+                    <StudioIcon name="chat" /> Ask the agent to draw it
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => fileInputRef.current?.click()}
+                    data-testid="add-artwork"
+                  >
+                    <StudioIcon name="upload" /> Add your own image
+                  </button>
+                </>
               )}
               <input
                 ref={fileInputRef}
