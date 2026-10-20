@@ -569,7 +569,8 @@ the same code `toony generate` runs, with the agent's English image prompt and
 `keepCutPrompt`, so the cut's scene text stays in the person's language and
 the submitted prompt goes to the ingest log, and `standalonePrompt`, so the
 story bible does not wrap the agent's prompt (its other cuts' continuity notes
-and prose pulled the model away from the cut). A cut's `panelAspect`, which
+and prose pulled the model away from the cut). A short negative base is added
+after the agent's own negative: one picture, not a comic page, no lettering. A cut's `panelAspect`, which
 the agent sets as `shape` through `edit_cuts`, sizes the latent. `edit_cut_art` adds
 `--source current --strength <n>`: the provider loads the current image,
 encodes it with the graph's own VAE and starts the sampler from it (image to

@@ -23,6 +23,7 @@ import {
   type ToolResult,
 } from "../agent/tools/run.js";
 import {
+  AGENT_NEGATIVE_BASE,
   ART_JOBS_FILE,
   artJobsSaved,
   listArtJobs,
@@ -170,7 +171,13 @@ test("draw_cuts draws through the write path and leaves undoable changes", async
   assert.match(String(result.note), /view_cut/);
   const [first, second] = runner.calls;
   assert.ok(first?.includes("a quiet harbor at dawn, gulls"));
-  assert.ok(second?.includes("--negative") && second.includes("text"));
+  const negativeOf = (call: string[] | undefined) => call?.[call.indexOf("--negative") + 1] ?? "";
+  assert.ok(
+    negativeOf(first).startsWith(AGENT_NEGATIVE_BASE),
+    "every drawing asks for one clean picture",
+  );
+  assert.ok(negativeOf(second).startsWith("text, "), "the agent's own negative comes first");
+  assert.ok(negativeOf(second).includes("comic page"));
   assert.ok(!first?.includes("--source"), "a drawing starts from noise");
   assert.ok(await clean(root, "cut-001"));
   assert.ok(await clean(root, "cut-002"));
