@@ -24,7 +24,7 @@ all import it so the SAME face renders in the SVG preview and the exported raste
 
 The files are subsets; a family's script label is a browsing aid, not proof that
 any particular character is present. Coverage differs between the Korean faces,
-and the bundled Anton subset lacks many basic Latin letters. Do not infer glyph
+and the Gaegu files have no grave accent (`` ` ``). Do not infer glyph
 availability from a filename or the family name.
 
 `../src/coverage-data.ts` records each file's SHA-256 and actual cmap intervals.
@@ -51,6 +51,11 @@ instancer`) producing `woff2`. `@napi-rs/canvas` registers these same `woff2`
 files directly (verified: identical text metrics to the source TTF), so export
 and the studio share one set of files — no parallel TTF set is shipped.
 
+Anton is the google/fonts Anton 2.116 release subset to the Google Fonts latin and
+latin-ext ranges (Basic Latin, Latin-1, Latin Extended, common punctuation). It
+keeps hinting, glyph names and the `ccmp`, `locl`, `kern`, `mark` and `mkmk`
+features.
+
 ## Sizes (woff2, on disk)
 
 | file                     | size    |
@@ -58,7 +63,7 @@ and the studio share one set of files — no parallel TTF set is shipped.
 | `nunito-400.woff2`       | 38 KB   |
 | `nunito-700.woff2`       | 38 KB   |
 | `bangers-400.woff2`      | 23 KB   |
-| `anton-400.woff2`        | 31 KB   |
+| `anton-400.woff2`        | 39 KB   |
 | `patrick-hand-400.woff2` | 23 KB   |
 | `noto-sans-kr-400.woff2` | 282 KB  |
 | `noto-sans-kr-700.woff2` | 288 KB  |
@@ -69,7 +74,7 @@ and the studio share one set of files — no parallel TTF set is shipped.
 | `nanum-pen-400.woff2`    | 372 KB  |
 | **total**                | ~2.2 MB |
 
-The Latin editor faces total under ~155 KB. The studio declares all curated
+The Latin editor faces total about 160 KB. The studio declares all curated
 `@font-face` rules globally (a single static `lettering-fonts.css`, generated
 from this registry), but with `font-display: swap` the browser fetches a face's
 woff2 only when that family is first actually used. So the heavy CJK files are

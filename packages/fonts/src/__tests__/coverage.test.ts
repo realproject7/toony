@@ -20,7 +20,9 @@ test("coverage metadata is tied to every actual bundled face, not family script 
         `regenerate cmap metadata for ${file.file}`,
       );
     }
-  assert.equal(fontHasCodepoint("anton", "H".codePointAt(0) as number), false);
+  // Gaegu is labelled Latin yet has no grave accent; the label is not proof of a glyph.
+  assert.equal(fontHasCodepoint("gaegu", "`".codePointAt(0) as number), false);
+  assert.equal(fontHasCodepoint("anton", "H".codePointAt(0) as number), true);
   assert.equal(fontHasCodepoint("nunito", "H".codePointAt(0) as number), true);
 });
 
@@ -49,8 +51,12 @@ test("every Latin-capable bundled face covers printable Basic Latin in its cover
 test("supported requested faces stay selected; missing Latin and Korean use bundled fallbacks", () => {
   for (const weight of [400, 700]) {
     assert.equal(resolveFontRuns("Hello", "nunito", weight)[0]?.fontFamily, "nunito");
-    const latin = resolveFontRuns("Hello", "anton", weight);
-    assert.ok(latin.some((run) => run.fontFamily === "nunito"));
+    assert.equal(resolveFontRuns("BOOM!", "anton", weight)[0]?.fontFamily, "anton");
+    const latin = resolveFontRuns("a`b", "gaegu", weight);
+    assert.deepEqual(
+      latin.map((run) => run.fontFamily),
+      ["gaegu", "nunito", "gaegu"],
+    );
     const korean = resolveFontRuns("안녕하세요", "bangers", weight);
     assert.deepEqual(
       korean.map((run) => [run.start, run.end, run.fontFamily, run.missingCodepoints]),
