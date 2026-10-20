@@ -14,6 +14,8 @@ import { type GenerateEvent, runGenerate } from "@toony/generate";
 import { importedAssetPath, ProjectIoError } from "@toony/project-io";
 import type { ArtJobCut, ArtJobView, ProjectChange } from "../agent/protocol.js";
 import { readPrivateJson, writePrivateJson } from "../agent/storage.js";
+import { DRAW_CUTS_MAX } from "../agent/tools/args.js";
+import { isUuid } from "../agent/types.js";
 import { liveBus } from "../live/bus.js";
 import { OpError } from "../ops/errors.js";
 import { cutLabel } from "../ops/labels.js";
@@ -126,18 +128,69 @@ function save(workId: string, root: string): void {
   reg.saving.set(root, next);
 }
 
-function isJobView(value: unknown): value is ArtJobView {
-  if (!value || typeof value !== "object") return false;
-  const v = value as Partial<ArtJobView>;
-  return (
-    typeof v.id === "string" &&
-    typeof v.workId === "string" &&
-    typeof v.episodeId === "string" &&
-    (v.kind === "draw" || v.kind === "edit") &&
-    typeof v.state === "string" &&
-    Array.isArray(v.cuts) &&
-    v.cuts.every((cut) => cut && typeof cut.cutId === "string" && typeof cut.label === "string")
-  );
+const SAVED_ID = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$/;
+const SAVED_TIME = /^\d{4}-\d{2}-\d{2}T[\d:.]{8,15}Z$/;
+const SAVED_LABEL = /^(Cut \d{1,4}|a cut)$/;
+const JOB_STATES = new Set<ArtJobView["state"]>([
+  "queued",
+  "running",
+  "finished",
+  "stopped",
+  "interrupted",
+]);
+const CUT_STATES = new Set<ArtJobCut["state"]>(["queued", "drawing", "done", "failed", "skipped"]);
+
+function savedText(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length === 0) return undefined;
+  const clean = redactPaths(value);
+  return clean.length > MESSAGE_MAX ? `${clean.slice(0, MESSAGE_MAX - 1)}…` : clean;
+}
+
+/**
+ * A saved job, rebuilt field by field. The file travels with the project, so
+ * nothing is taken as is: ids and times must have their shape, states their
+ * known values, labels read "Cut N", messages are clipped and path free, and
+ * the chat id is dropped (a restored job never posts to a chat).
+ */
+function savedJob(value: unknown, workId: string): ArtJobView | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  if (!isUuid(v.id) || v.workId !== workId) return null;
+  if (typeof v.episodeId !== "string" || !SAVED_ID.test(v.episodeId)) return null;
+  if (v.kind !== "draw" && v.kind !== "edit") return null;
+  if (!JOB_STATES.has(v.state as ArtJobView["state"])) return null;
+  if (typeof v.createdAt !== "string" || !SAVED_TIME.test(v.createdAt)) return null;
+  if (!Array.isArray(v.cuts) || v.cuts.length > DRAW_CUTS_MAX) return null;
+  const cuts: ArtJobCut[] = [];
+  for (const raw of v.cuts as unknown[]) {
+    if (!raw || typeof raw !== "object") return null;
+    const c = raw as Record<string, unknown>;
+    if (typeof c.cutId !== "string" || !SAVED_ID.test(c.cutId)) return null;
+    if (!CUT_STATES.has(c.state as ArtJobCut["state"])) return null;
+    const message = savedText(c.message);
+    cuts.push({
+      cutId: c.cutId,
+      label: typeof c.label === "string" && SAVED_LABEL.test(c.label) ? c.label : "a cut",
+      state: c.state as ArtJobCut["state"],
+      ...(message ? { message } : {}),
+      ...(isUuid(c.changeId) ? { changeId: c.changeId } : {}),
+    });
+  }
+  const time = (key: "startedAt" | "finishedAt") =>
+    typeof v[key] === "string" && SAVED_TIME.test(v[key] as string)
+      ? { [key]: v[key] as string }
+      : {};
+  return {
+    id: v.id,
+    workId,
+    episodeId: v.episodeId,
+    kind: v.kind,
+    state: v.state as ArtJobView["state"],
+    cuts,
+    createdAt: v.createdAt,
+    ...time("startedAt"),
+    ...time("finishedAt"),
+  };
 }
 
 /**
@@ -158,9 +211,9 @@ export async function restoreArtJobs(workId: string, root: string): Promise<void
   const jobs = (saved as { jobs?: unknown } | null)?.jobs;
   if (!Array.isArray(jobs)) return;
   let changed = false;
-  for (const value of jobs) {
-    if (!isJobView(value) || value.workId !== workId || reg.jobs.has(value.id)) continue;
-    const view = structuredClone(value);
+  for (const value of jobs.slice(-SAVED_JOBS_KEPT)) {
+    const view = savedJob(value, workId);
+    if (!view || reg.jobs.has(view.id)) continue;
     if (!finished(view)) {
       changed = true;
       view.state = "interrupted";
