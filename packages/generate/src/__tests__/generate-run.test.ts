@@ -20,8 +20,13 @@ import {
   writeStoryBible,
   writeWebtoon,
 } from "@toony/project-io";
+import {
+  REFERENCE_ADAPTER_NODE,
+  REFERENCE_APPLY_NODE,
+  REFERENCE_LOAD_NODE,
+} from "@toony/providers";
 import { EXIT_OK, EXIT_USAGE } from "../exit.js";
-import { type GenerateEvent, type GenerateIo, runGenerate } from "../generate.js";
+import { type GenerateEvent, type GenerateIo, renderImage, runGenerate } from "../generate.js";
 
 const PROMPT_ID = "run-0001";
 
@@ -53,17 +58,25 @@ interface Fake {
   close: () => void;
   graphs: () => Array<Record<string, { class_type: string; inputs: Record<string, unknown> }>>;
   uploads: () => Buffer[];
+  /** Whether the fake engine reports the IP-Adapter nodes. */
+  adapter: { installed: boolean };
 }
 
 async function fakeComfy(): Promise<Fake> {
   const graphs: Array<Record<string, { class_type: string; inputs: Record<string, unknown> }>> = [];
   const uploads: Buffer[] = [];
+  const adapter = { installed: false };
   const server: Server = createServer((req, res) => {
     const url = req.url ?? "";
     const body: Buffer[] = [];
     req.on("data", (part: Buffer) => body.push(part));
     req.on("end", () => {
       res.setHeader("content-type", "application/json");
+      const node = /^\/object_info\/(IPAdapterUnifiedLoader|IPAdapter)$/.exec(url)?.[1];
+      if (node !== undefined) {
+        res.end(JSON.stringify(adapter.installed ? { [node]: { input: {} } } : {}));
+        return;
+      }
       if (req.method === "POST" && url === "/prompt") {
         graphs.push(JSON.parse(Buffer.concat(body).toString("utf8")).prompt);
         res.end(JSON.stringify({ prompt_id: PROMPT_ID, node_errors: {} }));
@@ -95,6 +108,7 @@ async function fakeComfy(): Promise<Fake> {
     close: () => server.close(),
     graphs: () => [...graphs],
     uploads: () => [...uploads],
+    adapter,
   };
 }
 
@@ -297,6 +311,51 @@ test("--source current edits the image the cut holds at the given strength and r
   });
 });
 
+test("--source cut:<id> starts from another cut's image at this cut's size and records it", async () => {
+  const { dir, episodeId, cutId } = await project();
+  const loaded = await loadProject(dir);
+  const next = loaded.project.episodes[0]?.cuts.find((c) => c.id !== cutId)?.id;
+  assert.ok(next, "the starter episode has a second cut");
+  await runGenerate(
+    [dir, "--episode", episodeId, "--cut", cutId, "--prompt", "a pier", "--seed", "3"],
+    io({ keepCutPrompt: true }),
+  );
+  const drawn = (await cutOf(dir, episodeId, cutId))?.image?.clean;
+  assert.ok(drawn);
+  const first = await readFile(join(dir, drawn));
+  const base = [dir, "--episode", episodeId, "--cut", next, "--prompt", "the pier, later"];
+  const errors: string[] = [];
+  const quiet = io({ keepCutPrompt: true, err: (line) => errors.push(line) });
+  assert.equal(await runGenerate([...base, "--source", `cut:${next}`], quiet), EXIT_USAGE);
+  assert.match(errors.join("\n"), /cannot continue from itself/);
+  assert.equal(await runGenerate([...base, "--source", "cut:nope"], quiet), EXIT_USAGE);
+  assert.match(errors.join("\n"), /no such cut/);
+
+  const code = await runGenerate(
+    [...base, "--source", `cut:${cutId}`, "--strength", "0.8"],
+    io({ keepCutPrompt: true }),
+  );
+  assert.equal(code, EXIT_OK);
+  assert.ok(comfy.uploads().at(-1)?.includes(first), "the other cut's image was uploaded");
+  const graph = comfy.graphs().at(-1);
+  const latent = graph?.["5"]?.inputs;
+  assert.equal(graph?.toony_source_scale?.class_type, "ImageScale");
+  assert.deepEqual(
+    [graph?.toony_source_scale?.inputs.width, graph?.toony_source_scale?.inputs.height],
+    [latent?.width, latent?.height],
+    "scaled to this cut's own size",
+  );
+  assert.equal(graph?.["3"]?.inputs.denoise, 0.8);
+  const log = JSON.parse(
+    await readFile(join(dir, "episodes", episodeId, "logs", "ingest.json"), "utf8"),
+  ) as Array<{ renderInputs?: { source?: { sha256: string; strength: number; cutId?: string } } }>;
+  assert.deepEqual(log.at(-1)?.renderInputs?.source, {
+    sha256: createHash("sha256").update(first).digest("hex"),
+    strength: 0.8,
+    cutId,
+  });
+});
+
 test("--source refuses a cut with no image, and --strength needs --source and a value in range", async () => {
   const { dir, episodeId, cutId } = await project();
   const base = [dir, "--episode", episodeId, "--cut", cutId, "--prompt", "p"];
@@ -368,4 +427,173 @@ test("a cut with a panel shape keeps its reference sheet on the request", async 
   const graph = comfy.graphs()[0];
   assert.equal(graph?.["10"]?.inputs.image, "up-1.png", "the sheet was sent");
   assert.equal(graph?.["5"]?.inputs.height, 1248, "the declared shape sized the latent");
+});
+
+/** A project whose first cut names a character that has a reference sheet on disk. */
+async function referencedProject(): Promise<{ dir: string; episodeId: string; cutId: string }> {
+  const { dir, episodeId, cutId } = await project();
+  const loaded = await loadProject(dir);
+  const webtoon = loaded.project.webtoon;
+  await mkdir(join(dir, "characters", "mina"), { recursive: true });
+  await writeFile(join(dir, "characters", "mina", "sheet.png"), png(9));
+  await writeWebtoon(dir, {
+    ...webtoon,
+    characters: [
+      {
+        id: "mina",
+        name: "Mina",
+        lockstring: "short hair, red scarf",
+        references: ["characters/mina/sheet.png"],
+      },
+    ],
+  });
+  const bundle = loaded.project.episodes[0];
+  assert.ok(bundle);
+  await writeCuts(
+    dir,
+    episodeId,
+    bundle.cuts.map((cut) => (cut.id === cutId ? { ...cut, characters: ["mina"] } : cut)),
+  );
+  return { dir, episodeId, cutId };
+}
+
+test("a character's sheet conditions the render when the engine has the IP-Adapter nodes", async () => {
+  const { dir, episodeId, cutId } = await referencedProject();
+  const base = [
+    dir,
+    "--episode",
+    episodeId,
+    "--cut",
+    cutId,
+    "--prompt",
+    "Mina on the pier",
+    "--seed",
+    "2",
+  ];
+  // Without the nodes the sheet is noted and the run draws without it.
+  const plain = io({ keepCutPrompt: true });
+  assert.equal(await runGenerate(base, plain), EXIT_OK);
+  assert.match(
+    String(plain),
+    /declares no reference input and the engine has no IP-Adapter nodes; generating without it/,
+  );
+  assert.equal(comfy.uploads().length, 0);
+  assert.equal(comfy.graphs().at(-1)?.[REFERENCE_APPLY_NODE], undefined);
+
+  comfy.adapter.installed = true;
+  assert.equal(await runGenerate(base, io({ keepCutPrompt: true })), EXIT_OK);
+  assert.equal(comfy.uploads().length, 1, "the sheet was uploaded once");
+  const graph = comfy.graphs().at(-1);
+  assert.ok(graph);
+  assert.equal(graph[REFERENCE_LOAD_NODE]?.inputs.image, "up-1.png");
+  assert.equal(graph[REFERENCE_ADAPTER_NODE]?.class_type, "IPAdapterUnifiedLoader");
+  assert.deepEqual(
+    graph["3"]?.inputs.model,
+    [REFERENCE_APPLY_NODE, 0],
+    "the sampler draws with the adapted model",
+  );
+  const log = JSON.parse(
+    await readFile(join(dir, "episodes", episodeId, "logs", "ingest.json"), "utf8"),
+  ) as Array<{ renderInputs?: { reference?: { characterId: string } } }>;
+  assert.equal(
+    log.at(-1)?.renderInputs?.reference?.characterId,
+    "mina",
+    "the record names the reference",
+  );
+});
+
+test("two people get one reference each on their side; without the nodes the run draws without them", async () => {
+  const { dir, episodeId, cutId } = await referencedProject();
+  const loaded = await loadProject(dir);
+  await mkdir(join(dir, "characters", "jun"), { recursive: true });
+  await writeFile(join(dir, "characters", "jun", "sheet.png"), png(12));
+  await writeWebtoon(dir, {
+    ...loaded.project.webtoon,
+    characters: [
+      ...(loaded.project.webtoon.characters ?? []),
+      {
+        id: "jun",
+        name: "Jun",
+        lockstring: "round glasses",
+        references: ["characters/jun/sheet.png"],
+      },
+    ],
+  });
+  const bundle = loaded.project.episodes[0];
+  assert.ok(bundle);
+  // Listed Jun first, but the art direction puts Jun on the right.
+  await writeCuts(
+    dir,
+    episodeId,
+    bundle.cuts.map((cut) => (cut.id === cutId ? { ...cut, characters: ["jun", "mina"] } : cut)),
+  );
+  const base = [
+    dir,
+    "--episode",
+    episodeId,
+    "--cut",
+    cutId,
+    "--prompt",
+    "two friends",
+    "--seed",
+    "4",
+  ];
+  const plain = io({ keepCutPrompt: true });
+  assert.equal(await runGenerate(base, plain), EXIT_OK);
+  assert.match(String(plain), /the engine has no IP-Adapter nodes; generating without it/);
+  assert.equal(comfy.uploads().length, 0);
+
+  comfy.adapter.installed = true;
+  assert.equal(await runGenerate(base, io({ keepCutPrompt: true })), EXIT_OK);
+  assert.equal(comfy.uploads().length, 2, "each sheet was uploaded");
+  const graph = comfy.graphs().at(-1);
+  assert.ok(graph);
+  assert.equal(graph[REFERENCE_LOAD_NODE]?.inputs.image, "up-1.png");
+  assert.equal(graph[`${REFERENCE_LOAD_NODE}_2`]?.inputs.image, "up-2.png");
+  assert.equal(graph[`${REFERENCE_APPLY_NODE}_2`]?.class_type, "IPAdapter");
+  const log = JSON.parse(
+    await readFile(join(dir, "episodes", episodeId, "logs", "ingest.json"), "utf8"),
+  ) as Array<{ renderInputs?: { references?: Array<{ characterId: string; side?: string }> } }>;
+  assert.deepEqual(
+    log.at(-1)?.renderInputs?.references?.map((r) => `${r.characterId}@${r.side}`),
+    ["jun@left", "mina@right"],
+    "cast order sets the sides when the art direction gives none",
+  );
+});
+
+test("renderImage draws one picture outside the records, with the reference when the engine takes it", async () => {
+  const { dir } = await project();
+  const sheet = await renderImage(
+    dir,
+    { prompt: "character sheet, one person", seed: 11, width: 1024, height: 1024 },
+    io(),
+  );
+  assert.ok(!("error" in sheet), JSON.stringify(sheet));
+  assert.equal(sheet.seed, 11);
+  assert.equal(sheet.referenced, false);
+  assert.ok(sheet.bytes.byteLength > 0 && sheet.contentType === "image/png");
+  const latent = comfy.graphs().at(-1)?.["5"]?.inputs;
+  assert.deepEqual([latent?.width, latent?.height], [1024, 1024]);
+  const loaded = await loadProject(dir);
+  assert.equal(loaded.project.episodes[0]?.cuts[0]?.image, null, "nothing was written to a cut");
+
+  // A non-local engine is refused before any request, as generate refuses it without --allow-remote.
+  const sent = comfy.graphs().length;
+  const remote = await renderImage(
+    dir,
+    { prompt: "a pier" },
+    io({ env: { TOONY_COMFYUI_URL: "http://192.0.2.10:8188" } }),
+  );
+  assert.ok("error" in remote && /non-local server/.test(remote.error));
+  assert.equal(comfy.graphs().length, sent);
+
+  comfy.adapter.installed = true;
+  const withReference = await renderImage(
+    dir,
+    { prompt: "a pier", reference: { bytes: png(3), name: "sheet.png" } },
+    io(),
+  );
+  assert.ok(!("error" in withReference));
+  assert.equal(withReference.referenced, true);
+  assert.equal(comfy.graphs().at(-1)?.[REFERENCE_APPLY_NODE]?.class_type, "IPAdapter");
 });

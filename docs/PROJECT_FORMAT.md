@@ -37,12 +37,18 @@ context. Other bible read errors stop the run before a provider is called.
 The character registry is `webtoon.json`'s `characters` array, edited by agents,
 CLI workflows or Studio. Each entry is `{ id, name, lockstring }` and may carry
 `references`: project-relative image paths under `characters/<id>/`, in
-preference order (#327). A reference sheet is a file the person put there or
-accepted from a render; Toony never sources one. `toony generate` hands the first
-sheet of the first character a cut names to a workflow that declares a reference
-input, and records the sheet's sha256 with the render in the episode's ingest
-log. A workflow that declares none ignores the sheets, and the request it sends
-is unchanged. Whether a sheet is on disk and decodes is a lint check
+preference order (#327). A reference picture is a file the person put there, or
+a portrait Studio's agent drew (`draw_character`), stored as
+`characters/<id>/portrait-<digest>.png` and put first; Toony never sources one
+from elsewhere. `toony generate` conditions a cut with one person on that
+person's first picture: through the reference input a workflow declares, or,
+when the engine has the IP-Adapter community nodes, through those nodes on any
+workflow. A cut with two people sends each person's first picture through the
+nodes, each kept to its side of the frame (the art direction's left or right
+position, else the cut's character order, left first); three or more send none.
+The ingest log records `reference` (the first) and, for two, `references`, each
+with the character id, the sha256 and the side. Without a way to take them the
+run notes it and draws without them. Whether a sheet is on disk and decodes is a lint check
 (`character/reference-unreadable`), so a registry may name a sheet before it is
 drawn. New scaffolds do not create an unused `characters/` folder; old
 folders remain untouched. `style-guide.md` is unchanged by this composition path.
@@ -651,8 +657,10 @@ before style. Inspection reports capability limits: spatial composition and
 wardrobe are prompt instructions, not enforced masks; the current adapter can
 condition on one character reference when configured, and it edits a cut's
 current image as a whole (image to image, `--source current --strength`; no
-masks yet). An edit's ingest-log inputs carry `source: { sha256, strength }`,
-the image it started from. Render provenance carries the art direction and a digest of the resolved
+masks yet). `--source cut:<id>` starts instead from another cut's image, scaled
+and centre-cropped to this cut's size, so the next moment keeps the place and
+light. The ingest-log inputs carry `source: { sha256, strength }`, the image it
+started from, with `cutId` when it was another cut's. Render provenance carries the art direction and a digest of the resolved
 workflow; the provider records a separate digest of the submitted graph. These
 records do not certify visual quality or deterministic execution.
 

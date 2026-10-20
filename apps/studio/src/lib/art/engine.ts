@@ -13,6 +13,29 @@ export interface ArtEngineStatus {
   state: "ready" | "unconfigured" | "unreachable" | "remote";
   /** What to tell the person, in plain words. */
   message: string;
+  /** A ready engine: whether it can draw with character portraits (the IP-Adapter nodes). */
+  portraits?: boolean;
+}
+
+const NODE_TIMEOUT_MS = 4_000;
+
+/** Whether the engine has the IP-Adapter community nodes the portraits go through. */
+async function hasPortraitNodes(endpoint: string): Promise<boolean> {
+  try {
+    const answers = await Promise.all(
+      ["IPAdapterUnifiedLoader", "IPAdapter"].map(async (node) => {
+        const response = await fetch(new URL(`/object_info/${node}`, endpoint), {
+          signal: AbortSignal.timeout(NODE_TIMEOUT_MS),
+        });
+        if (!response.ok) return false;
+        const info = (await response.json()) as Record<string, unknown>;
+        return typeof info[node] === "object" && info[node] !== null;
+      }),
+    );
+    return answers.every(Boolean);
+  } catch {
+    return false;
+  }
 }
 
 /** Probes are cached briefly so a status call per turn does not wait on the network. */
@@ -63,9 +86,17 @@ export async function artEngineStatus(
     };
   } else {
     const probe = await probeComfyui(endpoint);
+    const portraits = probe.state === "reachable" && (await hasPortraitNodes(endpoint));
     status =
       probe.state === "reachable"
-        ? { ready: true, state: "ready", message: "The artwork engine is ready." }
+        ? {
+            ready: true,
+            state: "ready",
+            portraits,
+            message: portraits
+              ? "The artwork engine is ready and draws characters with their portraits."
+              : "The artwork engine is ready, but it cannot draw with character portraits (the IP-Adapter nodes are not installed), so cuts keep characters on model by their look text only.",
+          }
         : {
             ready: false,
             state: "unreachable",

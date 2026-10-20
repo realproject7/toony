@@ -11,8 +11,10 @@ export {
 export {
   type CharacterInput,
   characterIdFor,
+  portraitPrefix,
   removeCharacter,
   type SavedCharacter,
+  setCharacterPortrait,
   upsertCharacters,
 } from "./characters.js";
 export { type ActorInfo, contextFor } from "./context.js";

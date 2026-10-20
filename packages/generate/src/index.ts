@@ -11,6 +11,9 @@ export {
   type GenerateEvent,
   type GenerateIo,
   injectCharacterLockstrings,
+  type RenderedImage,
+  type RenderImageOptions,
+  renderImage,
   runGenerate,
 } from "./generate.js";
 export {

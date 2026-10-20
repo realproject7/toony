@@ -49,15 +49,16 @@ options:
                            | --transition <id>)
            --prompt <text> [--negative <text>] [--width <px>] [--height <px>]
            [--seed <n>|fresh] [--workflow <name>] [--provider comfyui] [--allow-remote]
-           [--source current [--strength <0-1>]]
+           [--source current|cut:<id> [--strength <0-1>]]
                            generates and ingests an image; the provider endpoint
                            and workflow come from local runtime config/env
                            (e.g. TOONY_COMFYUI_URL), never from webtoon.json;
                            --workflow selects a workflow a pack contributed;
-                           when that workflow declares a reference input, the
-                           first reference sheet of the first character the cut
-                           names is uploaded and named in the graph, and its
-                           sha256 is recorded in the ingest log;
+                           a character's first reference picture conditions
+                           the render when the workflow declares a reference
+                           input or the engine has the IP-Adapter nodes (two
+                           people get one each, kept to their side of the
+                           frame), and its sha256 is recorded in the ingest log;
                            repeat --cut to generate several cuts in one run: it
                            prints a per-cut summary, keeps every cut it
                            finished, and exits non-zero if any cut failed.
@@ -75,6 +76,8 @@ options:
                            through the write-back says so on one line, with the
                            cut ids. --source current edits the image the cut
                            holds instead of drawing from noise (image to image);
+                           --source cut:<id> starts from another cut's image,
+                           scaled to this cut's size, to keep place and light;
                            --strength (default 0.5) is how much may change, and
                            the source's sha256 is recorded in the ingest log
   export <episode> [path] --output <id> [--width <px>] [--slice-height <px>]

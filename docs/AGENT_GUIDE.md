@@ -185,8 +185,15 @@ they are looking at.
 - Write with `create_work` (from a library chat only), `update_story`,
   `save_characters`, `remove_character`, `create_episode`, `rename_episode`,
   `delete_episode`, `edit_cuts`, `set_dialogue`, `set_transitions`,
-  `draw_cuts`, `edit_cut_art`, `import_artwork` (a file the person points to),
-  `export_episode` (files only) and `undo_change`.
+  `draw_character`, `draw_cuts`, `edit_cut_art`, `import_artwork` (a file the
+  person points to), `export_episode` (files only) and `undo_change`.
+- Keep the cast on model with `draw_character`: one plain portrait per main
+  character, drawn from the lockstring, becomes that character's first
+  reference picture. Every cut that shows the character, every edit and every
+  redraw is then drawn with it (the engine needs the IP-Adapter nodes; without
+  them the cut is drawn from the lockstring alone and the tool says so). A cut
+  with two people sends both portraits, each kept to its side: list the cut's
+  characters left to right and say who stands where in the prompt.
 - Draw cuts with `draw_cuts`: an English image prompt per cut, sent on its
   own (the story bible does not wrap it), and the engine adds the cast's
   lockstrings. Set a wide or tall cut's shape first with `edit_cuts` (`shape`,
@@ -195,6 +202,8 @@ they are looking at.
   null for all of it); the person frames cuts and reuses another cut's picture
   from the cut editor's Frame button. Change a cut's art with
   `edit_cut_art`, which starts from the current image (`strength` 0.1 to 0.9).
+  A `draw_cuts` item with `fromCutId` starts from another cut's finished
+  picture, for the next moment in the same place and a similar framing.
   Both run as a background job on the person's local ComfyUI: the tool waits a
   few minutes, returns while the rest is drawn, and a follow-up message reaches
   the agent when the job ends. `art_status` follows a job, `stop_drawing` stops

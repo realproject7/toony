@@ -185,11 +185,17 @@ submitted; the cut's own prompt and negative prompt stay its own. A changed
 selection or changed words are named in the repeat instruction as an input no
 flag can restore.
 
-A character reference sheet (#327) is the one input that is neither on the cut
-nor in a flag: it is read off the registry. The ingest log records which
-character's sheet the run conditioned on and the sha256 of the bytes uploaded,
-and the repeat instruction names a changed or newly attached sheet as an input
-nothing can ask for, the way a changed palette is named.
+A character reference picture (#327) is the one input that is neither on the cut
+nor in a flag: it is read off the registry. It reaches the engine through a
+workflow's declared reference input or, when the engine has the IP-Adapter
+community nodes, through those nodes added to any workflow's model chain
+(`withReferenceImages` in `@toony/providers`: weight 0.6, "prompt is more
+important", starting at 0.15 of the steps, chosen on same-seed renders so the
+prompt keeps the composition). Two people get one adapter each, masked to their
+side of the frame. The ingest log records which characters' pictures the run
+conditioned on, with sides and the sha256 of the bytes uploaded, and the repeat
+instruction names a changed or newly attached picture as an input nothing can
+ask for, the way a changed palette is named.
 
 Size is deliberately not recorded on the cut. A cut's shape already has a home in
 `panelAspect`, and re-rendering a batch at export resolution is a thing to do,
@@ -558,8 +564,8 @@ by the export renderer, at most 768 px, as an MCP image; text when artwork
 viewing is off) and `check_episode`. Writes: `create_work`, `update_story`,
 `save_characters`, `remove_character`, `create_episode`, `rename_episode`,
 `delete_episode`, `edit_cuts`, `set_dialogue`, `set_transitions`,
-`draw_cuts`, `edit_cut_art`, `import_artwork`, `export_episode` and
-`undo_change`. Collaboration: `update_tasks`, `ask_user`, `suggest_dialogue`, `remember`, `forget`
+`draw_character`, `draw_cuts`, `edit_cut_art`, `import_artwork`,
+`export_episode` and `undo_change`. Collaboration: `update_tasks`, `ask_user`, `suggest_dialogue`, `remember`, `forget`
 and `stop_drawing`; drawing reads: `art_status` and `check_art_engine`.
 
 The agent draws the art. `draw_cuts` and `edit_cut_art` queue a drawing job
@@ -576,7 +582,15 @@ shorter than the workflow's latent widens the column to keep the baseline
 pixel count (`keepDetail`), where the CLI refuses without an explicit width. `edit_cut_art` adds
 `--source current --strength <n>`: the provider loads the current image,
 encodes it with the graph's own VAE and starts the sampler from it (image to
-image). The render runs outside the project lock; the run's `commit` hook wraps
+image). A `draw_cuts` item with `fromCutId` adds `--source cut:<id>` at
+`CONTINUITY_STRENGTH` (0.8): the other cut's image, scaled to this cut's size,
+is the starting point, so place, light and colours carry over. Because the
+character references attach to every run, an edit and a continued cut are drawn
+with the same portraits as the first drawing. `draw_character` draws one portrait
+with `renderImage` (the cast member's lockstring and a fixed plain-portrait
+prompt, a new seed, nothing recorded on a cut) and stores it through the write
+path as that character's first reference (`setCharacterPortrait`), one undoable
+change; the tool result shows the agent the picture. The render runs outside the project lock; the run's `commit` hook wraps
 each finished image's ingest and record in `withProjectWrite`, so every image
 is one journaled, undoable change and the left workspace refreshes as it lands.
 The engine must be a ComfyUI on this computer (`TOONY_COMFYUI_URL`, then the

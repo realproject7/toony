@@ -46,11 +46,24 @@ export interface ImageRequest {
    */
   reference?: { bytes: Uint8Array; name: string };
   /**
+   * Two characters' references for a two-person picture, each kept to its
+   * side of the frame. Sent through the engine's IP-Adapter nodes only; a
+   * provider without them refuses rather than dropping one.
+   */
+  references?: Array<{ bytes: Uint8Array; name: string; side: "left" | "right" }>;
+  /**
    * An existing image to edit instead of drawing from noise: the bytes, a file
    * name for the upload and the strength (0 to 1) the sampler may change it by.
-   * The provider encodes it as the starting latent; the result keeps its size.
+   * The provider encodes it as the starting latent; the result keeps its size,
+   * unless `size` is given (another cut's picture as a starting point): the
+   * source is then scaled and cropped to that size first.
    */
-  source?: { bytes: Uint8Array; name: string; strength: number };
+  source?: {
+    bytes: Uint8Array;
+    name: string;
+    strength: number;
+    size?: { width: number; height: number };
+  };
 }
 
 /**

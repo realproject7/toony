@@ -579,6 +579,8 @@ export interface DrawCutInput {
   cutId: string;
   prompt: string;
   negative?: string;
+  /** Another cut whose picture this one starts from, to keep the place and light. */
+  fromCutId?: string;
 }
 
 const PROMPT_MAX = 2000;
@@ -589,6 +591,16 @@ export const EDIT_STRENGTH_MIN = 0.1;
 export const EDIT_STRENGTH_MAX = 0.9;
 /** The longest an art status call waits for progress, in seconds. */
 export const ART_STATUS_WAIT_MAX = 240;
+
+export function drawCharacterArgs(raw: unknown): { characterId: string; prompt?: string } {
+  const args = argsObject(raw);
+  noExtra(args, ["characterId", "prompt"]);
+  const prompt = optionalText(args, "prompt", PROMPT_MAX);
+  return {
+    characterId: id(args, "characterId", "a character"),
+    ...(prompt === undefined ? {} : { prompt }),
+  };
+}
 
 export function drawCutsArgs(raw: unknown): {
   episodeId: string;
@@ -605,15 +617,20 @@ export function drawCutsArgs(raw: unknown): {
       fail(`${where} must be an object with cutId and prompt.`);
     }
     const item = value as Args;
-    noExtra(item, ["cutId", "prompt", "negative"], where);
+    noExtra(item, ["cutId", "prompt", "negative", "fromCutId"], where);
     const cutId = id(item, "cutId", "a cut");
     if (seen.has(cutId)) fail(`${where}: ${cutId} is listed twice.`);
     seen.add(cutId);
     const negative = optionalText(item, "negative", PROMPT_MAX, `${where}.negative`);
+    const fromCutId = item.fromCutId === undefined ? undefined : id(item, "fromCutId", "a cut");
+    if (fromCutId === cutId) {
+      fail(`${where}.fromCutId: a cut cannot continue from itself; use edit_cut_art to change it.`);
+    }
     return {
       cutId,
       prompt: text(item, "prompt", PROMPT_MAX, `${where}.prompt`),
       ...(negative === undefined ? {} : { negative }),
+      ...(fromCutId === undefined ? {} : { fromCutId }),
     };
   });
   return { episodeId, cuts, newTake: bool(args, "newTake") ?? false };

@@ -207,13 +207,15 @@ export function buildWorkflow(
 /** The node ids Toony adds to a graph when a run edits an existing image. */
 export const SOURCE_LOAD_NODE = "toony_source_load";
 export const SOURCE_ENCODE_NODE = "toony_source_encode";
+export const SOURCE_SCALE_NODE = "toony_source_scale";
 
 /**
  * Turn a text-to-image graph into an image-to-image one, in a COPY: the
  * uploaded `image` is loaded and encoded with the graph's own VAE, the sampler
  * (the node the map sends the seed to) starts from it instead of its empty
  * latent, and its denoise becomes `strength`. The output keeps the source's
- * size, so the graph's latent size no longer applies.
+ * size, so the graph's latent size no longer applies, unless `size` is given:
+ * the source is then scaled to cover that size and cropped to its centre.
  *
  * Works for the usual sampler graphs (a sampler with `latent_image` and
  * `denoise` inputs, and a `VAEDecode` whose VAE can encode). Any other graph is
@@ -224,6 +226,7 @@ export function withSourceImage(
   map: WorkflowInjectionMap,
   image: string,
   strength: number,
+  size?: { width: number; height: number },
 ): ComfyWorkflowGraph {
   if (!Number.isFinite(strength) || strength <= 0 || strength > 1) {
     throw new ProviderError(
@@ -259,11 +262,138 @@ export function withSourceImage(
     );
   }
   graph[SOURCE_LOAD_NODE] = { class_type: "LoadImage", inputs: { image } };
+  let pixels: unknown[] = [SOURCE_LOAD_NODE, 0];
+  if (size !== undefined) {
+    graph[SOURCE_SCALE_NODE] = {
+      class_type: "ImageScale",
+      inputs: {
+        image: pixels,
+        upscale_method: "lanczos",
+        width: size.width,
+        height: size.height,
+        crop: "center",
+      },
+    };
+    pixels = [SOURCE_SCALE_NODE, 0];
+  }
   graph[SOURCE_ENCODE_NODE] = {
     class_type: "VAEEncode",
-    inputs: { pixels: [SOURCE_LOAD_NODE, 0], vae: structuredClone(decoder.inputs.vae) },
+    inputs: { pixels, vae: structuredClone(decoder.inputs.vae) },
   };
   sampler.inputs.latent_image = [SOURCE_ENCODE_NODE, 0];
   sampler.inputs.denoise = strength;
   return graph;
+}
+
+/** The node ids Toony adds to a graph when a run conditions on a reference image. */
+export const REFERENCE_LOAD_NODE = "toony_reference_load";
+export const REFERENCE_ADAPTER_NODE = "toony_reference_adapter";
+export const REFERENCE_APPLY_NODE = "toony_reference_apply";
+/**
+ * How the reference steers the picture. Chosen on same-seed renders with the
+ * cast's look in the prompt: lower keeps only colours, higher copies the
+ * reference's composition or breaks faces. The prompt sets the composition
+ * first (the adapter starts a little into sampling) and wins where the two
+ * disagree.
+ */
+export const REFERENCE_WEIGHT = 0.6;
+export const REFERENCE_START = 0.15;
+export const REFERENCE_WEIGHT_TYPE = "prompt is more important";
+/** Where a side's mask ends, as a fraction of the width; the halves overlap in the middle. */
+const SIDE_SPLIT = { left: [0, 0.55], right: [0.45, 1] } as const;
+/** The mask canvas: the adapter resizes masks to the picture, so only the fractions matter. */
+const MASK_SIZE = 512;
+
+export interface ReferenceImage {
+  /** The uploaded image's name on the engine. */
+  image: string;
+  /** Keep this reference to one side of the frame (a two-person picture). Absent: the whole frame. */
+  side?: "left" | "right";
+}
+
+/**
+ * Condition a graph on characters' reference images, in a COPY: each image is
+ * loaded, the IP-Adapter community nodes attach it to the model the sampler
+ * draws with (one adapter after another), and the sampler's model input moves
+ * to the adapted model. A reference with a side is masked to that side, so two
+ * people keep their own looks. Works for any graph whose sampler (the node the
+ * map sends the seed to) takes its model from a link, LoRA chains included.
+ */
+export function withReferenceImages(
+  template: ComfyWorkflowGraph,
+  map: WorkflowInjectionMap,
+  references: readonly ReferenceImage[],
+): ComfyWorkflowGraph {
+  const graph = structuredClone(template);
+  const sampler = graph[map.seedNode];
+  if (
+    sampler === undefined ||
+    typeof sampler.inputs !== "object" ||
+    sampler.inputs === null ||
+    !Array.isArray(sampler.inputs.model)
+  ) {
+    throw new ProviderError(
+      "comfyui.no-model-input",
+      `this workflow cannot take a reference image: its sampler node "${map.seedNode}" has no linked model input.`,
+    );
+  }
+  if (references.length === 0) return graph;
+  graph[REFERENCE_ADAPTER_NODE] = {
+    class_type: "IPAdapterUnifiedLoader",
+    inputs: { model: structuredClone(sampler.inputs.model), preset: "PLUS (high strength)" },
+  };
+  let model: unknown[] = [REFERENCE_ADAPTER_NODE, 0];
+  references.forEach((reference, index) => {
+    const suffix = index === 0 ? "" : `_${index + 1}`;
+    const load = `${REFERENCE_LOAD_NODE}${suffix}`;
+    const apply = `${REFERENCE_APPLY_NODE}${suffix}`;
+    graph[load] = { class_type: "LoadImage", inputs: { image: reference.image } };
+    const inputs: Record<string, unknown> = {
+      model,
+      ipadapter: [REFERENCE_ADAPTER_NODE, 1],
+      image: [load, 0],
+      weight: REFERENCE_WEIGHT,
+      start_at: REFERENCE_START,
+      end_at: 1,
+      weight_type: REFERENCE_WEIGHT_TYPE,
+    };
+    if (reference.side !== undefined) {
+      const [from, to] = SIDE_SPLIT[reference.side];
+      const blank = `toony_reference_mask_blank${suffix}`;
+      const band = `toony_reference_mask_band${suffix}`;
+      const mask = `toony_reference_mask${suffix}`;
+      graph[blank] = {
+        class_type: "SolidMask",
+        inputs: { value: 0, width: MASK_SIZE, height: MASK_SIZE },
+      };
+      graph[band] = {
+        class_type: "SolidMask",
+        inputs: { value: 1, width: Math.round((to - from) * MASK_SIZE), height: MASK_SIZE },
+      };
+      graph[mask] = {
+        class_type: "MaskComposite",
+        inputs: {
+          destination: [blank, 0],
+          source: [band, 0],
+          x: Math.round(from * MASK_SIZE),
+          y: 0,
+          operation: "add",
+        },
+      };
+      inputs.attn_mask = [mask, 0];
+    }
+    graph[apply] = { class_type: "IPAdapter", inputs };
+    model = [apply, 0];
+  });
+  sampler.inputs.model = model;
+  return graph;
+}
+
+/** One reference over the whole frame. */
+export function withReferenceImage(
+  template: ComfyWorkflowGraph,
+  map: WorkflowInjectionMap,
+  image: string,
+): ComfyWorkflowGraph {
+  return withReferenceImages(template, map, [{ image }]);
 }
