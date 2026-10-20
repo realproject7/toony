@@ -9,10 +9,12 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resolveFontFamily } from "@toony/fonts";
+import { createCanvas, GlobalFonts } from "@napi-rs/canvas";
+import { FONT_FAMILIES, resolveFontFamily } from "@toony/fonts";
+import { fontAssetPath } from "@toony/fonts/node";
 import type { LetteringOverlay } from "@toony/schema";
 import { type ComposedCut, composeCut } from "../compose.js";
-import { canvasFontFamily, registerToonyFonts } from "../fonts.js";
+import { canvasFamilyName, canvasFontFamily, registerToonyFonts } from "../fonts.js";
 
 /** Build a Latin SFX overlay (bare text, no bubble) using a given family. */
 function sfxOverlay(fontFamily: LetteringOverlay["fontFamily"]): LetteringOverlay {
@@ -50,14 +52,35 @@ function inkPixels(composed: ComposedCut): number {
 }
 
 test("canvasFontFamily maps a family + weight to the registered name (mirrors render)", () => {
-  // 400 → the family's display name; 700 → the "<name> 700" variant.
-  assert.equal(canvasFontFamily("nunito", 400, "speech"), "Nunito");
-  assert.equal(canvasFontFamily("nunito", 700, "speech"), "Nunito 700");
+  // 400 → "Toony <name>"; 700 → the "Toony <name> 700" variant.
+  assert.equal(canvasFontFamily("nunito", 400, "speech"), "Toony Nunito");
+  assert.equal(canvasFontFamily("nunito", 700, "speech"), "Toony Nunito 700");
   // Absent/unknown family falls back exactly like render's resolver.
   assert.equal(
     canvasFontFamily(undefined, 400, "shout"),
-    resolveFontFamily(undefined, "shout").name,
+    `Toony ${resolveFontFamily(undefined, "shout").name}`,
   );
+});
+
+test("export draws each bundled file, never a host font with the same public name", () => {
+  // A host can install "Anton" or "Nunito" itself, and canvas prefers that copy
+  // over a registered face of the same name. Each canvas name must therefore
+  // differ from the public name and draw exactly what the bundled file draws.
+  registerToonyFonts();
+  for (const family of FONT_FAMILIES)
+    for (const face of family.files) {
+      const name = canvasFamilyName(family, face.weight);
+      assert.notEqual(name, family.name);
+      const probe = `Toony probe ${face.file}`;
+      GlobalFonts.registerFromPath(fontAssetPath(face.file), probe);
+      const draw = (canvasName: string) => {
+        const ctx = createCanvas(240, 80).getContext("2d");
+        ctx.font = `${face.weight} 48px "${canvasName}"`;
+        ctx.fillText("Hag!", 4, 60);
+        return Buffer.from(ctx.getImageData(0, 0, 240, 80).data.buffer);
+      };
+      assert.ok(draw(name).equals(draw(probe)), `${face.file} was not drawn from the bundled file`);
+    }
 });
 
 test("registerToonyFonts is idempotent and the curated faces actually draw ink", async () => {
@@ -169,7 +192,7 @@ test("the canvas family name follows the language-resolved face (read equals exp
   // the name the canvas uses must be the name the resolved family carries.
   for (const language of ["en", "ko", "ja"]) {
     const family = resolveFontFamily(undefined, "speech", language);
-    assert.equal(canvasFontFamily(family.id, 400, "speech"), family.name);
+    assert.equal(canvasFontFamily(family.id, 400, "speech"), `Toony ${family.name}`);
     assert.ok(family.stack.includes(`"${family.name}"`), `${language} stack must name the face`);
   }
 });
