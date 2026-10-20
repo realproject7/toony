@@ -205,3 +205,40 @@ test("a Korean line renders the CJK subset face (non-empty ink, not a blank fall
   const composed = await composeCut([overlay], null, 200);
   assert.ok(inkPixels(composed) > 0, "Korean text must render glyph ink from the KO face");
 });
+
+/** The raster of one string drawn alone, as a speech bubble pinned to a face and weight. */
+async function rasterOf(text: string, fontWeight: 400 | 700): Promise<Buffer> {
+  const overlay: LetteringOverlay = {
+    ...defaultSpeechOverlay(),
+    id: "ov-glyph",
+    text,
+    fontFamily: "noto-sans-kr",
+    fontWeight,
+    fontSize: 40,
+  };
+  const composed = await composeCut([overlay], null, 160);
+  return Buffer.from(pixels(composed).buffer);
+}
+
+test("exported Korean draws a real glyph for every syllable, never the missing-glyph box", async () => {
+  // A subset that dropped syllables drew 없, 었, 했 and 왔 as boxes in exports while
+  // the browser editor hid it with system fonts. Ink alone cannot catch that: the
+  // box is ink too. Compare each syllable with the face's own missing-glyph box
+  // (a private-use codepoint no bundled face maps), at both weights.
+  registerToonyFonts();
+  const common = [..."없었했왔겠씨뭘봤"];
+  // A spread across all 11,172 syllables, so a partial subset cannot pass.
+  const spread: string[] = [];
+  for (let point = 0xac00; point <= 0xd7a3; point += 241) spread.push(String.fromCodePoint(point));
+  for (const weight of [400, 700] as const) {
+    const box = await rasterOf("\ue000", weight);
+    const seen = new Set<string>();
+    for (const syllable of [...common, ...spread]) {
+      const raster = await rasterOf(syllable, weight);
+      assert.ok(!raster.equals(box), `${syllable} (${weight}) exported as the missing-glyph box`);
+      seen.add(raster.toString("base64"));
+    }
+    // Distinct syllables draw distinct glyphs, not one shared fallback shape.
+    assert.equal(seen.size, common.length + spread.length, `${weight}: syllables share a raster`);
+  }
+});

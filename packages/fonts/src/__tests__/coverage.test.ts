@@ -48,6 +48,30 @@ test("every Latin-capable bundled face covers printable Basic Latin in its cover
   }
 });
 
+test("the Korean dialogue face draws every Hangul syllable at both weights", () => {
+  // The default Korean face must cover modern Korean in full: a subset that
+  // dropped syllables such as 없, 었, 했 and 왔 drew them as boxes in exports.
+  for (const weight of [400, 700]) {
+    const missing: string[] = [];
+    for (let point = 0xac00; point <= 0xd7a3; point++)
+      if (!fontHasCodepoint("noto-sans-kr", point, weight))
+        missing.push(String.fromCodePoint(point));
+    assert.equal(
+      missing.length,
+      0,
+      `noto-sans-kr ${weight} lacks ${missing.slice(0, 20).join("")}`,
+    );
+    // Modern jamo and compatibility jamo, for text typed letter by letter.
+    for (const point of [0x1100, 0x1161, 0x11a8, 0x3131, 0x314f, 0x3163])
+      assert.ok(fontHasCodepoint("noto-sans-kr", point, weight), `U+${point.toString(16)}`);
+  }
+  const runs = resolveFontRuns("아무도 없었다. 그래서 했다. 왔다.", "noto-sans-kr");
+  assert.deepEqual(
+    runs.map((run) => [run.fontFamily, run.missingCodepoints]),
+    [["noto-sans-kr", []]],
+  );
+});
+
 test("supported requested faces stay selected; missing Latin and Korean use bundled fallbacks", () => {
   for (const weight of [400, 700]) {
     assert.equal(resolveFontRuns("Hello", "nunito", weight)[0]?.fontFamily, "nunito");
