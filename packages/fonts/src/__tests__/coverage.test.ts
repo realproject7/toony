@@ -20,15 +20,43 @@ test("coverage metadata is tied to every actual bundled face, not family script 
         `regenerate cmap metadata for ${file.file}`,
       );
     }
-  assert.equal(fontHasCodepoint("anton", "H".codePointAt(0) as number), false);
+  // Gaegu is labelled Latin yet has no grave accent; the label is not proof of a glyph.
+  assert.equal(fontHasCodepoint("gaegu", "`".codePointAt(0) as number), false);
+  assert.equal(fontHasCodepoint("anton", "H".codePointAt(0) as number), true);
   assert.equal(fontHasCodepoint("nunito", "H".codePointAt(0) as number), true);
+});
+
+// Codepoints a bundled file has no glyph for at all (not merely unmapped). Gaegu
+// ships no grave accent; resolveFontRuns sends it to a fallback face. Any other
+// gap in printable Basic Latin means the subset dropped characters.
+const KNOWN_BASIC_LATIN_GAPS: Record<string, readonly number[]> = {
+  "gaegu-400.woff2": [0x60],
+  "gaegu-700.woff2": [0x60],
+};
+
+test("every Latin-capable bundled face covers printable Basic Latin in its coverage data", () => {
+  for (const family of FONT_FAMILIES) {
+    if (!family.scripts.includes("latin")) continue;
+    for (const file of family.files) {
+      const gaps = KNOWN_BASIC_LATIN_GAPS[file.file] ?? [];
+      const missing: string[] = [];
+      for (let point = 0x20; point <= 0x7e; point++)
+        if (!gaps.includes(point) && !fontHasCodepoint(family.id, point, file.weight))
+          missing.push(String.fromCodePoint(point));
+      assert.deepEqual(missing, [], `${file.file} lacks Basic Latin: ${missing.join("")}`);
+    }
+  }
 });
 
 test("supported requested faces stay selected; missing Latin and Korean use bundled fallbacks", () => {
   for (const weight of [400, 700]) {
     assert.equal(resolveFontRuns("Hello", "nunito", weight)[0]?.fontFamily, "nunito");
-    const latin = resolveFontRuns("Hello", "anton", weight);
-    assert.ok(latin.some((run) => run.fontFamily === "nunito"));
+    assert.equal(resolveFontRuns("BOOM!", "anton", weight)[0]?.fontFamily, "anton");
+    const latin = resolveFontRuns("a`b", "gaegu", weight);
+    assert.deepEqual(
+      latin.map((run) => run.fontFamily),
+      ["gaegu", "nunito", "gaegu"],
+    );
     const korean = resolveFontRuns("안녕하세요", "bangers", weight);
     assert.deepEqual(
       korean.map((run) => [run.start, run.end, run.fontFamily, run.missingCodepoints]),
