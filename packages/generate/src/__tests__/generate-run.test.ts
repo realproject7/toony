@@ -26,7 +26,13 @@ import {
   REFERENCE_LOAD_NODE,
 } from "@toony/providers";
 import { EXIT_OK, EXIT_USAGE } from "../exit.js";
-import { type GenerateEvent, type GenerateIo, renderImage, runGenerate } from "../generate.js";
+import {
+  type GenerateEvent,
+  type GenerateIo,
+  renderImage,
+  runGenerate,
+  sidePrompt,
+} from "../generate.js";
 
 const PROMPT_ID = "run-0001";
 
@@ -551,6 +557,13 @@ test("two people get one reference each on their side; without the nodes the run
   assert.equal(graph[REFERENCE_LOAD_NODE]?.inputs.image, "up-1.png");
   assert.equal(graph[`${REFERENCE_LOAD_NODE}_2`]?.inputs.image, "up-2.png");
   assert.equal(graph[`${REFERENCE_APPLY_NODE}_2`]?.class_type, "IPAdapter");
+  // Each person is drawn alone in their half first, from their look and the cut's setting.
+  assert.equal(graph.toony_half_text_left?.inputs.text, "one person, round glasses, facing right");
+  assert.equal(
+    graph.toony_half_text_right?.inputs.text,
+    "one person, short hair, red scarf, facing left",
+  );
+  assert.deepEqual(graph["3"]?.inputs.latent_image, ["toony_halves_joined", 0]);
   const log = JSON.parse(
     await readFile(join(dir, "episodes", episodeId, "logs", "ingest.json"), "utf8"),
   ) as Array<{ renderInputs?: { references?: Array<{ characterId: string; side?: string }> } }>;
@@ -558,6 +571,21 @@ test("two people get one reference each on their side; without the nodes the run
     log.at(-1)?.renderInputs?.references?.map((r) => `${r.characterId}@${r.side}`),
     ["jun@left", "mina@right"],
     "cast order sets the sides when the art direction gives none",
+  );
+});
+
+test("a two-person half keeps the setting and drops the phrases about people", () => {
+  assert.equal(
+    sidePrompt(
+      "man, shaved head",
+      "right",
+      "two people on a wet pier at dusk, medium shot, the woman hands him a letter, they talk, soft light",
+    ),
+    "one person, man, shaved head, facing left, medium shot, soft light",
+  );
+  assert.equal(
+    sidePrompt("woman, curly hair", "left", "two people, harbor office doorway, warm window light"),
+    "one person, woman, curly hair, facing right, harbor office doorway, warm window light",
   );
 });
 

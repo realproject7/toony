@@ -192,8 +192,10 @@ they are looking at.
   reference picture. Every cut that shows the character, every edit and every
   redraw is then drawn with it (the engine needs the IP-Adapter nodes; without
   them the cut is drawn from the lockstring alone and the tool says so). A cut
-  with two people sends both portraits, each kept to its side: list the cut's
-  characters left to right and say who stands where in the prompt.
+  with two people is drawn side by side: each person first alone in their half
+  with their portrait, then the whole picture. List the cut's characters left
+  to right, and keep place and light in phrases of their own, apart from what
+  the people do.
 - Draw cuts with `draw_cuts`: an English image prompt per cut, sent on its
   own (the story bible does not wrap it), and the engine adds the cast's
   lockstrings. Set a wide or tall cut's shape first with `edit_cuts` (`shape`,

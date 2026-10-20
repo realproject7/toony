@@ -48,9 +48,17 @@ export interface ImageRequest {
   /**
    * Two characters' references for a two-person picture, each kept to its
    * side of the frame. Sent through the engine's IP-Adapter nodes only; a
-   * provider without them refuses rather than dropping one.
+   * provider without them refuses rather than dropping one. When both carry a
+   * `prompt` (that person alone in the setting) and nothing is edited, each
+   * person is first drawn in their own half of the frame, so who stands where
+   * is fixed before the whole picture is drawn together.
    */
-  references?: Array<{ bytes: Uint8Array; name: string; side: "left" | "right" }>;
+  references?: Array<{
+    bytes: Uint8Array;
+    name: string;
+    side: "left" | "right";
+    prompt?: string;
+  }>;
   /**
    * An existing image to edit instead of drawing from noise: the bytes, a file
    * name for the upload and the strength (0 to 1) the sampler may change it by.

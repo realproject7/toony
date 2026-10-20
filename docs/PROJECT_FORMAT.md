@@ -45,7 +45,9 @@ person's first picture: through the reference input a workflow declares, or,
 when the engine has the IP-Adapter community nodes, through those nodes on any
 workflow. A cut with two people sends each person's first picture through the
 nodes, each kept to its side of the frame (the art direction's left or right
-position, else the cut's character order, left first); three or more send none.
+position, else the cut's character order, left first); a fresh drawing first
+draws each person alone in their half, so who stands where is fixed. Three or
+more send none.
 The ingest log records `reference` (the first) and, for two, `references`, each
 with the character id, the sha256 and the side. Without a way to take them the
 run notes it and draws without them. Whether a sheet is on disk and decodes is a lint check
