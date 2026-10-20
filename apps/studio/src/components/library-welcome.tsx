@@ -15,7 +15,7 @@ const STEPS = [
   },
   {
     title: "Describe your story",
-    text: "Tell the agent your idea. It writes the story, the cast and the episodes.",
+    text: "Tell the agent your idea. It writes the story, the cast and the episodes, and draws the cuts.",
   },
   {
     title: "Letter and export",

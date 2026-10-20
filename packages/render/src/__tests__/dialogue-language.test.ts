@@ -196,3 +196,22 @@ test("text the declared face cannot draw moves to a bundled face that can, and c
   const pinnedLatin = layoutCut([{ ...english, fontFamily: "nunito" }], W, H)[0];
   assert.equal(pinnedLatin?.fontFamily, "nunito");
 });
+
+test("Korean narration with a syllable no bundled face draws still moves to a Korean face", async () => {
+  const [sample] = await shippedLettering("dead-air");
+  assert.ok(sample);
+  const narration: LetteringOverlay = {
+    ...sample,
+    id: "ov-korean-rare",
+    kind: "narration",
+    // Common syllables with a double-s final, which the bundled Korean subset may lack.
+    text: "새벽 2시. 오늘도 손님은 없다. 아무도 왔었다.",
+    fontFamily: undefined,
+  };
+  const [plan] = layoutCut([narration], W, H, { dialogueLanguage: "ko" });
+  assert.ok(plan);
+  assert.ok(
+    getFontFamily(plan.fontFamily)?.scripts.includes("korean"),
+    `Korean narration was set in ${plan.fontFamily}`,
+  );
+});

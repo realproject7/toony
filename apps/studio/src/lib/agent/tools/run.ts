@@ -311,6 +311,8 @@ interface Performed {
   detail?: string;
   /** A lettering replacement that must become a proposal. */
   replacement?: { replacement: DialogueReplacement; title: string; targets: AgentTarget[] };
+  /** Links for one change card, when each change has its own (one drawn cut each). */
+  changeTargets?: (change: ProjectChange) => AgentTarget[];
 }
 
 interface Described {
@@ -1032,10 +1034,18 @@ async function runArt(
   const targetOf = (cutId: string) =>
     cutTarget(work.id, episodeId, cutId, `${labels.get(cutId) ?? cutId} of ${episode}`);
   const cutTargets = items.map((item) => targetOf(item.cutId));
+  /** The cut a drawing change stored, as the card's one link. */
+  const changeTargets = (change: ProjectChange): AgentTarget[] => {
+    const scope = change.scopes.find((s) => s.kind === "artwork");
+    return scope && "cutId" in scope ? [targetOf(scope.cutId)] : cutTargets;
+  };
   const title =
     kind === "edit"
       ? `Changing the art of ${items[0]?.label ?? "a cut"}`
       : `Drawing ${items.length === 1 ? (items[0]?.label ?? "a cut") : episode}`;
+  // One link on the progress row: the cut, or the episode for several cuts.
+  const progressTargets =
+    cutTargets.length === 1 ? cutTargets : [episodeTarget(work.id, episodeId, episode)];
   const progressRow = itemId("act");
   const showProgress = (view: ArtJobView) => {
     const allFailed = view.cuts.every((cut) => cut.state === "failed" || cut.state === "skipped");
@@ -1048,7 +1058,7 @@ async function runArt(
       title,
       status: artFinished(view) ? (allFailed ? "failed" : "done") : "running",
       detail: artProgressLine(view),
-      targets: cutTargets,
+      targets: progressTargets,
     });
   };
 
@@ -1069,9 +1079,7 @@ async function runArt(
       showProgress(view);
       if (!state.detached) return;
       for (const change of changes.slice(state.posted)) {
-        const scope = change.scopes.find((s) => s.kind === "artwork");
-        const targets = scope && "cutId" in scope ? [targetOf(scope.cutId)] : cutTargets;
-        host.item(changeItem(host, change, targets));
+        host.item(changeItem(host, change, changeTargets(change)));
       }
       state.posted = changes.length;
       if (artFinished(view) && !state.toldAgent) {
@@ -1102,7 +1110,8 @@ async function runArt(
         : "Drawing continues in the background and the cuts appear on the left as they finish. End your turn now and tell the person; you will get a message when the job is done.",
     },
     changes,
-    targets: [episodeTarget(work.id, episodeId, episode), ...cutTargets],
+    targets: progressTargets,
+    changeTargets,
     detail: artProgressLine(view),
   };
 }
@@ -1577,7 +1586,9 @@ function changeItem(
 /** Post the change cards of a performed write. */
 function postChanges(host: ToolHost, performed: Performed): void {
   for (const change of performed.changes) {
-    if (change !== null) host.item(changeItem(host, change, performed.targets));
+    if (change === null) continue;
+    const targets = performed.changeTargets?.(change) ?? performed.targets;
+    host.item(changeItem(host, change, targets));
   }
 }
 
