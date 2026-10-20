@@ -12,6 +12,7 @@ import {
   DEFAULT_INJECTION_MAP,
   SOURCE_ENCODE_NODE,
   SOURCE_LOAD_NODE,
+  SOURCE_SCALE_NODE,
   withSourceImage,
 } from "../comfyui-workflow.js";
 
@@ -47,6 +48,25 @@ test("withSourceImage starts the sampler from the encoded source at the given st
   assert.equal(edited["3"]?.inputs.denoise, 0.4);
   // The template is untouched, so it can be reused for the next cut.
   assert.deepEqual(template, graph());
+});
+
+test("withSourceImage scales another picture to the size asked for before encoding it", () => {
+  const edited = withSourceImage(graph(), DEFAULT_INJECTION_MAP, "cut-002.png", 0.8, {
+    width: 832,
+    height: 1216,
+  });
+  assert.deepEqual(edited[SOURCE_SCALE_NODE], {
+    class_type: "ImageScale",
+    inputs: {
+      image: [SOURCE_LOAD_NODE, 0],
+      upscale_method: "lanczos",
+      width: 832,
+      height: 1216,
+      crop: "center",
+    },
+  });
+  assert.deepEqual(edited[SOURCE_ENCODE_NODE]?.inputs.pixels, [SOURCE_SCALE_NODE, 0]);
+  assert.equal(edited["3"]?.inputs.denoise, 0.8);
 });
 
 test("withSourceImage refuses a graph it cannot rewire and a strength out of range", () => {

@@ -36,6 +36,7 @@ import {
   stopArtJob,
   waitForArtJob,
 } from "../../art/jobs.js";
+import { drawPortrait } from "../../art/portrait.js";
 import { getExportJob, startExportJob } from "../../export-jobs.js";
 import { scopesOverlap } from "../../live/scope.js";
 import {
@@ -54,6 +55,7 @@ import {
   removeCharacter,
   renameEpisode,
   renameWork,
+  setCharacterPortrait,
   setDialogue,
   setTransitions,
   undoChange,
@@ -314,6 +316,8 @@ interface Performed {
   replacement?: { replacement: DialogueReplacement; title: string; targets: AgentTarget[] };
   /** Links for one change card, when each change has its own (one drawn cut each). */
   changeTargets?: (change: ProjectChange) => AgentTarget[];
+  /** A picture the model sees with the result (a drawn portrait). */
+  image?: Uint8Array;
 }
 
 interface Described {
@@ -442,6 +446,59 @@ const WRITES: Record<string, WriteTool> = {
         changes: [change],
         targets: [castTarget(work.id)],
         detail: characters.map((c) => c.name).join(", "),
+      };
+    },
+  },
+  draw_character: {
+    parse: A.drawCharacterArgs,
+    describe: async (host, args: ReturnType<typeof A.drawCharacterArgs>) => {
+      const work = await requireWork(host);
+      const loaded = await load(work.root);
+      const name =
+        loaded?.project.webtoon.characters?.find((c) => c.id === args.characterId)?.name ??
+        args.characterId;
+      return {
+        title: "Draw a portrait",
+        summary: `Draw a portrait of ${name}`,
+        ...(args.prompt ? { preview: { kind: "text", text: clip(args.prompt, 400) ?? "" } } : {}),
+        targets: [castTarget(work.id)],
+        scopes: [{ kind: "characters" }],
+      };
+    },
+    perform: async (host, args: ReturnType<typeof A.drawCharacterArgs>) => {
+      const work = await requireWork(host);
+      const loaded = await load(work.root);
+      const character = loaded?.project.webtoon.characters?.find((c) => c.id === args.characterId);
+      if (!character) {
+        throw new ToolInputError("This character is not in the cast. read_characters lists it.");
+      }
+      const engine = await artEngineStatus(host.workspace, process.env, { fresh: true });
+      if (!engine.ready) throw new ToolInputError(engine.message);
+      const keepAlive = setInterval(() => host.touch(), 1000);
+      let drawn: Awaited<ReturnType<typeof drawPortrait>>;
+      try {
+        drawn = await drawPortrait(work.root, character, args.prompt, process.env);
+      } finally {
+        clearInterval(keepAlive);
+      }
+      if ("error" in drawn) {
+        throw new ToolInputError(`The artwork engine could not draw the portrait: ${drawn.error}`);
+      }
+      const saved = await setCharacterPortrait(opContext(host, work), character.id, drawn.bytes);
+      return {
+        result: {
+          characterId: character.id,
+          portrait: saved.path,
+          seed: drawn.seed,
+          changeId: saved.change?.changeId ?? null,
+          note: engine.portraits
+            ? "This is now the character's reference picture: their cuts are drawn with it. If it misses their look, fix the lockstring with save_characters or add details in prompt, and draw again."
+            : "Saved as the character's reference picture, but this engine cannot draw cuts with it yet (the IP-Adapter nodes are not installed); tell the person. Cuts use the lockstring meanwhile.",
+        },
+        changes: [saved.change],
+        targets: [castTarget(work.id)],
+        detail: character.name,
+        image: drawn.bytes,
       };
     },
   },
@@ -738,6 +795,7 @@ const WRITES: Record<string, WriteTool> = {
           label: cut.cutId,
           prompt: cut.prompt,
           ...(cut.negative === undefined ? {} : { negative: cut.negative }),
+          ...(cut.fromCutId === undefined ? {} : { fromCutId: cut.fromCutId }),
           ...(args.newTake ? { seed: "fresh" as const } : {}),
         })),
       ),
@@ -1010,7 +1068,7 @@ async function runArt(
   if (!loaded || !bundle) {
     throw new ToolInputError("This episode does not exist. get_status lists the episodes.");
   }
-  const items: ArtJobItem[] = requested.map((item) => {
+  const items: ArtJobItem[] = requested.map((item, index) => {
     const cut = bundle.cuts.find((c) => c.id === item.cutId);
     if (!cut) {
       throw new ToolInputError(
@@ -1025,6 +1083,15 @@ async function runArt(
     }
     if (kind === "edit" && !cut.image?.clean) {
       throw new ToolInputError(`${label} has no artwork yet. Draw it first with draw_cuts.`);
+    }
+    if (item.fromCutId !== undefined) {
+      const from = bundle.cuts.find((c) => c.id === item.fromCutId);
+      const drawnBefore = requested.slice(0, index).some((r) => r.cutId === item.fromCutId);
+      if (!drawnBefore && !from?.image?.clean && !from?.image?.final) {
+        throw new ToolInputError(
+          `${label}: fromCutId ${item.fromCutId} has no artwork in this episode to start from. Draw it first, or earlier in the same list.`,
+        );
+      }
     }
     return { ...item, label };
   });
@@ -1302,6 +1369,7 @@ async function readCharacters(host: ToolHost): Promise<Record<string, unknown>> 
       id: c.id,
       name: c.name,
       lockstring: c.lockstring,
+      portrait: (c.references?.length ?? 0) > 0,
       ...(c.visualIdentity ? { visualIdentity: clip(c.visualIdentity, 1500) } : {}),
       ...(c.development ? { development: c.development } : {}),
       ...(c.wardrobe ? { wardrobe: c.wardrobe } : {}),
@@ -1410,6 +1478,17 @@ async function artInputs(
   } catch {
     return null;
   }
+}
+
+/** A picture as the model sees it: at most VIEW_MAX_PX on its longer side. */
+async function previewImage(bytes: Uint8Array, label: string): Promise<ToolContent> {
+  let composed = await composeCut([], bytes, VIEW_MAX_PX, { imageLabel: label });
+  if (composed.height > VIEW_MAX_PX) {
+    const width = Math.max(64, Math.floor((VIEW_MAX_PX * VIEW_MAX_PX) / composed.height));
+    composed = await composeCut([], bytes, width, { imageLabel: label });
+  }
+  const png = encodeCanvas(composed.canvas, "png");
+  return { type: "image", data: Buffer.from(png).toString("base64"), mimeType: "image/png" };
 }
 
 async function viewCut(host: ToolHost, episodeId: string, cutId: string): Promise<ToolResult> {
@@ -1553,6 +1632,7 @@ const DONE_TITLES: Record<string, string> = {
   create_work: "Created the webtoon",
   update_story: "Updated the story",
   save_characters: "Updated the cast",
+  draw_character: "Drew a portrait",
   remove_character: "Removed a character",
   create_episode: "Created an episode",
   rename_episode: "Renamed an episode",
@@ -1715,6 +1795,14 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown): P
         ...(performed.detail ? { detail: performed.detail } : {}),
         targets: performed.targets,
       });
+      if (performed.image && host.preferences().viewArtwork) {
+        return {
+          content: [
+            ...textResult(performed.result).content,
+            await previewImage(performed.image, name),
+          ],
+        };
+      }
       return textResult(performed.result);
     }
     const result = await runRead(host, name, rawArgs);

@@ -32,6 +32,8 @@ export interface ArtJobItem {
   negative?: string;
   /** "fresh" for a new take, a number to pin one. Absent: the cut's recorded seed. */
   seed?: number | "fresh";
+  /** Draw from this cut's picture (a continuity source) instead of from noise. */
+  fromCutId?: string;
 }
 
 export interface ArtJobParams {
@@ -291,6 +293,12 @@ export function plainFailure(lines: readonly string[], root: string): string {
 export const AGENT_NEGATIVE_BASE =
   "multiple panels, comic page, panel border, split screen, speech bubble, text, watermark";
 
+/**
+ * How much of the cut it continues from a drawing may change: enough for a new
+ * pose and action, little enough that the place, light and colours carry over.
+ */
+export const CONTINUITY_STRENGTH = 0.8;
+
 /** A prompt as one safe argument: the run reads a leading dash as a flag. */
 function promptArg(text: string): string {
   return text.trim().replace(/^-+\s*/, "");
@@ -316,6 +324,8 @@ async function drawOne(record: JobRecord, cut: ArtJobCut, item: ArtJobItem): Pro
   if (item.seed !== undefined) args.push("--seed", String(item.seed));
   if (params.kind === "edit") {
     args.push("--source", "current", "--strength", String(params.strength ?? 0.5));
+  } else if (item.fromCutId !== undefined) {
+    args.push("--source", `cut:${item.fromCutId}`, "--strength", String(CONTINUITY_STRENGTH));
   }
   const lines: string[] = [];
   // Written from the run's callbacks, so kept in an object TypeScript does not narrow.

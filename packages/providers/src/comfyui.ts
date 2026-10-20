@@ -25,7 +25,9 @@ import {
 import {
   buildWorkflow,
   type ComfyWorkflowGraph,
+  type ReferenceImage,
   type WorkflowParams,
+  withReferenceImages,
   withSourceImage,
 } from "./comfyui-workflow.js";
 import { ProviderError } from "./errors.js";
@@ -116,6 +118,7 @@ export class ComfyUIProvider implements ImageProvider {
 
   private readonly config: ComfyUIConfig;
   private readonly fetch: FetchLike;
+  private referenceInjection: Promise<boolean> | undefined;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly now: () => number;
 
@@ -160,23 +163,49 @@ export class ComfyUIProvider implements ImageProvider {
       checkpoint: this.config.checkpoint,
     };
 
-    if (request.reference !== undefined) {
-      const map = this.config.injectionMap;
-      if (map.referenceNode === undefined || map.referenceInput === undefined) {
+    // A reference goes where the workflow declares, or, when it declares no
+    // reference input, through the engine's IP-Adapter nodes added to the
+    // graph. Neither route is a silent drop: without both, the run refuses.
+    const injected: ReferenceImage[] = [];
+    const map = this.config.injectionMap;
+    const sided = request.references ?? [];
+    if (request.reference !== undefined || sided.length > 0) {
+      const declared = map.referenceNode !== undefined && map.referenceInput !== undefined;
+      if (request.reference !== undefined && sided.length === 0 && declared) {
+        params.referenceImage = await this.upload(request.reference, "reference image");
+      } else if (await this.supportsReferenceInjection()) {
+        // Check the graph can take references before anything is uploaded.
+        withReferenceImages(this.config.workflow, map, [{ image: "" }]);
+        if (request.reference !== undefined) {
+          injected.push({ image: await this.upload(request.reference, "reference image") });
+        }
+        for (const reference of sided) {
+          injected.push({
+            image: await this.upload(reference, `${reference.side} reference image`),
+            side: reference.side,
+          });
+        }
+      } else {
         throw new ProviderError(
           "comfyui.no-reference-input",
-          "a reference image was supplied but the workflow declares no reference input; select a workflow that does, or generate without one.",
+          "a reference image was supplied but the workflow declares no reference input and the engine has no IP-Adapter nodes; install them, select a workflow with a reference input, or generate without one.",
         );
       }
-      params.referenceImage = await this.upload(request.reference, "reference image");
     }
 
-    let graph = buildWorkflow(this.config.workflow, params, this.config.injectionMap);
+    let graph = buildWorkflow(this.config.workflow, params, map);
+    if (injected.length > 0) graph = withReferenceImages(graph, map, injected);
     if (request.source !== undefined) {
       // Check the graph can take a source before anything is uploaded.
       withSourceImage(graph, this.config.injectionMap, "", request.source.strength);
       const uploaded = await this.upload(request.source, "image to edit");
-      graph = withSourceImage(graph, this.config.injectionMap, uploaded, request.source.strength);
+      graph = withSourceImage(
+        graph,
+        this.config.injectionMap,
+        uploaded,
+        request.source.strength,
+        request.source.size,
+      );
     }
     const clientId = randomUUID();
 
@@ -202,6 +231,28 @@ export class ComfyUIProvider implements ImageProvider {
         contentType: contentTypeFor(format),
       },
     };
+  }
+
+  /**
+   * Whether the engine can take a reference image on any workflow: it has the
+   * IP-Adapter community nodes (`IPAdapterUnifiedLoader` and `IPAdapter`).
+   * Asked once per provider; a server that cannot be reached counts as no.
+   */
+  supportsReferenceInjection(): Promise<boolean> {
+    this.referenceInjection ??= (async () => {
+      for (const node of ["IPAdapterUnifiedLoader", "IPAdapter"]) {
+        try {
+          const response = await this.fetch(`${this.config.url}/object_info/${node}`);
+          if (!response.ok) return false;
+          const info = (await safeJson(response)) as Record<string, unknown> | undefined;
+          if (info === undefined || typeof info !== "object" || !(node in info)) return false;
+        } catch {
+          return false;
+        }
+      }
+      return true;
+    })();
+    return this.referenceInjection;
   }
 
   /**

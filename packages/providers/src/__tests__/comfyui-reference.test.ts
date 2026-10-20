@@ -11,6 +11,11 @@ import {
   buildWorkflow,
   type ComfyWorkflowGraph,
   DEFAULT_INJECTION_MAP,
+  REFERENCE_ADAPTER_NODE,
+  REFERENCE_APPLY_NODE,
+  REFERENCE_LOAD_NODE,
+  REFERENCE_WEIGHT,
+  REFERENCE_WEIGHT_TYPE,
 } from "../comfyui-workflow.js";
 
 const PROMPT_ID = "f1e2d3c4-0000-4000-8000-aaaabbbbcccc";
@@ -125,18 +130,79 @@ test("a request without a reference uploads nothing and leaves the node as the g
   assert.equal(graphSent["10"]?.inputs.image, "placeholder.png");
 });
 
-test("a reference for a workflow with no reference input is refused before any call", async () => {
+test("a reference for a workflow with no reference input is refused when the engine has no IP-Adapter nodes", async () => {
   const seen = { uploads: 0, graphs: [] as unknown[] };
   const provider = new ComfyUIProvider(config(false), {
     fetch: fakeFetch(seen),
     sleep: async () => {},
   });
+  assert.equal(await provider.supportsReferenceInjection(), false);
   await assert.rejects(
     provider.produce({ prompt: "a pier", reference: { bytes: PNG, name: "sheet.png" } }),
-    /declares no reference input/,
+    /no IP-Adapter nodes/,
   );
   assert.equal(seen.uploads, 0);
   assert.equal(seen.graphs.length, 0);
+});
+
+/** The fake engine with the IP-Adapter nodes installed. */
+function fakeFetchWithAdapter(seen: { uploads: number; graphs: unknown[] }): FetchLike {
+  const base = fakeFetch(seen);
+  return async (url, init) => {
+    const target = String(url);
+    const node = /\/object_info\/(IPAdapterUnifiedLoader|IPAdapter)$/.exec(target)?.[1];
+    if (node !== undefined) {
+      return new Response(JSON.stringify({ [node]: { input: {} } }), {
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return base(url, init);
+  };
+}
+
+test("with the IP-Adapter nodes, a reference is attached to any workflow's model", async () => {
+  const seen = { uploads: 0, graphs: [] as unknown[] };
+  const provider = new ComfyUIProvider(config(false), {
+    fetch: fakeFetchWithAdapter(seen),
+    sleep: async () => {},
+  });
+  assert.equal(await provider.supportsReferenceInjection(), true);
+  const withModel = config(false);
+  withModel.workflow["3"] = { class_type: "KSampler", inputs: { seed: 1, model: ["4", 0] } };
+  const adapted = new ComfyUIProvider(withModel, {
+    fetch: fakeFetchWithAdapter(seen),
+    sleep: async () => {},
+  });
+  await adapted.produce({ prompt: "a pier", reference: { bytes: PNG, name: "sheet.png" } });
+  assert.equal(seen.uploads, 1);
+  const graph = seen.graphs[0] as Record<
+    string,
+    { class_type: string; inputs: Record<string, unknown> }
+  >;
+  assert.deepEqual(graph["3"]?.inputs.model, [REFERENCE_APPLY_NODE, 0]);
+  assert.equal(graph[REFERENCE_LOAD_NODE]?.inputs.image, "sheet-7.png");
+  assert.deepEqual(
+    graph[REFERENCE_ADAPTER_NODE]?.inputs.model,
+    ["4", 0],
+    "the adapter takes the model the sampler used",
+  );
+  assert.equal(graph[REFERENCE_APPLY_NODE]?.class_type, "IPAdapter");
+  assert.equal(graph[REFERENCE_APPLY_NODE]?.inputs.weight, REFERENCE_WEIGHT);
+  assert.equal(graph["10"]?.inputs.image, "placeholder.png", "the declared node is untouched");
+
+  // A sampler with no linked model cannot take one; refused before any upload.
+  const seenPlain = { uploads: 0, graphs: [] as unknown[] };
+  await assert.rejects(
+    new ComfyUIProvider(config(false), {
+      fetch: fakeFetchWithAdapter(seenPlain),
+      sleep: async () => {},
+    }).produce({
+      prompt: "a pier",
+      reference: { bytes: PNG, name: "sheet.png" },
+    }),
+    /no linked model input/,
+  );
+  assert.equal(seenPlain.uploads, 0);
 });
 
 test("an upload that fails or returns no name is a provider error, not a silent drop", async () => {
@@ -162,4 +228,46 @@ test("an upload that fails or returns no name is a provider error, not a silent 
     }),
     /no file name/,
   );
+});
+
+test("two people get one reference each, masked to their side of the frame", async () => {
+  const seen = { uploads: 0, graphs: [] as unknown[] };
+  const withModel = config(false);
+  withModel.workflow["3"] = { class_type: "KSampler", inputs: { seed: 1, model: ["4", 0] } };
+  const provider = new ComfyUIProvider(withModel, {
+    fetch: fakeFetchWithAdapter(seen),
+    sleep: async () => {},
+  });
+  await provider.produce({
+    prompt: "two people at a table",
+    references: [
+      { bytes: PNG, name: "mara.png", side: "left" },
+      { bytes: PNG, name: "ren.png", side: "right" },
+    ],
+  });
+  assert.equal(seen.uploads, 2);
+  type Node = { class_type: string; inputs: Record<string, unknown> };
+  const graph = seen.graphs[0] as Record<string, Node>;
+  const first = graph[REFERENCE_APPLY_NODE];
+  const second = graph[`${REFERENCE_APPLY_NODE}_2`];
+  assert.ok(first && second);
+  assert.deepEqual(first.inputs.model, [REFERENCE_ADAPTER_NODE, 0]);
+  assert.deepEqual(second.inputs.model, [REFERENCE_APPLY_NODE, 0], "the adapters chain");
+  assert.deepEqual(graph["3"]?.inputs.model, [`${REFERENCE_APPLY_NODE}_2`, 0]);
+  assert.equal(first.inputs.weight_type, REFERENCE_WEIGHT_TYPE);
+  const maskOf = (node: Node) => graph[(node.inputs.attn_mask as [string, number])[0]];
+  const leftMask = maskOf(first);
+  const rightMask = maskOf(second);
+  assert.equal(leftMask?.class_type, "MaskComposite");
+  assert.equal(leftMask?.inputs.x, 0, "the left mask starts at the left edge");
+  assert.ok(
+    Number(rightMask?.inputs.x) > 0 && Number(rightMask?.inputs.x) < 512 / 2,
+    "the right mask starts just left of centre",
+  );
+  const bandOf = (mask: Node | undefined) => graph[(mask?.inputs.source as [string, number])[0]];
+  assert.ok(
+    Number(bandOf(leftMask)?.inputs.width) > 256,
+    "each band covers a little more than half",
+  );
+  assert.equal(graph[REFERENCE_LOAD_NODE]?.inputs.image, "sheet-7.png");
 });

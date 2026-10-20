@@ -151,13 +151,16 @@ has nothing to write to. Whatever those inputs hold in your file is overwritten
 on every generation; everything else — checkpoint, sampler, steps, CFG,
 scheduler, LoRAs, extra nodes — is yours and is what the pack is really for.
 
-**A reference sheet is sent only where you say.** When a cut names a character
-whose registry entry carries `references`, `toony generate` uploads the first
-sheet to ComfyUI and writes the returned name into the node and input the
-`reference` entry names. The graph decides what to do with it (an IP-Adapter,
-a ControlNet, an image prompt node). A workflow without a `reference` entry
-receives no upload and no changed input, so a pack that never declares one is
-unaffected.
+**A reference picture goes where you say, or through the IP-Adapter nodes.**
+When a cut names a character whose registry entry carries `references`,
+`toony generate` uploads the first picture to ComfyUI and writes the returned
+name into the node and input the `reference` entry names. The graph decides what
+to do with it (an IP-Adapter, a ControlNet, an image prompt node). A workflow
+without a `reference` entry gets the picture through the engine's IP-Adapter
+community nodes when they are installed: Toony adds a loader and one adapter per
+person between your model chain and the sampler (two people are each masked to
+their side of the frame). Without those nodes such a workflow receives no upload
+and no changed input, so a pack that never declares one is unaffected.
 
 **Size is different: your latent is the default.** Toony writes width and height
 only when something asks for a size — a `--width`/`--height` flag, or a cut that

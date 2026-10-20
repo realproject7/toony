@@ -1,9 +1,14 @@
 // The cast, edited one character at a time. `upsertCharacters` merges each
 // given character into the registry by id (or adds it), so an edit never
 // replaces the whole registry from a stale copy. `removeCharacter` also takes
-// the character out of every cut that names it.
+// the character out of every cut that names it. `setCharacterPortrait` stores a
+// drawn portrait and makes it the character's reference picture.
 
-import { slugify, writeCuts, writeWebtoon } from "@toony/project-io";
+import { createHash } from "node:crypto";
+import { mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
+import { atomicWrite, slugify, writeCuts, writeWebtoon } from "@toony/project-io";
+import { detectImageFormat, stripImageMetadata } from "@toony/providers";
 import {
   type Character,
   type CharacterDevelopment,
@@ -12,8 +17,9 @@ import {
   validateProject,
 } from "@toony/schema";
 import type { ProjectChange } from "../agent/protocol.js";
+import { checkArtworkBytes } from "./artwork.js";
 import { OpError } from "./errors.js";
-import { episodeFiles } from "./paths.js";
+import { assertSafeId, episodeFiles, projectPath } from "./paths.js";
 import { type OpContext, withProjectWrite } from "./write.js";
 
 /** One character to add or update. Absent fields keep their saved value. */
@@ -182,4 +188,56 @@ export async function removeCharacter(
     },
   );
   return change;
+}
+
+/** The prefix of the portraits Toony draws for a character, inside its folder. */
+export function portraitPrefix(characterId: string): string {
+  return `characters/${characterId}/portrait-`;
+}
+
+/**
+ * Store a drawn portrait as the character's reference picture: the first of
+ * its references, the one every cut that shows them draws with. The file is
+ * named by its content, so an undo puts the earlier portrait back exactly.
+ * Earlier drawn portraits leave the list; pictures the person added stay after it.
+ */
+export async function setCharacterPortrait(
+  ctx: OpContext,
+  characterId: string,
+  bytes: Uint8Array,
+): Promise<{ path: string; change: ProjectChange | null }> {
+  assertSafeId(characterId, "character");
+  checkArtworkBytes(bytes);
+  const format = detectImageFormat(bytes);
+  if (format === null) throw new OpError("invalid", "The portrait is not an image.");
+  const clean = stripImageMetadata(bytes, format);
+  const digest = createHash("sha256").update(clean).digest("hex").slice(0, 16);
+  const extension = format === "jpeg" ? "jpg" : format;
+  const path = `${portraitPrefix(characterId)}${digest}.${extension}`;
+  const { change } = await withProjectWrite(
+    ctx,
+    {
+      summary: "Drew a portrait",
+      scopes: [{ kind: "characters" }],
+      files: ["webtoon.json", path],
+    },
+    async (tx) => {
+      const registry = [...(tx.before.project.webtoon.characters ?? [])];
+      const index = registry.findIndex((c) => c.id === characterId);
+      const character = registry[index];
+      if (character === undefined) {
+        throw new OpError("not-found", "This character is not in the cast.");
+      }
+      const file = projectPath(tx.root, path);
+      await mkdir(dirname(file), { recursive: true });
+      await atomicWrite(file, clean);
+      const others = (character.references ?? []).filter(
+        (ref) => ref !== path && !ref.startsWith(portraitPrefix(characterId)),
+      );
+      registry[index] = { ...character, references: [path, ...others] };
+      await writeWebtoon(tx.root, { ...tx.before.project.webtoon, characters: registry });
+      tx.setSummary(`Drew a portrait of ${character.name}`);
+    },
+  );
+  return { path, change };
 }

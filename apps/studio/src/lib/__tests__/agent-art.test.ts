@@ -11,7 +11,8 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import type { GenerateIo } from "@toony/generate";
+import { composeCut, encodeCanvas } from "@toony/export";
+import type { GenerateIo, RenderImageOptions } from "@toony/generate";
 import { importImageBytes, loadProject } from "@toony/project-io";
 import { AGENT_RULES } from "../agent/rules.js";
 import * as A from "../agent/tools/args.js";
@@ -26,11 +27,13 @@ import {
   AGENT_NEGATIVE_BASE,
   ART_JOBS_FILE,
   artJobsSaved,
+  CONTINUITY_STRENGTH,
   listArtJobs,
   plainFailure,
   setGenerateRunner,
   waitForArtJob,
 } from "../art/jobs.js";
+import { PORTRAIT_PROMPT, setPortraitRenderer } from "../art/portrait.js";
 import { readJournal } from "../ops/index.js";
 import { FakeHost } from "./fake-tool-host.js";
 
@@ -94,10 +97,18 @@ function fakeRunner(behave: (cutId: string) => Behaviour = () => "ok") {
   return { runner, calls, ios };
 }
 
-/** A stand-in engine that answers the readiness probe. */
-async function engine(t: { after: (fn: () => void) => void }): Promise<void> {
-  const server = createServer((_req, res) => {
+/** A stand-in engine that answers the readiness probe, and the portrait nodes' when it has them. */
+async function engine(
+  t: { after: (fn: () => void) => void },
+  options: { portraits?: boolean } = {},
+): Promise<void> {
+  const server = createServer((req, res) => {
     res.setHeader("content-type", "application/json");
+    const node = /^\/object_info\/(\w+)$/.exec(req.url ?? "")?.[1];
+    if (node !== undefined) {
+      res.end(JSON.stringify(options.portraits ? { [node]: { input: {} } } : {}));
+      return;
+    }
     res.end(JSON.stringify({ system: { comfyui_version: "test" } }));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -564,6 +575,119 @@ test("the agent sets a cut's shape before drawing, and the drawing is sent witho
     true,
     "a wide shape widens the canvas, not shrinks it",
   );
+});
+
+test("fromCutId starts a cut from another cut's picture, drawn before or earlier in the list", async (t) => {
+  await engine(t);
+  const status = json(await runTool(new FakeHost(tmpdir(), null), "check_art_engine", {}));
+  assert.equal(status.portraits, false, "an engine without the nodes says so");
+  assert.match(String(status.message), /cannot draw with character portraits/);
+  const runner = fakeRunner();
+  useRunner(t, runner);
+  const { host } = await work(t);
+  assert.match(
+    errorText(
+      await runTool(host, "draw_cuts", {
+        episodeId: "ep-001",
+        cuts: [{ cutId: "cut-003", prompt: "she reads", fromCutId: "cut-002" }],
+      }),
+    ),
+    /cut-002 has no artwork/,
+  );
+  assert.match(
+    errorText(
+      await runTool(host, "draw_cuts", {
+        episodeId: "ep-001",
+        cuts: [{ cutId: "cut-002", prompt: "x", fromCutId: "cut-002" }],
+      }),
+    ),
+    /cannot continue from itself/,
+  );
+  assert.equal(runner.calls.length, 0, "nothing was drawn");
+  json(
+    await runTool(host, "draw_cuts", {
+      episodeId: "ep-001",
+      cuts: [
+        { cutId: "cut-002", prompt: "a woman sees a letter on the pier" },
+        { cutId: "cut-003", prompt: "she reads it, closer", fromCutId: "cut-002" },
+      ],
+    }),
+  );
+  const [first, second] = runner.calls;
+  assert.ok(!first?.includes("--source"));
+  const at = second?.indexOf("--source") ?? -1;
+  assert.deepEqual(second?.slice(at, at + 4), [
+    "--source",
+    "cut:cut-002",
+    "--strength",
+    String(CONTINUITY_STRENGTH),
+  ]);
+});
+
+/** A real, decodable PNG; `width` tells two apart. */
+async function picture(width: number): Promise<Uint8Array> {
+  const composed = await composeCut([], null, width, { panelAspect: 1.4 });
+  return encodeCanvas(composed.canvas, "png");
+}
+
+test("draw_character draws a portrait that becomes the reference picture, shows it, and undoes", async (t) => {
+  await engine(t, { portraits: true });
+  const asked: RenderImageOptions[] = [];
+  const pictures = [await picture(40), await picture(48)];
+  const previous = setPortraitRenderer(async (_root, options) => {
+    asked.push(options);
+    const bytes = pictures[asked.length - 1] ?? pictures[0] ?? new Uint8Array();
+    return {
+      bytes,
+      contentType: "image/png",
+      seed: 100 + asked.length,
+      workflowDigest: "test",
+      referenced: false,
+      prompt: options.prompt,
+    };
+  });
+  t.after(() => setPortraitRenderer(previous));
+  const { host, root } = await work(t);
+  json(
+    await runTool(host, "save_characters", {
+      characters: [{ id: "mina", lockstring: "short dark curly hair, round brass glasses" }],
+    }),
+  );
+
+  const engineStatus = json(await runTool(host, "check_art_engine", {}));
+  assert.equal(engineStatus.portraits, true);
+  const drawn = await runTool(host, "draw_character", { characterId: "mina" });
+  const first = json(drawn);
+  assert.match(String(first.note), /their cuts are drawn with it/);
+  assert.equal(drawn.content[1]?.type, "image", "the agent sees the portrait");
+  assert.match(String(first.portrait), /^characters\/mina\/portrait-[0-9a-f]{16}\.png$/);
+  assert.ok(asked[0]?.prompt.startsWith("short dark curly hair, round brass glasses, "));
+  assert.ok(asked[0]?.prompt.includes(PORTRAIT_PROMPT));
+  assert.match(String(asked[0]?.negative), /multiple people/);
+  await readFile(join(root, String(first.portrait)));
+  const referencesOf = async () =>
+    (await loadProject(root)).project.webtoon.characters?.find((c) => c.id === "mina")
+      ?.references ?? [];
+  assert.deepEqual(await referencesOf(), [first.portrait]);
+  const cast = json(await runTool(host, "read_characters", {}));
+  assert.equal((cast.characters as Array<{ portrait: boolean }>)[0]?.portrait, true);
+
+  // Another take replaces the drawn portrait; the person's own pictures would stay.
+  const second = json(
+    await runTool(host, "draw_character", { characterId: "mina", prompt: "freckles" }),
+  );
+  assert.notEqual(second.portrait, first.portrait);
+  assert.ok(asked[1]?.prompt.endsWith(", freckles"));
+  assert.deepEqual(await referencesOf(), [second.portrait]);
+  json(await runTool(host, "undo_change", { changeId: second.changeId }));
+  assert.deepEqual(await referencesOf(), [first.portrait], "undo brings the earlier one back");
+
+  assert.match(
+    errorText(await runTool(host, "draw_character", { characterId: "nobody" })),
+    /not in the cast/,
+  );
+  const journal = await readJournal(root);
+  assert.ok(journal.some((entry) => entry.summary === "Drew a portrait of Mina"));
 });
 
 test("drawing arguments, rules and summaries", () => {

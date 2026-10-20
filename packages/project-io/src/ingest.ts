@@ -101,13 +101,21 @@ export interface RenderInputs {
    * The character reference sheet the run conditioned on (#327): the character
    * and the sha256 of the bytes uploaded. Absent when the run sent none.
    */
-  reference?: { characterId: string; sha256: string };
+  reference?: { characterId: string; sha256: string; side?: "left" | "right" };
+  /**
+   * Every sheet a two-person render conditioned on, each kept to its side of
+   * the frame. Absent when the run sent one sheet or none; `reference` is then
+   * the whole story.
+   */
+  references?: Array<{ characterId: string; sha256: string; side?: "left" | "right" }>;
   /**
    * The image the run edited (image to image): the sha256 of the source bytes
    * and how much of it the run was allowed to change (the sampler's denoise,
-   * 0 to 1). Absent for a render from noise.
+   * 0 to 1). `cutId` names another cut whose picture the run started from (a
+   * continuity source); absent, the run edited the target's own picture.
+   * Absent for a render from noise.
    */
-  source?: { sha256: string; strength: number };
+  source?: { sha256: string; strength: number; cutId?: string };
   /**
    * The style lexicon composed into the prompt (#335): the pack entry's id and
    * the strings as submitted, with the prefix and the story context setting

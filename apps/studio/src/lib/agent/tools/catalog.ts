@@ -260,6 +260,20 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     ),
   },
   {
+    name: "draw_character",
+    kind: "write",
+    step: "Drawing a portrait",
+    description:
+      "Draw a character's portrait from their lockstring: one plain head-and-shoulders picture that becomes their reference picture. Every cut that shows the character is then drawn with it, so the face, hair and clothes stay the same from cut to cut. Draw one for each main character before drawing their cuts, and again after their look changes. You see the portrait in the result; call again for another take. prompt adds details the lockstring leaves open (English). Takes about a minute.",
+    inputSchema: obj(
+      {
+        characterId: str("The character id (from read_characters)."),
+        prompt: str("Optional extra details for the portrait, in English."),
+      },
+      ["characterId"],
+    ),
+  },
+  {
     name: "remove_character",
     kind: "write",
     step: "Updating the cast",
@@ -363,7 +377,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     kind: "write",
     step: "Drawing",
     description:
-      "Draw cut artwork with the person's artwork engine (ComfyUI on this computer). For each cut, write the image prompt in English: how many people, then framing, action, key objects, setting, light and style, as comma-separated phrases; it is sent on its own, and the engine adds only the cast's look. Set a wide or tall cut's shape with edit_cuts before drawing it. A cut that already has art is redrawn (the old image can be undone). Drawing takes about a minute or more per cut: this waits a few minutes, and when cuts are still drawing it returns, the rest continue in the background, and you get a message when the job is done.",
+      "Draw cut artwork with the person's artwork engine (ComfyUI on this computer). For each cut, write the image prompt in English: how many people, then framing, action, key objects, setting, light and style, as comma-separated phrases; it is sent on its own, and the engine adds the cast's look and their portraits (draw_character). Set a wide or tall cut's shape with edit_cuts before drawing it. fromCutId starts a cut from another cut's finished picture, for the next moment in the same place and a similar framing: place, light and colours carry over. A cut that already has art is redrawn (the old image can be undone). Drawing takes about a minute or more per cut: this waits a few minutes, and when cuts are still drawing it returns, the rest continue in the background, and you get a message when the job is done.",
     inputSchema: obj(
       {
         episodeId,
@@ -373,6 +387,9 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
               cutId,
               prompt: str("The image prompt, in English."),
               negative: str("Optional: what to keep out of the picture, in English."),
+              fromCutId: str(
+                "Optional: a cut with art to start from, for the next moment in the same place and a similar framing.",
+              ),
             },
             ["cutId", "prompt"],
           ),
@@ -429,7 +446,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     kind: "read",
     step: "Checking the artwork engine",
     description:
-      "Whether the artwork engine is ready to draw, and what the person should do when it is not.",
+      "Whether the artwork engine is ready to draw, whether it draws with character portraits, and what the person should do when it is not.",
     inputSchema: obj({}),
   },
   {

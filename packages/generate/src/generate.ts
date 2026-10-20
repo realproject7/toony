@@ -219,7 +219,7 @@ function parseFlags(args: string[]): Flags | { error: string } {
 }
 
 const USAGE =
-  "usage: toony generate [path] --episode <id> ([--cut <id> ...] --review-status draft|human-edited|final | --cut <id> [--cut <id> ...] | --transition <id>) [--slot clean|final] --prompt <text> [--negative <text>] [--width <px>] [--height <px>] [--seed <n>|fresh] [--workflow <name>] [--provider comfyui] [--allow-remote] [--framing scene|detail] [--source current [--strength <0-1>]] [--dry-run [--json]]";
+  "usage: toony generate [path] --episode <id> ([--cut <id> ...] --review-status draft|human-edited|final | --cut <id> [--cut <id> ...] | --transition <id>) [--slot clean|final] --prompt <text> [--negative <text>] [--width <px>] [--height <px>] [--seed <n>|fresh] [--workflow <name>] [--provider comfyui] [--allow-remote] [--framing scene|detail] [--source current|cut:<id> [--strength <0-1>]] [--dry-run [--json]]";
 
 /** The `--seed` value that asks for a new roll rather than a number (#286). */
 export const FRESH_SEED = "fresh";
@@ -344,8 +344,12 @@ interface BuiltProvider {
   provider: ImageProvider;
   workflowDigest: string;
   latent: { width?: number; height?: number };
-  /** Whether the resolved workflow declares a reference input (#327). */
+  /** Whether a reference sheet can reach the render: the workflow declares a reference input (#327), or the engine has the IP-Adapter nodes. */
   acceptsReference: boolean;
+  /** Whether the resolved workflow declares a reference input (#327). */
+  declaresReference: boolean;
+  /** Whether the engine has the IP-Adapter nodes, which two-person references need. */
+  injectsReferences: boolean;
 }
 
 async function buildProvider(
@@ -371,8 +375,13 @@ async function buildProvider(
         ...(workflowName === undefined ? {} : { workflowName }),
         ...(reference === undefined ? {} : { workflowReference: reference }),
       });
+      const provider = new ComfyUIProvider(config);
+      const declaresReference =
+        config.injectionMap.referenceNode !== undefined &&
+        config.injectionMap.referenceInput !== undefined;
+      const injectsReferences = await provider.supportsReferenceInjection();
       return {
-        provider: new ComfyUIProvider(config),
+        provider,
         workflowDigest: createHash("sha256")
           .update(
             JSON.stringify({
@@ -383,9 +392,9 @@ async function buildProvider(
           )
           .digest("hex"),
         latent: workflowLatentSize(config),
-        acceptsReference:
-          config.injectionMap.referenceNode !== undefined &&
-          config.injectionMap.referenceInput !== undefined,
+        acceptsReference: declaresReference || injectsReferences,
+        declaresReference,
+        injectsReferences,
       };
     } catch (cause) {
       if (cause instanceof ProviderError) return { error: cause.message };
@@ -411,11 +420,18 @@ interface Job {
   inputs: RenderInputs;
   explicitFraming?: boolean;
   /**
-   * The reference sheet this cut would condition on (#327): the first reference
-   * of the first character the cut names that has one. Attached to the request
-   * only when the resolved workflow declares a reference input.
+   * The reference sheets this cut would condition on (#327): for a one-person
+   * cut that person's first sheet over the whole frame; for a two-person cut
+   * each person's sheet kept to their side. Attached only when the engine or
+   * the workflow can take them.
    */
-  reference?: { characterId: string; path: string };
+  references?: ReferenceCandidate[];
+  /**
+   * The first sheet among the characters the cut names, in cut order: what a
+   * workflow's own declared reference input receives when the engine has no
+   * IP-Adapter nodes (#327), whatever the number of people.
+   */
+  firstReference?: ReferenceCandidate;
   /**
    * The cut's declared panel shape (#237), when it declared one. Carried rather
    * than resolved here because it needs the column the workflow draws at, and
@@ -431,13 +447,30 @@ interface ReadyJob {
   provider: ImageProvider;
   latent: { width?: number; height?: number };
   acceptsReference: boolean;
+  declaresReference: boolean;
+  injectsReferences: boolean;
+}
+
+/** The sheets a render conditioned on, as one comparable value; undefined when none. */
+function referenceKey(record: Pick<RenderInputs, "reference" | "references">): string | undefined {
+  const list = record.references ?? (record.reference === undefined ? [] : [record.reference]);
+  return list.length === 0
+    ? undefined
+    : list.map((r) => `${r.sha256}${r.side ? `@${r.side}` : ""}`).join(",");
+}
+
+/** A character's sheet a cut would condition on, and the side it is kept to. */
+interface ReferenceCandidate {
+  characterId: string;
+  path: string;
+  side?: "left" | "right";
 }
 
 /** The first reference sheet among the characters a cut names, in cut order. */
-function referenceCandidate(
+function firstReferenceOf(
   cut: Cut | undefined,
   registry: readonly Character[],
-): { characterId: string; path: string } | undefined {
+): ReferenceCandidate | undefined {
   for (const id of cut?.artDirection?.subjects.map((s) => s.characterId) ?? cut?.characters ?? []) {
     const character = registry.find((c) => c.id === id);
     const path = character?.references?.[0];
@@ -447,11 +480,50 @@ function referenceCandidate(
 }
 
 /**
- * Attach each job's reference sheet (#327) where the job's workflow takes one,
- * before any request and before the repeat check, so the digest the run will
- * submit is the digest it compares and records. A sheet that cannot be read is
- * refused here, where it costs nothing. Jobs whose workflow takes no reference
- * are noted once per workflow and run without it, exactly as before.
+ * The sheets a cut conditions on through the engine's IP-Adapter nodes. One person: their first sheet over the whole
+ * frame. Two people: each one's sheet kept to their side, the side read off the
+ * art direction's subject position when it names one, else the cast order
+ * (first listed on the left). Three or more: none, since a side split cannot
+ * hold them apart and one look over the frame would pull everyone toward it.
+ */
+function referenceCandidates(
+  cut: Cut | undefined,
+  registry: readonly Character[],
+): ReferenceCandidate[] {
+  const subjects = cut?.artDirection?.subjects;
+  const ids = [...new Set(subjects?.map((s) => s.characterId) ?? cut?.characters ?? [])];
+  const sheetOf = (id: string) => {
+    const path = registry.find((c) => c.id === id)?.references?.[0];
+    return path === undefined ? undefined : { characterId: id, path };
+  };
+  if (ids.length === 1) {
+    const sheet = sheetOf(ids[0] as string);
+    return sheet === undefined ? [] : [sheet];
+  }
+  if (ids.length !== 2) return [];
+  const declared = ids.map((id) => {
+    const position = subjects?.find((s) => s.characterId === id)?.position;
+    return position === "left" || position === "right" ? position : undefined;
+  });
+  const sides: Array<"left" | "right"> =
+    declared[0] !== undefined && declared[1] !== undefined && declared[0] !== declared[1]
+      ? [declared[0], declared[1]]
+      : declared[0] === "right" || declared[1] === "left"
+        ? ["right", "left"]
+        : ["left", "right"];
+  return ids.flatMap((id, index) => {
+    const sheet = sheetOf(id);
+    return sheet === undefined ? [] : [{ ...sheet, side: sides[index] as "left" | "right" }];
+  });
+}
+
+/**
+ * Attach each job's reference sheets (#327) where the job's workflow or the
+ * engine's IP-Adapter nodes take them (one sheet for one person, one per side
+ * for two), before any request and before the repeat check, so the digest the
+ * run will submit is the digest it compares and records. A sheet that cannot
+ * be read is refused here, where it costs nothing. Jobs that cannot take their
+ * sheets are noted once per workflow and run without them, exactly as before.
  */
 async function attachReferences(
   root: string,
@@ -460,48 +532,79 @@ async function attachReferences(
 ): Promise<{ error: string } | null> {
   const skipped = new Map<string, string[]>();
   for (const entry of ready) {
-    const candidate = entry.job.reference;
-    if (candidate === undefined) continue;
-    if (!entry.acceptsReference) {
-      const key = entry.job.inputs.workflow ?? "";
-      skipped.set(key, [...(skipped.get(key) ?? []), entry.job.id]);
+    const scene = entry.job.references ?? [];
+    const first = entry.job.firstReference;
+    // The engine's nodes take the scene's sheets (one, or one per side). A
+    // workflow's own reference input takes the first sheet, as it always has.
+    const candidates =
+      entry.injectsReferences && scene.length > 0
+        ? scene
+        : entry.declaresReference && first !== undefined
+          ? [first]
+          : [];
+    if (candidates.length === 0) {
+      if (!entry.acceptsReference && (scene.length > 0 || first !== undefined)) {
+        const key = entry.job.inputs.workflow ?? "";
+        skipped.set(key, [...(skipped.get(key) ?? []), entry.job.id]);
+      }
       continue;
     }
-    // The registry path is lexically inside the project (the validator refuses
-    // `..` and absolute paths), but a symlink under characters/<id>/ could still
-    // point anywhere, and these bytes leave the machine when the endpoint is
-    // remote. Resolve the real file and require it to stay inside the real
-    // project root, as the Studio asset route does, before a byte is read.
-    let bytes: Uint8Array;
-    try {
-      const realRoot = await realpath(root);
-      const real = await realpath(join(root, candidate.path));
-      if (real !== realRoot && !real.startsWith(realRoot + sep)) {
+    const sided = candidates.some((candidate) => candidate.side !== undefined);
+    const read: Array<{ candidate: ReferenceCandidate; bytes: Uint8Array; sha256: string }> = [];
+    for (const candidate of candidates) {
+      // The registry path is lexically inside the project (the validator refuses
+      // `..` and absolute paths), but a symlink under characters/<id>/ could still
+      // point anywhere, and these bytes leave the machine when the endpoint is
+      // remote. Resolve the real file and require it to stay inside the real
+      // project root, as the Studio asset route does, before a byte is read.
+      let bytes: Uint8Array;
+      try {
+        const realRoot = await realpath(root);
+        const real = await realpath(join(root, candidate.path));
+        if (real !== realRoot && !real.startsWith(realRoot + sep)) {
+          return {
+            error: `character "${candidate.characterId}" reference "${candidate.path}" resolves outside the project and is not sent; keep reference sheets inside characters/${candidate.characterId}/`,
+          };
+        }
+        bytes = new Uint8Array(await readFile(real));
+      } catch {
         return {
-          error: `character "${candidate.characterId}" reference "${candidate.path}" resolves outside the project and is not sent; keep reference sheets inside characters/${candidate.characterId}/`,
+          error: `character "${candidate.characterId}" reference "${candidate.path}" could not be read; fix the registry or the file before generating ${entry.job.id}`,
         };
       }
-      bytes = new Uint8Array(await readFile(real));
-    } catch {
-      return {
-        error: `character "${candidate.characterId}" reference "${candidate.path}" could not be read; fix the registry or the file before generating ${entry.job.id}`,
-      };
+      read.push({ candidate, bytes, sha256: createHash("sha256").update(bytes).digest("hex") });
     }
-    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const recorded = read.map(({ candidate, sha256 }) => ({
+      characterId: candidate.characterId,
+      sha256,
+      ...(candidate.side === undefined ? {} : { side: candidate.side }),
+    }));
     entry.job.inputs = {
       ...entry.job.inputs,
-      reference: { characterId: candidate.characterId, sha256 },
+      reference: recorded[0] as NonNullable<RenderInputs["reference"]>,
+      ...(recorded.length > 1 ? { references: recorded } : {}),
     };
-    entry.job.request = {
-      ...entry.job.request,
-      reference: { bytes, name: basename(candidate.path) },
-    };
+    const [only] = read;
+    entry.job.request =
+      !sided && read.length === 1 && only !== undefined
+        ? {
+            ...entry.job.request,
+            reference: { bytes: only.bytes, name: basename(only.candidate.path) },
+          }
+        : {
+            ...entry.job.request,
+            references: read.map(({ candidate, bytes }) => ({
+              bytes,
+              name: basename(candidate.path),
+              side: candidate.side ?? "left",
+            })),
+          };
   }
   for (const [workflow, ids] of skipped) {
     io.err(
       `note: ${ids.length} cut(s) name a character with a reference sheet (${ids.join(", ")}), but ${
         workflow === "" ? "the resolved workflow" : `workflow "${workflow}"`
-      } declares no reference input; generating without it`,
+      } declares no reference input and the engine has no IP-Adapter nodes; generating without it`,
     );
   }
   return null;
@@ -511,12 +614,17 @@ async function attachReferences(
  * Attach the image each job edits (`--source current`): the bytes the target's
  * slot holds now, read only from inside the project, with their digest put in
  * the recorded inputs so the log says which image an edit started from.
+ *
+ * With `fromCutId` (`--source cut:<id>`) every job starts from that cut's
+ * picture instead: a continuity source, so the next moment keeps the place,
+ * light and colours. It is scaled to the job's own size once that is known.
  */
 async function attachSources(
   root: string,
   ready: ReadyJob[],
   bundle: EpisodeBundle | undefined,
   strength: number,
+  fromCutId?: string,
 ): Promise<{ error: string } | null> {
   let realRoot: string;
   try {
@@ -524,12 +632,28 @@ async function attachSources(
   } catch {
     return { error: "the project folder could not be read" };
   }
+  const from =
+    fromCutId === undefined ? undefined : bundle?.cuts.find((cut) => cut.id === fromCutId);
+  if (fromCutId !== undefined && from === undefined) {
+    return { error: `--source cut:${fromCutId}: no such cut in this episode` };
+  }
   for (const entry of ready) {
     const target = entry.job.target;
-    const assetPath = associatedAsset(bundle, target);
+    if (fromCutId !== undefined && target.kind === "cut" && target.cutId === fromCutId) {
+      return {
+        error: `${entry.job.id} cannot continue from itself; use --source current to edit its own image`,
+      };
+    }
+    const assetPath =
+      from === undefined
+        ? associatedAsset(bundle, target)
+        : (from.image?.clean ?? from.image?.final ?? null);
     if (assetPath === null) {
       return {
-        error: `${entry.job.id} has no ${target.kind === "cut" ? `${target.slot} ` : ""}image to edit; draw it first, or run without --source`,
+        error:
+          from === undefined
+            ? `${entry.job.id} has no ${target.kind === "cut" ? `${target.slot} ` : ""}image to edit; draw it first, or run without --source`
+            : `${fromCutId} has no image to continue from; draw it first`,
       };
     }
     let bytes: Uint8Array;
@@ -543,7 +667,10 @@ async function attachSources(
       return { error: `${entry.job.id}: its image "${assetPath}" could not be read` };
     }
     const sha256 = createHash("sha256").update(bytes).digest("hex");
-    entry.job.inputs = { ...entry.job.inputs, source: { sha256, strength } };
+    entry.job.inputs = {
+      ...entry.job.inputs,
+      source: { sha256, strength, ...(fromCutId === undefined ? {} : { cutId: fromCutId }) },
+    };
     entry.job.request = {
       ...entry.job.request,
       source: { bytes, name: basename(assetPath), strength },
@@ -799,7 +926,9 @@ function planJobs(
     );
     if (resolvedFraming !== undefined) inputs.framing = resolvedFraming;
     if (cut?.artDirection) inputs.artDirection = structuredClone(cut.artDirection);
-    const reference = resolvedFraming === "detail" ? undefined : referenceCandidate(cut, registry);
+    const references = resolvedFraming === "detail" ? [] : referenceCandidates(cut, registry);
+    const firstReference =
+      resolvedFraming === "detail" ? undefined : firstReferenceOf(cut, registry);
     jobs.push({
       id: cutId,
       label: `cut ${cutId} (${slot})`,
@@ -808,7 +937,8 @@ function planJobs(
       inputs,
       ...(framing === undefined ? {} : { explicitFraming: true }),
       ...(cut?.panelAspect === undefined ? {} : { panelAspect: cut.panelAspect }),
-      ...(reference === undefined ? {} : { reference }),
+      ...(references.length === 0 ? {} : { references }),
+      ...(firstReference === undefined ? {} : { firstReference }),
     });
   }
   return { jobs };
@@ -849,9 +979,10 @@ function applyPanelShapes(
   io: GenerateIo,
 ): { error: string; exit: number } | null {
   // An edit keeps the size of the image it starts from, so a shape has nothing
-  // to size there.
+  // to size there. A continuity source is scaled to the cut's own size instead.
   const declared = ready.flatMap((entry) =>
-    entry.job.panelAspect === undefined || entry.job.inputs.source !== undefined
+    entry.job.panelAspect === undefined ||
+    (entry.job.inputs.source !== undefined && entry.job.inputs.source.cutId === undefined)
       ? []
       : [{ entry, panelAspect: entry.job.panelAspect }],
   );
@@ -1172,8 +1303,15 @@ const REPEAT_INPUTS: Record<keyof RenderInputs, RepeatInput> = {
   // Absence is an answer here, as it is for the workflow: a record with none
   // was rendered without one, and a run that now attaches one differs from it.
   reference: {
-    recorded: (record) => record.reference?.sha256,
-    submitted: ({ job }) => job.inputs.reference?.sha256,
+    recorded: (record) => referenceKey(record),
+    submitted: ({ job }) => referenceKey(job.inputs),
+    refuses: () => false,
+    instruct: () => null,
+  },
+  // Compared as part of `reference`, which reads the whole list.
+  references: {
+    recorded: () => undefined,
+    submitted: () => undefined,
     refuses: () => false,
     instruct: () => null,
   },
@@ -1340,8 +1478,15 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     io.err("--framing applies to cut targets, not transitions");
     return EXIT_USAGE;
   }
-  if (source !== undefined && source !== "current") {
-    io.err('--source must be "current": the image the cut holds now');
+  const fromCutId = source?.startsWith("cut:") ? source.slice(4) : undefined;
+  if (
+    source !== undefined &&
+    source !== "current" &&
+    (fromCutId === undefined || fromCutId === "")
+  ) {
+    io.err(
+      '--source must be "current" (the image the cut holds now) or "cut:<id>" (another cut\'s image to continue from)',
+    );
     return EXIT_USAGE;
   }
   if (source !== undefined && transitionId !== undefined) {
@@ -1349,7 +1494,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     return EXIT_USAGE;
   }
   if (strengthFlag !== undefined && source === undefined) {
-    io.err("--strength requires --source current");
+    io.err("--strength requires --source");
     return EXIT_USAGE;
   }
   const strength = strengthFlag === undefined ? DEFAULT_EDIT_STRENGTH : Number(strengthFlag);
@@ -1575,6 +1720,8 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
       provider: built.provider,
       latent: built.latent,
       acceptsReference: built.acceptsReference,
+      declaresReference: built.declaresReference,
+      injectsReferences: built.injectsReferences,
     });
   }
 
@@ -1592,6 +1739,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
       ready,
       loaded.project.episodes.find((b) => b.episode.id === episodeId),
       strength,
+      fromCutId,
     );
     if (sourced !== null) {
       io.err(sourced.error);
@@ -1606,6 +1754,15 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   if (shapes !== null) {
     io.err(shapes.error);
     return shapes.exit;
+  }
+  // A continuity source draws at this cut's size, not at the size of the cut it came from.
+  for (const entry of ready) {
+    const sourced = entry.job.request.source;
+    if (sourced === undefined || entry.job.inputs.source?.cutId === undefined) continue;
+    const width = entry.job.inputs.width ?? entry.latent.width;
+    const height = entry.job.inputs.height ?? entry.latent.height;
+    if (width === undefined || height === undefined) continue;
+    entry.job.request = { ...entry.job.request, source: { ...sourced, size: { width, height } } };
   }
 
   const findings: GenerationFinding[] = [];
@@ -1793,4 +1950,101 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   }
   if (generated.length > 0 || unrecorded.length > 0) io.out("next: toony validate");
   return failureCode ?? EXIT_OK;
+}
+
+export interface RenderImageOptions {
+  /** The image prompt, in English. The work's style words are added. */
+  prompt: string;
+  negative?: string;
+  /** Absent: a fresh seed. */
+  seed?: number;
+  width?: number;
+  height?: number;
+  /** A named workflow, as `--workflow` names one. */
+  workflow?: string;
+  /** A character reference to condition on, when the engine can take one. */
+  reference?: { bytes: Uint8Array; name: string };
+  /**
+   * Send the prompt to an engine on another computer. Default false: like
+   * `--allow-remote`, a non-loopback endpoint is refused before any request.
+   */
+  allowRemote?: boolean;
+}
+
+export interface RenderedImage {
+  bytes: Uint8Array;
+  contentType: string;
+  seed: number;
+  workflowDigest: string;
+  /** Whether the reference reached the render. */
+  referenced: boolean;
+  /** The prompt as submitted, with the style words. */
+  prompt: string;
+}
+
+/**
+ * One image outside the episode records: the project's provider, style words
+ * and negative base, for a picture that belongs to no cut (a character sheet).
+ * Nothing is written; the caller stores the bytes through its own write path.
+ */
+export async function renderImage(
+  root: string,
+  options: RenderImageOptions,
+  io: GenerateIo,
+): Promise<RenderedImage | { error: string }> {
+  let loaded: LoadedProject;
+  try {
+    loaded = await loadProject(root);
+  } catch (cause) {
+    if (cause instanceof ProjectIoError) return { error: cause.message };
+    throw cause;
+  }
+  const packs = await discoverPackContent(root, io);
+  const lexiconId = loaded.project.webtoon.styleLexicon;
+  const lexicon =
+    lexiconId === undefined
+      ? undefined
+      : packs.styleLexicons.find((entry) => entry.id === lexiconId)?.lexicon;
+  const built = await buildProvider(
+    "comfyui",
+    root,
+    io,
+    packs.workflows,
+    packs.workflowReferences,
+    options.workflow,
+  );
+  if ("error" in built) return built;
+  if (built.provider.transmitsRemotely && options.allowRemote !== true) {
+    return {
+      error:
+        "the artwork engine would send prompt content to a non-local server; point it at a loopback endpoint (localhost or 127.0.0.1) to keep content on this machine",
+    };
+  }
+  const prompt = composePrompt(options.prompt, undefined, [], "", lexicon);
+  const seed = options.seed ?? randomSeed();
+  const referenced = options.reference !== undefined && built.acceptsReference;
+  const request: ImageRequest = {
+    prompt,
+    options: {
+      negativePrompt: composeNegativePrompt(options.negative ?? "", lexicon?.negativeBase),
+      seed,
+      ...(options.width === undefined ? {} : { width: options.width }),
+      ...(options.height === undefined ? {} : { height: options.height }),
+    },
+    ...(referenced ? { reference: options.reference } : {}),
+  };
+  try {
+    const result = await built.provider.produce(request);
+    return {
+      bytes: result.bytes,
+      contentType: result.provenance.contentType,
+      seed,
+      workflowDigest: built.workflowDigest,
+      referenced,
+      prompt,
+    };
+  } catch (cause) {
+    if (cause instanceof ProviderError) return { error: cause.message };
+    throw cause;
+  }
 }
