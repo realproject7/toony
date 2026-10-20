@@ -187,8 +187,10 @@ they are looking at.
   `delete_episode`, `edit_cuts`, `set_dialogue`, `set_transitions`,
   `draw_cuts`, `edit_cut_art`, `import_artwork` (a file the person points to),
   `export_episode` (files only) and `undo_change`.
-- Draw cuts with `draw_cuts`: an English image prompt per cut, and the engine
-  adds the cast's lockstrings and the story context. Change a cut's art with
+- Draw cuts with `draw_cuts`: an English image prompt per cut, sent on its
+  own (the story bible does not wrap it), and the engine adds the cast's
+  lockstrings. Set a wide or tall cut's shape first with `edit_cuts` (`shape`,
+  height as a multiple of width, 0.5 to 2.5). Change a cut's art with
   `edit_cut_art`, which starts from the current image (`strength` 0.1 to 0.9).
   Both run as a background job on the person's local ComfyUI: the tool waits a
   few minutes, returns while the rest is drawn, and a follow-up message reaches
@@ -201,6 +203,11 @@ they are looking at.
   episode.
 - Plan with `update_tasks`, ask with `ask_user` (2 to 6 options, then end the
   turn), keep durable decisions with `remember` and drop them with `forget`.
+- Offer lines with `suggest_dialogue`: two to five short alternatives for one
+  cut (speech, thought, narration, or silent when the art carries the beat).
+  They appear beside the cut's art; the person edits, copies or inserts one.
+  Nothing is lettered by the tool, and new suggestions replace the cut's
+  earlier ones.
 - `set_dialogue` on a cut that already has lettering, and every write while the
   person has "Let the agent make changes without asking" off, becomes a
   proposal the person applies or dismisses. Do not repeat it; end the turn and

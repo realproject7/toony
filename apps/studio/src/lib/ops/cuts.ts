@@ -28,6 +28,8 @@ export type CutOperation =
       shotType?: ShotType;
       characters?: string[];
       palette?: string;
+      /** Panel height as a multiple of its width. */
+      panelAspect?: number;
     }
   | {
       op: "update";
@@ -36,6 +38,8 @@ export type CutOperation =
       shotType?: ShotType | null;
       characters?: string[];
       palette?: string | null;
+      /** Panel height as a multiple of its width; null returns to the default. */
+      panelAspect?: number | null;
     }
   | { op: "remove"; cutId: string }
   | { op: "move"; cutId: string; after: string | null };
@@ -150,6 +154,7 @@ export function applyCutOperations(
         };
         if (operation.shotType !== undefined) cut.shotType = operation.shotType;
         if (operation.palette?.trim()) cut.palette = operation.palette.trim();
+        if (operation.panelAspect !== undefined) cut.panelAspect = operation.panelAspect;
         const characters = checkCharacters(operation.characters ?? []);
         if (characters.length > 0) cut.characters = characters;
         const at = position(operation.after);
@@ -180,6 +185,8 @@ export function applyCutOperations(
           if (palette === "") delete cut.palette;
           else cut.palette = palette;
         }
+        if (operation.panelAspect === null) delete cut.panelAspect;
+        else if (operation.panelAspect !== undefined) cut.panelAspect = operation.panelAspect;
         touched.add(cut.id);
         break;
       }

@@ -106,7 +106,7 @@ const characterInput = obj({
 const cutOperation = {
   type: "object",
   description:
-    'One edit. op "add" (after: cut id, null for first, absent for last; scene, shotType, characters, palette), "update" (cutId; scene, shotType, characters, palette), "remove" (cutId) or "move" (cutId, after).',
+    'One edit. op "add" (after: cut id, null for first, absent for last; scene, shotType, characters, palette, shape), "update" (cutId; scene, shotType, characters, palette, shape), "remove" (cutId) or "move" (cutId, after).',
   properties: {
     op: str("add, update, remove or move.", { enum: ["add", "update", "remove", "move"] }),
     cutId: str("The cut to update, remove or move."),
@@ -115,6 +115,11 @@ const cutOperation = {
     shotType: { type: ["string", "null"], enum: [...SHOT_TYPES, null] },
     characters: arr(str("Character id"), "Character ids in the cut."),
     palette: { type: ["string", "null"], description: "Color mood; null removes it." },
+    shape: {
+      type: ["number", "null"],
+      description:
+        "Panel height as a multiple of its width, set before drawing: about 0.6 for a wide view, 1 square, up to 2.2 for a tall reveal (taller repeats figures). null returns to the default.",
+    },
   },
   required: ["op"],
   additionalProperties: false,

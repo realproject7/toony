@@ -390,6 +390,25 @@ export function renameEpisodeArgs(raw: unknown): { episodeId: string; title: str
   return { episodeId: id(args, "episodeId", "an episode"), title: text(args, "title", 200) };
 }
 
+/** The narrowest and tallest cut shapes the agent may set: height as a multiple of width. */
+export const CUT_SHAPE_MIN = 0.5;
+export const CUT_SHAPE_MAX = 2.5;
+
+function cutShape(value: unknown, where: string): number | null | undefined {
+  if (value === undefined || value === null) return value;
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < CUT_SHAPE_MIN ||
+    value > CUT_SHAPE_MAX
+  ) {
+    fail(
+      `${where}.shape must be a number from ${CUT_SHAPE_MIN} (wide) to ${CUT_SHAPE_MAX} (tall), or null for the default.`,
+    );
+  }
+  return Math.round(value * 100) / 100;
+}
+
 export function editCutsArgs(raw: unknown): { episodeId: string; operations: CutOperation[] } {
   const args = argsObject(raw);
   noExtra(args, ["episodeId", "operations"]);
@@ -419,10 +438,11 @@ export function editCutsArgs(raw: unknown): { episodeId: string; operations: Cut
       case "add": {
         noExtra(
           op,
-          ["op", "after", "scene", "shotType", "characters", "palette"],
+          ["op", "after", "scene", "shotType", "characters", "palette", "shape"],
           `fields in ${where}`,
         );
         const placed = after();
+        const shape = cutShape(op.shape, where);
         return {
           op: "add",
           ...(placed === undefined ? {} : { after: placed }),
@@ -433,14 +453,16 @@ export function editCutsArgs(raw: unknown): { episodeId: string; operations: Cut
           ...(typeof op.palette === "string" && op.palette.trim()
             ? { palette: op.palette.slice(0, 200) }
             : {}),
+          ...(shape === undefined || shape === null ? {} : { panelAspect: shape }),
         };
       }
       case "update": {
         noExtra(
           op,
-          ["op", "cutId", "scene", "shotType", "characters", "palette"],
+          ["op", "cutId", "scene", "shotType", "characters", "palette", "shape"],
           `fields in ${where}`,
         );
+        const shape = cutShape(op.shape, where);
         return {
           op: "update",
           cutId: id(op, "cutId", "a cut"),
@@ -453,6 +475,7 @@ export function editCutsArgs(raw: unknown): { episodeId: string; operations: Cut
           ...(op.palette === undefined
             ? {}
             : { palette: op.palette === null ? null : String(op.palette).slice(0, 200) }),
+          ...(shape === undefined ? {} : { panelAspect: shape }),
         };
       }
       case "remove":

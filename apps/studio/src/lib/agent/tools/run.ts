@@ -1330,6 +1330,7 @@ async function readEpisode(host: ToolHost, episodeId: string): Promise<Record<st
       id: cutId,
       scene: clip(cut?.imagePrompt ?? "", sceneMax),
       ...(cut?.shotType ? { shotType: cut.shotType } : {}),
+      ...(cut?.panelAspect === undefined ? {} : { shape: cut.panelAspect }),
       ...(cut?.characters?.length ? { characters: cut.characters } : {}),
       hasArtwork: Boolean(cut?.image?.final || cut?.image?.clean),
       markedFinal: cut?.reviewStatus === "final",

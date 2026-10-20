@@ -66,8 +66,10 @@ type Behaviour = "ok" | { fail: string } | { wait: Promise<void> };
 /** A generate runner that "draws" by importing a PNG through the caller's commit. */
 function fakeRunner(behave: (cutId: string) => Behaviour = () => "ok") {
   const calls: string[][] = [];
+  const ios: GenerateIo[] = [];
   const runner = async (args: string[], io: GenerateIo): Promise<number> => {
     calls.push(args);
+    ios.push(io);
     const root = args[0] ?? "";
     const episodeId = args[args.indexOf("--episode") + 1] ?? "";
     const cutId = args[args.indexOf("--cut") + 1] ?? "";
@@ -88,7 +90,7 @@ function fakeRunner(behave: (cutId: string) => Behaviour = () => "ok") {
     io.report?.({ kind: "generated", id: cutId, assetPath: ingested.assetPath });
     return 0;
   };
-  return { runner, calls };
+  return { runner, calls, ios };
 }
 
 /** A stand-in engine that answers the readiness probe. */
@@ -509,6 +511,47 @@ test("after a restart, a job cut short reads as interrupted and is not drawn aga
   const brief = (await runTool(host, "get_status", {})).content[0]?.text ?? "";
   assert.match(brief, new RegExp(`${jobId} was interrupted when Studio stopped`));
   await savedJobs(root, (list) => list.some((job) => job.state === "interrupted"));
+});
+
+test("the agent sets a cut's shape before drawing, and the drawing is sent without the story bible", async (t) => {
+  await engine(t);
+  const runner = fakeRunner();
+  useRunner(t, runner);
+  const { host, root } = await work(t, "Shapes");
+  const edit = (operations: unknown[]) =>
+    runTool(host, "edit_cuts", { episodeId: "ep-001", operations });
+  json(
+    await edit([
+      { op: "update", cutId: "cut-001", shape: 0.6 },
+      { op: "add", scene: "A tall clock-tower shaft.", shape: 2.2 },
+    ]),
+  );
+  const loaded = await loadProject(root);
+  const cuts = loaded.project.episodes[0]?.cuts ?? [];
+  assert.equal(cuts.find((c) => c.id === "cut-001")?.panelAspect, 0.6);
+  assert.equal(cuts.find((c) => c.id === "cut-004")?.panelAspect, 2.2);
+  const read = json(await runTool(host, "read_episode", { episodeId: "ep-001" }));
+  assert.equal((read.cuts as Array<{ shape?: number }>)[0]?.shape, 0.6);
+  assert.match(
+    errorText(await edit([{ op: "update", cutId: "cut-001", shape: 4 }])),
+    /shape must be a number from 0.5/,
+  );
+  json(await edit([{ op: "update", cutId: "cut-001", shape: null }]));
+  const reset = await loadProject(root);
+  assert.equal(
+    reset.project.episodes[0]?.cuts.find((c) => c.id === "cut-001")?.panelAspect,
+    undefined,
+  );
+
+  host.live = false;
+  const started = json(
+    await runTool(host, "draw_cuts", {
+      episodeId: "ep-001",
+      cuts: [{ cutId: "cut-001", prompt: "x" }],
+    }),
+  );
+  await waitForArtJob(String(started.jobId), 5000);
+  assert.equal(runner.ios.at(-1)?.standalonePrompt, true, "the agent's prompt is sent alone");
 });
 
 test("drawing arguments, rules and summaries", () => {

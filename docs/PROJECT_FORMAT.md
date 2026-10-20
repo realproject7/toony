@@ -74,6 +74,13 @@ read by the loader):
   `journal.1.jsonl` at 2 MB. The folder is private to the user (0700).
 - `.toony/agent/art-jobs.json` holds the newest 20 drawing jobs the agent ran
   in this work, so a job cut short by a Studio restart reads as interrupted.
+- `.toony/agent/suggestions/<episodeId>.json` holds dialogue suggestions:
+  `{version: 1, episodeId, cuts: {<cutId>: {basis, createdAt, options}}}`, each
+  option `{id, kind: "speech" | "thought" | "narration" | "silent", speaker?,
+  text?, note?}` with `speaker` a character id. `basis` fingerprints the cut's
+  scene text and cast when the options were written; when it no longer
+  matches, Studio shows them as written for an earlier version of the cut.
+  Another tool may write this file; Studio reads it field by field.
 
 Neither is project data: deleting `.toony/` loses undo and history, never the
 webtoon.

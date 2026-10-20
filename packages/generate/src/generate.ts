@@ -139,6 +139,13 @@ export interface GenerateIo {
    * workflow are still recorded on the cut, and the ingest log keeps every input.
    */
   keepCutPrompt?: boolean;
+  /**
+   * Each prompt already says everything the image needs (Studio's agent writes
+   * one per cut), so the story bible does not wrap it. The bible holds other
+   * cuts' continuity notes and prose in the person's language, which pull an
+   * image model away from the cut it is drawing.
+   */
+  standalonePrompt?: boolean;
 }
 
 /** One thing a run did to one target. The text lines say the same in prose. */
@@ -1417,7 +1424,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   }
   let storyBible: string;
   try {
-    storyBible = await readStoryBible(root);
+    storyBible = io.standalonePrompt === true ? "" : await readStoryBible(root);
   } catch (cause) {
     if (!(cause instanceof ProjectIoError)) throw cause;
     io.err(cause.message);

@@ -552,7 +552,7 @@ viewing is off) and `check_episode`. Writes: `create_work`, `update_story`,
 `save_characters`, `remove_character`, `create_episode`, `rename_episode`,
 `delete_episode`, `edit_cuts`, `set_dialogue`, `set_transitions`,
 `draw_cuts`, `edit_cut_art`, `import_artwork`, `export_episode` and
-`undo_change`. Collaboration: `update_tasks`, `ask_user`, `remember`, `forget`
+`undo_change`. Collaboration: `update_tasks`, `ask_user`, `suggest_dialogue`, `remember`, `forget`
 and `stop_drawing`; drawing reads: `art_status` and `check_art_engine`.
 
 The agent draws the art. `draw_cuts` and `edit_cut_art` queue a drawing job
@@ -560,7 +560,10 @@ The agent draws the art. `draw_cuts` and `edit_cut_art` queue a drawing job
 time). Each cut is one in-process run of `runGenerate` from `@toony/generate`,
 the same code `toony generate` runs, with the agent's English image prompt and
 `keepCutPrompt`, so the cut's scene text stays in the person's language and
-the submitted prompt goes to the ingest log. `edit_cut_art` adds
+the submitted prompt goes to the ingest log, and `standalonePrompt`, so the
+story bible does not wrap the agent's prompt (its other cuts' continuity notes
+and prose pulled the model away from the cut). A cut's `panelAspect`, which
+the agent sets as `shape` through `edit_cuts`, sizes the latent. `edit_cut_art` adds
 `--source current --strength <n>`: the provider loads the current image,
 encodes it with the graph's own VAE and starts the sampler from it (image to
 image). The render runs outside the project lock; the run's `commit` hook wraps
