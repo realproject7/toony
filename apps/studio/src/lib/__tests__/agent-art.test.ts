@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -777,6 +777,24 @@ test("the portrait gate: candidates change nothing, choose keeps one, avoid tags
     errorText(await runTool(host, "draw_portraits", { characterId: "nobody" })),
     /not in the cast/,
   );
+
+  // A folder on the way that links elsewhere is refused before drawing; nothing there is touched.
+  const outside = await mkdtemp(join(tmpdir(), "toony-outside-"));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  await writeFile(join(outside, "7.image"), "keep");
+  await rm(join(root, ".toony", "agent", "portraits"), { recursive: true, force: true });
+  await symlink(outside, join(root, ".toony", "agent", "portraits"));
+  const drawsBefore = asked.length;
+  assert.match(
+    errorText(await runTool(host, "draw_portraits", { characterId: "mina" })),
+    /not a plain folder/,
+  );
+  assert.match(
+    errorText(await runTool(host, "draw_character", { characterId: "mina", choose: 7 })),
+    /not a plain folder/,
+  );
+  assert.equal(asked.length, drawsBefore);
+  assert.equal(await readFile(join(outside, "7.image"), "utf8"), "keep");
 });
 
 test("drawing arguments, rules and summaries", () => {

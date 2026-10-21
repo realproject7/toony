@@ -8,11 +8,12 @@
 // work's private agent files until the agent picks the one that matches the
 // character best; only the pick becomes the reference picture.
 
-import { rm } from "node:fs/promises";
+import { lstat, mkdir, readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { type RenderImageOptions, renderImage, withCharacterAvoid } from "@toony/generate";
 import type { Character } from "@toony/schema";
 import { readPrivateBytes, writePrivateFile } from "../agent/storage.js";
+import { AgentError } from "../agent/types.js";
 import { redactPaths } from "../redact.js";
 import { AGENT_NEGATIVE_BASE } from "./jobs.js";
 
@@ -85,8 +86,43 @@ export interface PortraitCandidate {
   bytes: Uint8Array;
 }
 
-function candidatesDir(root: string, characterId: string): string {
-  return join(root, PORTRAIT_CANDIDATES_DIR, characterId);
+const CANDIDATE_FILE = /^\d+\.image$/;
+
+/**
+ * A character's candidates folder, walked one part at a time below the work
+ * root: a symlink or a file anywhere on the way is refused, so nothing here
+ * reads, writes or deletes outside the work. Missing parts are created
+ * privately when `create`; otherwise a missing folder is null.
+ */
+async function candidatesDir(
+  root: string,
+  characterId: string,
+  create: boolean,
+): Promise<string | null> {
+  let dir = root;
+  for (const part of [...PORTRAIT_CANDIDATES_DIR.split("/"), characterId]) {
+    dir = join(dir, part);
+    let info: Awaited<ReturnType<typeof lstat>>;
+    try {
+      info = await lstat(dir);
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+      if (!create) return null;
+      await mkdir(dir, { mode: 0o700 });
+      info = await lstat(dir);
+    }
+    if (info.isSymbolicLink() || !info.isDirectory()) {
+      throw new AgentError("storage", "The work's agent files are not a plain folder.", 500);
+    }
+  }
+  return dir;
+}
+
+/** Remove the candidate pictures in `dir`, and nothing else. */
+async function removeCandidates(dir: string): Promise<void> {
+  for (const name of await readdir(dir)) {
+    if (CANDIDATE_FILE.test(name)) await unlink(join(dir, name));
+  }
 }
 
 /**
@@ -103,12 +139,13 @@ export async function drawPortraitCandidates(
 ): Promise<
   { candidates: PortraitCandidate[]; prompt: string; failure?: string } | { error: string }
 > {
+  const dir = (await candidatesDir(root, character.id, true)) as string;
   const started = now();
   const candidates: PortraitCandidate[] = [];
   let prompt = portraitPrompt(character, extra);
   let failure: string | undefined;
-  while (candidates.length < PORTRAIT_CANDIDATES) {
-    if (candidates.length > 0 && now() - started > PORTRAIT_CANDIDATES_BUDGET_MS) break;
+  for (let attempt = 0; attempt < PORTRAIT_CANDIDATES; attempt++) {
+    if (attempt > 0 && now() - started > PORTRAIT_CANDIDATES_BUDGET_MS) break;
     const drawn = await drawPortrait(root, character, extra, env);
     if ("error" in drawn) {
       failure = drawn.error;
@@ -120,8 +157,7 @@ export async function drawPortraitCandidates(
     }
   }
   if (candidates.length === 0) return { error: failure ?? "No portrait was drawn." };
-  const dir = candidatesDir(root, character.id);
-  await rm(dir, { recursive: true, force: true });
+  await removeCandidates(dir);
   for (const candidate of candidates) {
     await writePrivateFile(join(dir, `${candidate.seed}.image`), candidate.bytes);
   }
@@ -134,13 +170,12 @@ export async function readPortraitCandidate(
   characterId: string,
   seed: number,
 ): Promise<Uint8Array | null> {
-  return readPrivateBytes(
-    join(candidatesDir(root, characterId), `${seed}.image`),
-    CANDIDATE_MAX_BYTES,
-  );
+  const dir = await candidatesDir(root, characterId, false);
+  return dir === null ? null : readPrivateBytes(join(dir, `${seed}.image`), CANDIDATE_MAX_BYTES);
 }
 
 /** Forget a character's candidates (after one became the portrait). */
 export async function clearPortraitCandidates(root: string, characterId: string): Promise<void> {
-  await rm(candidatesDir(root, characterId), { recursive: true, force: true });
+  const dir = await candidatesDir(root, characterId, false);
+  if (dir !== null) await removeCandidates(dir);
 }
