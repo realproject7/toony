@@ -86,7 +86,7 @@ const characterInput = obj({
   id: str("Id of an existing character to update. Leave out to add a new character."),
   name: str("Name. Required for a new character."),
   lockstring: str(
-    "Short, fixed visual description that keeps the character on model, in English. Once they have a portrait, it describes that picture: about eight comma-separated clauses (hair, skin, eyes, face marks or glasses, clothes and their colours).",
+    "Short, fixed visual description that keeps the character on model, in English. Keep it once their portrait is chosen; change it only when their look in the story changes.",
   ),
   visualIdentity: str("Longer look description."),
   avoid: {
@@ -285,7 +285,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     kind: "write",
     step: "Drawing a portrait",
     description:
-      "Set a character's portrait: one plain head-and-shoulders picture that becomes their reference picture. Every cut that shows the character is then drawn with it, so the face, hair and clothes stay the same from cut to cut. Give choose (the seed of a candidate from draw_portraits) to keep the candidate that matches them best; this is the way to set a main character's portrait, before drawing their cuts and again after their look changes. Then rewrite their lockstring with save_characters to describe that picture, so text and picture agree. Without choose it draws one new portrait and keeps it at once (prompt adds details the lockstring leaves open, in English; about a minute).",
+      "Set a character's portrait: one plain head-and-shoulders picture that becomes their reference picture. Every cut that shows the character is then drawn with it, so the face, hair and clothes stay the same from cut to cut. Give choose (the seed of a candidate from draw_portraits) to keep the candidate that matches them best; this is the way to set a main character's portrait, before drawing their cuts and again after their look changes. Keep their lockstring as it is. Without choose it draws one new portrait and keeps it at once (prompt adds details the lockstring leaves open, in English; about a minute).",
     inputSchema: obj(
       {
         characterId: str("The character id (from read_characters)."),

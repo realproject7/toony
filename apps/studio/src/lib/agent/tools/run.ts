@@ -516,7 +516,7 @@ const WRITES: Record<string, WriteTool> = {
       const saved = await setCharacterPortrait(opContext(host, work), character.id, drawn.bytes);
       if (args.choose !== undefined) await clearPortraitCandidates(work.root, character.id);
       const sheet =
-        "Now rewrite their lockstring with save_characters so it describes this picture: about eight short clauses (hair, skin, eyes, face marks or glasses, clothes and their colours), what the picture shows rather than what you planned. Text that disagrees with the picture pulls their cuts away from it.";
+        "Keep their lockstring as it is: rewording it to describe the picture pulled their cuts away from it in testing. Change it only when their look in the story changes, then draw new candidates.";
       return {
         result: {
           characterId: character.id,
