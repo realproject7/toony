@@ -3,6 +3,11 @@
 
 export { composeCut, composeTransitionBand } from "./compose.js";
 export {
+  type ContactSheetOptions,
+  type ContactSheetPicture,
+  composeContactSheet,
+} from "./contact-sheet.js";
+export {
   asCraftBand,
   CRAFT_BAND_FORMAT_VERSION,
   CRAFT_CAPTURE_MODES,

@@ -205,6 +205,16 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     inputSchema: obj({ episodeId, cutId }, ["episodeId", "cutId"]),
   },
   {
+    name: "view_training_set",
+    kind: "read",
+    step: "Looking at a training set",
+    description:
+      "See a character's drawn training set (from train_character) as one sheet, each picture under its number; 00 is the kept portrait. Use it before training to find the pictures to drop.",
+    inputSchema: obj({ characterId: str("The character id (from read_characters).") }, [
+      "characterId",
+    ]),
+  },
+  {
     name: "check_episode",
     kind: "read",
     step: "Checking the episode",
@@ -303,10 +313,23 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     kind: "write",
     step: "Training a character",
     description:
-      "Teach the artwork engine a main character from their kept portrait (a LoRA), so every cut draws the same face, hair and clothes. It draws about 22 pictures of them from the portrait, then trains: about an hour in the background, and drawings wait for it. Do it once their portrait is kept (draw_portraits, then draw_character with choose) and their look is settled. When it is done you get a message: then run draw_portraits again (now drawn with what it learned) and keep the best with choose. check_art_engine says whether this computer can train.",
-    inputSchema: obj({ characterId: str("The character id (from read_characters).") }, [
-      "characterId",
-    ]),
+      "Teach the artwork engine a main character from their kept portrait (a LoRA), so every cut draws the same face, hair and clothes. Two calls. Without drop it draws a training set of about 22 pictures from the portrait in the background (some minutes); you get a message when it is drawn. Check it with view_training_set, then call again with drop: the numbers of pictures that do not match the portrait, show two of them or are broken (an empty list keeps them all). That trains: about an hour in the background, and drawings wait for it. Do it once their portrait is kept (draw_portraits, then draw_character with choose) and their look is settled. When training is done you get a message: then run draw_portraits again (now drawn with what it learned) and keep the best with choose. check_art_engine says whether this computer can train.",
+    inputSchema: obj(
+      {
+        characterId: str("The character id (from read_characters)."),
+        drop: {
+          type: "array",
+          items: { type: "integer", minimum: 1, maximum: 99 },
+          description:
+            "Second call: the numbers of the set's pictures to leave out, from view_training_set. An empty list trains on all of them.",
+        },
+        redraw: {
+          type: "boolean",
+          description: "Draw a new set even though one is waiting for its check.",
+        },
+      },
+      ["characterId"],
+    ),
   },
   {
     name: "remove_character",

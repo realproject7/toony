@@ -5,7 +5,7 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -798,7 +798,7 @@ test("the portrait gate: candidates change nothing, choose keeps one, avoid tags
   assert.equal(await readFile(join(outside, "7.image"), "utf8"), "keep");
 });
 
-test("train_character draws a set from the portrait, runs the training command and records the LoRA", async (t) => {
+test("train_character draws a set from the portrait, waits for the check, trains without the dropped pictures and records the LoRA", async (t) => {
   await engine(t, { portraits: true });
   const asked: RenderImageOptions[] = [];
   const pictures = [await picture(40), await picture(48)];
@@ -851,17 +851,90 @@ if (args[0] === "fail") { console.error("out of memory at step 3"); process.exit
   process.env.TOONY_LORA_TRAIN_COMMAND = `${process.execPath} ${join(bin, "train.mjs")} {character} {dataset} {name} {steps}`;
   assert.equal(json(await runTool(host, "check_art_engine", {})).training, true);
 
+  // Nothing is waiting to train or to look at before a set is drawn.
+  assert.match(
+    errorText(await runTool(host, "train_character", { characterId: "mina", drop: [] })),
+    /No training set of Mina is waiting/,
+  );
+  assert.match(
+    errorText(await runTool(host, "view_training_set", { characterId: "mina" })),
+    /No training set of Mina is waiting/,
+  );
+
+  // The first call draws the set and stops for the check; nothing is trained yet.
   const drawsBefore = asked.length;
-  const started = json(await runTool(host, "train_character", { characterId: "mina" }));
-  const done = await waitForTrainJob(String(started.jobId), 10_000);
-  assert.equal(done?.state, "finished", JSON.stringify(done));
+  const drawing = json(await runTool(host, "train_character", { characterId: "mina" }));
+  assert.match(String(drawing.note), /Nothing is trained yet/);
+  const drawn = await waitForTrainJob(String(drawing.jobId), 10_000);
+  assert.equal(drawn?.state, "drawn", JSON.stringify(drawn));
+  assert.equal(drawn?.drawn, 23);
+  await assert.rejects(readFile(said, "utf8"), "the trainer has not run");
   const set = asked.slice(drawsBefore);
   assert.equal(set.length, 22, "14 views and 8 poses are drawn from the portrait");
   assert.ok(set.every((options) => options.reference !== undefined));
   assert.equal(set.filter((options) => options.referenceStrength === "strong").length, 14);
+  assert.ok(
+    host.followUps.some((text) => /training set of Mina is drawn \(23 pictures\)/.test(text)),
+  );
+  assert.match(
+    errorText(await runTool(host, "train_character", { characterId: "mina" })),
+    /waiting for your check/,
+  );
+
+  // The agent sees the set as one numbered sheet.
+  const sheet = await runTool(host, "view_training_set", { characterId: "mina" });
+  const facts = JSON.parse((sheet.content[0] as { text: string }).text) as {
+    pictures: number;
+    numbers: string[];
+  };
+  assert.equal(facts.pictures, 23);
+  assert.deepEqual(facts.numbers.slice(0, 3), ["00", "01", "02"]);
+  const image = sheet.content[1] as { type: string; data: string; mimeType: string };
+  assert.equal(image.type, "image");
+  assert.equal(image.mimeType, "image/jpeg");
+  const jpeg = Buffer.from(image.data, "base64");
+  assert.deepEqual([...jpeg.subarray(0, 2)], [0xff, 0xd8]);
+
+  // Dropping the portrait, unknown pictures or too many is refused; the set stays.
+  assert.match(
+    errorText(await runTool(host, "train_character", { characterId: "mina", drop: [0] })),
+    /portrait/,
+  );
+  assert.match(
+    errorText(await runTool(host, "train_character", { characterId: "mina", drop: [40] })),
+    /no picture 40/,
+  );
+  assert.match(
+    errorText(
+      await runTool(host, "train_character", {
+        characterId: "mina",
+        drop: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+      }),
+    ),
+    /Only 9 pictures would be left/,
+  );
+  assert.match(
+    errorText(
+      await runTool(host, "train_character", { characterId: "mina", drop: [], redraw: true }),
+    ),
+    /drop or redraw, not both/,
+  );
+
+  // The second call trains on the set without the dropped pictures.
+  const started = json(
+    await runTool(host, "train_character", { characterId: "mina", drop: [4, 9] }),
+  );
+  assert.equal(started.pictures, 21);
+  const done = await waitForTrainJob(String(started.jobId), 10_000);
+  assert.equal(done?.state, "finished", JSON.stringify(done));
+  assert.equal(asked.length, drawsBefore + 22, "training draws nothing more");
   const [character, dataset, name, steps] = JSON.parse(await readFile(said, "utf8")) as string[];
   assert.deepEqual([character, steps], ["mina", "500"]);
   assert.ok(dataset?.startsWith(join(root, ".toony", "agent", "training", "mina")));
+  const left = (await readdir(String(dataset))).filter((file) => file.endsWith(".png")).sort();
+  assert.equal(left.length, 21);
+  assert.ok(!left.includes("04.png") && !left.includes("09.png"));
+  assert.ok(!(await readdir(String(dataset))).includes("set.json"), "the set is used up");
   assert.equal((await readFile(join(String(dataset), "00.txt"), "utf8")).split(", ")[0], "minatny");
   assert.match(
     await readFile(join(String(dataset), "22.txt"), "utf8"),
@@ -886,13 +959,23 @@ if (args[0] === "fail") { console.error("out of memory at step 3"); process.exit
   assert.deepEqual(last?.loras, [{ name: `${name}.safetensors`, strength: 0.7 }]);
   assert.ok(last?.prompt.startsWith("minatny, short dark curly hair"));
 
-  // A trainer that fails is reported plainly, and the character keeps drawing as before.
+  // A trainer that fails is reported plainly, the character keeps drawing as before,
+  // and the checked set stays for another try.
   process.env.TOONY_LORA_TRAIN_COMMAND = `${process.execPath} ${join(bin, "train.mjs")} fail {dataset}`;
-  const again = json(await runTool(host, "train_character", { characterId: "mina" }));
+  const redrawing = json(await runTool(host, "train_character", { characterId: "mina" }));
+  assert.equal((await waitForTrainJob(String(redrawing.jobId), 10_000))?.state, "drawn");
+  assert.notDeepEqual(
+    asked.slice(-22).map((options) => options.seed),
+    set.map((options) => options.seed),
+    "a set drawn again has new seeds",
+  );
+  const again = json(await runTool(host, "train_character", { characterId: "mina", drop: [] }));
   const failed = await waitForTrainJob(String(again.jobId), 10_000);
   assert.equal(failed?.state, "failed");
   assert.match(String(failed?.message), /out of memory at step 3/);
-  assert.ok(host.followUps.some((text) => /Training of Mina failed/.test(text)));
+  assert.ok(host.followUps.some((text) => /Training of Mina failed.*tries again/.test(text)));
+  const kept = json(await runTool(host, "view_training_set", { characterId: "mina" }));
+  assert.equal(kept.pictures, 23);
 });
 
 test("drawing arguments, rules and summaries", () => {
