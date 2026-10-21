@@ -45,10 +45,14 @@ import {
 import {
   getTrainJob,
   listTrainJobs,
-  startTrainJob,
+  startTraining,
+  startTrainingSet,
   stopTrainJob,
+  TRAINING_SET_MIN,
   type TrainJobView,
   trainingActive,
+  trainingSetSheet,
+  trainingSetWaiting,
   waitForTrainJob,
 } from "../../art/training.js";
 import { getExportJob, startExportJob } from "../../export-jobs.js";
@@ -548,7 +552,10 @@ const WRITES: Record<string, WriteTool> = {
         args.characterId;
       return {
         title: "Train a character",
-        summary: `Teach the artwork engine ${name}'s look (about an hour)`,
+        summary:
+          args.drop === undefined
+            ? `Draw a training set of ${name} to check before training`
+            : `Teach the artwork engine ${name}'s look (about an hour)`,
         targets: [castTarget(work.id)],
         scopes: [{ kind: "characters" }],
       };
@@ -565,6 +572,17 @@ const WRITES: Record<string, WriteTool> = {
       if (!portrait) {
         throw new ToolInputError(
           `${character.name} has no portrait yet. Draw candidates with draw_portraits and keep one with draw_character and choose first.`,
+        );
+      }
+      const waiting = await trainingSetWaiting(work.root, character.id);
+      if (args.drop !== undefined && waiting === null) {
+        throw new ToolInputError(
+          `No training set of ${character.name} is waiting. Call train_character without drop to draw one first.`,
+        );
+      }
+      if (args.drop === undefined && waiting !== null && !args.redraw) {
+        throw new ToolInputError(
+          `A training set of ${character.name} (${waiting.length} pictures) is waiting for your check. Look at it with view_training_set, then call train_character with drop (an empty list keeps them all), or with redraw: true to draw a new set.`,
         );
       }
       const engine = await artEngineStatus(host.workspace, process.env, { fresh: true });
@@ -588,26 +606,61 @@ const WRITES: Record<string, WriteTool> = {
           at: now(),
           turnId: host.turnId,
           tool: "train_progress",
-          title: `Training ${character.name}`,
+          title:
+            view.kind === "set"
+              ? `Drawing ${character.name}'s training set`
+              : `Training ${character.name}`,
           status:
-            view.state === "finished" ? "done" : view.state === "failed" ? "failed" : "running",
+            view.state === "finished" || view.state === "drawn"
+              ? "done"
+              : view.state === "failed"
+                ? "failed"
+                : "running",
           detail: trainProgressLine(view),
           targets,
         });
-      const job = startTrainJob(
-        { ctx: opContext(host, work), character, portrait, env: process.env },
-        (view, change) => {
-          host.touch();
-          show(view);
-          if (change) host.item(changeItem(host, change, targets));
-          if (trainFinished(view)) host.followUp(trainFollowUp(view, character.name));
-        },
+      const listener = (view: TrainJobView, change: ProjectChange | null) => {
+        host.touch();
+        show(view);
+        if (change) host.item(changeItem(host, change, targets));
+        if (trainFinished(view)) host.followUp(trainFollowUp(view, character.name));
+      };
+      const ctx = opContext(host, work);
+      if (args.drop === undefined) {
+        const job = startTrainingSet({ ctx, character, portrait, env: process.env }, listener);
+        show(job);
+        return {
+          result: {
+            jobId: job.id,
+            note: `About 22 pictures of ${character.name} are drawn from the portrait in the background (some minutes); drawings wait for them. Nothing is trained yet. End your turn now; when you hear the set is drawn, check it with view_training_set and start the training with train_character and drop.`,
+          },
+          changes: [],
+          targets,
+          detail: character.name,
+        };
+      }
+      const job = await startTraining(
+        { ctx, character, drop: args.drop, env: process.env },
+        listener,
       );
+      if ("refused" in job) {
+        const [why, more] = job.refused.split(":");
+        throw new ToolInputError(
+          why === "portrait"
+            ? "Picture 00 is the kept portrait and stays in the set."
+            : why === "unknown"
+              ? `The set has no picture ${more}. view_training_set shows the numbers.`
+              : why === "too-few"
+                ? `Only ${more} pictures would be left; training needs at least ${TRAINING_SET_MIN}. Drop fewer, or draw a new set with redraw: true.`
+                : `No training set of ${character.name} is waiting. Call train_character without drop to draw one first.`,
+        );
+      }
       show(job);
       return {
         result: {
           jobId: job.id,
-          note: "Training runs in the background: about 22 pictures of them first, then the training itself, about an hour in all, and drawings wait for it. End your turn now and tell the person; you will get a message when it is done.",
+          pictures: job.total,
+          note: "Training runs in the background, about an hour, and drawings wait for it. End your turn now and tell the person; you will get a message when it is done.",
         },
         changes: [],
         targets,
@@ -1150,12 +1203,14 @@ function artJobSummary(view: ArtJobView): Record<string, unknown> {
 
 /** What the agent hears when a job it left running ends. */
 export function trainFinished(view: TrainJobView): boolean {
-  return view.state === "finished" || view.state === "failed" || view.state === "stopped";
+  return ["drawn", "finished", "failed", "stopped"].includes(view.state);
 }
 
 export function trainProgressLine(view: TrainJobView): string {
   if (view.state === "queued") return "Waiting for the drawing queue";
   if (view.state === "drawing") return `Drawing the training set: ${view.drawn} of ${view.total}`;
+  if (view.state === "drawn")
+    return `Training set drawn (${view.drawn} pictures), waiting for the check`;
   if (view.state === "training") return "Training (this takes a while)";
   if (view.state === "finished") return "Trained";
   if (view.state === "stopped") return "Stopped";
@@ -1166,6 +1221,7 @@ function trainSummary(view: TrainJobView): Record<string, unknown> {
   return {
     jobId: view.id,
     characterId: view.characterId,
+    kind: view.kind,
     state: view.state,
     progress: trainProgressLine(view),
     ...(view.message ? { message: view.message } : {}),
@@ -1174,11 +1230,18 @@ function trainSummary(view: TrainJobView): Record<string, unknown> {
 
 /** What the agent hears when a character's training ends. */
 export function trainFollowUp(view: TrainJobView, name: string): string {
+  if (view.state === "drawn") {
+    return `The training set of ${name} is drawn (${view.drawn} pictures). Look at it with view_training_set: check the portrait (00) against the lockstring, then note the pictures that do not match the portrait (other hair, face, clothes or colors), show two of them or are broken. Then call train_character with drop set to those numbers (an empty list keeps them all); the training takes about an hour.`;
+  }
+  if (view.kind === "set") {
+    if (view.state === "stopped") return `Drawing the training set of ${name} was stopped.`;
+    return `Drawing the training set of ${name} failed: ${view.message ?? "unknown error"}. Tell the person.`;
+  }
   if (view.state === "finished") {
     return `Training of ${name} finished: the engine now draws ${name} with what it learned. Run draw_portraits for ${name} (the candidates use it), keep the best with draw_character and choose, and tell the person.`;
   }
   if (view.state === "stopped") return `Training of ${name} was stopped; ${name} draws as before.`;
-  return `Training of ${name} failed: ${view.message ?? "unknown error"}. ${name} draws as before; tell the person.`;
+  return `Training of ${name} failed: ${view.message ?? "unknown error"}. ${name} draws as before; tell the person. The checked set is kept, so train_character with drop: [] tries again.`;
 }
 
 export function artFollowUp(view: ArtJobView, episode: string): string {
@@ -1744,6 +1807,53 @@ async function viewCut(host: ToolHost, episodeId: string, cutId: string): Promis
   };
 }
 
+async function viewTrainingSet(host: ToolHost, characterId: string): Promise<ToolResult> {
+  const work = await requireWork(host);
+  const loaded = await loadProject(work.root);
+  const character = loaded.project.webtoon.characters?.find((c) => c.id === characterId);
+  if (!character)
+    throw new ToolInputError("This character is not in the cast. read_characters lists it.");
+  const numbers = await trainingSetWaiting(work.root, character.id);
+  if (numbers === null) {
+    throw new ToolInputError(
+      `No training set of ${character.name} is waiting. train_character without drop draws one.`,
+    );
+  }
+  const facts = {
+    character: character.name,
+    pictures: numbers.length,
+    numbers: numbers.map((n) => String(n).padStart(2, "0")),
+    lockstring: character.lockstring,
+  };
+  if (!host.preferences().viewArtwork) {
+    return textResult({
+      ...facts,
+      note: "Artwork viewing is off in the agent settings, so the set cannot be checked here. Call train_character with drop: [] to train on all of it.",
+    });
+  }
+  const sheet = await trainingSetSheet(work.root, character.id);
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          ...facts,
+          note: "00 is the kept portrait. First compare it with the lockstring: if it misses it, keep a better portrait (draw_portraits, then draw_character with choose) and draw a new set (train_character with redraw: true). Otherwise drop the pictures that do not match 00 (other hair, face, clothes or colors), show two of them or are broken, with train_character and drop. If fewer than 10 would be left, draw a new set instead.",
+        }),
+      },
+      ...(sheet
+        ? [
+            {
+              type: "image" as const,
+              data: Buffer.from(sheet).toString("base64"),
+              mimeType: "image/jpeg",
+            },
+          ]
+        : []),
+    ],
+  };
+}
+
 async function checkEpisode(host: ToolHost, episodeId: string): Promise<Record<string, unknown>> {
   const work = await requireWork(host);
   const loaded = await loadProject(work.root);
@@ -1833,6 +1943,7 @@ const DONE_TITLES: Record<string, string> = {
   draw_character: "Drew a portrait",
   draw_portraits: "Drew portrait candidates",
   train_character: "Started training",
+  view_training_set: "Looked at a training set",
   remove_character: "Removed a character",
   create_episode: "Created an episode",
   rename_episode: "Renamed an episode",
@@ -2051,6 +2162,10 @@ async function runRead(
     case "view_cut": {
       const { episodeId, cutId } = A.cutArgs(rawArgs);
       return { result: await viewCut(host, episodeId, cutId) };
+    }
+    case "view_training_set": {
+      const { characterId } = A.characterArgs(rawArgs);
+      return { result: await viewTrainingSet(host, characterId) };
     }
     case "art_status": {
       const args = A.artStatusArgs(rawArgs);

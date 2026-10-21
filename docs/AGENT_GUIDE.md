@@ -180,8 +180,9 @@ they are looking at.
   progress, your task list, the open question, remembered notes and what
   changed since your last turn.
 - Read with `read_story`, `read_characters`, `read_episode`, `view_cut` (the
-  cut as an image with its lettering, and the prompt and seed that drew it) and
-  `check_episode`.
+  cut as an image with its lettering, and the prompt and seed that drew it),
+  `view_training_set` (a character's drawn training set as one numbered sheet)
+  and `check_episode`.
 - Write with `create_work` (from a library chat only), `update_story`,
   `save_characters`, `remove_character`, `create_episode`, `rename_episode`,
   `delete_episode`, `edit_cuts`, `set_dialogue`, `set_transitions`,
@@ -189,17 +190,21 @@ they are looking at.
   `import_artwork` (a file the
   person points to), `export_episode` (files only) and `undo_change`.
 - Teach the engine a main character with `train_character` once their portrait
-  is kept: one background job draws about 22 pictures from the portrait (views
-  held closely, poses at the usual balance), captions each with a trigger word
-  and the lockstring, then runs the training command the person set up
+  is kept, in two calls. The first draws about 22 pictures from the portrait in
+  the background (views held closely, poses at the usual balance), captions each
+  with a trigger word and the lockstring, and stops. The agent checks the set
+  with `view_training_set` and calls `train_character` again with `drop`, the
+  numbers of pictures that miss the portrait, show two of them or are broken (an
+  empty list keeps them all; the portrait stays, and at least 10 pictures must
+  remain). That call runs the training command the person set up
   (`TOONY_LORA_TRAIN_COMMAND`: a command with `{character}`, `{dataset}`,
   `{name}` and `{steps}` placeholders, run without a shell, that writes
   `{name}.safetensors` into the engine's LoRA folder). When it succeeds the
   character's `lora` is recorded (one undoable change) and every picture of them
   is drawn with it: the whole frame for one person, each person's own half in a
   two-person cut drawn side by side (and both lightly on the pass that joins
-  them), and every portrait, which the agent then redraws and keeps. The job
-  waits in the drawing queue, so drawing and training never share the engine;
+  them), and every portrait, which the agent then redraws and keeps. Both jobs
+  wait in the drawing queue, so drawing and training never share the engine;
   `art_status` follows it and `stop_drawing` stops it. Without the command,
   `check_art_engine` reports no training and the tool says so.
 - Draw portrait candidates with `draw_portraits` (a drawing read: three plain

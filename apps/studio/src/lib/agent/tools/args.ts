@@ -616,7 +616,32 @@ export function drawCharacterArgs(raw: unknown): {
   };
 }
 
-export function trainCharacterArgs(raw: unknown): { characterId: string } {
+export function trainCharacterArgs(raw: unknown): {
+  characterId: string;
+  drop?: number[];
+  redraw?: boolean;
+} {
+  const args = argsObject(raw);
+  noExtra(args, ["characterId", "drop", "redraw"]);
+  const redraw = bool(args, "redraw");
+  let drop: number[] | undefined;
+  if (args.drop !== undefined) {
+    if (redraw) fail("Give drop or redraw, not both.");
+    drop = list(args.drop, "drop", 0, 30).map((value, i) => {
+      if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > 99) {
+        fail(`drop[${i}] must be a picture number from view_training_set.`);
+      }
+      return value as number;
+    });
+  }
+  return {
+    characterId: id(args, "characterId", "a character"),
+    ...(drop === undefined ? {} : { drop }),
+    ...(redraw ? { redraw } : {}),
+  };
+}
+
+export function characterArgs(raw: unknown): { characterId: string } {
   const args = argsObject(raw);
   noExtra(args, ["characterId"]);
   return { characterId: id(args, "characterId", "a character") };
