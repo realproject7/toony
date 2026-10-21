@@ -10,8 +10,13 @@
 
 import { lstat, mkdir, readdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import { type RenderImageOptions, renderImage, withCharacterAvoid } from "@toony/generate";
-import type { Character } from "@toony/schema";
+import {
+  characterLock,
+  type RenderImageOptions,
+  renderImage,
+  withCharacterAvoid,
+} from "@toony/generate";
+import { CHARACTER_LORA_STRENGTH, type Character } from "@toony/schema";
 import { readPrivateBytes, writePrivateFile } from "../agent/storage.js";
 import { AgentError } from "../agent/types.js";
 import { redactPaths } from "../redact.js";
@@ -35,6 +40,11 @@ const CANDIDATE_MAX_BYTES = 32 * 1024 * 1024;
 export type PortraitRenderer = typeof renderImage;
 const state = globalThis as typeof globalThis & { toonyPortraitRenderer?: PortraitRenderer };
 
+/** The renderer portraits and training sets are drawn with. */
+export function portraitRenderer(): PortraitRenderer {
+  return state.toonyPortraitRenderer ?? renderImage;
+}
+
 /** Use another renderer (tests). Returns the previous one. */
 export function setPortraitRenderer(renderer: PortraitRenderer): PortraitRenderer {
   const previous = state.toonyPortraitRenderer ?? renderImage;
@@ -42,9 +52,12 @@ export function setPortraitRenderer(renderer: PortraitRenderer): PortraitRendere
   return previous;
 }
 
-/** The prompt a portrait of `character` is drawn with. */
-export function portraitPrompt(character: Pick<Character, "lockstring">, extra?: string): string {
-  return [character.lockstring.trim(), PORTRAIT_PROMPT, extra?.trim() ?? ""]
+/** The prompt a portrait of `character` is drawn with (after their LoRA's trigger word). */
+export function portraitPrompt(
+  character: Pick<Character, "lockstring" | "lora">,
+  extra?: string,
+): string {
+  return [characterLock(character), PORTRAIT_PROMPT, extra?.trim() ?? ""]
     .filter((part) => part !== "")
     .join(", ");
 }
@@ -69,9 +82,19 @@ export async function drawPortrait(
     prompt: portraitPrompt(character, extra),
     negative: portraitNegative(character),
     ...PORTRAIT_SIZE,
+    // A trained character is drawn with their LoRA, so the portrait matches their cuts.
+    ...(character.lora
+      ? {
+          loras: [
+            {
+              name: character.lora.file,
+              strength: character.lora.strength ?? CHARACTER_LORA_STRENGTH,
+            },
+          ],
+        }
+      : {}),
   };
-  const renderer = state.toonyPortraitRenderer ?? renderImage;
-  const result = await renderer(root, options, {
+  const result = await portraitRenderer()(root, options, {
     cwd: root,
     out: () => {},
     err: () => {},

@@ -646,6 +646,13 @@ export interface Character {
    * of every picture that shows them. Absent means none.
    */
   avoid?: string;
+  /**
+   * The character's own LoRA on the artwork engine: its file name there (no
+   * folders), the strength it draws with, and the trigger word it was trained
+   * with, put before the lockstring wherever the character is drawn. Absent
+   * means the character is drawn without one.
+   */
+  lora?: CharacterLora;
   wardrobe?: CharacterWardrobe[];
   /** Story-building context for the author/agent, never an automatic plot generator. */
   development?: CharacterDevelopment;
@@ -658,6 +665,16 @@ export interface Character {
    */
   references?: string[];
 }
+
+/** A character LoRA: a file name on the engine, its strength and its trigger word. */
+export interface CharacterLora {
+  file: string;
+  /** 0 to 2; absent means `CHARACTER_LORA_STRENGTH`. */
+  strength?: number;
+  trigger?: string;
+}
+/** The strength a character LoRA draws with when it names none. */
+export const CHARACTER_LORA_STRENGTH = 0.7;
 
 /** The `webtoon.json` project root. */
 export interface Webtoon {

@@ -185,8 +185,23 @@ they are looking at.
 - Write with `create_work` (from a library chat only), `update_story`,
   `save_characters`, `remove_character`, `create_episode`, `rename_episode`,
   `delete_episode`, `edit_cuts`, `set_dialogue`, `set_transitions`,
-  `draw_character`, `draw_cuts`, `edit_cut_art`, `import_artwork` (a file the
+  `draw_character`, `train_character`, `draw_cuts`, `edit_cut_art`,
+  `import_artwork` (a file the
   person points to), `export_episode` (files only) and `undo_change`.
+- Teach the engine a main character with `train_character` once their portrait
+  is kept: one background job draws about 22 pictures from the portrait (views
+  held closely, poses at the usual balance), captions each with a trigger word
+  and the lockstring, then runs the training command the person set up
+  (`TOONY_LORA_TRAIN_COMMAND`: a command with `{character}`, `{dataset}`,
+  `{name}` and `{steps}` placeholders, run without a shell, that writes
+  `{name}.safetensors` into the engine's LoRA folder). When it succeeds the
+  character's `lora` is recorded (one undoable change) and every picture of them
+  is drawn with it: the whole frame for one person, each person's own half in a
+  two-person cut drawn side by side (and both lightly on the pass that joins
+  them), and every portrait, which the agent then redraws and keeps. The job
+  waits in the drawing queue, so drawing and training never share the engine;
+  `art_status` follows it and `stop_drawing` stops it. Without the command,
+  `check_art_engine` reports no training and the tool says so.
 - Draw portrait candidates with `draw_portraits` (a drawing read: three plain
   portraits from the lockstring, each with its own seed, shown to the agent and
   kept in the work's private agent files; the project does not change).

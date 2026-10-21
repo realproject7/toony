@@ -110,6 +110,29 @@ test("character craft rejects duplicate outfits and incomplete development", () 
   assert.ok(c.result().issues.some((i) => i.path.endsWith("desire")));
 });
 
+test("a character's LoRA names a bare file, a strength from 0 to 2 and a plain trigger word", () => {
+  const ok = new IssueCollector();
+  validateCharacterCraft({ lora: { file: "toony-mina-1.safetensors" } }, "hero", ok);
+  validateCharacterCraft(
+    { lora: { file: "toony-mina-1.safetensors", strength: 0.7, trigger: "minatny" } },
+    "hero",
+    ok,
+  );
+  assert.deepEqual(ok.result().issues, []);
+  const bad = new IssueCollector();
+  for (const lora of [
+    { file: "../models/x.safetensors" },
+    { file: "a/b.safetensors" },
+    { file: "x.safetensors", strength: 3 },
+    { file: "x.safetensors", trigger: "two words" },
+    { file: "x.safetensors", extra: true },
+    "x.safetensors",
+  ]) {
+    validateCharacterCraft({ lora }, "hero", bad);
+  }
+  assert.equal(bad.result().issues.filter((i) => i.code === "character.lora").length, 6);
+});
+
 test("a character's avoid tags are optional text", () => {
   const ok = new IssueCollector();
   validateCharacterCraft({ avoid: "straight hair, stubble" }, "hero", ok);

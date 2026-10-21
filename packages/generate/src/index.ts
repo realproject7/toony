@@ -6,6 +6,7 @@
 export { compositionCapabilities, compositionPrompt } from "./composition.js";
 export { EXIT_OK, EXIT_USAGE, EXIT_VALIDATION } from "./exit.js";
 export {
+  characterLock,
   DEFAULT_EDIT_STRENGTH,
   FRESH_SEED,
   type GenerateEvent,

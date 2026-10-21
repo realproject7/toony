@@ -92,6 +92,17 @@ function registry(): Registry {
   return state.toonyArtJobs;
 }
 
+/**
+ * Run other engine work (a character's training) in the drawing queue, so it
+ * never runs while cuts are drawn, and drawings queued after it wait for it.
+ */
+export function queueEngineWork<T>(work: () => Promise<T>): Promise<T> {
+  const reg = registry();
+  const done = reg.queue.then(work);
+  reg.queue = done.catch(() => undefined);
+  return done;
+}
+
 /** Use another generate runner (tests). Returns the previous one. */
 export function setGenerateRunner(runner: GenerateRunner): GenerateRunner {
   const previous = registry().runner;

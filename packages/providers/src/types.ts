@@ -72,6 +72,19 @@ export interface ImageRequest {
     strength: number;
     size?: { width: number; height: number };
   };
+  /**
+   * Character LoRAs to draw with: the file name on the engine and the strength.
+   * One without a side applies to the whole picture. In a two-person picture
+   * drawn side by side, each person's LoRA applies in their own half, and every
+   * LoRA at a low strength on the pass that joins the halves.
+   */
+  loras?: Array<{ name: string; strength: number; side?: "left" | "right" }>;
+  /**
+   * How hard the references hold the picture: "strong" copies the reference's
+   * look closely (variations of one portrait); absent, the usual balance where
+   * the prompt sets the composition.
+   */
+  referenceStrength?: "strong";
 }
 
 /**

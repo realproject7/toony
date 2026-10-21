@@ -572,8 +572,8 @@ by the export renderer, at most 768 px, as an MCP image; text when artwork
 viewing is off) and `check_episode`. Writes: `create_work`, `update_story`,
 `save_characters`, `remove_character`, `create_episode`, `rename_episode`,
 `delete_episode`, `edit_cuts`, `set_dialogue`, `set_transitions`,
-`draw_character`, `draw_cuts`, `edit_cut_art`, `import_artwork`,
-`export_episode` and `undo_change`. Collaboration: `update_tasks`, `ask_user`, `suggest_dialogue`, `remember`, `forget`
+`draw_character`, `train_character`, `draw_cuts`, `edit_cut_art`,
+`import_artwork`, `export_episode` and `undo_change`. Collaboration: `update_tasks`, `ask_user`, `suggest_dialogue`, `remember`, `forget`
 and `stop_drawing`; drawing reads: `art_status`, `check_art_engine` and
 `draw_portraits`.
 
@@ -610,6 +610,22 @@ picture is described with); a cut's own stored negative keeps only what was
 authored, while the ingest log records what was submitted. The render runs outside the project lock; the run's `commit` hook wraps
 each finished image's ingest and record in `withProjectWrite`, so every image
 is one journaled, undoable change and the left workspace refreshes as it lands.
+`train_character` starts a training job (`lib/art/training.ts`) that waits in
+the same queue as drawing jobs: it draws the training set from the character's
+first reference with `renderImage` (14 views with the reference held strongly,
+`referenceStrength: "strong"`, and 8 poses at the usual balance) into
+`.toony/agent/training/<id>/`, each picture with a caption of the trigger word
+(`<id>tny`) and the lockstring, then runs `TOONY_LORA_TRAIN_COMMAND` with its
+placeholders filled (split on spaces, no shell) and, on exit code 0, records
+`lora: { file: "<name>.safetensors", strength: 0.7, trigger }` on the character
+through the write path. Generate resolves each cut's LoRAs from the cast like its
+references (`castSides`): one person over the whole frame, two people on their
+sides; the provider puts LoraLoader nodes on the checkpoint before the
+references attach, or, side by side, one LoRA and its own adapter loader per
+half plus every LoRA at 0.3 on the joining pass. The trigger word goes before
+the lockstring wherever the character is drawn (`characterLock`), and the
+ingest log records `loras`. Training jobs live in memory: a restart forgets them,
+while a LoRA already recorded stays.
 The engine must be a ComfyUI on this computer (`TOONY_COMFYUI_URL`, then the
 workspace settings); a remote address is refused. A tool waits up to about
 four and a half minutes; when cuts are still drawing it returns, the job goes

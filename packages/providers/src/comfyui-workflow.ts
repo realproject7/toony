@@ -299,6 +299,22 @@ export const REFERENCE_APPLY_NODE = "toony_reference_apply";
 export const REFERENCE_WEIGHT = 0.6;
 export const REFERENCE_START = 0.15;
 export const REFERENCE_WEIGHT_TYPE = "prompt is more important";
+/** How references hold a picture: the default balance, or "strong" (one portrait's variations). */
+export interface ReferenceSettings {
+  weight: number;
+  start: number;
+  weightType: string;
+}
+export const REFERENCE_DEFAULT: ReferenceSettings = {
+  weight: REFERENCE_WEIGHT,
+  start: REFERENCE_START,
+  weightType: REFERENCE_WEIGHT_TYPE,
+};
+export const REFERENCE_STRONG: ReferenceSettings = {
+  weight: 0.75,
+  start: 0,
+  weightType: "standard",
+};
 /** Where a side's mask ends, as a fraction of the width; the halves overlap in the middle. */
 const SIDE_SPLIT = { left: [0, 0.55], right: [0.45, 1] } as const;
 /** The mask canvas: the adapter resizes masks to the picture, so only the fractions matter. */
@@ -325,6 +341,7 @@ export function withReferenceImages(
   template: ComfyWorkflowGraph,
   map: WorkflowInjectionMap,
   references: readonly ReferenceImage[],
+  settings: ReferenceSettings = REFERENCE_DEFAULT,
 ): ComfyWorkflowGraph {
   const graph = structuredClone(template);
   const sampler = graph[map.seedNode];
@@ -354,10 +371,10 @@ export function withReferenceImages(
       model,
       ipadapter: [REFERENCE_ADAPTER_NODE, 1],
       image: [load, 0],
-      weight: REFERENCE_WEIGHT,
-      start_at: REFERENCE_START,
+      weight: settings.weight,
+      start_at: settings.start,
       end_at: 1,
-      weight_type: REFERENCE_WEIGHT_TYPE,
+      weight_type: settings.weightType,
     };
     if (reference.side !== undefined) {
       const [from, to] = SIDE_SPLIT[reference.side];
@@ -391,6 +408,73 @@ export function withReferenceImages(
   return graph;
 }
 
+/** A LoRA to draw with: its file name on the engine and its strength. */
+export interface LoraUse {
+  name: string;
+  strength: number;
+}
+/** The node ids Toony adds for LoRAs on the whole picture (numbered from 1). */
+export const LORA_NODE = "toony_lora";
+/**
+ * Each person's LoRA strength on the pass that joins a side-by-side picture's
+ * halves: enough to keep both looks in the light and colours of the whole,
+ * little enough that neither look spreads to the other person.
+ */
+export const SIDE_BY_SIDE_LORA_WHOLE = 0.3;
+
+const isLinkTo = (value: unknown, node: string, output: number): boolean =>
+  Array.isArray(value) && value[0] === node && value[1] === output;
+
+/**
+ * Draw with LoRAs, in a COPY: LoraLoader nodes are chained off the checkpoint's
+ * model and text encoder (the map's checkpoint node), and every node that took
+ * the checkpoint's model or text encoder takes the last LoRA's instead, except
+ * the nodes named in `keep` (a side-by-side picture's halves keep their own).
+ */
+export function withLoras(
+  template: ComfyWorkflowGraph,
+  map: WorkflowInjectionMap,
+  loras: readonly LoraUse[],
+  keep: readonly string[] = [],
+): ComfyWorkflowGraph {
+  const graph = structuredClone(template);
+  if (loras.length === 0) return graph;
+  const checkpoint = map.checkpointNode;
+  if (checkpoint === undefined || graph[checkpoint] === undefined) {
+    throw new ProviderError(
+      "comfyui.no-lora-input",
+      "this workflow cannot draw with a character LoRA: its injection map names no checkpoint node.",
+    );
+  }
+  let model: unknown[] = [checkpoint, 0];
+  let clip: unknown[] = [checkpoint, 1];
+  const added: string[] = [];
+  loras.forEach((lora, index) => {
+    const id = `${LORA_NODE}_${index + 1}`;
+    graph[id] = {
+      class_type: "LoraLoader",
+      inputs: {
+        model,
+        clip,
+        lora_name: lora.name,
+        strength_model: lora.strength,
+        strength_clip: lora.strength,
+      },
+    };
+    model = [id, 0];
+    clip = [id, 1];
+    added.push(id);
+  });
+  for (const [id, node] of Object.entries(graph)) {
+    if (added.includes(id) || keep.includes(id)) continue;
+    for (const [key, value] of Object.entries(node.inputs ?? {})) {
+      if (isLinkTo(value, checkpoint, 0)) node.inputs[key] = model;
+      else if (isLinkTo(value, checkpoint, 1)) node.inputs[key] = clip;
+    }
+  }
+  return graph;
+}
+
 /** A two-person picture's halves: each person alone, drawn where they stand. */
 export interface SideBySidePerson {
   /** The uploaded reference image's name on the engine. */
@@ -398,10 +482,13 @@ export interface SideBySidePerson {
   side: "left" | "right";
   /** That person alone in the setting, the way the picture's own prompt is written. */
   prompt: string;
+  /** That person's LoRA, drawn with in their half only. */
+  lora?: LoraUse;
 }
 
 /** The node ids Toony adds for a side-by-side picture (suffixed with the side). */
 export const HALF_TEXT_NODE = "toony_half_text";
+export const HALF_LORA_NODE = "toony_half_lora";
 export const HALF_SAMPLER_NODE = "toony_half_sampler";
 export const HALVES_JOINED_NODE = "toony_halves_joined";
 /** Each half is this share of the width, so the halves overlap in the middle. */
@@ -461,11 +548,35 @@ export function withSideBySide(
   const halves = people.map((person, index) => {
     const id = (base: string) => `${base}_${person.side}`;
     graph[id("toony_half_load")] = { class_type: "LoadImage", inputs: { image: person.image } };
+    // A person with a LoRA draws their half with it: a LoRA on the graph's own
+    // model and text encoder, and an adapter loader of its own on top.
+    let adapter = REFERENCE_ADAPTER_NODE;
+    let clip: unknown = structuredClone(encoder.inputs.clip);
+    if (person.lora !== undefined) {
+      const lora = id(HALF_LORA_NODE);
+      const shared = graph[REFERENCE_ADAPTER_NODE] as ComfyWorkflowNode;
+      graph[lora] = {
+        class_type: "LoraLoader",
+        inputs: {
+          model: structuredClone(shared.inputs.model),
+          clip,
+          lora_name: person.lora.name,
+          strength_model: person.lora.strength,
+          strength_clip: person.lora.strength,
+        },
+      };
+      adapter = id("toony_half_adapter");
+      graph[adapter] = {
+        class_type: "IPAdapterUnifiedLoader",
+        inputs: { model: [lora, 0], preset: structuredClone(shared.inputs.preset) },
+      };
+      clip = [lora, 1];
+    }
     graph[id("toony_half_apply")] = {
       class_type: "IPAdapter",
       inputs: {
-        model: [REFERENCE_ADAPTER_NODE, 0],
-        ipadapter: [REFERENCE_ADAPTER_NODE, 1],
+        model: [adapter, 0],
+        ipadapter: [adapter, 1],
         image: [id("toony_half_load"), 0],
         weight: REFERENCE_WEIGHT,
         start_at: REFERENCE_START,
@@ -475,7 +586,7 @@ export function withSideBySide(
     };
     graph[id(HALF_TEXT_NODE)] = {
       class_type: "CLIPTextEncode",
-      inputs: { text: person.prompt, clip: structuredClone(encoder.inputs.clip) },
+      inputs: { text: person.prompt, clip },
     };
     graph[id("toony_half_latent")] = {
       class_type: "EmptyLatentImage",

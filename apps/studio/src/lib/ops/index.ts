@@ -14,6 +14,7 @@ export {
   portraitPrefix,
   removeCharacter,
   type SavedCharacter,
+  setCharacterLora,
   setCharacterPortrait,
   upsertCharacters,
 } from "./characters.js";
