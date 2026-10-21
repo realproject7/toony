@@ -16,7 +16,9 @@ export function compositionPrompt(
   ];
   for (const subject of direction.subjects) {
     const character = registry.find((c) => c.id === subject.characterId);
-    const identity = character?.visualIdentity ?? character?.lockstring ?? "";
+    const described = character?.visualIdentity ?? character?.lockstring ?? "";
+    const trigger = character?.lora?.trigger?.trim();
+    const identity = trigger && described ? `${trigger}, ${described}` : described;
     const outfit = character?.wardrobe?.find((w) => w.id === subject.wardrobeId);
     const scoped = [`Subject ${subject.characterId} at ${subject.position}: ${subject.action}.`];
     if (!detail && identity)

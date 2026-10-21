@@ -42,6 +42,15 @@ import {
   drawPortraitCandidates,
   readPortraitCandidate,
 } from "../../art/portrait.js";
+import {
+  getTrainJob,
+  listTrainJobs,
+  startTrainJob,
+  stopTrainJob,
+  type TrainJobView,
+  trainingActive,
+  waitForTrainJob,
+} from "../../art/training.js";
 import { getExportJob, startExportJob } from "../../export-jobs.js";
 import { scopesOverlap } from "../../live/scope.js";
 import {
@@ -526,6 +535,83 @@ const WRITES: Record<string, WriteTool> = {
         targets: [castTarget(work.id)],
         detail: character.name,
         image: drawn.bytes,
+      };
+    },
+  },
+  train_character: {
+    parse: A.trainCharacterArgs,
+    describe: async (host, args: ReturnType<typeof A.trainCharacterArgs>) => {
+      const work = await requireWork(host);
+      const loaded = await load(work.root);
+      const name =
+        loaded?.project.webtoon.characters?.find((c) => c.id === args.characterId)?.name ??
+        args.characterId;
+      return {
+        title: "Train a character",
+        summary: `Teach the artwork engine ${name}'s look (about an hour)`,
+        targets: [castTarget(work.id)],
+        scopes: [{ kind: "characters" }],
+      };
+    },
+    perform: async (host, args: ReturnType<typeof A.trainCharacterArgs>) => {
+      const work = await requireWork(host);
+      const loaded = await load(work.root);
+      const character = loaded?.project.webtoon.characters?.find((c) => c.id === args.characterId);
+      if (!character) {
+        throw new ToolInputError("This character is not in the cast. read_characters lists it.");
+      }
+      const portraitPath = character.references?.[0];
+      const portrait = portraitPath ? await readBounded(work.root, portraitPath) : null;
+      if (!portrait) {
+        throw new ToolInputError(
+          `${character.name} has no portrait yet. Draw candidates with draw_portraits and keep one with draw_character and choose first.`,
+        );
+      }
+      const engine = await artEngineStatus(host.workspace, process.env, { fresh: true });
+      if (!engine.ready) throw new ToolInputError(engine.message);
+      if (!engine.training) {
+        throw new ToolInputError(
+          "This computer is not set up to train a character (no training command in the engine settings). Tell the person; their portrait still keeps them on model.",
+        );
+      }
+      if (trainingActive(work.id)) {
+        throw new ToolInputError(
+          "A character is already being trained in this webtoon. Wait for it (art_status).",
+        );
+      }
+      const row = itemId("act");
+      const targets = [castTarget(work.id)];
+      const show = (view: TrainJobView) =>
+        host.item({
+          kind: "activity",
+          id: row,
+          at: now(),
+          turnId: host.turnId,
+          tool: "train_progress",
+          title: `Training ${character.name}`,
+          status:
+            view.state === "finished" ? "done" : view.state === "failed" ? "failed" : "running",
+          detail: trainProgressLine(view),
+          targets,
+        });
+      const job = startTrainJob(
+        { ctx: opContext(host, work), character, portrait, env: process.env },
+        (view, change) => {
+          host.touch();
+          show(view);
+          if (change) host.item(changeItem(host, change, targets));
+          if (trainFinished(view)) host.followUp(trainFollowUp(view, character.name));
+        },
+      );
+      show(job);
+      return {
+        result: {
+          jobId: job.id,
+          note: "Training runs in the background: about 22 pictures of them first, then the training itself, about an hour in all, and drawings wait for it. End your turn now and tell the person; you will get a message when it is done.",
+        },
+        changes: [],
+        targets,
+        detail: character.name,
       };
     },
   },
@@ -1063,6 +1149,38 @@ function artJobSummary(view: ArtJobView): Record<string, unknown> {
 }
 
 /** What the agent hears when a job it left running ends. */
+export function trainFinished(view: TrainJobView): boolean {
+  return view.state === "finished" || view.state === "failed" || view.state === "stopped";
+}
+
+export function trainProgressLine(view: TrainJobView): string {
+  if (view.state === "queued") return "Waiting for the drawing queue";
+  if (view.state === "drawing") return `Drawing the training set: ${view.drawn} of ${view.total}`;
+  if (view.state === "training") return "Training (this takes a while)";
+  if (view.state === "finished") return "Trained";
+  if (view.state === "stopped") return "Stopped";
+  return view.message ?? "Training failed";
+}
+
+function trainSummary(view: TrainJobView): Record<string, unknown> {
+  return {
+    jobId: view.id,
+    characterId: view.characterId,
+    state: view.state,
+    progress: trainProgressLine(view),
+    ...(view.message ? { message: view.message } : {}),
+  };
+}
+
+/** What the agent hears when a character's training ends. */
+export function trainFollowUp(view: TrainJobView, name: string): string {
+  if (view.state === "finished") {
+    return `Training of ${name} finished: the engine now draws ${name} with what it learned. Run draw_portraits for ${name} (the candidates use it), keep the best with draw_character and choose, and tell the person.`;
+  }
+  if (view.state === "stopped") return `Training of ${name} was stopped; ${name} draws as before.`;
+  return `Training of ${name} failed: ${view.message ?? "unknown error"}. ${name} draws as before; tell the person.`;
+}
+
 export function artFollowUp(view: ArtJobView, episode: string): string {
   const drawn = view.cuts.filter((cut) => cut.state === "done").map((cut) => cut.label);
   const failed = view.cuts.filter((cut) => cut.state === "failed");
@@ -1399,6 +1517,7 @@ async function readCharacters(host: ToolHost): Promise<Record<string, unknown>> 
       portrait: (c.references?.length ?? 0) > 0,
       ...(c.visualIdentity ? { visualIdentity: clip(c.visualIdentity, 1500) } : {}),
       ...(c.avoid ? { avoid: c.avoid } : {}),
+      ...(c.lora ? { trained: true } : {}),
       ...(c.development ? { development: c.development } : {}),
       ...(c.wardrobe ? { wardrobe: c.wardrobe } : {}),
     })),
@@ -1713,6 +1832,7 @@ const DONE_TITLES: Record<string, string> = {
   save_characters: "Updated the cast",
   draw_character: "Drew a portrait",
   draw_portraits: "Drew portrait candidates",
+  train_character: "Started training",
   remove_character: "Removed a character",
   create_episode: "Created an episode",
   rename_episode: "Renamed an episode",
@@ -1943,22 +2063,47 @@ async function runRead(
         }
         return [job];
       };
+      const training = args.jobId === undefined ? null : getTrainJob(args.jobId);
+      if (training && training.workId === work.id) {
+        const view =
+          args.wait > 0 && !trainFinished(training)
+            ? ((await waitForTrainJob(training.id, args.wait * 1000)) ?? getTrainJob(training.id))
+            : training;
+        return { result: textResult({ training: view ? trainSummary(view) : null }) };
+      }
       let jobs = await pick();
       const waitFor = jobs.find((job) => !artFinished(job));
       if (args.wait > 0 && waitFor) {
         await waitForArtJob(waitFor.id, args.wait * 1000, () => host.touch());
         jobs = await pick();
       }
+      const trainings = args.jobId === undefined ? listTrainJobs(work.id).slice(0, 3) : [];
       return {
         result: textResult({
           jobs: jobs.map(artJobSummary),
-          ...(jobs.length === 0 ? { note: "Nothing has been drawn in this work yet." } : {}),
+          ...(trainings.length > 0 ? { training: trainings.map(trainSummary) } : {}),
+          ...(jobs.length === 0 && trainings.length === 0
+            ? { note: "Nothing has been drawn in this work yet." }
+            : {}),
         }),
       };
     }
     case "stop_drawing": {
       const args = A.stopDrawingArgs(rawArgs);
       const work = await requireWork(host);
+      const training =
+        args.jobId === undefined
+          ? listTrainJobs(work.id).find((view) => !trainFinished(view))
+          : getTrainJob(args.jobId);
+      if (training && training.workId === work.id && !trainFinished(training)) {
+        const stopped = stopTrainJob(training.id) ?? training;
+        return {
+          result: textResult({
+            training: trainSummary(stopped),
+            note: "Training stops; the character keeps drawing as before.",
+          }),
+        };
+      }
       const job =
         args.jobId === undefined
           ? (await listArtJobs(work.id, work.root)).find((view) => !artFinished(view))

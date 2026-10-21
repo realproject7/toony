@@ -15,6 +15,13 @@ export interface ArtEngineStatus {
   message: string;
   /** A ready engine: whether it can draw with character portraits (the IP-Adapter nodes). */
   portraits?: boolean;
+  /** Whether this computer can train a character's LoRA (a training command is set up). */
+  training?: boolean;
+}
+
+/** The command that trains a character LoRA, from the person's settings; null when none is set up. */
+export function trainingCommand(env: Readonly<Record<string, string | undefined>>): string | null {
+  return env.TOONY_LORA_TRAIN_COMMAND?.trim() || null;
 }
 
 const NODE_TIMEOUT_MS = 4_000;
@@ -93,6 +100,7 @@ export async function artEngineStatus(
             ready: true,
             state: "ready",
             portraits,
+            training: trainingCommand(env) !== null,
             message: portraits
               ? "The artwork engine is ready and draws characters with their portraits."
               : "The artwork engine is ready, but it cannot draw with character portraits (the IP-Adapter nodes are not installed), so cuts keep characters on model by their look text only.",

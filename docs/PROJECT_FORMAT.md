@@ -651,7 +651,10 @@ shots require visibleDetails and omit portrait identity and invisible clothing.
 Characters may add `visualIdentity`, `wardrobe` entries (unique id, description),
 `development` (role, desire, flaw, voice, arc) and `avoid`: short comma-separated
 tags for what the character is easily drawn as by mistake, added to the negative
-prompt of every picture that shows them. Optional cut `continuity` names
+prompt of every picture that shows them. `lora` (`{file, strength?, trigger?}`)
+names the character's own LoRA on the artwork engine: a bare file name, a
+strength from 0 to 2 (default 0.7) and the trigger word it was trained with,
+which goes before the lockstring wherever the character is drawn. Optional cut `continuity` names
 an earlier `fromCutId`, what to `preserve`, and intentional `changes`. An outfit
 change across that link requires a change note. The script compiler carries the
 intent into cuts and derives their visible cast when no character list is given.

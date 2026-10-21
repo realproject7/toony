@@ -616,6 +616,12 @@ export function drawCharacterArgs(raw: unknown): {
   };
 }
 
+export function trainCharacterArgs(raw: unknown): { characterId: string } {
+  const args = argsObject(raw);
+  noExtra(args, ["characterId"]);
+  return { characterId: id(args, "characterId", "a character") };
+}
+
 export function drawPortraitsArgs(raw: unknown): { characterId: string; prompt?: string } {
   const args = argsObject(raw);
   noExtra(args, ["characterId", "prompt"]);

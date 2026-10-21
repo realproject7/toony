@@ -34,6 +34,7 @@ import {
   waitForArtJob,
 } from "../art/jobs.js";
 import { PORTRAIT_PROMPT, setPortraitRenderer } from "../art/portrait.js";
+import { waitForTrainJob } from "../art/training.js";
 import { readJournal } from "../ops/index.js";
 import { FakeHost } from "./fake-tool-host.js";
 
@@ -795,6 +796,103 @@ test("the portrait gate: candidates change nothing, choose keeps one, avoid tags
   );
   assert.equal(asked.length, drawsBefore);
   assert.equal(await readFile(join(outside, "7.image"), "utf8"), "keep");
+});
+
+test("train_character draws a set from the portrait, runs the training command and records the LoRA", async (t) => {
+  await engine(t, { portraits: true });
+  const asked: RenderImageOptions[] = [];
+  const pictures = [await picture(40), await picture(48)];
+  const previous = setPortraitRenderer(async (_root, options) => {
+    asked.push(options);
+    return {
+      bytes: pictures[asked.length % 2] ?? new Uint8Array(),
+      contentType: "image/png",
+      seed: 500 + asked.length,
+      workflowDigest: "test",
+      referenced: options.reference !== undefined,
+      prompt: options.prompt,
+    };
+  });
+  t.after(() => setPortraitRenderer(previous));
+  const bin = await mkdtemp(join(tmpdir(), "toony-trainer-"));
+  const said = join(bin, "said.json");
+  await writeFile(
+    join(bin, "train.mjs"),
+    `import { writeFileSync } from "node:fs";
+const args = process.argv.slice(2);
+writeFileSync(${JSON.stringify(said)}, JSON.stringify(args));
+if (args[0] === "fail") { console.error("out of memory at step 3"); process.exit(3); }`,
+  );
+  const before = process.env.TOONY_LORA_TRAIN_COMMAND;
+  t.after(async () => {
+    if (before === undefined) delete process.env.TOONY_LORA_TRAIN_COMMAND;
+    else process.env.TOONY_LORA_TRAIN_COMMAND = before;
+    await rm(bin, { recursive: true, force: true });
+  });
+  const { host, root } = await work(t);
+  json(
+    await runTool(host, "save_characters", {
+      characters: [{ id: "mina", lockstring: "short dark curly hair, round brass glasses" }],
+    }),
+  );
+  // No portrait yet, no training command: both refused plainly.
+  process.env.TOONY_LORA_TRAIN_COMMAND = `${process.execPath} ${join(bin, "train.mjs")} {character} {dataset} {name} {steps}`;
+  assert.match(
+    errorText(await runTool(host, "train_character", { characterId: "mina" })),
+    /no portrait yet/,
+  );
+  json(await runTool(host, "draw_portraits", { characterId: "mina" }));
+  json(await runTool(host, "draw_character", { characterId: "mina", choose: 501 }));
+  delete process.env.TOONY_LORA_TRAIN_COMMAND;
+  assert.match(
+    errorText(await runTool(host, "train_character", { characterId: "mina" })),
+    /not set up to train/,
+  );
+  process.env.TOONY_LORA_TRAIN_COMMAND = `${process.execPath} ${join(bin, "train.mjs")} {character} {dataset} {name} {steps}`;
+  assert.equal(json(await runTool(host, "check_art_engine", {})).training, true);
+
+  const drawsBefore = asked.length;
+  const started = json(await runTool(host, "train_character", { characterId: "mina" }));
+  const done = await waitForTrainJob(String(started.jobId), 10_000);
+  assert.equal(done?.state, "finished", JSON.stringify(done));
+  const set = asked.slice(drawsBefore);
+  assert.equal(set.length, 22, "14 views and 8 poses are drawn from the portrait");
+  assert.ok(set.every((options) => options.reference !== undefined));
+  assert.equal(set.filter((options) => options.referenceStrength === "strong").length, 14);
+  const [character, dataset, name, steps] = JSON.parse(await readFile(said, "utf8")) as string[];
+  assert.deepEqual([character, steps], ["mina", "500"]);
+  assert.ok(dataset?.startsWith(join(root, ".toony", "agent", "training", "mina")));
+  assert.equal((await readFile(join(String(dataset), "00.txt"), "utf8")).split(", ")[0], "minatny");
+  assert.match(
+    await readFile(join(String(dataset), "22.txt"), "utf8"),
+    /^minatny, short dark curly hair, round brass glasses, medium shot, holding a cup/,
+  );
+  const trained = (await loadProject(root)).project.webtoon.characters?.find(
+    (c) => c.id === "mina",
+  );
+  assert.deepEqual(trained?.lora, {
+    file: `${name}.safetensors`,
+    strength: 0.7,
+    trigger: "minatny",
+  });
+  assert.ok((await readJournal(root)).some((entry) => entry.summary === "Trained Mina's LoRA"));
+  assert.ok(host.followUps.some((text) => /Training of Mina finished/.test(text)));
+  const status = json(await runTool(host, "art_status", { jobId: String(started.jobId) }));
+  assert.equal((status.training as { state: string }).state, "finished");
+
+  // Her portraits are now drawn with what the engine learned.
+  json(await runTool(host, "draw_portraits", { characterId: "mina" }));
+  const last = asked.at(-1);
+  assert.deepEqual(last?.loras, [{ name: `${name}.safetensors`, strength: 0.7 }]);
+  assert.ok(last?.prompt.startsWith("minatny, short dark curly hair"));
+
+  // A trainer that fails is reported plainly, and the character keeps drawing as before.
+  process.env.TOONY_LORA_TRAIN_COMMAND = `${process.execPath} ${join(bin, "train.mjs")} fail {dataset}`;
+  const again = json(await runTool(host, "train_character", { characterId: "mina" }));
+  const failed = await waitForTrainJob(String(again.jobId), 10_000);
+  assert.equal(failed?.state, "failed");
+  assert.match(String(failed?.message), /out of memory at step 3/);
+  assert.ok(host.followUps.some((text) => /Training of Mina failed/.test(text)));
 });
 
 test("drawing arguments, rules and summaries", () => {

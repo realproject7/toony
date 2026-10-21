@@ -299,6 +299,16 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     ),
   },
   {
+    name: "train_character",
+    kind: "write",
+    step: "Training a character",
+    description:
+      "Teach the artwork engine a main character from their kept portrait (a LoRA), so every cut draws the same face, hair and clothes. It draws about 22 pictures of them from the portrait, then trains: about an hour in the background, and drawings wait for it. Do it once their portrait is kept (draw_portraits, then draw_character with choose) and their look is settled. When it is done you get a message: then run draw_portraits again (now drawn with what it learned) and keep the best with choose. check_art_engine says whether this computer can train.",
+    inputSchema: obj({ characterId: str("The character id (from read_characters).") }, [
+      "characterId",
+    ]),
+  },
+  {
     name: "remove_character",
     kind: "write",
     step: "Updating the cast",
@@ -471,7 +481,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     kind: "read",
     step: "Checking the artwork engine",
     description:
-      "Whether the artwork engine is ready to draw, whether it draws with character portraits, and what the person should do when it is not.",
+      "Whether the artwork engine is ready to draw, whether it draws with character portraits, whether this computer can train a character (training), and what the person should do when it is not.",
     inputSchema: obj({}),
   },
   {

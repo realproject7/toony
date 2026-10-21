@@ -25,8 +25,12 @@ import {
 import {
   buildWorkflow,
   type ComfyWorkflowGraph,
+  REFERENCE_DEFAULT,
+  REFERENCE_STRONG,
   type ReferenceImage,
+  SIDE_BY_SIDE_LORA_WHOLE,
   type WorkflowParams,
+  withLoras,
   withReferenceImages,
   withSideBySide,
   withSourceImage,
@@ -196,6 +200,8 @@ export class ComfyUIProvider implements ImageProvider {
     }
 
     let graph = buildWorkflow(this.config.workflow, params, map);
+    const loras = request.loras ?? [];
+    const settings = request.referenceStrength === "strong" ? REFERENCE_STRONG : REFERENCE_DEFAULT;
     // Two people with their own prompts, drawn fresh: each in their half first.
     // An edit keeps the people where its source has them, so it only masks.
     const [first, second] = injected;
@@ -208,12 +214,29 @@ export class ComfyUIProvider implements ImageProvider {
       second.prompt !== undefined &&
       first.side !== second.side
     ) {
+      const loraOf = (side: "left" | "right") => {
+        const lora = loras.find((l) => l.side === side);
+        return lora === undefined ? {} : { lora: { name: lora.name, strength: lora.strength } };
+      };
       graph = withSideBySide(graph, map, [
-        { image: first.image, side: first.side, prompt: first.prompt },
-        { image: second.image, side: second.side, prompt: second.prompt },
+        { image: first.image, side: first.side, prompt: first.prompt, ...loraOf(first.side) },
+        { image: second.image, side: second.side, prompt: second.prompt, ...loraOf(second.side) },
       ]);
-    } else if (injected.length > 0) {
-      graph = withReferenceImages(graph, map, injected);
+      // Each half has its own LoRA; the joining pass gets every LoRA, lightly.
+      const halves = Object.keys(graph).filter((id) => id.startsWith("toony_half_"));
+      graph = withLoras(
+        graph,
+        map,
+        loras.map((l) => ({ name: l.name, strength: SIDE_BY_SIDE_LORA_WHOLE })),
+        halves,
+      );
+    } else {
+      graph = withLoras(
+        graph,
+        map,
+        loras.map((l) => ({ name: l.name, strength: l.strength })),
+      );
+      if (injected.length > 0) graph = withReferenceImages(graph, map, injected, settings);
     }
     if (request.source !== undefined) {
       // Check the graph can take a source before anything is uploaded.

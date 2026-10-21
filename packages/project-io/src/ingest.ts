@@ -109,6 +109,11 @@ export interface RenderInputs {
    */
   references?: Array<{ characterId: string; sha256: string; side?: "left" | "right" }>;
   /**
+   * The character LoRAs the run drew with: whose, the file name on the engine,
+   * the strength and, in a two-person picture, the side. Absent when none.
+   */
+  loras?: Array<{ characterId: string; name: string; strength: number; side?: "left" | "right" }>;
+  /**
    * The image the run edited (image to image): the sha256 of the source bytes
    * and how much of it the run was allowed to change (the sampler's denoise,
    * 0 to 1). `cutId` names another cut whose picture the run started from (a

@@ -250,6 +250,27 @@ export function validateCharacterCraft(
   if (value.visualIdentity !== undefined)
     text(value.visualIdentity, joinPath(path, "visualIdentity"), c);
   if (value.avoid !== undefined) text(value.avoid, joinPath(path, "avoid"), c);
+  if (value.lora !== undefined) {
+    const lora = value.lora as Record<string, unknown>;
+    const ok =
+      isPlainObject(lora) &&
+      typeof lora.file === "string" &&
+      /^[A-Za-z0-9][A-Za-z0-9_.-]{0,199}$/.test(lora.file) &&
+      Object.keys(lora).every((key) => ["file", "strength", "trigger"].includes(key)) &&
+      (lora.strength === undefined ||
+        (typeof lora.strength === "number" &&
+          Number.isFinite(lora.strength) &&
+          lora.strength >= 0 &&
+          lora.strength <= 2)) &&
+      (lora.trigger === undefined ||
+        (typeof lora.trigger === "string" && /^[A-Za-z0-9]{1,40}$/.test(lora.trigger)));
+    if (!ok)
+      c.add(
+        joinPath(path, "lora"),
+        "character.lora",
+        "lora must be {file, strength?, trigger?}: a bare file name, a strength from 0 to 2 and a trigger word of letters and digits.",
+      );
+  }
   if (value.development !== undefined)
     textObject(
       value.development,

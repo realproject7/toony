@@ -97,6 +97,7 @@ import {
   type ToonyWorkspaceComfyConfig,
 } from "@toony/providers";
 import {
+  CHARACTER_LORA_STRENGTH,
   type Character,
   type Cut,
   composeNegativePrompt,
@@ -234,6 +235,17 @@ function parsePositiveInt(raw: string, name: string): number | { error: string }
 }
 
 /**
+ * A character's lockstring as drawn: after their LoRA's trigger word when they
+ * have one, since the LoRA learned the character under that word. Empty when
+ * the lockstring is blank.
+ */
+export function characterLock(character: Pick<Character, "lockstring" | "lora">): string {
+  const lockstring = character.lockstring.trim();
+  const trigger = character.lora?.trigger?.trim();
+  return lockstring !== "" && trigger ? `${trigger}, ${lockstring}` : lockstring;
+}
+
+/**
  * Compose the referenced characters' identity descriptions to `basePrompt` (#92),
  * so a character stays on-model across cuts. Order follows `characterIds` (the
  * cut's order), deduplicated; ids not in the registry are skipped (lint flags
@@ -253,7 +265,8 @@ export function injectCharacterLockstrings(
   for (const id of characterIds) {
     if (seen.has(id)) continue;
     seen.add(id);
-    const lockstring = byId.get(id)?.lockstring.trim();
+    const character = byId.get(id);
+    const lockstring = character === undefined ? "" : characterLock(character);
     if (lockstring) lockstrings.push(lockstring);
   }
   if (lockstrings.length === 0) return basePrompt;
@@ -564,16 +577,24 @@ function referenceCandidates(
   cut: Cut | undefined,
   registry: readonly Character[],
 ): ReferenceCandidate[] {
+  return castSides(cut).flatMap(({ characterId, side }) => {
+    const path = registry.find((c) => c.id === characterId)?.references?.[0];
+    if (path === undefined) return [];
+    return [{ characterId, path, ...(side === undefined ? {} : { side }) }];
+  });
+}
+
+/**
+ * Who a cut shows and where they stand, for what conditions a render per
+ * person: one person over the whole frame; two people each on their side, read
+ * off the art direction's subject position when it names one, else the cast
+ * order (first listed on the left); three or more: nobody, since a side split
+ * cannot hold them apart and one look over the frame would pull everyone toward it.
+ */
+function castSides(cut: Cut | undefined): Array<{ characterId: string; side?: "left" | "right" }> {
   const subjects = cut?.artDirection?.subjects;
   const ids = [...new Set(subjects?.map((s) => s.characterId) ?? cut?.characters ?? [])];
-  const sheetOf = (id: string) => {
-    const path = registry.find((c) => c.id === id)?.references?.[0];
-    return path === undefined ? undefined : { characterId: id, path };
-  };
-  if (ids.length === 1) {
-    const sheet = sheetOf(ids[0] as string);
-    return sheet === undefined ? [] : [sheet];
-  }
+  if (ids.length === 1) return [{ characterId: ids[0] as string }];
   if (ids.length !== 2) return [];
   const declared = ids.map((id) => {
     const position = subjects?.find((s) => s.characterId === id)?.position;
@@ -585,10 +606,18 @@ function referenceCandidates(
       : declared[0] === "right" || declared[1] === "left"
         ? ["right", "left"]
         : ["left", "right"];
-  return ids.flatMap((id, index) => {
-    const sheet = sheetOf(id);
-    return sheet === undefined ? [] : [{ ...sheet, side: sides[index] as "left" | "right" }];
+  return ids.map((characterId, index) => ({ characterId, side: sides[index] as "left" | "right" }));
+}
+
+/** The LoRAs a cut draws with: each person's own, where they stand (see `castSides`). */
+function castLoras(cut: Cut | undefined, registry: readonly Character[]): RenderInputs["loras"] {
+  const loras = castSides(cut).flatMap(({ characterId, side }) => {
+    const lora = registry.find((c) => c.id === characterId)?.lora;
+    if (lora === undefined) return [];
+    const strength = lora.strength ?? CHARACTER_LORA_STRENGTH;
+    return [{ characterId, name: lora.file, strength, ...(side === undefined ? {} : { side }) }];
   });
+  return loras.length === 0 ? undefined : loras;
 }
 
 /**
@@ -835,6 +864,15 @@ function resolveInputs(
  */
 function requestFor(inputs: RenderInputs): ImageRequest {
   return {
+    ...(inputs.loras === undefined
+      ? {}
+      : {
+          loras: inputs.loras.map(({ name, strength, side }) => ({
+            name,
+            strength,
+            ...(side === undefined ? {} : { side }),
+          })),
+        }),
     prompt: inputs.prompt,
     options: {
       negativePrompt: composeNegativePrompt(
@@ -1006,12 +1044,15 @@ function planJobs(
       lexicon,
     );
     if (resolvedFraming !== undefined) inputs.framing = resolvedFraming;
+    const loras = resolvedFraming === "detail" ? undefined : castLoras(cut, registry);
+    if (loras !== undefined) inputs.loras = loras;
     if (cut?.artDirection) inputs.artDirection = structuredClone(cut.artDirection);
     // Each person of a two-person cut gets the prompt their half is drawn with,
     // styled like the cut's own (palette and lexicon, no story bible).
     const references = (resolvedFraming === "detail" ? [] : referenceCandidates(cut, registry)).map(
       (candidate) => {
-        const lockstring = registry.find((c) => c.id === candidate.characterId)?.lockstring ?? "";
+        const character = registry.find((c) => c.id === candidate.characterId);
+        const lockstring = character === undefined ? "" : characterLock(character);
         return candidate.side === undefined || cut === undefined
           ? candidate
           : {
@@ -1413,6 +1454,14 @@ const REPEAT_INPUTS: Record<keyof RenderInputs, RepeatInput> = {
   references: {
     recorded: () => undefined,
     submitted: () => undefined,
+    refuses: () => false,
+    instruct: () => null,
+  },
+  // The cast's LoRAs come from the registry, like their reference sheets: named
+  // when they differ, never asked for by a flag.
+  loras: {
+    recorded: (record) => (record.loras ? JSON.stringify(record.loras) : undefined),
+    submitted: ({ job }) => (job.inputs.loras ? JSON.stringify(job.inputs.loras) : undefined),
     refuses: () => false,
     instruct: () => null,
   },
@@ -2065,6 +2114,10 @@ export interface RenderImageOptions {
   workflow?: string;
   /** A character reference to condition on, when the engine can take one. */
   reference?: { bytes: Uint8Array; name: string };
+  /** How hard the reference holds the picture: "strong" for variations of one portrait. */
+  referenceStrength?: "strong";
+  /** A character LoRA to draw with: its file name on the engine and strength. */
+  loras?: Array<{ name: string; strength: number }>;
   /**
    * Send the prompt to an engine on another computer. Default false: like
    * `--allow-remote`, a non-loopback endpoint is refused before any request.
@@ -2133,6 +2186,10 @@ export async function renderImage(
       ...(options.height === undefined ? {} : { height: options.height }),
     },
     ...(referenced ? { reference: options.reference } : {}),
+    ...(referenced && options.referenceStrength
+      ? { referenceStrength: options.referenceStrength }
+      : {}),
+    ...(options.loras && options.loras.length > 0 ? { loras: options.loras } : {}),
   };
   try {
     const result = await built.provider.produce(request);

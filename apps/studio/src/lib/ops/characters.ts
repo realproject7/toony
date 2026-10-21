@@ -2,7 +2,8 @@
 // given character into the registry by id (or adds it), so an edit never
 // replaces the whole registry from a stale copy. `removeCharacter` also takes
 // the character out of every cut that names it. `setCharacterPortrait` stores a
-// drawn portrait and makes it the character's reference picture.
+// drawn portrait and makes it the character's reference picture;
+// `setCharacterLora` records the LoRA a training job made for them.
 
 import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
@@ -12,6 +13,7 @@ import { detectImageFormat, stripImageMetadata } from "@toony/providers";
 import {
   type Character,
   type CharacterDevelopment,
+  type CharacterLora,
   type CharacterWardrobe,
   isPathSafeId,
   validateProject,
@@ -192,6 +194,42 @@ export async function removeCharacter(
         characters: registry.filter((c) => c.id !== characterId),
       });
       tx.setSummary(`Removed ${character.name} from the cast`);
+    },
+  );
+  return change;
+}
+
+/**
+ * Set or clear a character's LoRA (a file on the artwork engine, its strength
+ * and trigger word): one undoable change. Training sets it when it finishes.
+ */
+export async function setCharacterLora(
+  ctx: OpContext,
+  characterId: string,
+  lora: CharacterLora | null,
+): Promise<ProjectChange | null> {
+  assertSafeId(characterId, "character");
+  const { change } = await withProjectWrite(
+    ctx,
+    {
+      summary: "Set a character's LoRA",
+      scopes: [{ kind: "characters" }],
+      files: ["webtoon.json"],
+    },
+    async (tx) => {
+      const registry = [...(tx.before.project.webtoon.characters ?? [])];
+      const index = registry.findIndex((c) => c.id === characterId);
+      const character = registry[index];
+      if (character === undefined)
+        throw new OpError("not-found", "This character is not in the cast.");
+      const next: Character = { ...character };
+      if (lora === null) delete next.lora;
+      else next.lora = lora;
+      registry[index] = next;
+      await writeWebtoon(tx.root, { ...tx.before.project.webtoon, characters: registry });
+      tx.setSummary(
+        lora === null ? `Removed ${character.name}'s LoRA` : `Trained ${character.name}'s LoRA`,
+      );
     },
   );
   return change;

@@ -21,6 +21,7 @@ import {
   writeWebtoon,
 } from "@toony/project-io";
 import {
+  LORA_NODE,
   REFERENCE_ADAPTER_NODE,
   REFERENCE_APPLY_NODE,
   REFERENCE_LOAD_NODE,
@@ -507,6 +508,41 @@ test("a character's sheet conditions the render when the engine has the IP-Adapt
     "mina",
     "the record names the reference",
   );
+});
+
+test("a trained character draws with their LoRA and trigger word, and the record names it", async () => {
+  const { dir, episodeId, cutId } = await referencedProject();
+  const loaded = await loadProject(dir);
+  await writeWebtoon(dir, {
+    ...loaded.project.webtoon,
+    characters: (loaded.project.webtoon.characters ?? []).map((c) => ({
+      ...c,
+      lora: { file: "toony-mina-1.safetensors", strength: 0.6, trigger: "minatny" },
+    })),
+  });
+  comfy.adapter.installed = true;
+  const code = await runGenerate(
+    [dir, "--episode", episodeId, "--cut", cutId, "--prompt", "Mina on the pier", "--seed", "2"],
+    io({ keepCutPrompt: true }),
+  );
+  assert.equal(code, EXIT_OK);
+  const graph = comfy.graphs().at(-1);
+  assert.ok(graph);
+  const lora = graph[`${LORA_NODE}_1`];
+  assert.equal(lora?.class_type, "LoraLoader");
+  assert.deepEqual(
+    [lora?.inputs.lora_name, lora?.inputs.strength_model],
+    ["toony-mina-1.safetensors", 0.6],
+  );
+  assert.deepEqual(graph[REFERENCE_ADAPTER_NODE]?.inputs.model, [`${LORA_NODE}_1`, 0]);
+  const positive = String(graph["6"]?.inputs.text);
+  assert.ok(positive.startsWith("minatny, short hair, red scarf, "), positive);
+  const log = JSON.parse(
+    await readFile(join(dir, "episodes", episodeId, "logs", "ingest.json"), "utf8"),
+  ) as Array<{ renderInputs?: { loras?: unknown } }>;
+  assert.deepEqual(log.at(-1)?.renderInputs?.loras, [
+    { characterId: "mina", name: "toony-mina-1.safetensors", strength: 0.6 },
+  ]);
 });
 
 test("two people get one reference each on their side; without the nodes the run draws without them", async () => {
