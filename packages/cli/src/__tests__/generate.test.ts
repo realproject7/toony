@@ -182,21 +182,22 @@ test("a remote provider requires --allow-remote", async () => {
 
 test("a loopback endpoint does not require --allow-remote (#180)", async () => {
   const projectDir = await scaffold();
-  const c = capture({ TOONY_COMFYUI_URL: "http://127.0.0.1:8188" });
+  // Port 1 refuses connections. Never ComfyUI's own default port: on a computer
+  // that runs the engine, a test would send it a real job.
+  const c = capture({ TOONY_COMFYUI_URL: "http://127.0.0.1:1" });
   const code = await runGenerate(
     [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--prompt", "x"],
     c.io,
   );
-  // Nothing is listening in the test environment, so this fails at connect
-  // time — which is the point: it got PAST the opt-in gate rather than being
-  // refused as a usage error before any request was attempted.
-  assert.notEqual(code, EXIT_USAGE);
+  // It fails at connect time, which is the point: it got PAST the opt-in gate
+  // rather than being refused as a usage error before any request was attempted.
+  assert.equal(code, EXIT_VALIDATION);
   assert.doesNotMatch(c.err.join("\n"), /--allow-remote/);
 });
 
 test("missing --prompt is a usage error", async () => {
   const projectDir = await scaffold();
-  const c = capture({ TOONY_COMFYUI_URL: "http://127.0.0.1:8188" });
+  const c = capture({ TOONY_COMFYUI_URL: "http://127.0.0.1:1" });
   const code = await runGenerate(
     [projectDir, "--episode", "ep-001", "--cut", "cut-001", "--allow-remote"],
     c.io,
@@ -219,7 +220,7 @@ test("an unreachable endpoint is a domain error (exit 1)", async () => {
 
 test("an unknown provider is a usage error", async () => {
   const projectDir = await scaffold();
-  const c = capture({ TOONY_COMFYUI_URL: "http://127.0.0.1:8188" });
+  const c = capture({ TOONY_COMFYUI_URL: "http://127.0.0.1:1" });
   const code = await runGenerate(
     [
       projectDir,
@@ -933,7 +934,7 @@ test("a transition run is refused by the same gate (#261)", async () => {
 test("an unreadable project is still a usage error, not a validation one (#261)", async () => {
   // The gate must not swallow the load failure `loadProject` throws: a folder
   // that is not a project is a caller mistake (exit 2), not an invalid project.
-  const c = capture({ TOONY_COMFYUI_URL: "http://127.0.0.1:8188" });
+  const c = capture({ TOONY_COMFYUI_URL: "http://127.0.0.1:1" });
   const code = await runGenerate(
     [join(workdir, "not-a-project"), "--episode", "ep-001", "--cut", "cut-001", "--prompt", "x"],
     c.io,
