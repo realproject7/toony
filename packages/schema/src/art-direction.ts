@@ -249,6 +249,7 @@ export function validateCharacterCraft(
 ): void {
   if (value.visualIdentity !== undefined)
     text(value.visualIdentity, joinPath(path, "visualIdentity"), c);
+  if (value.avoid !== undefined) text(value.avoid, joinPath(path, "avoid"), c);
   if (value.development !== undefined)
     textObject(
       value.development,

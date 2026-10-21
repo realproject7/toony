@@ -85,8 +85,15 @@ const scriptCut = obj(
 const characterInput = obj({
   id: str("Id of an existing character to update. Leave out to add a new character."),
   name: str("Name. Required for a new character."),
-  lockstring: str("Short, fixed visual description that keeps the character on model."),
+  lockstring: str(
+    "Short, fixed visual description that keeps the character on model, in English. Once they have a portrait, it describes that picture: about eight comma-separated clauses (hair, skin, eyes, face marks or glasses, clothes and their colours).",
+  ),
   visualIdentity: str("Longer look description."),
+  avoid: {
+    type: ["string", "null"],
+    description:
+      "What the engine tends to draw instead of their look, as short English tags it must not draw (for example: straight hair, stubble, gold earrings). Added to the negative of every picture that shows them. Never list what another cast member wears. null removes it.",
+  },
   development: obj(
     {
       role: str("Role in the story."),
@@ -260,15 +267,33 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     ),
   },
   {
+    name: "draw_portraits",
+    kind: "read",
+    step: "Drawing portrait candidates",
+    description:
+      "Draw three candidate portraits of a character from their lockstring, each with its own seed, and show them to you. Nothing in the project changes. Compare every candidate with the lockstring clause by clause, strictly (a side-swept fringe does not match a centre parting; stubble is not a shaved head), and reject one with a cropped head, more than one person, a busy background or a face turned well away. Then make the best one their reference picture with draw_character and choose. prompt adds details the lockstring leaves open (English). Takes about three minutes.",
+    inputSchema: obj(
+      {
+        characterId: str("The character id (from read_characters)."),
+        prompt: str("Optional extra details for the portraits, in English."),
+      },
+      ["characterId"],
+    ),
+  },
+  {
     name: "draw_character",
     kind: "write",
     step: "Drawing a portrait",
     description:
-      "Draw a character's portrait from their lockstring: one plain head-and-shoulders picture that becomes their reference picture. Every cut that shows the character is then drawn with it, so the face, hair and clothes stay the same from cut to cut. Draw one for each main character before drawing their cuts, and again after their look changes. You see the portrait in the result; call again for another take. prompt adds details the lockstring leaves open (English). Takes about a minute.",
+      "Set a character's portrait: one plain head-and-shoulders picture that becomes their reference picture. Every cut that shows the character is then drawn with it, so the face, hair and clothes stay the same from cut to cut. Give choose (the seed of a candidate from draw_portraits) to keep the candidate that matches them best; this is the way to set a main character's portrait, before drawing their cuts and again after their look changes. Then rewrite their lockstring with save_characters to describe that picture, so text and picture agree. Without choose it draws one new portrait and keeps it at once (prompt adds details the lockstring leaves open, in English; about a minute).",
     inputSchema: obj(
       {
         characterId: str("The character id (from read_characters)."),
-        prompt: str("Optional extra details for the portrait, in English."),
+        choose: {
+          type: "integer",
+          description: "The seed of the draw_portraits candidate to keep.",
+        },
+        prompt: str("Optional extra details for a new portrait, in English. Not with choose."),
       },
       ["characterId"],
     ),

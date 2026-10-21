@@ -281,6 +281,46 @@ export function injectCharacterLockstrings(
 }
 
 /**
+ * Add the avoid tags of the characters a picture shows to its negative prompt,
+ * in cast order, each tag once: a tag the negative already holds is not
+ * repeated, so a recorded negative replays to the same string. A tag another
+ * character in the picture is described with (it appears in their lockstring)
+ * is left out, so one person's "not this" never fights another's look. With
+ * nothing to add, the negative is returned untouched.
+ */
+export function withCharacterAvoid(
+  negative: string,
+  characterIds: readonly string[] | undefined,
+  registry: readonly Character[],
+): string {
+  const ids = [...new Set(characterIds ?? [])];
+  const cast = ids
+    .map((id) => registry.find((character) => character.id === id))
+    .filter((character): character is Character => character !== undefined);
+  const have = new Set(
+    negative
+      .split(",")
+      .map((tag) => tag.trim().toLowerCase())
+      .filter((tag) => tag !== ""),
+  );
+  const added: string[] = [];
+  for (const character of cast) {
+    const others = cast
+      .filter((other) => other.id !== character.id)
+      .map((other) => other.lockstring.toLowerCase());
+    for (const raw of (character.avoid ?? "").split(",")) {
+      const tag = raw.trim();
+      const key = tag.toLowerCase();
+      if (tag === "" || have.has(key) || others.some((lock) => lock.includes(key))) continue;
+      have.add(key);
+      added.push(tag);
+    }
+  }
+  if (added.length === 0) return negative;
+  return negative.trim() === "" ? added.join(", ") : `${negative.trim()}, ${added.join(", ")}`;
+}
+
+/**
  * Resolve the shared workspace ComfyUI settings for this project, with env-first
  * precedence preserved by `resolveComfyUIConfig` (this is the lowest-priority
  * source). The file is looked up at `<root>/.toony/config.json` and, if that one
@@ -432,6 +472,12 @@ interface Job {
    * IP-Adapter nodes (#327), whatever the number of people.
    */
   firstReference?: ReferenceCandidate;
+  /**
+   * The negative the cut was given before its cast's avoid tags were added:
+   * what a run that keeps the cut's prompts writes back, so a tag later taken
+   * off a character does not stay in the cut. Absent when nothing was added.
+   */
+  authoredNegative?: string;
   /**
    * The cut's declared panel shape (#237), when it declared one. Carried rather
    * than resolved here because it needs the column the workflow draws at, and
@@ -944,10 +990,16 @@ function planJobs(
     // replays them. The PROMPT still falls back for either slot, as it has since
     // #38: `imagePrompt` is authored text a cut has always shared between its
     // two images, and it is read above, before this.
+    const authoredNegative = cutNegative ?? "";
+    const negativePrompt = withCharacterAvoid(
+      authoredNegative,
+      cut?.artDirection?.subjects.map((s) => s.characterId) ?? cut?.characters,
+      registry,
+    );
     const inputs = resolveInputs(
       composed,
       cutPrompt,
-      cutNegative ?? "",
+      negativePrompt,
       shared,
       workflow,
       slot === "clean" ? cut : undefined,
@@ -987,6 +1039,7 @@ function planJobs(
       ...(cut?.panelAspect === undefined ? {} : { panelAspect: cut.panelAspect }),
       ...(references.length === 0 ? {} : { references }),
       ...(firstReference === undefined ? {} : { firstReference }),
+      ...(negativePrompt === authoredNegative ? {} : { authoredNegative }),
     });
   }
   return { jobs };
@@ -1113,19 +1166,19 @@ async function recordRenderInputs(
     // An authored prompt is a non-empty one the cut carried before this run. A
     // first render onto an empty prompt writes, it does not rewrite (#286).
     const before = bundle.cuts.find((cut) => cut.id === target.cutId);
+    const authoredNegative = job.authoredNegative ?? job.inputs.negativePrompt;
     const rewrotePrompt =
       !keepCutPrompt &&
       before !== undefined &&
       ((before.imagePrompt.trim() !== "" && before.imagePrompt !== job.inputs.basePrompt) ||
-        (before.negativePrompt.trim() !== "" &&
-          before.negativePrompt !== job.inputs.negativePrompt));
+        (before.negativePrompt.trim() !== "" && before.negativePrompt !== authoredNegative));
     const cuts = bundle.cuts.map((cut) =>
       cut.id === target.cutId
         ? {
             ...cut,
             ...(keepCutPrompt
               ? {}
-              : { imagePrompt: job.inputs.basePrompt, negativePrompt: job.inputs.negativePrompt }),
+              : { imagePrompt: job.inputs.basePrompt, negativePrompt: authoredNegative }),
             imageSeed: job.inputs.seed,
             ...(job.inputs.framing === undefined ? {} : { imageFraming: job.inputs.framing }),
             ...(job.inputs.workflow === undefined ? {} : { imageWorkflow: job.inputs.workflow }),

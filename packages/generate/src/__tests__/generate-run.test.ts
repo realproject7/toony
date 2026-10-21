@@ -32,6 +32,7 @@ import {
   renderImage,
   runGenerate,
   sidePrompt,
+  withCharacterAvoid,
 } from "../generate.js";
 
 const PROMPT_ID = "run-0001";
@@ -587,6 +588,64 @@ test("a two-person half keeps the setting and drops the phrases about people", (
     sidePrompt("woman, curly hair", "left", "two people, harbor office doorway, warm window light"),
     "one person, woman, curly hair, facing right, harbor office doorway, warm window light",
   );
+});
+
+test("a cast's avoid tags join the negative once each, never against another's look", () => {
+  const cast = [
+    { id: "mina", name: "Mina", lockstring: "woman, curly hair", avoid: "straight hair, Stubble" },
+    {
+      id: "jun",
+      name: "Jun",
+      lockstring: "man, stubble, round glasses",
+      avoid: "glasses, curly hair",
+    },
+    { id: "ara", name: "Ara", lockstring: "girl" },
+  ];
+  // Nothing to add: the negative goes out byte for byte.
+  assert.equal(withCharacterAvoid("  blurry ", ["ara"], cast), "  blurry ");
+  assert.equal(withCharacterAvoid("blurry", undefined, cast), "blurry");
+  assert.equal(withCharacterAvoid("", ["mina"], cast), "straight hair, Stubble");
+  // A tag already there is not repeated, whatever its case.
+  assert.equal(withCharacterAvoid("STRAIGHT HAIR", ["mina"], cast), "STRAIGHT HAIR, Stubble");
+  // In a two-shot, one person's tag that the other is drawn with is left out.
+  assert.equal(
+    withCharacterAvoid("blurry", ["mina", "jun", "mina"], cast),
+    "blurry, straight hair, glasses",
+  );
+});
+
+test("the submitted negative carries the cast's avoid tags while the cut keeps its own", async () => {
+  const { dir, episodeId, cutId } = await project();
+  const loaded = await loadProject(dir);
+  await writeWebtoon(dir, {
+    ...loaded.project.webtoon,
+    characters: [{ id: "mina", name: "Mina", lockstring: "short hair", avoid: "long hair, hat" }],
+  });
+  const bundle = loaded.project.episodes[0];
+  assert.ok(bundle);
+  await writeCuts(
+    dir,
+    episodeId,
+    bundle.cuts.map((cut) =>
+      cut.id === cutId ? { ...cut, characters: ["mina"], negativePrompt: "blurry" } : cut,
+    ),
+  );
+  const events: GenerateEvent["kind"][] = [];
+  const run = () =>
+    runGenerate(
+      [dir, "--episode", episodeId, "--cut", cutId, "--seed", "3"],
+      io({ report: (event) => events.push(event.kind) }),
+    );
+  assert.equal(await run(), EXIT_OK);
+  assert.equal(await run(), EXIT_OK);
+  const sent = comfy.graphs().map((graph) => graph["7"]?.inputs.text);
+  assert.deepEqual(sent, ["blurry, long hair, hat", "blurry, long hair, hat"]);
+  const log = JSON.parse(
+    await readFile(join(dir, "episodes", episodeId, "logs", "ingest.json"), "utf8"),
+  ) as Array<{ renderInputs?: { negativePrompt?: string } }>;
+  assert.equal(log.at(-1)?.renderInputs?.negativePrompt, "blurry, long hair, hat");
+  assert.equal((await cutOf(dir, episodeId, cutId))?.negativePrompt, "blurry");
+  assert.ok(!events.includes("rewrote-prompt"), "the authored negative was not rewritten");
 });
 
 test("renderImage draws one picture outside the records, with the reference when the engine takes it", async () => {

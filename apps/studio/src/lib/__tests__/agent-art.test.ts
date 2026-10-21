@@ -690,6 +690,95 @@ test("draw_character draws a portrait that becomes the reference picture, shows 
   assert.ok(journal.some((entry) => entry.summary === "Drew a portrait of Mina"));
 });
 
+test("the portrait gate: candidates change nothing, choose keeps one, avoid tags reach the portrait", async (t) => {
+  await engine(t, { portraits: true });
+  const asked: RenderImageOptions[] = [];
+  const pictures = [await picture(40), await picture(48), await picture(56), await picture(64)];
+  const previous = setPortraitRenderer(async (_root, options) => {
+    asked.push(options);
+    return {
+      bytes: pictures[(asked.length - 1) % pictures.length] ?? new Uint8Array(),
+      contentType: "image/png",
+      seed: 200 + asked.length,
+      workflowDigest: "test",
+      referenced: false,
+      prompt: options.prompt,
+    };
+  });
+  t.after(() => setPortraitRenderer(previous));
+  const { host, root } = await work(t);
+  json(
+    await runTool(host, "save_characters", {
+      characters: [
+        {
+          id: "mina",
+          lockstring: "short dark curly hair, round brass glasses",
+          avoid: "straight hair, square glasses",
+        },
+      ],
+    }),
+  );
+  const referencesOf = async () =>
+    (await loadProject(root)).project.webtoon.characters?.find((c) => c.id === "mina")
+      ?.references ?? [];
+  const cast = json(await runTool(host, "read_characters", {}));
+  assert.equal(
+    (cast.characters as Array<{ avoid?: string }>)[0]?.avoid,
+    "straight hair, square glasses",
+  );
+
+  // With changes off the candidates are still drawn at once: they change nothing.
+  host.prefs = { ...host.prefs, autoApply: false };
+  const journalBefore = (await readJournal(root)).length;
+  const drawn = await runTool(host, "draw_portraits", { characterId: "mina" });
+  const candidates = json(drawn);
+  assert.deepEqual(candidates.candidates, [201, 202, 203]);
+  assert.equal(
+    drawn.content.filter((part) => part.type === "image").length,
+    3,
+    "the agent sees every candidate",
+  );
+  assert.ok(asked[0]?.prompt.startsWith("short dark curly hair, round brass glasses, "));
+  assert.match(String(asked[0]?.negative), /^multiple people.*, straight hair, square glasses$/);
+  assert.equal((await readJournal(root)).length, journalBefore, "the project is unchanged");
+  assert.deepEqual(await referencesOf(), []);
+
+  // Keeping one is a write: a proposal now, the candidate's picture once applied.
+  const proposed = json(
+    await runTool(host, "draw_character", { characterId: "mina", choose: 202 }),
+  );
+  assert.equal(proposed.proposed, true);
+  const card = host.items.find((item) => item.kind === "proposal");
+  assert.ok(card?.kind === "proposal" && card.title === "Choose a portrait");
+  const stored = host.proposals[0];
+  assert.ok(stored);
+  host.live = false;
+  const applied = await applyProposal(host, stored);
+  assert.equal(applied.applied, true);
+  assert.equal(asked.length, 3, "choosing draws nothing");
+  const [portrait] = await referencesOf();
+  assert.match(String(portrait), /^characters\/mina\/portrait-[0-9a-f]{16}\.png$/);
+  const kept = await readFile(join(root, String(portrait)));
+  assert.equal(kept.byteLength > 0, true);
+
+  // The candidates are gone once one is kept; a fresh draw replaces earlier ones.
+  host.prefs = { ...host.prefs, autoApply: true };
+  host.live = true;
+  assert.match(
+    errorText(await runTool(host, "draw_character", { characterId: "mina", choose: 201 })),
+    /no candidate 201/,
+  );
+  json(await runTool(host, "draw_portraits", { characterId: "mina" }));
+  const chosen = json(await runTool(host, "draw_character", { characterId: "mina", choose: 205 }));
+  assert.match(String(chosen.note), /rewrite their lockstring/);
+  assert.equal(chosen.seed, 205);
+  assert.notEqual(chosen.portrait, portrait);
+  assert.match(
+    errorText(await runTool(host, "draw_portraits", { characterId: "nobody" })),
+    /not in the cast/,
+  );
+});
+
 test("drawing arguments, rules and summaries", () => {
   const refuse = (fn: () => unknown, pattern: RegExp) =>
     assert.throws(
@@ -714,13 +803,20 @@ test("drawing arguments, rules and summaries", () => {
     /strength must be a number from 0.1 to 0.9/,
   );
   refuse(() => A.artStatusArgs({ wait: 600 }), /wait/);
+  refuse(
+    () => A.drawCharacterArgs({ characterId: "mina", choose: 3, prompt: "freckles" }),
+    /choose or prompt/,
+  );
+  refuse(() => A.drawCharacterArgs({ characterId: "mina", choose: -1 }), /seed of a candidate/);
+  refuse(() => A.drawCharacterArgs({ characterId: "mina", choose: "3" }), /seed of a candidate/);
+  assert.equal(A.drawCharacterArgs({ characterId: "mina", choose: 7 }).choose, 7);
   refuse(() => A.stopDrawingArgs({ jobId: "nope" }), /jobId/);
   assert.equal(
     A.editCutArtArgs({ episodeId: "ep-001", cutId: "cut-001", prompt: "a" }).strength,
     A.EDIT_STRENGTH_DEFAULT,
   );
 
-  for (const tool of ["draw_cuts", "edit_cut_art", "view_cut"]) {
+  for (const tool of ["draw_cuts", "edit_cut_art", "view_cut", "draw_portraits"]) {
     assert.ok(AGENT_RULES.includes(tool), tool);
   }
   assert.doesNotMatch(AGENT_RULES, /no image generation/i);

@@ -46,6 +46,15 @@ export async function readPrivateFile(
   file: string,
   limit = 4 * 1024 * 1024,
 ): Promise<string | null> {
+  const bytes = await readPrivateBytes(file, limit);
+  return bytes === null ? null : Buffer.from(bytes).toString("utf8");
+}
+
+/** Read a private file's bytes, or null when it does not exist. */
+export async function readPrivateBytes(
+  file: string,
+  limit = 4 * 1024 * 1024,
+): Promise<Uint8Array | null> {
   let handle: Awaited<ReturnType<typeof open>>;
   try {
     handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -59,7 +68,7 @@ export async function readPrivateFile(
     if (!info.isFile() || info.size > limit) {
       throw new AgentError("storage", "The agent's local storage could not be read.", 500);
     }
-    return await handle.readFile("utf8");
+    return new Uint8Array(await handle.readFile());
   } finally {
     await handle.close();
   }

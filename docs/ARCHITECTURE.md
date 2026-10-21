@@ -574,7 +574,8 @@ viewing is off) and `check_episode`. Writes: `create_work`, `update_story`,
 `delete_episode`, `edit_cuts`, `set_dialogue`, `set_transitions`,
 `draw_character`, `draw_cuts`, `edit_cut_art`, `import_artwork`,
 `export_episode` and `undo_change`. Collaboration: `update_tasks`, `ask_user`, `suggest_dialogue`, `remember`, `forget`
-and `stop_drawing`; drawing reads: `art_status` and `check_art_engine`.
+and `stop_drawing`; drawing reads: `art_status`, `check_art_engine` and
+`draw_portraits`.
 
 The agent draws the art. `draw_cuts` and `edit_cut_art` queue a drawing job
 (`lib/art/jobs.ts`, one job at a time, since the engine draws one image at a
@@ -594,11 +595,19 @@ image). A `draw_cuts` item with `fromCutId` adds `--source cut:<id>` at
 `CONTINUITY_STRENGTH` (0.8): the other cut's image, scaled to this cut's size,
 is the starting point, so place, light and colours carry over. Because the
 character references attach to every run, an edit and a continued cut are drawn
-with the same portraits as the first drawing. `draw_character` draws one portrait
-with `renderImage` (the cast member's lockstring and a fixed plain-portrait
-prompt, a new seed, nothing recorded on a cut) and stores it through the write
-path as that character's first reference (`setCharacterPortrait`), one undoable
-change; the tool result shows the agent the picture. The render runs outside the project lock; the run's `commit` hook wraps
+with the same portraits as the first drawing. `draw_portraits` draws up to three
+portraits with `renderImage` (the cast member's lockstring and a fixed
+plain-portrait prompt, a new seed each, nothing recorded on a cut), keeps them in
+`.toony/agent/portraits/<id>/` and shows them to the agent; it changes no project
+file, so it runs without a proposal. `draw_character` with `choose` stores the
+picked candidate through the write path as that character's first reference
+(`setCharacterPortrait`), one undoable change, and asks the agent to rewrite the
+lockstring to describe it; without `choose` it draws one portrait and stores it.
+The tool result shows the agent the picture. A character's `avoid` tags join the
+negative of every picture that shows them (`withCharacterAvoid` in
+`@toony/generate`: cast order, each tag once, none that another person in the
+picture is described with); a cut's own stored negative keeps only what was
+authored, while the ingest log records what was submitted. The render runs outside the project lock; the run's `commit` hook wraps
 each finished image's ingest and record in `withProjectWrite`, so every image
 is one journaled, undoable change and the left workspace refreshes as it lands.
 The engine must be a ComfyUI on this computer (`TOONY_COMFYUI_URL`, then the
