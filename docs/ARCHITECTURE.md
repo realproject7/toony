@@ -601,8 +601,8 @@ plain-portrait prompt, a new seed each, nothing recorded on a cut), keeps them i
 `.toony/agent/portraits/<id>/` and shows them to the agent; it changes no project
 file, so it runs without a proposal. `draw_character` with `choose` stores the
 picked candidate through the write path as that character's first reference
-(`setCharacterPortrait`), one undoable change, and asks the agent to rewrite the
-lockstring to describe it; without `choose` it draws one portrait and stores it.
+(`setCharacterPortrait`), one undoable change, and tells the agent to keep the
+lockstring as written; without `choose` it draws one portrait and stores it.
 The tool result shows the agent the picture. A character's `avoid` tags join the
 negative of every picture that shows them (`withCharacterAvoid` in
 `@toony/generate`: cast order, each tag once, none that another person in the

@@ -771,7 +771,7 @@ test("the portrait gate: candidates change nothing, choose keeps one, avoid tags
   );
   json(await runTool(host, "draw_portraits", { characterId: "mina" }));
   const chosen = json(await runTool(host, "draw_character", { characterId: "mina", choose: 205 }));
-  assert.match(String(chosen.note), /rewrite their lockstring/);
+  assert.match(String(chosen.note), /Keep their lockstring as it is/);
   assert.equal(chosen.seed, 205);
   assert.notEqual(chosen.portrait, portrait);
   assert.match(

@@ -206,8 +206,9 @@ they are looking at.
   portraits from the lockstring, each with its own seed, shown to the agent and
   kept in the work's private agent files; the project does not change).
 - Keep the cast on model with `draw_character`: the candidate the agent picks
-  (`choose`, its seed) becomes that character's first reference picture, and the
-  agent then rewrites the lockstring to describe that picture. Without `choose`
+  (`choose`, its seed) becomes that character's first reference picture; the
+  agent keeps the lockstring as written (rewording it to describe the picture
+  pulled the cuts away from the picture in testing). Without `choose`
   it draws one portrait and keeps it at once. A character's `avoid` tags (what
   the engine tends to draw instead of their look) go into the negative of every
   picture that shows them. Every cut that shows the character, every edit and every
