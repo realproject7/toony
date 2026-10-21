@@ -36,7 +36,12 @@ import {
   stopArtJob,
   waitForArtJob,
 } from "../../art/jobs.js";
-import { drawPortrait } from "../../art/portrait.js";
+import {
+  clearPortraitCandidates,
+  drawPortrait,
+  drawPortraitCandidates,
+  readPortraitCandidate,
+} from "../../art/portrait.js";
 import { getExportJob, startExportJob } from "../../export-jobs.js";
 import { scopesOverlap } from "../../live/scope.js";
 import {
@@ -458,8 +463,11 @@ const WRITES: Record<string, WriteTool> = {
         loaded?.project.webtoon.characters?.find((c) => c.id === args.characterId)?.name ??
         args.characterId;
       return {
-        title: "Draw a portrait",
-        summary: `Draw a portrait of ${name}`,
+        title: args.choose === undefined ? "Draw a portrait" : "Choose a portrait",
+        summary:
+          args.choose === undefined
+            ? `Draw a portrait of ${name}`
+            : `Make candidate ${args.choose} the portrait of ${name}`,
         ...(args.prompt ? { preview: { kind: "text", text: clip(args.prompt, 400) ?? "" } } : {}),
         targets: [castTarget(work.id)],
         scopes: [{ kind: "characters" }],
@@ -473,27 +481,46 @@ const WRITES: Record<string, WriteTool> = {
         throw new ToolInputError("This character is not in the cast. read_characters lists it.");
       }
       const engine = await artEngineStatus(host.workspace, process.env, { fresh: true });
-      if (!engine.ready) throw new ToolInputError(engine.message);
-      const keepAlive = setInterval(() => host.touch(), 1000);
-      let drawn: Awaited<ReturnType<typeof drawPortrait>>;
-      try {
-        drawn = await drawPortrait(work.root, character, args.prompt, process.env);
-      } finally {
-        clearInterval(keepAlive);
-      }
-      if ("error" in drawn) {
-        throw new ToolInputError(`The artwork engine could not draw the portrait: ${drawn.error}`);
+      let drawn: { bytes: Uint8Array; seed: number };
+      if (args.choose !== undefined) {
+        const bytes = await readPortraitCandidate(work.root, character.id, args.choose);
+        if (bytes === null) {
+          throw new ToolInputError(
+            `${character.name} has no candidate ${args.choose}. draw_portraits draws new ones; choose takes a seed from its latest result.`,
+          );
+        }
+        drawn = { bytes, seed: args.choose };
+      } else {
+        if (!engine.ready) throw new ToolInputError(engine.message);
+        const keepAlive = setInterval(() => host.touch(), 1000);
+        let one: Awaited<ReturnType<typeof drawPortrait>>;
+        try {
+          one = await drawPortrait(work.root, character, args.prompt, process.env);
+        } finally {
+          clearInterval(keepAlive);
+        }
+        if ("error" in one) {
+          throw new ToolInputError(`The artwork engine could not draw the portrait: ${one.error}`);
+        }
+        drawn = one;
       }
       const saved = await setCharacterPortrait(opContext(host, work), character.id, drawn.bytes);
+      if (args.choose !== undefined) await clearPortraitCandidates(work.root, character.id);
+      const sheet =
+        "Now rewrite their lockstring with save_characters so it describes this picture: about eight short clauses (hair, skin, eyes, face marks or glasses, clothes and their colours), what the picture shows rather than what you planned. Text that disagrees with the picture pulls their cuts away from it.";
       return {
         result: {
           characterId: character.id,
           portrait: saved.path,
           seed: drawn.seed,
           changeId: saved.change?.changeId ?? null,
-          note: engine.portraits
-            ? "This is now the character's reference picture: their cuts are drawn with it. If it misses their look, fix the lockstring with save_characters or add details in prompt, and draw again."
-            : "Saved as the character's reference picture, but this engine cannot draw cuts with it yet (the IP-Adapter nodes are not installed); tell the person. Cuts use the lockstring meanwhile.",
+          // A pick needs no engine; one that is down says nothing about its nodes.
+          note:
+            engine.portraits || (args.choose !== undefined && !engine.ready)
+              ? args.choose !== undefined
+                ? `This is now the character's reference picture: their cuts are drawn with it. ${sheet}`
+                : "This is now the character's reference picture: their cuts are drawn with it. If it misses their look, fix the lockstring with save_characters or add details in prompt, and draw again; for a main character, draw_portraits and choose gives the better match."
+              : "Saved as the character's reference picture, but this engine cannot draw cuts with it yet (the IP-Adapter nodes are not installed); tell the person. Cuts use the lockstring meanwhile.",
         },
         changes: [saved.change],
         targets: [castTarget(work.id)],
@@ -1371,6 +1398,7 @@ async function readCharacters(host: ToolHost): Promise<Record<string, unknown>> 
       lockstring: c.lockstring,
       portrait: (c.references?.length ?? 0) > 0,
       ...(c.visualIdentity ? { visualIdentity: clip(c.visualIdentity, 1500) } : {}),
+      ...(c.avoid ? { avoid: c.avoid } : {}),
       ...(c.development ? { development: c.development } : {}),
       ...(c.wardrobe ? { wardrobe: c.wardrobe } : {}),
     })),
@@ -1489,6 +1517,57 @@ async function previewImage(bytes: Uint8Array, label: string): Promise<ToolConte
   }
   const png = encodeCanvas(composed.canvas, "png");
   return { type: "image", data: Buffer.from(png).toString("base64"), mimeType: "image/png" };
+}
+
+/**
+ * The portrait gate's first half: candidates drawn and kept for the pick, shown
+ * to the agent. Nothing in the project changes, so this runs without a proposal.
+ */
+async function drawPortraits(
+  host: ToolHost,
+  characterId: string,
+  prompt: string | undefined,
+): Promise<{ result: ToolResult; detail?: string; targets?: AgentTarget[] }> {
+  const work = await requireWork(host);
+  const loaded = await load(work.root);
+  const character = loaded?.project.webtoon.characters?.find((c) => c.id === characterId);
+  if (!character) {
+    throw new ToolInputError("This character is not in the cast. read_characters lists it.");
+  }
+  const engine = await artEngineStatus(host.workspace, process.env, { fresh: true });
+  if (!engine.ready) throw new ToolInputError(engine.message);
+  const keepAlive = setInterval(() => host.touch(), 1000);
+  let drawn: Awaited<ReturnType<typeof drawPortraitCandidates>>;
+  try {
+    drawn = await drawPortraitCandidates(work.root, character, prompt, process.env);
+  } finally {
+    clearInterval(keepAlive);
+  }
+  if ("error" in drawn) {
+    throw new ToolInputError(`The artwork engine could not draw the portraits: ${drawn.error}`);
+  }
+  const seeds = drawn.candidates.map((c) => c.seed);
+  const view = host.preferences().viewArtwork;
+  const text = {
+    characterId: character.id,
+    lockstring: character.lockstring,
+    candidates: seeds,
+    ...(drawn.failure ? { stopped: `The engine stopped early: ${drawn.failure}` } : {}),
+    note: view
+      ? "Each picture is labelled with its seed. Check every clause of the lockstring against each one and keep the best with draw_character, choose set to its seed. If none matches, fix the lockstring or add prompt details and draw again."
+      : "Artwork viewing is off in the agent settings, so you cannot compare them; keep the first with draw_character, choose set to its seed, and tell the person to look.",
+  };
+  const content: ToolContent[] = [{ type: "text", text: JSON.stringify(text) }];
+  if (view) {
+    for (const candidate of drawn.candidates) {
+      content.push(await previewImage(candidate.bytes, `${character.name} ${candidate.seed}`));
+    }
+  }
+  return {
+    result: { content },
+    detail: `${character.name}: ${seeds.length} candidates`,
+    targets: [castTarget(work.id)],
+  };
 }
 
 async function viewCut(host: ToolHost, episodeId: string, cutId: string): Promise<ToolResult> {
@@ -1633,6 +1712,7 @@ const DONE_TITLES: Record<string, string> = {
   update_story: "Updated the story",
   save_characters: "Updated the cast",
   draw_character: "Drew a portrait",
+  draw_portraits: "Drew portrait candidates",
   remove_character: "Removed a character",
   create_episode: "Created an episode",
   rename_episode: "Renamed an episode",
@@ -1893,6 +1973,10 @@ async function runRead(
           note: "Cuts not started yet are skipped. A cut the engine is drawing now still finishes.",
         }),
       };
+    }
+    case "draw_portraits": {
+      const args = A.drawPortraitsArgs(rawArgs);
+      return drawPortraits(host, args.characterId, args.prompt);
     }
     case "check_art_engine": {
       A.noArgs(rawArgs);

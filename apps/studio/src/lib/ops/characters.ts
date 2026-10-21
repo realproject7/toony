@@ -30,6 +30,8 @@ export interface CharacterInput {
   /** The visual description image prompts carry. Defaults to the name for a new character. */
   lockstring?: string;
   visualIdentity?: string | null;
+  /** Tags of what the character is easily drawn as by mistake; null or blank removes them. */
+  avoid?: string | null;
   development?: Partial<CharacterDevelopment> | null;
   wardrobe?: CharacterWardrobe[] | null;
 }
@@ -63,6 +65,11 @@ function merge(existing: Character | undefined, input: CharacterInput, id: strin
     const value = input.visualIdentity?.trim() ?? "";
     if (value === "") delete next.visualIdentity;
     else next.visualIdentity = value;
+  }
+  if (input.avoid !== undefined) {
+    const value = input.avoid?.trim() ?? "";
+    if (value === "") delete next.avoid;
+    else next.avoid = value;
   }
   if (input.development !== undefined) {
     if (input.development === null) delete next.development;

@@ -203,7 +203,7 @@ export function saveCharactersArgs(raw: unknown): { characters: CharacterInput[]
     const c = argsObject(item);
     noExtra(
       c,
-      ["id", "name", "lockstring", "visualIdentity", "development", "wardrobe"],
+      ["id", "name", "lockstring", "visualIdentity", "avoid", "development", "wardrobe"],
       `fields in ${where}`,
     );
     const input: CharacterInput = {};
@@ -216,6 +216,7 @@ export function saveCharactersArgs(raw: unknown): { characters: CharacterInput[]
     if (c.visualIdentity !== undefined) {
       input.visualIdentity = nullableText(c, "visualIdentity", 4000) ?? null;
     }
+    if (c.avoid !== undefined) input.avoid = nullableText(c, "avoid", 1000) ?? null;
     if (c.development !== undefined) {
       if (c.development === null) input.development = null;
       else {
@@ -592,7 +593,30 @@ export const EDIT_STRENGTH_MAX = 0.9;
 /** The longest an art status call waits for progress, in seconds. */
 export const ART_STATUS_WAIT_MAX = 240;
 
-export function drawCharacterArgs(raw: unknown): { characterId: string; prompt?: string } {
+export function drawCharacterArgs(raw: unknown): {
+  characterId: string;
+  prompt?: string;
+  choose?: number;
+} {
+  const args = argsObject(raw);
+  noExtra(args, ["characterId", "prompt", "choose"]);
+  const prompt = optionalText(args, "prompt", PROMPT_MAX);
+  let choose: number | undefined;
+  if (args.choose !== undefined) {
+    if (!Number.isSafeInteger(args.choose) || (args.choose as number) < 0) {
+      fail("choose must be the seed of a candidate from draw_portraits.");
+    }
+    if (prompt !== undefined) fail("Give choose or prompt, not both.");
+    choose = args.choose as number;
+  }
+  return {
+    characterId: id(args, "characterId", "a character"),
+    ...(prompt === undefined ? {} : { prompt }),
+    ...(choose === undefined ? {} : { choose }),
+  };
+}
+
+export function drawPortraitsArgs(raw: unknown): { characterId: string; prompt?: string } {
   const args = argsObject(raw);
   noExtra(args, ["characterId", "prompt"]);
   const prompt = optionalText(args, "prompt", PROMPT_MAX);

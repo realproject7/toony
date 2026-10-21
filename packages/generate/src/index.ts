@@ -15,6 +15,7 @@ export {
   type RenderImageOptions,
   renderImage,
   runGenerate,
+  withCharacterAvoid,
 } from "./generate.js";
 export {
   authoredValueLines,

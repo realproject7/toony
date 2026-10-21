@@ -109,3 +109,14 @@ test("character craft rejects duplicate outfits and incomplete development", () 
   assert.ok(c.result().issues.some((i) => i.code === "character.duplicate-outfit"));
   assert.ok(c.result().issues.some((i) => i.path.endsWith("desire")));
 });
+
+test("a character's avoid tags are optional text", () => {
+  const ok = new IssueCollector();
+  validateCharacterCraft({ avoid: "straight hair, stubble" }, "hero", ok);
+  validateCharacterCraft({}, "hero", ok);
+  assert.deepEqual(ok.result().issues, []);
+  const bad = new IssueCollector();
+  validateCharacterCraft({ avoid: ["straight hair"] }, "hero", bad);
+  validateCharacterCraft({ avoid: "" }, "hero", bad);
+  assert.equal(bad.result().issues.filter((i) => i.path.endsWith("avoid")).length, 2);
+});

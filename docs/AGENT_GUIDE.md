@@ -187,9 +187,15 @@ they are looking at.
   `delete_episode`, `edit_cuts`, `set_dialogue`, `set_transitions`,
   `draw_character`, `draw_cuts`, `edit_cut_art`, `import_artwork` (a file the
   person points to), `export_episode` (files only) and `undo_change`.
-- Keep the cast on model with `draw_character`: one plain portrait per main
-  character, drawn from the lockstring, becomes that character's first
-  reference picture. Every cut that shows the character, every edit and every
+- Draw portrait candidates with `draw_portraits` (a drawing read: three plain
+  portraits from the lockstring, each with its own seed, shown to the agent and
+  kept in the work's private agent files; the project does not change).
+- Keep the cast on model with `draw_character`: the candidate the agent picks
+  (`choose`, its seed) becomes that character's first reference picture, and the
+  agent then rewrites the lockstring to describe that picture. Without `choose`
+  it draws one portrait and keeps it at once. A character's `avoid` tags (what
+  the engine tends to draw instead of their look) go into the negative of every
+  picture that shows them. Every cut that shows the character, every edit and every
   redraw is then drawn with it (the engine needs the IP-Adapter nodes; without
   them the cut is drawn from the lockstring alone and the tool says so). A cut
   with two people is drawn side by side: each person first alone in their half

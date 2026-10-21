@@ -640,6 +640,12 @@ export interface Character {
   lockstring: string;
   /** Invariant physical identity, separate from changeable clothes and expressions. */
   visualIdentity?: string;
+  /**
+   * What this character is easily drawn as by mistake, as short comma-separated
+   * tags ("straight hair, stubble, gold earrings"). Added to the negative prompt
+   * of every picture that shows them. Absent means none.
+   */
+  avoid?: string;
   wardrobe?: CharacterWardrobe[];
   /** Story-building context for the author/agent, never an automatic plot generator. */
   development?: CharacterDevelopment;
