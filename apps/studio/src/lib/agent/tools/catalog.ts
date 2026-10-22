@@ -92,7 +92,7 @@ const characterInput = obj({
   avoid: {
     type: ["string", "null"],
     description:
-      "What the engine tends to draw instead of their look, as short English tags it must not draw (for example: straight hair, stubble, gold earrings). Added to the negative of every picture that shows them. Never list what another cast member wears. null removes it.",
+      "What the engine tends to draw instead of their look, as short English tags it must not draw (for example: straight hair, stubble, gold earrings). Added to the negative of every picture that shows them. Never a tag their lockstring asks for or implies (a shaved head is also a bald head): it fights the lockstring and the engine draws neither. Never list what another cast member wears. null removes it.",
   },
   development: obj(
     {
@@ -313,7 +313,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     kind: "write",
     step: "Training a character",
     description:
-      "Teach the artwork engine a main character from their kept portrait (a LoRA), so every cut draws the same face, hair and clothes. Two calls. Without drop it draws a training set of about 22 pictures from the portrait in the background (some minutes); you get a message when it is drawn. Check it with view_training_set, then call again with drop: the numbers of pictures that do not match the portrait, show two of them or are broken (an empty list keeps them all). That trains: about an hour in the background, and drawings wait for it. Do it once their portrait is kept (draw_portraits, then draw_character with choose) and their look is settled. When training is done you get a message: then run draw_portraits again (now drawn with what it learned) and keep the best with choose. check_art_engine says whether this computer can train.",
+      "Teach the artwork engine a main character from their kept portrait (a LoRA), so every cut draws the same face, hair and clothes. Two calls. Without drop it draws a training set of about 22 pictures from the portrait in the background (some minutes); you get a message when it is drawn. Check it with view_training_set, then call again with drop: the numbers of pictures that clearly break the portrait's design, show two figures or are broken (an empty list keeps them all). That trains: about an hour in the background, and drawings wait for it. Do it once their portrait is kept (draw_portraits, then draw_character with choose) and their look is settled. When training is done you get a message: then run draw_portraits again (now drawn with what it learned) and keep the best with choose. check_art_engine says whether this computer can train.",
     inputSchema: obj(
       {
         characterId: str("The character id (from read_characters)."),
@@ -327,6 +327,9 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
           type: "boolean",
           description: "Draw a new set even though one is waiting for its check.",
         },
+        prompt: str(
+          "When drawing a set: details of the portrait the lockstring leaves open that every picture must keep, in English (for example: thick black mustache, dark brown eyes). Use it when a set misses the same detail again and again.",
+        ),
       },
       ["characterId"],
     ),

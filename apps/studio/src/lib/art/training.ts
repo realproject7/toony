@@ -246,6 +246,7 @@ async function drawSet(
   ctx: OpContext,
   character: Character,
   portrait: Uint8Array,
+  details: string | undefined,
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<TrainJobView> {
   const { view } = record;
@@ -277,7 +278,9 @@ async function drawSet(
       const result = await portraitRenderer()(
         ctx.root,
         {
-          prompt: `${lock}, ${item.what}, ${BACKGROUND}`,
+          // Details the agent names are drawn but not captioned, so the LoRA learns them as part of
+          // the trigger word rather than as words the cuts would have to repeat.
+          prompt: `${lock}${details ? `, ${details}` : ""}, ${item.what}, ${BACKGROUND}`,
           negative,
           seed: seed + index,
           ...SIZE,
@@ -413,6 +416,8 @@ export function startTrainingSet(
     ctx: OpContext;
     character: Character;
     portrait: Uint8Array;
+    /** Details of the portrait the lockstring leaves open, drawn into every picture (English). */
+    details?: string;
     env?: Readonly<Record<string, string | undefined>>;
   },
   listener?: Listener,
@@ -424,7 +429,14 @@ export function startTrainingSet(
     "set",
     total,
     (record) =>
-      drawSet(record, params.ctx, params.character, params.portrait, params.env ?? process.env),
+      drawSet(
+        record,
+        params.ctx,
+        params.character,
+        params.portrait,
+        params.details?.trim() || undefined,
+        params.env ?? process.env,
+      ),
     listener,
   );
 }

@@ -193,10 +193,15 @@ they are looking at.
   is kept, in two calls. The first draws about 22 pictures from the portrait in
   the background (views held closely, poses at the usual balance), captions each
   with a trigger word and the lockstring, and stops. The agent checks the set
-  with `view_training_set` and calls `train_character` again with `drop`, the
-  numbers of pictures that miss the portrait, show two of them or are broken (an
-  empty list keeps them all; the portrait stays, and at least 10 pictures must
-  remain). That call runs the training command the person set up
+  with `view_training_set`. When most pictures miss the same detail of the
+  portrait (a mustache the lockstring does not mention), it draws a new set with
+  `redraw` and `prompt` naming it, at most twice; the detail is drawn into every
+  picture but left out of the captions, so the LoRA learns it as part of the
+  character. Then it calls `train_character` again with `drop`, the numbers of
+  pictures that clearly break the portrait's design, show two figures or are
+  broken (small differences of shape or shade stay; an empty list keeps them
+  all; the portrait stays, and at least 10 pictures must remain). That call runs
+  the training command the person set up
   (`TOONY_LORA_TRAIN_COMMAND`: a command with `{character}`, `{dataset}`,
   `{name}` and `{steps}` placeholders, run without a shell, that writes
   `{name}.safetensors` into the engine's LoRA folder). When it succeeds the
@@ -216,7 +221,9 @@ they are looking at.
   pulled the cuts away from the picture in testing). Without `choose`
   it draws one portrait and keeps it at once. A character's `avoid` tags (what
   the engine tends to draw instead of their look) go into the negative of every
-  picture that shows them. Every cut that shows the character, every edit and every
+  picture that shows them; none may name what the lockstring asks for or implies
+  (with "shaved head" in the lockstring, "bald head" in the avoid tags left no
+  candidate shaved in testing). Every cut that shows the character, every edit and every
   redraw is then drawn with it (the engine needs the IP-Adapter nodes; without
   them the cut is drawn from the lockstring alone and the tool says so). A cut
   with two people is drawn side by side: each person first alone in their half

@@ -617,7 +617,8 @@ the character's first reference with `renderImage` (14 views with the reference
 held strongly, `referenceStrength: "strong"`, and 8 poses at the usual balance)
 into `.toony/agent/training/<id>/`, each picture with a caption of the trigger
 word (`<id>tny`) and the lockstring, writes `set.json` beside them and ends at
-`drawn`. The agent looks at the set (`view_training_set`) and calls again with
+`drawn`; the call's `prompt` adds details to every picture's prompt but not to
+its caption. The agent looks at the set (`view_training_set`) and calls again with
 `drop`: the second job deletes those pictures (never `00`, the reference;
 at least 10 must remain), runs `TOONY_LORA_TRAIN_COMMAND` with its
 placeholders filled (split on spaces, no shell) and, on exit code 0, removes
