@@ -20,6 +20,7 @@ import {
   REFERENCE_WEIGHT,
   REFERENCE_WEIGHT_TYPE,
   SIDE_BY_SIDE_BLEND,
+  SOURCE_ENCODE_NODE,
 } from "../comfyui-workflow.js";
 
 const PROMPT_ID = "f1e2d3c4-0000-4000-8000-aaaabbbbcccc";
@@ -48,6 +49,15 @@ function config(withReference: boolean): ComfyUIConfig {
 }
 
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+
+/** A PNG whose header carries the given size, enough for readImageSize. */
+function pngOfSize(width: number, height: number): Uint8Array {
+  const bytes = new Uint8Array(33);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+  new DataView(bytes.buffer).setUint32(16, width);
+  new DataView(bytes.buffer).setUint32(20, height);
+  return bytes;
+}
 
 function fakeFetch(seen: { uploads: number; graphs: unknown[]; uploadBody?: unknown }): FetchLike {
   return async (url, init) => {
@@ -322,16 +332,43 @@ test("two people with their own prompts are drawn side by side, then together", 
     "the whole picture keeps both references on their sides",
   );
 
-  // An edit keeps the people where its source has them: masks only, no halves.
+  // A picture continued from another: each half starts from its own side of
+  // the source, redrawn at the given strength, so neither person's LoRA or
+  // words reach the other; the joining pass is the same as for a fresh one.
   await provider.produce({
     prompt: "two people at a table",
     references: [
       { bytes: PNG, name: "mara.png", side: "left", prompt: "one person, mara" },
       { bytes: PNG, name: "ren.png", side: "right", prompt: "one person, ren" },
     ],
-    source: { bytes: PNG, name: "cut.png", strength: 0.5 },
+    source: { bytes: PNG, name: "cut.png", strength: 0.8 },
   });
-  const edited = seen.graphs[1] as Record<string, Node>;
+  const continued = seen.graphs[1] as Record<string, Node>;
+  const leftCrop = continued[`toony_half_latent_left`];
+  const rightCrop = continued[`toony_half_latent_right`];
+  assert.equal(leftCrop?.class_type, "LatentCrop");
+  assert.deepEqual(leftCrop?.inputs.samples, [SOURCE_ENCODE_NODE, 0]);
+  assert.deepEqual(
+    [leftCrop?.inputs.x, rightCrop?.inputs.x, rightCrop?.inputs.width],
+    [0, 832 - 512, 512],
+    "each half is its own side of the source",
+  );
+  assert.equal(continued[`${HALF_SAMPLER_NODE}_left`]?.inputs.denoise, 0.8);
+  assert.equal(continued[`${HALF_SAMPLER_NODE}_right`]?.inputs.denoise, 0.8);
+  assert.deepEqual(continued["3"]?.inputs.latent_image, [HALVES_JOINED_NODE, 0]);
+  assert.equal(continued["3"]?.inputs.denoise, SIDE_BY_SIDE_BLEND);
+  assert.equal(seen.uploads, 2 + 3, "the source is uploaded once, with the two references");
+
+  // A region edit keeps the people where its source has them: masks only, no halves.
+  await provider.produce({
+    prompt: "two people at a table",
+    references: [
+      { bytes: PNG, name: "mara.png", side: "left", prompt: "one person, mara" },
+      { bytes: PNG, name: "ren.png", side: "right", prompt: "one person, ren" },
+    ],
+    source: { bytes: pngOfSize(832, 1216), name: "cut.png", strength: 0.5, region: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } },
+  });
+  const edited = seen.graphs[2] as Record<string, Node>;
   assert.equal(edited[`${HALF_SAMPLER_NODE}_left`], undefined);
   assert.ok(edited[`${REFERENCE_APPLY_NODE}_2`]);
 });
