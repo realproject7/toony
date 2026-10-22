@@ -10,11 +10,17 @@ import type { ComfyUIConfig } from "../comfyui-config.js";
 import {
   type ComfyWorkflowGraph,
   DEFAULT_INJECTION_MAP,
+  REGION_BACK_NODE,
+  REGION_CROP_NODE,
+  REGION_MASK_NODE,
+  REGION_PASTE_NODE,
+  regionBoxes,
   SOURCE_ENCODE_NODE,
   SOURCE_LOAD_NODE,
   SOURCE_SCALE_NODE,
   withSourceImage,
 } from "../comfyui-workflow.js";
+import { readImageSize } from "../format.js";
 
 const PROMPT_ID = "a1b2c3d4-0000-4000-8000-aaaabbbbcccc";
 
@@ -169,4 +175,111 @@ test("a source for a graph that cannot take one is refused before any upload", a
   );
   assert.equal(seen.uploads.length, 0);
   assert.equal(seen.graphs.length, 0);
+});
+
+/** A PNG header of the given size (signature and IHDR; enough for readImageSize). */
+function pngOfSize(width: number, height: number): Uint8Array {
+  const bytes = new Uint8Array(33);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  return bytes;
+}
+
+test("a picture's size is read from its PNG, JPEG or WebP header, and nothing else is guessed", () => {
+  assert.deepEqual(readImageSize(pngOfSize(832, 1216)), { width: 832, height: 1216 });
+  const jpeg = Uint8Array.from([
+    0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x04, 0xc0, 0x03,
+    0x40, 0x03,
+  ]);
+  assert.deepEqual(readImageSize(jpeg), { width: 832, height: 1216 });
+  const webp = new Uint8Array(30);
+  webp.set([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x58]);
+  webp.set([0x3f, 0x03, 0x00, 0xbf, 0x04, 0x00], 24);
+  assert.deepEqual(readImageSize(webp), { width: 832, height: 1216 });
+  assert.equal(readImageSize(PNG), null, "a PNG signature without its IHDR chunk");
+  assert.equal(readImageSize(Uint8Array.from([1, 2, 3])), null);
+});
+
+test("a region's boxes: context to redraw, a smaller box to paste, a work size with a long side of 1024", () => {
+  const { crop, paste, work, feather } = regionBoxes(
+    { width: 832, height: 1216 },
+    { x: 0.3, y: 0.35, w: 0.36, h: 0.2 },
+  );
+  // The region is 300 x 243 px at (250, 426); the crop grows it by 60%, the paste by 20%.
+  assert.deepEqual(paste, { x: 219, y: 401, width: 361, height: 293 });
+  assert.deepEqual(crop, { x: 159, y: 352, width: 480, height: 390 });
+  assert.ok(paste.x >= crop.x && paste.x + paste.width <= crop.x + crop.width);
+  assert.ok(paste.y >= crop.y && paste.y + paste.height <= crop.y + crop.height);
+  assert.deepEqual(work, { width: 1024, height: 832 });
+  assert.equal(feather, 35);
+  // At a picture's edge the boxes stop at the edge.
+  const corner = regionBoxes({ width: 832, height: 1216 }, { x: 0.9, y: 0.9, w: 0.2, h: 0.2 });
+  assert.equal(corner.crop.x + corner.crop.width, 832);
+  assert.equal(corner.crop.y + corner.crop.height, 1216);
+});
+
+test("a region edit redraws the crop at the work size and pastes back only the feathered paste box", () => {
+  const source = { width: 832, height: 1216 };
+  const region = { x: 0.3, y: 0.35, w: 0.36, h: 0.2 };
+  const edited = withSourceImage(graph(), DEFAULT_INJECTION_MAP, "cut-003.png", 0.7, undefined, {
+    source,
+    region,
+  });
+  const { crop, paste, work, feather } = regionBoxes(source, region);
+  assert.deepEqual(edited[REGION_CROP_NODE]?.inputs, {
+    image: [SOURCE_LOAD_NODE, 0],
+    width: crop.width,
+    height: crop.height,
+    x: crop.x,
+    y: crop.y,
+  });
+  assert.deepEqual(edited[SOURCE_SCALE_NODE]?.inputs.image, [REGION_CROP_NODE, 0]);
+  assert.equal(edited[SOURCE_SCALE_NODE]?.inputs.width, work.width);
+  assert.deepEqual(edited[SOURCE_ENCODE_NODE]?.inputs.pixels, [SOURCE_SCALE_NODE, 0]);
+  assert.equal(edited["3"]?.inputs.denoise, 0.7);
+  assert.deepEqual(edited[REGION_BACK_NODE]?.inputs.image, ["8", 0]);
+  assert.equal(edited[REGION_BACK_NODE]?.inputs.width, crop.width);
+  assert.equal(edited[`${REGION_MASK_NODE}_soft`]?.inputs.left, feather);
+  assert.deepEqual(
+    [edited[REGION_MASK_NODE]?.inputs.x, edited[REGION_MASK_NODE]?.inputs.y],
+    [paste.x - crop.x, paste.y - crop.y],
+  );
+  assert.deepEqual(edited[REGION_PASTE_NODE]?.inputs, {
+    destination: [SOURCE_LOAD_NODE, 0],
+    source: [REGION_BACK_NODE, 0],
+    x: crop.x,
+    y: crop.y,
+    resize_source: false,
+    mask: [REGION_MASK_NODE, 0],
+  });
+  assert.deepEqual(edited["9"]?.inputs.images, [REGION_PASTE_NODE, 0]);
+});
+
+test("a region request reads the source's size and submits the region graph; an unreadable size is refused", async () => {
+  const seen = { uploads: [] as unknown[], graphs: [] as ComfyWorkflowGraph[] };
+  const provider = new ComfyUIProvider(config(graph()), { fetch: fakeFetch(seen) });
+  await provider.produce({
+    prompt: "one woman, close-up, small relieved smile",
+    options: { seed: 9 },
+    source: {
+      bytes: pngOfSize(832, 1216),
+      name: "cut-002.png",
+      strength: 0.7,
+      region: { x: 0.3, y: 0.35, w: 0.36, h: 0.2 },
+    },
+  });
+  const submitted = seen.graphs[0];
+  assert.equal(submitted?.[REGION_CROP_NODE]?.inputs.x, 159);
+  assert.deepEqual(submitted?.["9"]?.inputs.images, [REGION_PASTE_NODE, 0]);
+  await assert.rejects(
+    provider.produce({
+      prompt: "p",
+      options: { seed: 1 },
+      source: { bytes: PNG, name: "x.png", strength: 0.7, region: { x: 0, y: 0, w: 0.5, h: 0.5 } },
+    }),
+    /no readable size/,
+  );
+  assert.equal(seen.uploads.length, 1, "the unreadable source is never uploaded");
 });

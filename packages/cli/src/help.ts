@@ -49,7 +49,7 @@ options:
                            | --transition <id>)
            --prompt <text> [--negative <text>] [--width <px>] [--height <px>]
            [--seed <n>|fresh] [--workflow <name>] [--provider comfyui] [--allow-remote]
-           [--source current|cut:<id> [--strength <0-1>]]
+           [--source current|cut:<id> [--strength <0-1>] [--region <x,y,w,h>]]
                            generates and ingests an image; the provider endpoint
                            and workflow come from local runtime config/env
                            (e.g. TOONY_COMFYUI_URL), never from webtoon.json;
@@ -79,7 +79,10 @@ options:
                            --source cut:<id> starts from another cut's image,
                            scaled to this cut's size, to keep place and light;
                            --strength (default 0.5) is how much may change, and
-                           the source's sha256 is recorded in the ingest log
+                           the source's sha256 is recorded in the ingest log;
+                           --region x,y,w,h (fractions of the picture, with
+                           --source current) redraws only that part, larger,
+                           and keeps every pixel outside it
   export <episode> [path] --output <id> [--width <px>] [--slice-height <px>]
          [--format png|jpg] [--quality <0-100>] [--margin <px>]
          [--max-bytes <n>] [--text-cards] [--tall-cuts split|fit]

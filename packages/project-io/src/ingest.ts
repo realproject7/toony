@@ -120,7 +120,13 @@ export interface RenderInputs {
    * continuity source); absent, the run edited the target's own picture.
    * Absent for a render from noise.
    */
-  source?: { sha256: string; strength: number; cutId?: string };
+  source?: {
+    sha256: string;
+    strength: number;
+    cutId?: string;
+    /** Only this part changed (fractions 0 to 1 of the picture's width and height). */
+    region?: { x: number; y: number; w: number; h: number };
+  };
   /**
    * The style lexicon composed into the prompt (#335): the pack entry's id and
    * the strings as submitted, with the prefix and the story context setting

@@ -208,6 +208,71 @@ export function buildWorkflow(
 export const SOURCE_LOAD_NODE = "toony_source_load";
 export const SOURCE_ENCODE_NODE = "toony_source_encode";
 export const SOURCE_SCALE_NODE = "toony_source_scale";
+/** The node ids of a region edit: the crop, the redrawn crop scaled back, its mask and the paste. */
+export const REGION_CROP_NODE = "toony_region_crop";
+export const REGION_BACK_NODE = "toony_region_back";
+export const REGION_MASK_NODE = "toony_region_mask";
+export const REGION_PASTE_NODE = "toony_region_paste";
+
+/** A region of a picture as fractions (0 to 1) of its width and height. */
+export interface ImageRegion {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** A box in pixels. */
+export interface PixelBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Where a region edit works, in the source's pixels. The crop is the region
+ * grown by 60% for context; it is redrawn scaled so its long side is
+ * REGION_WORK_SIDE, so a small face gets enough pixels to change. Only the
+ * paste box (the region grown by 20%) goes back into the picture, with a
+ * feathered edge, so the crop's redrawn surroundings never show. Chosen on
+ * same-seed edits of three cuts: a mask at the picture's own size left small
+ * faces unchanged or broke their glasses, pasting the whole crop brought back
+ * ghosts of the redrawn background.
+ */
+export const REGION_CONTEXT = 0.6;
+export const REGION_PASTE = 0.2;
+export const REGION_WORK_SIDE = 1024;
+
+export function regionBoxes(
+  size: { width: number; height: number },
+  region: ImageRegion,
+): { crop: PixelBox; paste: PixelBox; work: { width: number; height: number }; feather: number } {
+  const clamp = (value: number, max: number) => Math.min(max, Math.max(0, value));
+  const x0 = clamp(region.x, 1) * size.width;
+  const y0 = clamp(region.y, 1) * size.height;
+  const x1 = clamp(region.x + region.w, 1) * size.width;
+  const y1 = clamp(region.y + region.h, 1) * size.height;
+  const grow = (share: number): PixelBox => {
+    const dx = ((x1 - x0) * share) / 2;
+    const dy = ((y1 - y0) * share) / 2;
+    const left = Math.max(0, Math.floor(x0 - dx));
+    const top = Math.max(0, Math.floor(y0 - dy));
+    const right = Math.min(size.width, Math.ceil(x1 + dx));
+    const bottom = Math.min(size.height, Math.ceil(y1 + dy));
+    return { x: left, y: top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
+  };
+  const crop = grow(REGION_CONTEXT);
+  const paste = grow(REGION_PASTE);
+  const scale = REGION_WORK_SIDE / Math.max(crop.width, crop.height);
+  const eighth = (value: number) => Math.max(64, Math.round((value * scale) / 8) * 8);
+  return {
+    crop,
+    paste,
+    work: { width: eighth(crop.width), height: eighth(crop.height) },
+    feather: Math.max(6, Math.round(0.12 * Math.min(paste.width, paste.height))),
+  };
+}
 
 /**
  * Turn a text-to-image graph into an image-to-image one, in a COPY: the
@@ -227,6 +292,7 @@ export function withSourceImage(
   image: string,
   strength: number,
   size?: { width: number; height: number },
+  region?: { source: { width: number; height: number }; region: ImageRegion },
 ): ComfyWorkflowGraph {
   if (!Number.isFinite(strength) || strength <= 0 || strength > 1) {
     throw new ProviderError(
@@ -263,6 +329,7 @@ export function withSourceImage(
   }
   graph[SOURCE_LOAD_NODE] = { class_type: "LoadImage", inputs: { image } };
   let pixels: unknown[] = [SOURCE_LOAD_NODE, 0];
+  if (region !== undefined) return withRegion(graph, map, decoder, strength, region);
   if (size !== undefined) {
     graph[SOURCE_SCALE_NODE] = {
       class_type: "ImageScale",
@@ -282,6 +349,103 @@ export function withSourceImage(
   };
   sampler.inputs.latent_image = [SOURCE_ENCODE_NODE, 0];
   sampler.inputs.denoise = strength;
+  return graph;
+}
+
+/**
+ * The region edit's part of withSourceImage: crop the region with its context,
+ * scale it to the work size, redraw it from there, scale it back and paste
+ * only the paste box over the loaded source through a feathered mask, so every
+ * pixel outside that box stays the source's own.
+ */
+function withRegion(
+  graph: ComfyWorkflowGraph,
+  map: WorkflowInjectionMap,
+  decoder: ComfyWorkflowNode,
+  strength: number,
+  edit: { source: { width: number; height: number }; region: ImageRegion },
+): ComfyWorkflowGraph {
+  const { crop, paste, work, feather } = regionBoxes(edit.source, edit.region);
+  const sampler = graph[map.seedNode] as ComfyWorkflowNode;
+  const decoderId = Object.keys(graph).find((id) => graph[id] === decoder) as string;
+  graph[REGION_CROP_NODE] = {
+    class_type: "ImageCrop",
+    inputs: {
+      image: [SOURCE_LOAD_NODE, 0],
+      width: crop.width,
+      height: crop.height,
+      x: crop.x,
+      y: crop.y,
+    },
+  };
+  graph[SOURCE_SCALE_NODE] = {
+    class_type: "ImageScale",
+    inputs: {
+      image: [REGION_CROP_NODE, 0],
+      upscale_method: "lanczos",
+      width: work.width,
+      height: work.height,
+      crop: "disabled",
+    },
+  };
+  graph[SOURCE_ENCODE_NODE] = {
+    class_type: "VAEEncode",
+    inputs: { pixels: [SOURCE_SCALE_NODE, 0], vae: structuredClone(decoder.inputs.vae) },
+  };
+  sampler.inputs.latent_image = [SOURCE_ENCODE_NODE, 0];
+  sampler.inputs.denoise = strength;
+  graph[REGION_BACK_NODE] = {
+    class_type: "ImageScale",
+    inputs: {
+      image: [decoderId, 0],
+      upscale_method: "lanczos",
+      width: crop.width,
+      height: crop.height,
+      crop: "disabled",
+    },
+  };
+  graph[`${REGION_MASK_NODE}_blank`] = {
+    class_type: "SolidMask",
+    inputs: { value: 0, width: crop.width, height: crop.height },
+  };
+  graph[`${REGION_MASK_NODE}_box`] = {
+    class_type: "SolidMask",
+    inputs: { value: 1, width: paste.width, height: paste.height },
+  };
+  graph[`${REGION_MASK_NODE}_soft`] = {
+    class_type: "FeatherMask",
+    inputs: {
+      mask: [`${REGION_MASK_NODE}_box`, 0],
+      left: feather,
+      top: feather,
+      right: feather,
+      bottom: feather,
+    },
+  };
+  graph[REGION_MASK_NODE] = {
+    class_type: "MaskComposite",
+    inputs: {
+      destination: [`${REGION_MASK_NODE}_blank`, 0],
+      source: [`${REGION_MASK_NODE}_soft`, 0],
+      x: paste.x - crop.x,
+      y: paste.y - crop.y,
+      operation: "add",
+    },
+  };
+  graph[REGION_PASTE_NODE] = {
+    class_type: "ImageCompositeMasked",
+    inputs: {
+      destination: [SOURCE_LOAD_NODE, 0],
+      source: [REGION_BACK_NODE, 0],
+      x: crop.x,
+      y: crop.y,
+      resize_source: false,
+      mask: [REGION_MASK_NODE, 0],
+    },
+  };
+  for (const node of Object.values(graph)) {
+    if (node.class_type === "SaveImage") node.inputs.images = [REGION_PASTE_NODE, 0];
+  }
   return graph;
 }
 

@@ -71,6 +71,12 @@ export interface ImageRequest {
     name: string;
     strength: number;
     size?: { width: number; height: number };
+    /**
+     * Only this part of the picture changes (fractions 0 to 1 of its width and
+     * height): it is redrawn larger with some context around it and pasted
+     * back with a soft edge; every pixel outside stays the source's.
+     */
+    region?: { x: number; y: number; w: number; h: number };
   };
   /**
    * Character LoRAs to draw with: the file name on the engine and the strength.

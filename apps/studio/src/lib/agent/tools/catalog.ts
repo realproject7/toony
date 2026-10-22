@@ -471,14 +471,26 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     kind: "write",
     step: "Changing the art",
     description:
-      "Change a cut's existing artwork while keeping its composition: the engine starts from the current image. Write the prompt in English as the whole picture should look after the change (view_cut shows the prompt that drew it). strength is how much may change: 0.3 small touch-ups (color, light, expression), 0.5 default, 0.7 larger changes (pose, clothing). To change the composition, use draw_cuts instead.",
+      "Change a cut's existing artwork while keeping its composition: the engine starts from the current image. Write the prompt in English as the whole picture should look after the change (view_cut shows the prompt that drew it). For a change inside the picture, such as a face's expression, a hand or a prop, give region: the part it is about, boxed on the picture view_cut shows (a face from brows to chin). Only that part is redrawn, larger so a small face can change, and pasted back; nothing outside it changes, and strength defaults to 0.7. With a region, write the prompt as that part should look ('close-up of her face, laughing'); in a two-person cut it is drawn with the person on that side only. Without region the whole picture is redrawn: use that for light, colour or the whole figure. strength is how much may change: 0.3 small touch-ups, 0.5 default, 0.7 larger changes (pose, clothing); with a region, 0.8 for a strong change such as a laugh. To change the composition, use draw_cuts instead.",
     inputSchema: obj(
       {
         episodeId,
         cutId,
         prompt: str("The image prompt after the change, in English."),
         negative: str("Optional: what to keep out of the picture, in English."),
-        strength: { type: "number", description: "From 0.1 to 0.9. Default 0.5." },
+        strength: {
+          type: "number",
+          description: "From 0.1 to 0.9. Default 0.5, or 0.7 with a region.",
+        },
+        region: obj(
+          {
+            x: { type: "number", description: "Left edge, 0 to 1 of the picture's width." },
+            y: { type: "number", description: "Top edge, 0 to 1 of the picture's height." },
+            w: { type: "number", description: "Width, 0 to 1." },
+            h: { type: "number", description: "Height, 0 to 1." },
+          },
+          ["x", "y", "w", "h"],
+        ),
       },
       ["episodeId", "cutId", "prompt"],
     ),
