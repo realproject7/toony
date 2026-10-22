@@ -92,7 +92,7 @@ const characterInput = obj({
   avoid: {
     type: ["string", "null"],
     description:
-      "What the engine tends to draw instead of their look, as short English tags it must not draw (for example: straight hair, stubble, gold earrings). Added to the negative of every picture that shows them. Never list what another cast member wears. null removes it.",
+      "What the engine tends to draw instead of their look, as short English tags it must not draw (for example: straight hair, stubble, gold earrings). Added to the negative of every picture that shows them. Never a tag their lockstring asks for or implies (a shaved head is also a bald head): it fights the lockstring and the engine draws neither. Never list what another cast member wears. null removes it.",
   },
   development: obj(
     {

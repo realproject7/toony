@@ -216,7 +216,9 @@ they are looking at.
   pulled the cuts away from the picture in testing). Without `choose`
   it draws one portrait and keeps it at once. A character's `avoid` tags (what
   the engine tends to draw instead of their look) go into the negative of every
-  picture that shows them. Every cut that shows the character, every edit and every
+  picture that shows them; none may name what the lockstring asks for or implies
+  (with "shaved head" in the lockstring, "bald head" in the avoid tags left no
+  candidate shaved in testing). Every cut that shows the character, every edit and every
   redraw is then drawn with it (the engine needs the IP-Adapter nodes; without
   them the cut is drawn from the lockstring alone and the tool says so). A cut
   with two people is drawn side by side: each person first alone in their half
