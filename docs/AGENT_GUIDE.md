@@ -243,9 +243,11 @@ they are looking at.
   `region`, the part it is about boxed on the picture `view_cut` shows: only
   that part is redrawn, larger so a small face can change, and pasted back with
   a soft edge, so nothing outside it changes (`strength` defaults to 0.7 there).
-  The prompt then says how that part should look ("close-up of her face,
-  laughing"); in a two-person cut the part is drawn with the person on its side
-  only.
+  The prompt then says how that part should look, naming what each feature
+  does for an expression ("close-up of her face, laughing out loud, mouth wide
+  open, eyes squeezed shut"): in testing a bare "laughing" came out as a grin,
+  and naming the features carried every request where a higher strength did
+  not. In a two-person cut the part is drawn with the person on its side only.
   Without a region the whole picture is redrawn; on three test edits that left
   every expression unchanged or half changed and re-rendered the whole cut.
   A `draw_cuts` item with `fromCutId` starts from another cut's finished
