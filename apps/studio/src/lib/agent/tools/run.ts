@@ -1240,7 +1240,7 @@ function trainSummary(view: TrainJobView): Record<string, unknown> {
 /** What the agent hears when a character's training ends. */
 export function trainFollowUp(view: TrainJobView, name: string): string {
   if (view.state === "drawn") {
-    return `The training set of ${name} is drawn (${view.drawn} pictures). Look at it with view_training_set: check the portrait (00) against the lockstring, then note the pictures that do not match the portrait (other hair, face, clothes or colors), show two of them or are broken. Then call train_character with drop set to those numbers (an empty list keeps them all); the training takes about an hour.`;
+    return `The training set of ${name} is drawn (${view.drawn} pictures). Look at it with view_training_set: check the portrait (00) against the lockstring, then note the pictures that clearly break the portrait's design (other hair, facial hair, clothes or colors, two figures, a broken drawing). Then call train_character with drop set to those numbers (an empty list keeps them all); the training takes about an hour.`;
   }
   if (view.kind === "set") {
     if (view.state === "stopped") return `Drawing the training set of ${name} was stopped.`;
@@ -1847,7 +1847,7 @@ async function viewTrainingSet(host: ToolHost, characterId: string): Promise<Too
         type: "text",
         text: JSON.stringify({
           ...facts,
-          note: "00 is the kept portrait. First compare it with the lockstring: if it misses it, keep a better portrait (draw_portraits, then draw_character with choose) and draw a new set (train_character with redraw: true). Otherwise drop the pictures that do not match 00 (other hair, face, clothes or colors), show two of them or are broken, with train_character and drop. If fewer than 10 would be left, draw a new set instead; when most pictures miss the same detail of 00 (its mustache, its eye color), name it in prompt.",
+          note: "00 is the kept portrait. First compare it with the lockstring: if it misses it, keep a better portrait (draw_portraits, then draw_character with choose) and draw a new set (train_character with redraw: true). Otherwise drop the pictures that clearly break 00's design (other hair, missing or other facial hair, other clothes or colors, two figures, a broken drawing) with train_character and drop. Small differences of shape or shade are fine: the training learns what the pictures share. If fewer than 10 would be left, draw a new set and name in prompt the detail most pictures miss (its mustache, say); after two new sets, keep the 10 or more closest pictures and train.",
         }),
       },
       ...(sheet

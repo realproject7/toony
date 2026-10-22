@@ -193,13 +193,15 @@ they are looking at.
   is kept, in two calls. The first draws about 22 pictures from the portrait in
   the background (views held closely, poses at the usual balance), captions each
   with a trigger word and the lockstring, and stops. The agent checks the set
-  with `view_training_set` and calls `train_character` again with `drop`, the
-  numbers of pictures that miss the portrait, show two of them or are broken (an
-  empty list keeps them all; the portrait stays, and at least 10 pictures must
-  remain). When a set keeps missing the same detail of the portrait (a mustache
-  the lockstring does not mention), the agent draws a new one with `redraw` and
-  `prompt` naming it; the detail is drawn into every picture but left out of the
-  captions, so the LoRA learns it as part of the character. That call runs the training command the person set up
+  with `view_training_set`. When most pictures miss the same detail of the
+  portrait (a mustache the lockstring does not mention), it draws a new set with
+  `redraw` and `prompt` naming it, at most twice; the detail is drawn into every
+  picture but left out of the captions, so the LoRA learns it as part of the
+  character. Then it calls `train_character` again with `drop`, the numbers of
+  pictures that clearly break the portrait's design, show two figures or are
+  broken (small differences of shape or shade stay; an empty list keeps them
+  all; the portrait stays, and at least 10 pictures must remain). That call runs
+  the training command the person set up
   (`TOONY_LORA_TRAIN_COMMAND`: a command with `{character}`, `{dataset}`,
   `{name}` and `{steps}` placeholders, run without a shell, that writes
   `{name}.safetensors` into the engine's LoRA folder). When it succeeds the
