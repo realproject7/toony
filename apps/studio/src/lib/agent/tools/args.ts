@@ -620,13 +620,16 @@ export function trainCharacterArgs(raw: unknown): {
   characterId: string;
   drop?: number[];
   redraw?: boolean;
+  prompt?: string;
 } {
   const args = argsObject(raw);
-  noExtra(args, ["characterId", "drop", "redraw"]);
+  noExtra(args, ["characterId", "drop", "redraw", "prompt"]);
   const redraw = bool(args, "redraw");
+  const prompt = optionalText(args, "prompt", 300);
   let drop: number[] | undefined;
   if (args.drop !== undefined) {
     if (redraw) fail("Give drop or redraw, not both.");
+    if (prompt !== undefined) fail("prompt is for drawing the set; give it without drop.");
     drop = list(args.drop, "drop", 0, 30).map((value, i) => {
       if (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > 99) {
         fail(`drop[${i}] must be a picture number from view_training_set.`);
@@ -638,6 +641,7 @@ export function trainCharacterArgs(raw: unknown): {
     characterId: id(args, "characterId", "a character"),
     ...(drop === undefined ? {} : { drop }),
     ...(redraw ? { redraw } : {}),
+    ...(prompt === undefined ? {} : { prompt }),
   };
 }
 

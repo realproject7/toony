@@ -327,6 +327,9 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
           type: "boolean",
           description: "Draw a new set even though one is waiting for its check.",
         },
+        prompt: str(
+          "When drawing a set: details of the portrait the lockstring leaves open that every picture must keep, in English (for example: thick black mustache, dark brown eyes). Use it when a set misses the same detail again and again.",
+        ),
       },
       ["characterId"],
     ),

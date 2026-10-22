@@ -627,7 +627,16 @@ const WRITES: Record<string, WriteTool> = {
       };
       const ctx = opContext(host, work);
       if (args.drop === undefined) {
-        const job = startTrainingSet({ ctx, character, portrait, env: process.env }, listener);
+        const job = startTrainingSet(
+          {
+            ctx,
+            character,
+            portrait,
+            ...(args.prompt ? { details: args.prompt } : {}),
+            env: process.env,
+          },
+          listener,
+        );
         show(job);
         return {
           result: {
@@ -1838,7 +1847,7 @@ async function viewTrainingSet(host: ToolHost, characterId: string): Promise<Too
         type: "text",
         text: JSON.stringify({
           ...facts,
-          note: "00 is the kept portrait. First compare it with the lockstring: if it misses it, keep a better portrait (draw_portraits, then draw_character with choose) and draw a new set (train_character with redraw: true). Otherwise drop the pictures that do not match 00 (other hair, face, clothes or colors), show two of them or are broken, with train_character and drop. If fewer than 10 would be left, draw a new set instead.",
+          note: "00 is the kept portrait. First compare it with the lockstring: if it misses it, keep a better portrait (draw_portraits, then draw_character with choose) and draw a new set (train_character with redraw: true). Otherwise drop the pictures that do not match 00 (other hair, face, clothes or colors), show two of them or are broken, with train_character and drop. If fewer than 10 would be left, draw a new set instead; when most pictures miss the same detail of 00 (its mustache, its eye color), name it in prompt.",
         }),
       },
       ...(sheet

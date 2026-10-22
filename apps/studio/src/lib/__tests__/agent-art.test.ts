@@ -962,8 +962,24 @@ if (args[0] === "fail") { console.error("out of memory at step 3"); process.exit
   // A trainer that fails is reported plainly, the character keeps drawing as before,
   // and the checked set stays for another try.
   process.env.TOONY_LORA_TRAIN_COMMAND = `${process.execPath} ${join(bin, "train.mjs")} fail {dataset}`;
-  const redrawing = json(await runTool(host, "train_character", { characterId: "mina" }));
+  // A detail the agent names is drawn into every picture of the new set but not captioned.
+  assert.match(
+    errorText(
+      await runTool(host, "train_character", { characterId: "mina", drop: [], prompt: "freckles" }),
+    ),
+    /prompt is for drawing the set/,
+  );
+  const redrawing = json(
+    await runTool(host, "train_character", {
+      characterId: "mina",
+      prompt: "freckles across the nose",
+    }),
+  );
   assert.equal((await waitForTrainJob(String(redrawing.jobId), 10_000))?.state, "drawn");
+  assert.ok(
+    asked.slice(-22).every((options) => options.prompt.includes(", freckles across the nose, ")),
+  );
+  assert.doesNotMatch(await readFile(join(String(dataset), "01.txt"), "utf8"), /freckles/);
   assert.notDeepEqual(
     asked.slice(-22).map((options) => options.seed),
     set.map((options) => options.seed),
