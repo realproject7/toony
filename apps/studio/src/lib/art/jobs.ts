@@ -34,6 +34,8 @@ export interface ArtJobItem {
   seed?: number | "fresh";
   /** Draw from this cut's picture (a continuity source) instead of from noise. */
   fromCutId?: string;
+  /** An edit that changes only this part of the picture (fractions of the source). */
+  region?: { x: number; y: number; w: number; h: number };
 }
 
 export interface ArtJobParams {
@@ -335,6 +337,10 @@ async function drawOne(record: JobRecord, cut: ArtJobCut, item: ArtJobItem): Pro
   if (item.seed !== undefined) args.push("--seed", String(item.seed));
   if (params.kind === "edit") {
     args.push("--source", "current", "--strength", String(params.strength ?? 0.5));
+    if (item.region !== undefined) {
+      const { x, y, w, h } = item.region;
+      args.push("--region", [x, y, w, h].map((n) => Number(n.toFixed(4))).join(","));
+    }
   } else if (item.fromCutId !== undefined) {
     args.push("--source", `cut:${item.fromCutId}`, "--strength", String(CONTINUITY_STRENGTH));
   }

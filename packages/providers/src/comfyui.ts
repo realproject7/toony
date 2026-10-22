@@ -25,6 +25,7 @@ import {
 import {
   buildWorkflow,
   type ComfyWorkflowGraph,
+  type ImageRegion,
   REFERENCE_DEFAULT,
   REFERENCE_STRONG,
   type ReferenceImage,
@@ -36,7 +37,7 @@ import {
   withSourceImage,
 } from "./comfyui-workflow.js";
 import { ProviderError } from "./errors.js";
-import { contentTypeFor, detectImageFormat } from "./format.js";
+import { contentTypeFor, detectImageFormat, readImageSize } from "./format.js";
 import type { ImageProvider, ImageRequest, ProviderResult } from "./types.js";
 
 /** A minimal fetch surface, so tests can drive the client without a server. */
@@ -241,6 +242,17 @@ export class ComfyUIProvider implements ImageProvider {
     if (request.source !== undefined) {
       // Check the graph can take a source before anything is uploaded.
       withSourceImage(graph, this.config.injectionMap, "", request.source.strength);
+      let region: { source: { width: number; height: number }; region: ImageRegion } | undefined;
+      if (request.source.region !== undefined) {
+        const size = readImageSize(request.source.bytes);
+        if (size === null) {
+          throw new ProviderError(
+            "comfyui.region-source",
+            "the picture to edit has no readable size, so a region of it cannot be edited; edit the whole picture instead.",
+          );
+        }
+        region = { source: size, region: request.source.region };
+      }
       const uploaded = await this.upload(request.source, "image to edit");
       graph = withSourceImage(
         graph,
@@ -248,6 +260,7 @@ export class ComfyUIProvider implements ImageProvider {
         uploaded,
         request.source.strength,
         request.source.size,
+        region,
       );
     }
     const clientId = randomUUID();

@@ -76,7 +76,8 @@ Toony Studio" at the end.
    `toony produce run ... --from <file>`. `toony generate` and
    `toony import-image` work on single cuts, and
    `toony generate --cut <cut> --source current --strength 0.5 --prompt <text>`
-   changes a cut's current image while keeping its composition.
+   changes a cut's current image while keeping its composition; add
+   `--region x,y,w,h` (fractions of the picture) to change only that part.
    Before a run, inspect the resolved provider inputs without submitting an
    image request:
 
@@ -238,6 +239,15 @@ they are looking at.
   null for all of it); the person frames cuts and reuses another cut's picture
   from the cut editor's Frame button. Change a cut's art with
   `edit_cut_art`, which starts from the current image (`strength` 0.1 to 0.9).
+  For a change inside the picture (a face's expression, a hand, a prop) give
+  `region`, the part it is about boxed on the picture `view_cut` shows: only
+  that part is redrawn, larger so a small face can change, and pasted back with
+  a soft edge, so nothing outside it changes (`strength` defaults to 0.7 there).
+  The prompt then says how that part should look ("close-up of her face,
+  laughing"); in a two-person cut the part is drawn with the person on its side
+  only.
+  Without a region the whole picture is redrawn; on three test edits that left
+  every expression unchanged or half changed and re-rendered the whole cut.
   A `draw_cuts` item with `fromCutId` starts from another cut's finished
   picture, for the next moment in the same place and a similar framing.
   Both run as a background job on the person's local ComfyUI: the tool waits a

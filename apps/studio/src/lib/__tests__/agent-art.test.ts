@@ -247,6 +247,61 @@ test("newTake rolls a new seed, edit_cut_art starts from the current image", asy
   assert.equal(edit[edit.indexOf("--source") + 1], "current");
   assert.equal(edit[edit.indexOf("--strength") + 1], "0.3");
   assert.ok(!edit.includes("--seed"), "an edit keeps the cut's seed");
+  assert.ok(!edit.includes("--region"), "without a region the whole picture is redrawn");
+
+  // A region edit redraws only that part, at 0.7 unless told otherwise.
+  const face = { x: 0.3, y: 0.35, w: 0.36, h: 0.2 };
+  json(
+    await runTool(host, "edit_cut_art", {
+      episodeId: "ep-001",
+      cutId: "cut-001",
+      prompt: "harbor at night, she smiles",
+      region: face,
+    }),
+  );
+  const regioned = runner.calls.at(-1) ?? [];
+  assert.equal(regioned[regioned.indexOf("--strength") + 1], "0.7");
+  assert.equal(regioned[regioned.indexOf("--region") + 1], "0.3,0.35,0.36,0.2");
+  // The agent boxes what view_cut shows; through the cut's image view it maps to the source.
+  json(
+    await runTool(host, "edit_cuts", {
+      episodeId: "ep-001",
+      operations: [
+        { op: "update", cutId: "cut-001", view: { x: 0, y: 0.5, width: 1, height: 0.5 } },
+      ],
+    }),
+  );
+  json(
+    await runTool(host, "edit_cut_art", {
+      episodeId: "ep-001",
+      cutId: "cut-001",
+      prompt: "harbor at night, she smiles",
+      region: face,
+      strength: 0.8,
+    }),
+  );
+  const viewed = runner.calls.at(-1) ?? [];
+  assert.equal(viewed[viewed.indexOf("--strength") + 1], "0.8");
+  assert.equal(viewed[viewed.indexOf("--region") + 1], "0.3,0.675,0.36,0.1");
+  for (const region of [
+    { x: 0.8, y: 0.1, w: 0.4, h: 0.2 },
+    { x: 0.1, y: 0.1, w: 0, h: 0.2 },
+    { x: 0.1, y: 0.1, w: 0.2 },
+    { x: 0.1, y: 0.1, w: 0.2, h: 0.2, z: 1 },
+  ]) {
+    assert.match(
+      errorText(
+        await runTool(host, "edit_cut_art", {
+          episodeId: "ep-001",
+          cutId: "cut-001",
+          prompt: "x",
+          region,
+        }),
+      ),
+      /region/,
+      JSON.stringify(region),
+    );
+  }
 
   assert.match(
     errorText(

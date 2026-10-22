@@ -30,6 +30,7 @@ import { EXIT_OK, EXIT_USAGE } from "../exit.js";
 import {
   type GenerateEvent,
   type GenerateIo,
+  regionCast,
   renderImage,
   runGenerate,
   sidePrompt,
@@ -362,6 +363,57 @@ test("--source cut:<id> starts from another cut's image at this cut's size and r
     strength: 0.8,
     cutId,
   });
+});
+
+test("--region changes only part of the cut's picture, and is recorded with the source", async () => {
+  const { dir, episodeId, cutId } = await project();
+  const base = [dir, "--episode", episodeId, "--cut", cutId, "--prompt", "a smile"];
+  assert.equal(await runGenerate([...base, "--seed", "3"], io({ keepCutPrompt: true })), EXIT_OK);
+  const errors: string[] = [];
+  const quiet = io({ keepCutPrompt: true, err: (line) => errors.push(line) });
+  assert.equal(await runGenerate([...base, "--region", "0.2,0.3,0.4,0.2"], quiet), EXIT_USAGE);
+  assert.match(errors.join("\n"), /--region requires --source current/);
+  for (const bad of ["0.2,0.3,0.4", "0.8,0.3,0.4,0.2", "0.2,0.3,0,0.2", "a,b,c,d"]) {
+    assert.equal(
+      await runGenerate([...base, "--source", "current", "--region", bad], quiet),
+      EXIT_USAGE,
+      bad,
+    );
+  }
+  const before = comfy.graphs().length;
+  const code = await runGenerate(
+    [...base, "--source", "current", "--strength", "0.7", "--region", "0.2,0.3,0.4,0.2"],
+    io({ keepCutPrompt: true }),
+  );
+  assert.equal(code, EXIT_OK);
+  assert.equal(comfy.graphs().length, before + 1);
+  const graph = comfy.graphs().at(-1);
+  assert.equal(graph?.toony_region_crop?.class_type, "ImageCrop");
+  assert.equal(graph?.toony_region_paste?.class_type, "ImageCompositeMasked");
+  assert.equal(graph?.["3"]?.inputs.denoise, 0.7);
+  const log = JSON.parse(
+    await readFile(join(dir, "episodes", episodeId, "logs", "ingest.json"), "utf8"),
+  ) as Array<{ renderInputs?: { source?: { region?: unknown; strength: number } } }>;
+  assert.deepEqual(log.at(-1)?.renderInputs?.source?.region, { x: 0.2, y: 0.3, w: 0.4, h: 0.2 });
+});
+
+test("a region edit of a two-person cut draws only the person on the region's side", () => {
+  const cut = {
+    id: "cut-007",
+    imagePrompt: "two people on a pier",
+    negativePrompt: "",
+    characters: ["mina", "doyun"],
+  } as unknown as Parameters<typeof regionCast>[0];
+  const left = { x: 0.13, y: 0.23, w: 0.2, h: 0.14 };
+  assert.deepEqual(regionCast(cut, left)?.characters, ["mina"]);
+  assert.deepEqual(regionCast(cut, { ...left, x: 0.62 })?.characters, ["doyun"]);
+  assert.deepEqual(regionCast(cut, { x: 0.1, y: 0.2, w: 0.8, h: 0.3 })?.characters, [
+    "mina",
+    "doyun",
+  ]);
+  assert.deepEqual(regionCast(cut, undefined)?.characters, ["mina", "doyun"]);
+  const one = { ...cut, characters: ["mina"] } as typeof cut;
+  assert.equal(regionCast(one, left), one);
 });
 
 test("--source refuses a cut with no image, and --strength needs --source and a value in range", async () => {

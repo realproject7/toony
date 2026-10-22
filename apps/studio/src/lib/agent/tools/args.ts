@@ -588,6 +588,10 @@ const PROMPT_MAX = 2000;
 export const DRAW_CUTS_MAX = 24;
 /** How much of the current image an edit may change, when the agent names no strength. */
 export const EDIT_STRENGTH_DEFAULT = 0.5;
+/** A region edit redraws only its part, so it may change that part more. */
+export const EDIT_REGION_STRENGTH_DEFAULT = 0.7;
+/** A region's smallest side, as a fraction of the picture. */
+export const EDIT_REGION_MIN = 0.02;
 export const EDIT_STRENGTH_MIN = 0.1;
 export const EDIT_STRENGTH_MAX = 0.9;
 /** The longest an art status call waits for progress, in seconds. */
@@ -701,10 +705,27 @@ export function editCutArtArgs(raw: unknown): {
   prompt: string;
   negative?: string;
   strength: number;
+  region?: { x: number; y: number; w: number; h: number };
 } {
   const args = argsObject(raw);
-  noExtra(args, ["episodeId", "cutId", "prompt", "negative", "strength"]);
-  const strength = args.strength ?? EDIT_STRENGTH_DEFAULT;
+  noExtra(args, ["episodeId", "cutId", "prompt", "negative", "strength", "region"]);
+  let region: { x: number; y: number; w: number; h: number } | undefined;
+  if (args.region !== undefined) {
+    const r = argsObject(args.region);
+    noExtra(r, ["x", "y", "w", "h"], "region fields");
+    const where =
+      "region must be {x, y, w, h}: fractions from 0 to 1 of the picture view_cut shows, the box inside it";
+    const n = (key: string) => {
+      const value = r[key];
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1)
+        fail(where);
+      return value;
+    };
+    region = { x: n("x"), y: n("y"), w: n("w"), h: n("h") };
+    if (region.w < EDIT_REGION_MIN || region.h < EDIT_REGION_MIN) fail(where);
+    if (region.x + region.w > 1.0001 || region.y + region.h > 1.0001) fail(where);
+  }
+  const strength = args.strength ?? (region ? EDIT_REGION_STRENGTH_DEFAULT : EDIT_STRENGTH_DEFAULT);
   if (
     typeof strength !== "number" ||
     !Number.isFinite(strength) ||
@@ -720,6 +741,7 @@ export function editCutArtArgs(raw: unknown): {
     prompt: text(args, "prompt", PROMPT_MAX),
     ...(negative === undefined ? {} : { negative }),
     strength,
+    ...(region === undefined ? {} : { region }),
   };
 }
 

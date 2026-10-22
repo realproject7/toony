@@ -35,8 +35,10 @@ export {
   HALF_SAMPLER_NODE,
   HALF_TEXT_NODE,
   HALVES_JOINED_NODE,
+  type ImageRegion,
   LORA_NODE,
   type LoraUse,
+  type PixelBox,
   parseWorkflowGraph,
   REFERENCE_ADAPTER_NODE,
   REFERENCE_APPLY_NODE,
@@ -46,7 +48,15 @@ export {
   REFERENCE_STRONG,
   REFERENCE_WEIGHT,
   REFERENCE_WEIGHT_TYPE,
+  REGION_BACK_NODE,
+  REGION_CONTEXT,
+  REGION_CROP_NODE,
+  REGION_MASK_NODE,
+  REGION_PASTE,
+  REGION_PASTE_NODE,
+  REGION_WORK_SIDE,
   type ReferenceImage,
+  regionBoxes,
   SIDE_BY_SIDE_BLEND,
   SIDE_BY_SIDE_LORA_WHOLE,
   type SideBySidePerson,
@@ -62,7 +72,7 @@ export {
   withSourceImage,
 } from "./comfyui-workflow.js";
 export { ProviderError } from "./errors.js";
-export { contentTypeFor, detectImageFormat, extensionFor } from "./format.js";
+export { contentTypeFor, detectImageFormat, extensionFor, readImageSize } from "./format.js";
 export { ManualImportProvider } from "./manual.js";
 export { stripImageMetadata } from "./strip.js";
 export type {

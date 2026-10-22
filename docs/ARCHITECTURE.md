@@ -592,7 +592,17 @@ shorter than the workflow's latent widens the column to keep the baseline
 pixel count (`keepDetail`), where the CLI refuses without an explicit width. `edit_cut_art` adds
 `--source current --strength <n>`: the provider loads the current image,
 encodes it with the graph's own VAE and starts the sampler from it (image to
-image). A `draw_cuts` item with `fromCutId` adds `--source cut:<id>` at
+image). With a `region` the tool adds `--region x,y,w,h` (the agent's box on
+the picture `view_cut` shows, mapped through the cut's image view to the
+source): the provider reads the source's size from its header and
+`regionBoxes` derives a crop (the region grown by 60% for context), scaled so
+its long side is 1024, and a paste box (grown by 20%); the graph crops, scales,
+redraws, scales back and pastes only the paste box through a feathered mask
+(`ImageCrop`, `ImageScale`, `ImageCompositeMasked`), so every pixel outside it
+is the source's own. In a two-person cut `regionCast` keeps only the person on
+the side the region's centre falls on (lockstring, LoRA and reference), unless
+the region spans the middle. The region is recorded with the source in the
+ingest log and is part of the repeat check. A `draw_cuts` item with `fromCutId` adds `--source cut:<id>` at
 `CONTINUITY_STRENGTH` (0.8): the other cut's image, scaled to this cut's size,
 is the starting point, so place, light and colours carry over. Because the
 character references attach to every run, an edit and a continued cut are drawn

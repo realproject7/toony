@@ -62,7 +62,9 @@
 // from noise (image to image): its bytes go to the provider as the starting
 // image and `--strength` (above 0, at most 1, default 0.5) says how much of it
 // may change. The source's sha256 and the strength are recorded with the other
-// inputs, so the log says which image an edit started from.
+// inputs, so the log says which image an edit started from. `--region x,y,w,h`
+// (fractions of the picture) changes only that part: the provider redraws it
+// larger with some context and pastes it back, and the region is recorded too.
 //
 // Studio's agent tools run this same function in-process. `GenerateIo.commit`
 // lets such a caller wrap each image's writes (the ingest and the record) in its
@@ -90,6 +92,7 @@ import {
 import {
   ComfyUIProvider,
   type ImageProvider,
+  type ImageRegion,
   type ImageRequest,
   ProviderError,
   randomSeed,
@@ -188,6 +191,7 @@ const VALUE_FLAGS = new Set([
   "--framing",
   "--source",
   "--strength",
+  "--region",
 ]);
 /** `--cut` repeats so one run covers a whole episode (#204). */
 const LIST_FLAGS = new Set(["--cut"]);
@@ -220,7 +224,7 @@ function parseFlags(args: string[]): Flags | { error: string } {
 }
 
 const USAGE =
-  "usage: toony generate [path] --episode <id> ([--cut <id> ...] --review-status draft|human-edited|final | --cut <id> [--cut <id> ...] | --transition <id>) [--slot clean|final] --prompt <text> [--negative <text>] [--width <px>] [--height <px>] [--seed <n>|fresh] [--workflow <name>] [--provider comfyui] [--allow-remote] [--framing scene|detail] [--source current|cut:<id> [--strength <0-1>]] [--dry-run [--json]]";
+  "usage: toony generate [path] --episode <id> ([--cut <id> ...] --review-status draft|human-edited|final | --cut <id> [--cut <id> ...] | --transition <id>) [--slot clean|final] --prompt <text> [--negative <text>] [--width <px>] [--height <px>] [--seed <n>|fresh] [--workflow <name>] [--provider comfyui] [--allow-remote] [--framing scene|detail] [--source current|cut:<id> [--strength <0-1>] [--region <x,y,w,h>]] [--dry-run [--json]]";
 
 /** The `--seed` value that asks for a new roll rather than a number (#286). */
 export const FRESH_SEED = "fresh";
@@ -585,6 +589,25 @@ function referenceCandidates(
 }
 
 /**
+ * A region edit of a two-person cut draws only the person on the side the
+ * region's centre falls on (each stands on their side, see `castSides`), with
+ * their look alone: the other person's lockstring, LoRA and reference would
+ * pull a face crop toward them. A region across the middle keeps both.
+ */
+export function regionCast(cut: Cut | undefined, region: ImageRegion | undefined): Cut | undefined {
+  if (cut === undefined || region === undefined) return cut;
+  const sides = castSides(cut);
+  if (sides.length !== 2) return cut;
+  const centre = region.x + region.w / 2;
+  if (region.w > 0.6 || Math.abs(centre - 0.5) < 0.05) return cut;
+  const side = centre < 0.5 ? "left" : "right";
+  const person = sides.find((s) => s.side === side)?.characterId;
+  if (person === undefined) return cut;
+  const { artDirection: _direction, ...rest } = cut;
+  return { ...rest, characters: [person] };
+}
+
+/**
  * Who a cut shows and where they stand, for what conditions a render per
  * person: one person over the whole frame; two people each on their side, read
  * off the art direction's subject position when it names one, else the cast
@@ -729,6 +752,7 @@ async function attachSources(
   bundle: EpisodeBundle | undefined,
   strength: number,
   fromCutId?: string,
+  region?: ImageRegion,
 ): Promise<{ error: string } | null> {
   let realRoot: string;
   try {
@@ -773,11 +797,21 @@ async function attachSources(
     const sha256 = createHash("sha256").update(bytes).digest("hex");
     entry.job.inputs = {
       ...entry.job.inputs,
-      source: { sha256, strength, ...(fromCutId === undefined ? {} : { cutId: fromCutId }) },
+      source: {
+        sha256,
+        strength,
+        ...(fromCutId === undefined ? {} : { cutId: fromCutId }),
+        ...(region === undefined ? {} : { region }),
+      },
     };
     entry.job.request = {
       ...entry.job.request,
-      source: { bytes, name: basename(assetPath), strength },
+      source: {
+        bytes,
+        name: basename(assetPath),
+        strength,
+        ...(region === undefined ? {} : { region }),
+      },
     };
   }
   return null;
@@ -796,6 +830,8 @@ interface PlanInput {
   /** `--workflow`, which overrides what a cut recorded for this run only. */
   workflow?: string;
   framing?: "scene" | "detail";
+  /** `--region`: the part of each cut's picture an edit changes. */
+  region?: ImageRegion;
   /** Size and seed flags, which apply to every job in the run. */
   shared: Readonly<Record<string, string | number>>;
 }
@@ -987,7 +1023,10 @@ function planJobs(
 
   const jobs: Job[] = [];
   for (const cutId of cutIds) {
-    const cut = bundle?.cuts.find((c) => c.id === cutId);
+    const cut = regionCast(
+      bundle?.cuts.find((c) => c.id === cutId),
+      input.region,
+    );
     let cutPrompt = prompt;
     let cutNegative = negative;
     if (cut) {
@@ -1486,8 +1525,22 @@ const REPEAT_INPUTS: Record<keyof RenderInputs, RepeatInput> = {
 };
 
 /** One string for an edit's source as recorded or as submitted. */
+/** `x,y,w,h` as fractions of the picture, or null when it is not a box inside it. */
+export function parseRegion(text: string): ImageRegion | null {
+  const parts = text.split(",").map((part) => Number(part.trim()));
+  if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) return null;
+  const [x, y, w, h] = parts as [number, number, number, number];
+  const inside = (n: number) => n >= 0 && n <= 1;
+  if (!inside(x) || !inside(y) || w <= 0 || h <= 0) return null;
+  if (x + w > 1 + 1e-9 || y + h > 1 + 1e-9) return null;
+  return { x, y, w, h };
+}
+
 function sourceKey(source: RenderInputs["source"]): string | undefined {
-  return source === undefined ? undefined : `${source.sha256}@${source.strength}`;
+  if (source === undefined) return undefined;
+  const region = source.region;
+  const where = region === undefined ? "" : `#${region.x},${region.y},${region.w},${region.h}`;
+  return `${source.sha256}@${source.strength}${where}`;
 }
 
 /**
@@ -1614,6 +1667,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   const framing = parsed.values.get("--framing");
   const source = parsed.values.get("--source");
   const strengthFlag = parsed.values.get("--strength");
+  const regionFlag = parsed.values.get("--region");
   const dryRun = parsed.booleans.has("--dry-run");
   if (framing !== undefined && framing !== "scene" && framing !== "detail") {
     io.err("--framing must be scene or detail");
@@ -1650,6 +1704,17 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   const strength = strengthFlag === undefined ? DEFAULT_EDIT_STRENGTH : Number(strengthFlag);
   if (!Number.isFinite(strength) || strength <= 0 || strength > 1) {
     io.err("--strength must be a number above 0 and at most 1");
+    return EXIT_USAGE;
+  }
+  if (regionFlag !== undefined && source !== "current") {
+    io.err("--region requires --source current: it changes part of the cut's own picture");
+    return EXIT_USAGE;
+  }
+  const region = regionFlag === undefined ? undefined : parseRegion(regionFlag);
+  if (region === null) {
+    io.err(
+      "--region must be x,y,w,h: fractions from 0 to 1 of the picture's width and height, with w and h above 0 and the box inside the picture",
+    );
     return EXIT_USAGE;
   }
   if (episodeId === undefined) {
@@ -1818,6 +1883,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
     ...(workflowFlag === undefined ? {} : { workflow: workflowFlag }),
     shared,
     ...(framing === undefined ? {} : { framing }),
+    ...(region === undefined ? {} : { region }),
   });
   if ("error" in jobs) {
     io.err(jobs.error);
@@ -1890,6 +1956,7 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
       loaded.project.episodes.find((b) => b.episode.id === episodeId),
       strength,
       fromCutId,
+      region,
     );
     if (sourced !== null) {
       io.err(sourced.error);

@@ -989,8 +989,25 @@ const WRITES: Record<string, WriteTool> = {
         scopes: [{ kind: "artwork", episodeId: args.episodeId, cutId: args.cutId }],
       };
     },
-    perform: async (host, args: ReturnType<typeof A.editCutArtArgs>) =>
-      runArt(
+    perform: async (host, args: ReturnType<typeof A.editCutArtArgs>) => {
+      let region = args.region;
+      if (region !== undefined) {
+        // The agent sees the cut through its image view (view_cut); the edit works on the source.
+        const work = await requireWork(host);
+        const cut = findBundle(await loadProject(work.root), args.episodeId)?.cuts.find(
+          (c) => c.id === args.cutId,
+        );
+        const view = cut?.imageView;
+        if (view) {
+          region = {
+            x: view.x + region.x * view.width,
+            y: view.y + region.y * view.height,
+            w: region.w * view.width,
+            h: region.h * view.height,
+          };
+        }
+      }
+      return runArt(
         host,
         "edit",
         args.episodeId,
@@ -1000,10 +1017,12 @@ const WRITES: Record<string, WriteTool> = {
             label: args.cutId,
             prompt: args.prompt,
             ...(args.negative === undefined ? {} : { negative: args.negative }),
+            ...(region === undefined ? {} : { region }),
           },
         ],
         args.strength,
-      ),
+      );
+    },
   },
   import_artwork: {
     parse: A.importArtworkArgs,
