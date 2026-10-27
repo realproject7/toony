@@ -355,6 +355,23 @@ test("two people with their own prompts are drawn side by side, then together", 
   );
   assert.equal(continued[`${HALF_SAMPLER_NODE}_left`]?.inputs.denoise, 0.8);
   assert.equal(continued[`${HALF_SAMPLER_NODE}_right`]?.inputs.denoise, 0.8);
+  // The halves meet over the source itself: each is cut at the middle and
+  // fades into it there, so neither redraws the other person's edge.
+  const meeting = continued[HALVES_JOINED_NODE];
+  const leftJoin = continued.toony_halves_left;
+  assert.deepEqual(leftJoin?.inputs.samples_to, [SOURCE_ENCODE_NODE, 0]);
+  assert.deepEqual(
+    [continued.toony_halves_left_part?.inputs.width, leftJoin?.inputs.x, meeting?.inputs.x],
+    [416, 0, 416],
+    "the left half ends and the right half starts at the middle",
+  );
+  assert.deepEqual(
+    [continued.toony_halves_right_part?.inputs.x, continued.toony_halves_right_part?.inputs.width],
+    [416 - (832 - 512), 416],
+    "the right half is cropped from where the middle falls in it",
+  );
+  assert.ok((leftJoin?.inputs.feather as number) > 0 && (meeting?.inputs.feather as number) > 0);
+  assert.equal(continued.toony_halves_canvas, undefined);
   assert.deepEqual(continued["3"]?.inputs.latent_image, [HALVES_JOINED_NODE, 0]);
   assert.equal(continued["3"]?.inputs.denoise, SIDE_BY_SIDE_BLEND);
   assert.equal(seen.uploads, 2 + 3, "the source is uploaded once, with the two references");
@@ -366,7 +383,12 @@ test("two people with their own prompts are drawn side by side, then together", 
       { bytes: PNG, name: "mara.png", side: "left", prompt: "one person, mara" },
       { bytes: PNG, name: "ren.png", side: "right", prompt: "one person, ren" },
     ],
-    source: { bytes: pngOfSize(832, 1216), name: "cut.png", strength: 0.5, region: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 } },
+    source: {
+      bytes: pngOfSize(832, 1216),
+      name: "cut.png",
+      strength: 0.5,
+      region: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+    },
   });
   const edited = seen.graphs[2] as Record<string, Node>;
   assert.equal(edited[`${HALF_SAMPLER_NODE}_left`], undefined);

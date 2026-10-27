@@ -835,30 +835,73 @@ export function withSideBySide(
   });
   const left = halves.find((h) => h.side === "left") ?? halves[0];
   const right = halves.find((h) => h.side === "right") ?? halves[1];
-  graph.toony_halves_canvas = {
-    class_type: "EmptyLatentImage",
-    inputs: { width, height, batch_size: 1 },
-  };
-  graph.toony_halves_left = {
-    class_type: "LatentComposite",
-    inputs: {
-      samples_to: ["toony_halves_canvas", 0],
-      samples_from: left?.latent,
-      x: 0,
-      y: 0,
-      feather: 0,
-    },
-  };
-  graph[HALVES_JOINED_NODE] = {
-    class_type: "LatentComposite",
-    inputs: {
-      samples_to: ["toony_halves_left", 0],
-      samples_from: right?.latent,
-      x: width - half,
-      y: 0,
-      feather: Math.min(128, round8(overlap / 2)),
-    },
-  };
+  const fade = Math.min(128, round8(overlap / 2));
+  if (source === undefined) {
+    graph.toony_halves_canvas = {
+      class_type: "EmptyLatentImage",
+      inputs: { width, height, batch_size: 1 },
+    };
+    graph.toony_halves_left = {
+      class_type: "LatentComposite",
+      inputs: {
+        samples_to: ["toony_halves_canvas", 0],
+        samples_from: left?.latent,
+        x: 0,
+        y: 0,
+        feather: 0,
+      },
+    };
+    graph[HALVES_JOINED_NODE] = {
+      class_type: "LatentComposite",
+      inputs: {
+        samples_to: ["toony_halves_left", 0],
+        samples_from: right?.latent,
+        x: width - half,
+        y: 0,
+        feather: fade,
+      },
+    };
+  } else {
+    // A continued picture keeps its source where the two people meet: each
+    // half is cut at the middle and fades into the source there, so neither
+    // half redraws the other person's edge (drawn alone, a half turned the
+    // other's hair into haze at the seam in every test seed).
+    const middle = round8(width / 2);
+    graph.toony_halves_left_part = {
+      class_type: "LatentCrop",
+      inputs: { samples: left?.latent, width: middle, height, x: 0, y: 0 },
+    };
+    graph.toony_halves_right_part = {
+      class_type: "LatentCrop",
+      inputs: {
+        samples: right?.latent,
+        width: width - middle,
+        height,
+        x: middle - (width - half),
+        y: 0,
+      },
+    };
+    graph.toony_halves_left = {
+      class_type: "LatentComposite",
+      inputs: {
+        samples_to: [SOURCE_ENCODE_NODE, 0],
+        samples_from: ["toony_halves_left_part", 0],
+        x: 0,
+        y: 0,
+        feather: fade,
+      },
+    };
+    graph[HALVES_JOINED_NODE] = {
+      class_type: "LatentComposite",
+      inputs: {
+        samples_to: ["toony_halves_left", 0],
+        samples_from: ["toony_halves_right_part", 0],
+        x: middle,
+        y: 0,
+        feather: fade,
+      },
+    };
+  }
   blend.inputs.latent_image = [HALVES_JOINED_NODE, 0];
   blend.inputs.denoise = SIDE_BY_SIDE_BLEND;
   return graph;

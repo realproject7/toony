@@ -159,8 +159,8 @@ to do with it (an IP-Adapter, a ControlNet, an image prompt node). A workflow
 without a `reference` entry gets the picture through the engine's IP-Adapter
 community nodes when they are installed: Toony adds a loader and one adapter per
 person between your model chain and the sampler (two people are each masked to
-their side of the frame, and a fresh two-person picture is first drawn as two
-halves, one person each, which needs a numeric latent size and a text encoder at
+their side of the frame, and a two-person picture, fresh or continued from
+another cut, is first drawn as two halves, one person each, which needs a numeric latent size and a text encoder at
 the positive node). Without those nodes such a workflow receives no upload
 and no changed input, so a pack that never declares one is unaffected.
 

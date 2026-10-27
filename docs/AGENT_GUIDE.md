@@ -251,7 +251,8 @@ they are looking at.
   Without a region the whole picture is redrawn; on three test edits that left
   every expression unchanged or half changed and re-rendered the whole cut.
   A `draw_cuts` item with `fromCutId` starts from another cut's finished
-  picture, for the next moment in the same place and a similar framing.
+  picture, for the next moment in the same place and a similar framing; in a
+  two-person cut each person is redrawn from their own side of it.
   Both run as a background job on the person's local ComfyUI: the tool waits a
   few minutes, returns while the rest is drawn, and a follow-up message reaches
   the agent when the job ends. `art_status` follows a job, `stop_drawing` stops
