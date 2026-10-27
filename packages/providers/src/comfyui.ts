@@ -30,6 +30,7 @@ import {
   REFERENCE_STRONG,
   type ReferenceImage,
   SIDE_BY_SIDE_LORA_WHOLE,
+  type SideBySideSource,
   type WorkflowParams,
   withLoras,
   withReferenceImages,
@@ -203,26 +204,48 @@ export class ComfyUIProvider implements ImageProvider {
     let graph = buildWorkflow(this.config.workflow, params, map);
     const loras = request.loras ?? [];
     const settings = request.referenceStrength === "strong" ? REFERENCE_STRONG : REFERENCE_DEFAULT;
-    // Two people with their own prompts, drawn fresh: each in their half first.
-    // An edit keeps the people where its source has them, so it only masks.
+    // Two people with their own prompts: each in their half first, drawn fresh
+    // or from their side of the picture continued from, so neither person's
+    // LoRA or words reach the other. A region edit keeps its masked path.
     const [first, second] = injected;
-    if (
+    const people =
       injected.length === 2 &&
-      request.source === undefined &&
       first?.side !== undefined &&
       first.prompt !== undefined &&
       second?.side !== undefined &&
       second.prompt !== undefined &&
       first.side !== second.side
-    ) {
+        ? ([
+            { image: first.image, side: first.side, prompt: first.prompt },
+            { image: second.image, side: second.side, prompt: second.prompt },
+          ] as const)
+        : undefined;
+    let halvesDrawn = false;
+    if (people !== undefined && request.source?.region === undefined) {
+      halvesDrawn = true;
       const loraOf = (side: "left" | "right") => {
         const lora = loras.find((l) => l.side === side);
         return lora === undefined ? {} : { lora: { name: lora.name, strength: lora.strength } };
       };
-      graph = withSideBySide(graph, map, [
-        { image: first.image, side: first.side, prompt: first.prompt, ...loraOf(first.side) },
-        { image: second.image, side: second.side, prompt: second.prompt, ...loraOf(second.side) },
-      ]);
+      let source: SideBySideSource | undefined;
+      if (request.source !== undefined) {
+        // Check the graph can take a source before anything is uploaded.
+        withSourceImage(graph, this.config.injectionMap, "", request.source.strength);
+        source = {
+          image: await this.upload(request.source, "picture to continue from"),
+          strength: request.source.strength,
+          ...(request.source.size === undefined ? {} : { size: request.source.size }),
+        };
+      }
+      graph = withSideBySide(
+        graph,
+        map,
+        [
+          { ...people[0], ...loraOf(people[0].side) },
+          { ...people[1], ...loraOf(people[1].side) },
+        ],
+        source,
+      );
       // Each half has its own LoRA; the joining pass gets every LoRA, lightly.
       const halves = Object.keys(graph).filter((id) => id.startsWith("toony_half_"));
       graph = withLoras(
@@ -239,7 +262,7 @@ export class ComfyUIProvider implements ImageProvider {
       );
       if (injected.length > 0) graph = withReferenceImages(graph, map, injected, settings);
     }
-    if (request.source !== undefined) {
+    if (request.source !== undefined && !halvesDrawn) {
       // Check the graph can take a source before anything is uploaded.
       withSourceImage(graph, this.config.injectionMap, "", request.source.strength);
       let region: { source: { width: number; height: number }; region: ImageRegion } | undefined;

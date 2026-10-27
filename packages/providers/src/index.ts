@@ -60,6 +60,7 @@ export {
   SIDE_BY_SIDE_BLEND,
   SIDE_BY_SIDE_LORA_WHOLE,
   type SideBySidePerson,
+  type SideBySideSource,
   SOURCE_ENCODE_NODE,
   SOURCE_LOAD_NODE,
   SOURCE_SCALE_NODE,
