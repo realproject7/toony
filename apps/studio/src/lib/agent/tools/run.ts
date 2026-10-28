@@ -25,8 +25,9 @@ import {
   recordedRenderInputs,
   sortEpisodeIds,
 } from "@toony/project-io";
+import { cutPlacementFrame } from "@toony/render";
 import { type EpisodeBundle, parseExportOptions } from "@toony/schema";
-import { artEngineStatus } from "../../art/engine.js";
+import { artEngineStatus, trainingCommand } from "../../art/engine.js";
 import {
   type ArtJobItem,
   artJobChanges,
@@ -305,7 +306,8 @@ async function requireWork(host: ToolHost): Promise<ResolvedWorkRef> {
   const workId = host.workId();
   if (workId === null) {
     throw new ToolInputError(
-      "This chat is not tied to a webtoon yet. Create one with create_work, or ask the person to open a webtoon.",
+      "This chat is not tied to a webtoon yet. Open or create a webtoon first.",
+      "Use create_work, or ask the person to open a webtoon.",
     );
   }
   const work = await host.resolveWork(workId);
@@ -491,7 +493,10 @@ const WRITES: Record<string, WriteTool> = {
       const loaded = await load(work.root);
       const character = loaded?.project.webtoon.characters?.find((c) => c.id === args.characterId);
       if (!character) {
-        throw new ToolInputError("This character is not in the cast. read_characters lists it.");
+        throw new ToolInputError(
+          "This character is not in the cast.",
+          "read_characters lists the cast.",
+        );
       }
       const engine = await artEngineStatus(host.workspace, process.env, { fresh: true });
       let drawn: { bytes: Uint8Array; seed: number };
@@ -499,7 +504,8 @@ const WRITES: Record<string, WriteTool> = {
         const bytes = await readPortraitCandidate(work.root, character.id, args.choose);
         if (bytes === null) {
           throw new ToolInputError(
-            `${character.name} has no candidate ${args.choose}. draw_portraits draws new ones; choose takes a seed from its latest result.`,
+            `${character.name} has no portrait candidate with this number.`,
+            "draw_portraits draws new ones; choose takes a seed from its latest result.",
           );
         }
         drawn = { bytes, seed: args.choose };
@@ -565,36 +571,52 @@ const WRITES: Record<string, WriteTool> = {
       const loaded = await load(work.root);
       const character = loaded?.project.webtoon.characters?.find((c) => c.id === args.characterId);
       if (!character) {
-        throw new ToolInputError("This character is not in the cast. read_characters lists it.");
+        throw new ToolInputError(
+          "This character is not in the cast.",
+          "read_characters lists the cast.",
+        );
       }
       const portraitPath = character.references?.[0];
       const portrait = portraitPath ? await readBounded(work.root, portraitPath) : null;
       if (!portrait) {
         throw new ToolInputError(
-          `${character.name} has no portrait yet. Draw candidates with draw_portraits and keep one with draw_character and choose first.`,
+          `${character.name} has no portrait yet. Choose a portrait before training.`,
+          "Draw candidates with draw_portraits and keep one with draw_character and choose first.",
         );
       }
       const waiting = await trainingSetWaiting(work.root, character.id);
       if (args.drop !== undefined && waiting === null) {
         throw new ToolInputError(
-          `No training set of ${character.name} is waiting. Call train_character without drop to draw one first.`,
+          `No training set of ${character.name} is waiting. Draw one first.`,
+          "view_training_set shows the numbers. Use train_character with drop to train a checked set, or redraw: true to replace it.",
         );
       }
       if (args.drop === undefined && waiting !== null && !args.redraw) {
         throw new ToolInputError(
-          `A training set of ${character.name} (${waiting.length} pictures) is waiting for your check. Look at it with view_training_set, then call train_character with drop (an empty list keeps them all), or with redraw: true to draw a new set.`,
+          `A training set of ${character.name} (${waiting.length} pictures) is waiting to be checked.`,
+          "Look at it with view_training_set, then call train_character with drop (an empty list keeps them all), or with redraw: true to draw a new set.",
         );
       }
-      const engine = await artEngineStatus(host.workspace, process.env, { fresh: true });
-      if (!engine.ready) throw new ToolInputError(engine.message);
-      if (!engine.training) {
+      if (trainingCommand(process.env) === null) {
         throw new ToolInputError(
-          "This computer is not set up to train a character (no training command in the engine settings). Tell the person; their portrait still keeps them on model.",
+          "This computer is not set up to train a character. Their portrait can still guide drawings.",
+          "Set TOONY_LORA_TRAIN_COMMAND before starting Toony; see the training setup in docs/AGENT_GUIDE.md.",
         );
+      }
+      if (args.drop === undefined) {
+        const engine = await artEngineStatus(host.workspace, process.env, { fresh: true });
+        if (!engine.ready) throw new ToolInputError(engine.message);
+        if (!engine.portraits) {
+          throw new ToolInputError(
+            "The artwork engine needs portrait reference support before it can draw a training set.",
+            "Install the IP-Adapter portrait nodes, then try train_character again.",
+          );
+        }
       }
       if (trainingActive(work.id)) {
         throw new ToolInputError(
-          "A character is already being trained in this webtoon. Wait for it (art_status).",
+          "A character job is already running in this webtoon. Wait for it to finish.",
+          "Use art_status to follow it.",
         );
       }
       const row = itemId("act");
@@ -658,10 +680,11 @@ const WRITES: Record<string, WriteTool> = {
           why === "portrait"
             ? "Picture 00 is the kept portrait and stays in the set."
             : why === "unknown"
-              ? `The set has no picture ${more}. view_training_set shows the numbers.`
+              ? `The set has no picture ${more}.`
               : why === "too-few"
-                ? `Only ${more} pictures would be left; training needs at least ${TRAINING_SET_MIN}. Drop fewer, or draw a new set with redraw: true.`
-                : `No training set of ${character.name} is waiting. Call train_character without drop to draw one first.`,
+                ? `Only ${more} pictures would be left; training needs at least ${TRAINING_SET_MIN}. Drop fewer pictures, or draw a new set.`
+                : `No training set of ${character.name} is waiting. Draw one first.`,
+          "view_training_set shows the numbers. Use train_character with drop to train a checked set, or redraw: true to replace it.",
         );
       }
       show(job);
@@ -971,6 +994,7 @@ const WRITES: Record<string, WriteTool> = {
           prompt: cut.prompt,
           ...(cut.negative === undefined ? {} : { negative: cut.negative }),
           ...(cut.fromCutId === undefined ? {} : { fromCutId: cut.fromCutId }),
+          ...(cut.framing === undefined ? {} : { framing: cut.framing }),
           ...(args.newTake ? { seed: "fresh" as const } : {}),
         })),
       ),
@@ -994,10 +1018,33 @@ const WRITES: Record<string, WriteTool> = {
       if (region !== undefined) {
         // The agent sees the cut through its image view (view_cut); the edit works on the source.
         const work = await requireWork(host);
-        const cut = findBundle(await loadProject(work.root), args.episodeId)?.cuts.find(
-          (c) => c.id === args.cutId,
-        );
-        const view = cut?.imageView;
+        const loaded = await load(work.root);
+        if (!loaded)
+          throw new ToolInputError("This work could not be read. Reopen it and try again.");
+        const bundle = findBundle(loaded, args.episodeId);
+        const cut = bundle?.cuts.find((c) => c.id === args.cutId);
+        if (!cut) throw new ToolInputError("This cut does not exist.");
+        // Use a real canvas size: the shared layout keeps the art at least one pixel wide.
+        const frame = cutPlacementFrame(
+          bundle?.lettering.filter((overlay) => overlay.cutId === args.cutId) ?? [],
+          1000,
+          1000,
+          loaded.project.webtoon.gutterBandWidth,
+        ).art;
+        const left = Math.max(region.x, frame.x / 1000);
+        const right = Math.min(region.x + region.w, (frame.x + frame.width) / 1000);
+        if (right <= left) {
+          throw new ToolInputError(
+            "The selected area is in the lettering margin, outside the picture.",
+            "Choose a region inside the artwork shown by view_cut.",
+          );
+        }
+        region = {
+          ...region,
+          x: (left * 1000 - frame.x) / frame.width,
+          w: ((right - left) * 1000) / frame.width,
+        };
+        const view = cut.imageView;
         if (view) {
           region = {
             x: view.x + region.x * view.width,
@@ -1209,7 +1256,7 @@ export function artProgressLine(view: ArtJobView): string {
   if (drawing) parts.push(`drawing ${drawing.label}`);
   else if (view.state === "queued") parts.push("waiting for the engine");
   else if (view.state === "stopped") parts.push("stopped");
-  else if (view.state === "interrupted") parts.push("interrupted when Studio stopped");
+  else if (view.state === "interrupted") parts.push("interrupted when Toony stopped");
   return parts.join(" · ");
 }
 
@@ -1268,7 +1315,8 @@ export function trainFollowUp(view: TrainJobView, name: string): string {
   if (view.state === "finished") {
     return `Training of ${name} finished: the engine now draws ${name} with what it learned. Run draw_portraits for ${name} (the candidates use it), keep the best with draw_character and choose, and tell the person.`;
   }
-  if (view.state === "stopped") return `Training of ${name} was stopped; ${name} draws as before.`;
+  if (view.state === "stopped")
+    return `Training of ${name} was stopped; ${name} draws as before. The checked set is kept, so train_character with drop: [] tries again.`;
   return `Training of ${name} failed: ${view.message ?? "unknown error"}. ${name} draws as before; tell the person. The checked set is kept, so train_character with drop: [] tries again.`;
 }
 
@@ -1302,30 +1350,33 @@ async function runArt(
   const loaded = await load(work.root);
   const bundle = loaded ? findBundle(loaded, episodeId) : undefined;
   if (!loaded || !bundle) {
-    throw new ToolInputError("This episode does not exist. get_status lists the episodes.");
+    throw new ToolInputError("This episode does not exist.", "get_status lists the episodes.");
   }
   const items: ArtJobItem[] = requested.map((item, index) => {
     const cut = bundle.cuts.find((c) => c.id === item.cutId);
     if (!cut) {
       throw new ToolInputError(
-        `${item.cutId} is not in this episode. read_episode lists the cuts.`,
+        "This cut is not in the episode.",
+        `read_episode lists the cuts; ${item.cutId} was not found.`,
       );
     }
     const label = shortCut(cutLabelOf(loaded, episodeId, item.cutId));
     if (cut.image?.final) {
       throw new ToolInputError(
-        `${label} shows finished artwork the person added, which Toony keeps. Ask the person before replacing it.`,
+        `${label} shows finished artwork that Toony keeps.`,
+        "These drawing tools cannot replace imported final artwork. Explain the protected-art limitation to the person.",
       );
     }
     if (kind === "edit" && !cut.image?.clean) {
-      throw new ToolInputError(`${label} has no artwork yet. Draw it first with draw_cuts.`);
+      throw new ToolInputError(`${label} has no artwork yet. Draw it first.`, "Use draw_cuts.");
     }
     if (item.fromCutId !== undefined) {
       const from = bundle.cuts.find((c) => c.id === item.fromCutId);
       const drawnBefore = requested.slice(0, index).some((r) => r.cutId === item.fromCutId);
       if (!drawnBefore && !from?.image?.clean && !from?.image?.final) {
         throw new ToolInputError(
-          `${label}: fromCutId ${item.fromCutId} has no artwork in this episode to start from. Draw it first, or earlier in the same list.`,
+          `${label}: the source cut has no artwork in this episode to start from. Draw it first.`,
+          `Draw fromCutId ${item.fromCutId} first, or earlier in the same draw_cuts list.`,
         );
       }
     }
@@ -1404,15 +1455,20 @@ async function runArt(
   if (!finishedNow) state.detached = true;
   const drawn = view.cuts.filter((cut) => cut.state === "done").length;
   if (finishedNow && drawn === 0) {
-    const first = view.cuts.find((cut) => cut.message)?.message;
-    throw new ToolInputError(first ?? "The artwork engine could not draw these cuts.");
+    const first = view.cuts.find((cut) => cut.message);
+    throw new ToolInputError(
+      first ? `${first.label}: ${first.message}` : "The artwork engine could not draw these cuts.",
+      first?.message?.includes("needs detail framing")
+        ? 'Use draw_cuts with framing: "detail" on this cut.'
+        : undefined,
+    );
   }
   return {
     result: {
       ...artJobSummary(view),
       note: finishedNow
         ? "Look at each new image with view_cut. Redraw a cut that misses its scene (draw_cuts with a better prompt, or newTake), at most twice each, then tell the person."
-        : "Drawing continues in the background and the cuts appear on the left as they finish. End your turn now and tell the person; you will get a message when the job is done.",
+        : `${view.state === "queued" ? "The drawing is queued and waits for earlier drawing or character training work." : "Drawing continues in the background."} The cuts appear on the left as they finish. End your turn now and tell the person; you will get a message when the job is done.`,
     },
     changes,
     targets: progressTargets,
@@ -1553,21 +1609,31 @@ async function getStatus(host: ToolHost): Promise<string> {
     openQuestions: host.openQuestions(),
     tasks: memory.tasks,
   });
-  return `${brief}\n\n${await artworkStatus(host, work.id, work.root)}`;
+  return `${brief}\n\n${await artworkStatus(host, work.id, work.root, loaded.project.webtoon.characters ?? [])}`;
 }
 
 /** The artwork part of get_status: the engine, and drawing jobs still running. */
-async function artworkStatus(host: ToolHost, workId: string, root: string): Promise<string> {
+async function artworkStatus(
+  host: ToolHost,
+  workId: string,
+  root: string,
+  characters: readonly { id: string; name: string }[],
+): Promise<string> {
   const engine = await artEngineStatus(host.workspace);
   const lines = ["## Artwork", `Engine: ${engine.message}`];
   const jobs = await listArtJobs(workId, root);
   for (const job of jobs.filter((view) => !artFinished(view))) {
     lines.push(`Drawing job ${job.id}: ${artProgressLine(job)}`);
   }
+  for (const training of listTrainJobs(workId).filter((view) => !trainFinished(view))) {
+    const name =
+      characters.find((character) => character.id === training.characterId)?.name ?? "Character";
+    lines.push(`${name}: ${trainProgressLine(training)} (job ${training.id}).`);
+  }
   const interrupted = jobs.find((view) => view.state === "interrupted");
   if (interrupted) {
     lines.push(
-      `Drawing job ${interrupted.id} was interrupted when Studio stopped: ${artProgressLine(interrupted)}. Check those cuts with art_status and draw what is missing.`,
+      `Drawing job ${interrupted.id} was interrupted when Toony stopped: ${artProgressLine(interrupted)}. Check those cuts with art_status and draw what is missing.`,
     );
   }
   return lines.join("\n");
@@ -1625,7 +1691,7 @@ async function readEpisode(host: ToolHost, episodeId: string): Promise<Record<st
   const loaded = await loadProject(work.root);
   const bundle = findBundle(loaded, episodeId);
   if (!bundle)
-    throw new ToolInputError("This episode does not exist. get_status lists the episodes.");
+    throw new ToolInputError("This episode does not exist.", "get_status lists the episodes.");
   const names = new Map((loaded.project.webtoon.characters ?? []).map((c) => [c.id, c.name]));
   const order = orderedCuts(bundle);
   const sceneMax = order.length > 60 ? 300 : 1000;
@@ -1709,7 +1775,7 @@ async function artInputs(
     const inputs = await recordedRenderInputs(root, episodeId, assetPath);
     if (!inputs) return null;
     return {
-      prompt: clip(inputs.basePrompt, 1000) ?? "",
+      prompt: inputs.basePrompt ?? "",
       seed: inputs.seed,
       ...(inputs.source ? { edited: true as const } : {}),
     };
@@ -1742,7 +1808,10 @@ async function drawPortraits(
   const loaded = await load(work.root);
   const character = loaded?.project.webtoon.characters?.find((c) => c.id === characterId);
   if (!character) {
-    throw new ToolInputError("This character is not in the cast. read_characters lists it.");
+    throw new ToolInputError(
+      "This character is not in the cast.",
+      "read_characters lists the cast.",
+    );
   }
   const engine = await artEngineStatus(host.workspace, process.env, { fresh: true });
   if (!engine.ready) throw new ToolInputError(engine.message);
@@ -1786,7 +1855,7 @@ async function viewCut(host: ToolHost, episodeId: string, cutId: string): Promis
   const bundle = findBundle(loaded, episodeId);
   const cut = bundle?.cuts.find((c) => c.id === cutId);
   if (!bundle || !cut)
-    throw new ToolInputError("This cut is not in the episode. read_episode lists the cuts.");
+    throw new ToolInputError("This cut is not in the episode.", "read_episode lists the cuts.");
   const label = cutLabelOf(loaded, episodeId, cutId);
   const ref = cut.image?.final ?? cut.image?.clean ?? null;
   const overlays = bundle.lettering.filter((overlay) => overlay.cutId === cutId);
@@ -1840,11 +1909,15 @@ async function viewTrainingSet(host: ToolHost, characterId: string): Promise<Too
   const loaded = await loadProject(work.root);
   const character = loaded.project.webtoon.characters?.find((c) => c.id === characterId);
   if (!character)
-    throw new ToolInputError("This character is not in the cast. read_characters lists it.");
+    throw new ToolInputError(
+      "This character is not in the cast.",
+      "read_characters lists the cast.",
+    );
   const numbers = await trainingSetWaiting(work.root, character.id);
   if (numbers === null) {
     throw new ToolInputError(
-      `No training set of ${character.name} is waiting. train_character without drop draws one.`,
+      `No training set of ${character.name} is waiting.`,
+      "train_character without drop draws one.",
     );
   }
   const facts = {
@@ -1888,7 +1961,7 @@ async function checkEpisode(host: ToolHost, episodeId: string): Promise<Record<s
   const index = loaded.project.episodes.findIndex((b) => b.episode.id === episodeId);
   const bundle = loaded.project.episodes[index];
   if (!bundle)
-    throw new ToolInputError("This episode does not exist. get_status lists the episodes.");
+    throw new ToolInputError("This episode does not exist.", "get_status lists the episodes.");
   const order = orderedCuts(bundle);
   const where = (id: string) => {
     const n = order.indexOf(id);
@@ -2130,7 +2203,10 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown): P
       }
       postChanges(host, performed);
       activity(host, rowId, spec, "done", {
-        title: DONE_TITLES[name] ?? spec.step,
+        title:
+          name === "train_character" && A.trainCharacterArgs(rawArgs).drop === undefined
+            ? "Started the training set"
+            : (DONE_TITLES[name] ?? spec.step),
         ...(performed.detail ? { detail: performed.detail } : {}),
         targets: performed.targets,
       });
@@ -2155,7 +2231,12 @@ export async function runTool(host: ToolHost, name: string, rawArgs: unknown): P
     const message =
       readableError(error) ?? "Toony could not finish this tool. Nothing was changed.";
     activity(host, rowId, spec, "failed", { detail: message });
-    return textResult(message, true);
+    return textResult(
+      error instanceof ToolInputError && error.agentHint
+        ? `${message} ${error.agentHint}`
+        : message,
+      true,
+    );
   }
 }
 
@@ -2199,7 +2280,8 @@ async function runRead(
       const args = A.artStatusArgs(rawArgs);
       const work = await requireWork(host);
       const pick = async (): Promise<ArtJobView[]> => {
-        if (args.jobId === undefined) return (await listArtJobs(work.id, work.root)).slice(0, 5);
+        const saved = await listArtJobs(work.id, work.root);
+        if (args.jobId === undefined) return saved.slice(0, 5);
         const job = getArtJob(args.jobId);
         if (!job || job.workId !== work.id) {
           throw new ToolInputError("There is no drawing job with this id in this work.");
@@ -2234,10 +2316,8 @@ async function runRead(
     case "stop_drawing": {
       const args = A.stopDrawingArgs(rawArgs);
       const work = await requireWork(host);
-      const training =
-        args.jobId === undefined
-          ? listTrainJobs(work.id).find((view) => !trainFinished(view))
-          : getTrainJob(args.jobId);
+      await listArtJobs(work.id, work.root);
+      const training = args.jobId === undefined ? null : getTrainJob(args.jobId);
       if (training && training.workId === work.id && !trainFinished(training)) {
         const stopped = stopTrainJob(training.id) ?? training;
         return {
@@ -2252,7 +2332,13 @@ async function runRead(
           ? (await listArtJobs(work.id, work.root)).find((view) => !artFinished(view))
           : getArtJob(args.jobId);
       if (!job || job.workId !== work.id || artFinished(job)) {
-        throw new ToolInputError("No drawing job is running in this work.");
+        const active = listTrainJobs(work.id).find((view) => !trainFinished(view));
+        throw new ToolInputError(
+          "No drawing job is running in this work.",
+          active
+            ? `A character job is still running. To stop it deliberately, call stop_drawing with jobId: ${active.id}.`
+            : undefined,
+        );
       }
       const stopped = stopArtJob(job.id) ?? job;
       return {
@@ -2318,7 +2404,7 @@ async function runRead(
       const bundle = findBundle(loaded, args.episodeId);
       const cut = bundle?.cuts.find((c) => c.id === args.cutId);
       if (!bundle || !cut)
-        throw new ToolInputError("This cut is not in the episode. read_episode lists the cuts.");
+        throw new ToolInputError("This cut is not in the episode.", "read_episode lists the cuts.");
       const cast = loaded.project.webtoon.characters ?? [];
       const unknown = args.options.find(
         (option) => option.speaker !== undefined && !cast.some((c) => c.id === option.speaker),
@@ -2366,7 +2452,7 @@ async function runRead(
         return memory;
       });
       if (!found)
-        throw new ToolInputError("There is no note with that id. get_status lists the notes.");
+        throw new ToolInputError("There is no note with that id.", "get_status lists the notes.");
       return { result: textResult({ forgotten: noteId }) };
     }
     default:

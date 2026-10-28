@@ -1,14 +1,16 @@
 # Pack Format
 
 A **pack** is a local folder that adds content to Toony without changing Toony.
-It can contribute four things:
+It can contribute six things:
 
 | Kind | What it adds | How it is used |
 |---|---|---|
 | Named workflow | A ComfyUI workflow graph under a name | `toony generate --workflow <name> …` |
 | Genre scaffold | A starter episode `toony init` seeds | `toony init <name> --genre <id>` |
-| Export preset | A named engine + render options | `toony export <id> --episode <id>` |
+| Export preset | A named engine + render options | `toony export <episode> --output <preset-id>` |
 | Craft band | The measured target its output should hit | `toony measure --against <id>` |
+| Lettering theme | Per bubble kind, the defaults a new bubble takes | `webtoon.json` `letteringTheme: <id>` |
+| Style lexicon | Style words composed into prompts at generation | `webtoon.json` `styleLexicon: <id>` |
 
 A genre scaffold also carries the craft settings the genre needs, which
 `toony init` writes into the new project. See
@@ -101,7 +103,7 @@ already claimed is missing from that list rather than quietly counted.
   "packFormat": 1,
   "id": "example-pack",
   "name": "Toony Example Pack",
-  "description": "One of each kind of contribution.",
+  "description": "Four kinds of contribution.",
   "workflows": [
     { "name": "high-detail", "file": "workflows/high-detail.workflow.json" }
   ],
@@ -558,8 +560,9 @@ stable code, and what to fix:
 ```txt
 pack warning [pack.unexpected-field] /w/.toony/packs/my-pack pack.main: a pack
 manifest allows only "packFormat", "id", "name", "description", "workflows",
-"genres", "exportPresets", "craftBands"; remove unexpected field "main". A pack
-is data — it can never declare code, a module path, or a command.
+"genres", "exportPresets", "craftBands", "letteringThemes", "styleLexicons";
+remove unexpected field "main". A pack is data: it can never declare code,
+a module path, or a command.
 ```
 
 Common codes:
@@ -572,8 +575,8 @@ Common codes:
 | `pack.format-version` | `packFormat` is not `1`. |
 | `pack.file.unsafe` | A `file` escapes the pack folder or names a URL. |
 | `pack.file.extension` | A `file` is not `.json`. |
-| `pack.workflow.file-missing` / `pack.genre.file-missing` / `pack.craft-band.file-missing` | A named file is not there. |
-| `pack.workflow.claimed` / `pack.genre.claimed` / `pack.export-preset.claimed` / `pack.craft-band.claimed` | An earlier pack already uses that name. |
+| `pack.workflow.file-missing` / `pack.genre.file-missing` / `pack.craft-band.file-missing` / `pack.lettering-theme.file-missing` / `pack.style-lexicon.file-missing` | A named file is not there. |
+| `pack.workflow.claimed` / `pack.genre.claimed` / `pack.export-preset.claimed` / `pack.craft-band.claimed` / `pack.lettering-theme.claimed` / `pack.style-lexicon.claimed` | An earlier pack already uses that name. |
 | `pack.duplicate` | Another installed pack declares the same `id`. |
 
 A scaffold that fails validation reports the project validator's own codes

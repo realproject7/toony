@@ -108,6 +108,18 @@ git clone --quiet --branch "$REF" "$REPO_ROOT" "$CLONE" || {
 cd "$CLONE" || exit 2
 echo "verify-release: HEAD $(git rev-parse --short HEAD)"
 
+# The private list is deliberately untracked, so git clone cannot carry it.
+# Delivery requires it in the scratch checkout and never prints its contents.
+NAME_SOURCE=".toony/public-safety-names.json"
+if [ ! -s "$REPO_ROOT/$NAME_SOURCE" ] || git -C "$REPO_ROOT" ls-files --error-unmatch "$NAME_SOURCE" >/dev/null 2>&1; then
+  echo "verify-release: an untracked public-safety name source is required; names were NOT checked." >&2
+  exit 2
+fi
+mkdir -p "$CLONE/.toony" || exit 2
+chmod 700 "$CLONE/.toony" || exit 2
+cp "$REPO_ROOT/$NAME_SOURCE" "$CLONE/$NAME_SOURCE" || exit 2
+chmod 600 "$CLONE/$NAME_SOURCE" || exit 2
+
 FAILED=0
 for V in "${NODE_VERSIONS[@]}"; do
   export PATH="$BASE_PATH"
@@ -157,6 +169,7 @@ for V in "${NODE_VERSIONS[@]}"; do
     continue
   fi
   run_stage check pnpm check || FAILED=1
+  run_stage public-safety "$NODE" scripts/scan-public-safety.mjs --require-names || FAILED=1
   run_stage build pnpm build || FAILED=1
   # Real-compiler controls are intentionally separate from the fast check loop.
   # Their count is held to a floor of its own (#322): they carry no package

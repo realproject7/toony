@@ -38,8 +38,8 @@ function control(files, run) {
   }
 }
 
-function scan(root) {
-  const result = spawnSync(process.execPath, [scanner], { cwd: root, encoding: "utf8" });
+function scan(root, args = []) {
+  const result = spawnSync(process.execPath, [scanner, ...args], { cwd: root, encoding: "utf8" });
   assert.ifError(result.error);
   return { ...result, output: result.stdout + result.stderr };
 }
@@ -198,16 +198,12 @@ test("a clean tree passes and says how many names were checked", () => {
   );
 });
 
-test("a missing name source keeps the gate green and says out loud that it checked nothing", () => {
+test("an optional scan without a name source reports that names went unchecked", () => {
   control(
     { "docs/notes.md": `# Notes\n\nTechnique abstracted from ${SYNTHETIC_NAME}, 2026.\n` },
     (root) => {
       const result = scan(root);
-      // `pnpm scan` runs inside `pnpm check`, which the release gate runs from a
-      // fresh clone. An untracked name source cannot exist there, so a hard
-      // failure would turn every branch red for a reason unrelated to it. The
-      // run stays green and states that names went unchecked, which is also why
-      // the leak in this control survives.
+      // Optional contributor scans stay useful without the private list; delivery requires it.
       assert.equal(result.status, 0, result.output);
       assert.match(result.stdout, /names NOT CHECKED/);
       assert.match(result.stderr, /studied-work names were NOT checked/);
@@ -302,4 +298,33 @@ test("the credential rules still run when there is no name source", () => {
     assert.match(result.stderr, /\[aws-access-key-id\] config\/notes\.txt:1/);
     assert.equal(result.output.includes(key), false);
   });
+});
+
+test("release scans require a usable private name source", () => {
+  control({ "safe.md": "Original work." }, (root) => {
+    const result = scan(root, ["--require-names"]);
+    assert.equal(result.status, 1, result.output);
+    assert.match(result.output, /requires the untracked name source/);
+  });
+  control({ ...local, "safe.md": "Original work." }, (root) => {
+    const result = scan(root, ["--require-names"]);
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /1 name\(s\) checked/);
+  });
+});
+
+test("Python files and additional credential families are scanned without printing their values", () => {
+  for (const [rule, value] of [
+    ["openai-anthropic-key", `sk-ant-${"a".repeat(40)}`],
+    ["openai-anthropic-key", `sk-${"b".repeat(40)}`],
+    ["npm-token", `npm_${"c".repeat(36)}`],
+    ["stripe-key", `sk_test_${"d".repeat(24)}`],
+  ]) {
+    control({ ...local, "script.py": `credential = '${value}'\n` }, (root) => {
+      const result = scan(root);
+      assert.equal(result.status, 1, result.output);
+      assert.ok(result.output.includes(`[${rule}] script.py:1`));
+      assert.ok(!result.output.includes(value));
+    });
+  }
 });

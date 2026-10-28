@@ -74,7 +74,7 @@ test("a change to any one field is dirty", () => {
 });
 
 test("the unsaved-edits message tells the user which button to press first", () => {
-  assert.match(UNSAVED_EDITS_MESSAGE, /Save settings/);
+  assert.match(UNSAVED_EDITS_MESSAGE, /Save and test/);
   // It must not be mistakable for a probe result.
   assert.notEqual(UNSAVED_EDITS_MESSAGE, describeTestOutcome("unconfigured"));
 });

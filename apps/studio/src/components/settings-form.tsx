@@ -78,7 +78,7 @@ export function SettingsForm({ initialConfig, initialConnection }: SettingsFormP
         error: connection?.state === "unreachable",
       });
     } catch {
-      setOutcome({ text: "Toony could not reach the workspace service.", error: true });
+      setOutcome({ text: "Could not reach Toony. Check that it is still running.", error: true });
     } finally {
       setBusy(false);
     }
@@ -112,13 +112,17 @@ export function SettingsForm({ initialConfig, initialConnection }: SettingsFormP
       </label>
       <div className="form-grid">
         <label className="field">
-          <span>Model file (optional)</span>
+          <span>Model file</span>
           <input
             className="text-input"
             value={checkpoint}
             onChange={(event) => setCheckpoint(event.target.value)}
             data-testid="settings-checkpoint"
           />
+          <span className="field-hint">
+            The checkpoint filename as ComfyUI lists it. The built-in workflow needs it; a custom
+            workflow or a model set when starting Toony can supply it instead.
+          </span>
         </label>
         <label className="field">
           <span>Workflow (optional)</span>
@@ -131,9 +135,6 @@ export function SettingsForm({ initialConfig, initialConnection }: SettingsFormP
           />
         </label>
       </div>
-      <p className="field-hint">
-        Environment settings on this computer take precedence over these.
-      </p>
       <div className="form-actions">
         <button
           type="submit"

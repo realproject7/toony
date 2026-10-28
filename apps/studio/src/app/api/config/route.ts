@@ -98,10 +98,9 @@ export async function POST(request: Request): Promise<Response> {
   // Validate the endpoint is a real URL when set; reject garbage before writing.
   if (endpoint !== null) {
     try {
-      // eslint-disable-next-line no-new
       new URL(endpoint);
     } catch {
-      return badRequest("the ComfyUI endpoint must be a valid URL (e.g. http://127.0.0.1:8188)");
+      return badRequest("the ComfyUI address must be a valid URL (e.g. http://127.0.0.1:8188)");
     }
   }
 

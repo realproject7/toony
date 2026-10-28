@@ -158,6 +158,8 @@ export interface GenerateIo {
    * one drawn a little wider.
    */
   keepDetail?: boolean;
+  /** A journaled caller explicitly replaces artwork; the CLI repeat guard still applies otherwise. */
+  replaces?: boolean;
 }
 
 /** One thing a run did to one target. The text lines say the same in prose. */
@@ -2060,14 +2062,16 @@ export async function runGenerate(args: string[], io: GenerateIo): Promise<numbe
   // an accepted image from a replacement of it — and it is still before the
   // first request, so refusing costs nothing.
   const bundle = loaded.project.episodes.find((b) => b.episode.id === episodeId);
-  const repeatable = await assertRepeatable(
-    root,
-    ready,
-    bundle,
-    loaded.project.webtoon.characters ?? [],
-    storyBible,
-    lexicon?.lexicon,
-  );
+  const repeatable = io.replaces
+    ? null
+    : await assertRepeatable(
+        root,
+        ready,
+        bundle,
+        loaded.project.webtoon.characters ?? [],
+        storyBible,
+        lexicon?.lexicon,
+      );
   if (repeatable !== null) {
     io.err(repeatable.error);
     return repeatable.exit;

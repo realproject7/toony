@@ -106,7 +106,7 @@
             </ul>
             <p class="card-note">
               The cut editor deliberately exposes only these. The studio also
-              lets you browse the work, configure your image provider, and run an
+              lets you browse the work, configure your local ComfyUI, and run an
               export, but it will not put you back in the prompt-writing seat.
             </p>
           </article>
@@ -114,7 +114,7 @@
             <h3><span class="tag tag-teal">The agent</span> the crew</h3>
             <ul>
               <li>Story bible, characters, and prompt composition</li>
-              <li>Image generation through your own local provider</li>
+              <li>Image generation through your local ComfyUI</li>
               <li>Craft lint: rhythm, density, overflow, manifests</li>
               <li>Episode strips, cut images, and Instagram and X images</li>
             </ul>
@@ -130,7 +130,7 @@
         <h2>An episode, start to finish</h2>
         <p class="section-lede">
           "Dead Air" is the example project in the repository. The cut art below
-          was generated through a local provider by Toony's own CLI, and the dark
+          was generated through local ComfyUI by Toony's own CLI, and the dark
           panels between the cuts are transitions, rendered from the episode's
           real data. The strip shows the art and the panel rhythm on their own;
           the episode's bubbles and captions are composited at export time.
@@ -160,8 +160,8 @@ pnpm install
 pnpm build
 node packages/cli/dist/bin.js studio</code></pre>
               <p class="step-note">
-                Nothing is published to a registry yet, so Toony runs from the
-                build output. The last command opens the studio in your browser.
+                Nothing is published to a registry yet. From a checkout, the CLI
+                starts Studio's development server and opens it in your browser.
               </p>
             </div>
           </div>
@@ -213,9 +213,9 @@ node packages/cli/dist/bin.js studio</code></pre>
             your own subscription.
           </li>
           <li>
-            <strong>Image generation is yours to point.</strong> Toony talks to an
-            image provider you configure and run. Point it at a local install and
-            your prompts never leave the machine.
+            <strong>Image generation runs locally.</strong> Toony draws with ComfyUI
+            on your computer. Set its address and checkpoint file name in
+            Settings, Artwork engine.
           </li>
           <li>
             <strong>No telemetry.</strong> The tool does not phone home, and this

@@ -20,7 +20,7 @@ import { CHARACTER_LORA_STRENGTH, type Character } from "@toony/schema";
 import { readPrivateBytes, writePrivateFile } from "../agent/storage.js";
 import { AgentError } from "../agent/types.js";
 import { redactPaths } from "../redact.js";
-import { AGENT_NEGATIVE_BASE } from "./jobs.js";
+import { AGENT_NEGATIVE_BASE, tryEngineWork } from "./jobs.js";
 
 /** What every portrait asks for: one person, plainly shown, nothing around them. */
 export const PORTRAIT_PROMPT =
@@ -72,7 +72,7 @@ export function portraitNegative(character: Character): string {
 }
 
 /** Draw one portrait with a new seed. Nothing is written. */
-export async function drawPortrait(
+async function drawPortraitNow(
   root: string,
   character: Character,
   extra: string | undefined,
@@ -153,7 +153,7 @@ async function removeCandidates(dir: string): Promise<void> {
  * them for the pick in place of any earlier ones. Stops starting new ones after
  * `PORTRAIT_CANDIDATES_BUDGET_MS`. An error only when not one was drawn.
  */
-export async function drawPortraitCandidates(
+async function drawPortraitCandidatesNow(
   root: string,
   character: Character,
   extra: string | undefined,
@@ -169,7 +169,7 @@ export async function drawPortraitCandidates(
   let failure: string | undefined;
   for (let attempt = 0; attempt < PORTRAIT_CANDIDATES; attempt++) {
     if (attempt > 0 && now() - started > PORTRAIT_CANDIDATES_BUDGET_MS) break;
-    const drawn = await drawPortrait(root, character, extra, env);
+    const drawn = await drawPortraitNow(root, character, extra, env);
     if ("error" in drawn) {
       failure = drawn.error;
       break;
@@ -201,4 +201,19 @@ export async function readPortraitCandidate(
 export async function clearPortraitCandidates(root: string, characterId: string): Promise<void> {
   const dir = await candidatesDir(root, characterId, false);
   if (dir !== null) await removeCandidates(dir);
+}
+
+const ENGINE_BUSY =
+  "The artwork engine is busy with another drawing or training job. Try the portrait again when it finishes.";
+
+/** Portraits share the engine queue, but refuse a busy engine instead of holding a tool open. */
+export async function drawPortrait(...args: Parameters<typeof drawPortraitNow>) {
+  return (await tryEngineWork(() => drawPortraitNow(...args))) ?? { error: ENGINE_BUSY };
+}
+
+/** Reserve the engine for the whole candidate batch, including its private-file writes. */
+export async function drawPortraitCandidates(
+  ...args: Parameters<typeof drawPortraitCandidatesNow>
+) {
+  return (await tryEngineWork(() => drawPortraitCandidatesNow(...args))) ?? { error: ENGINE_BUSY };
 }

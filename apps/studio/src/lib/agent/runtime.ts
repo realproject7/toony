@@ -150,7 +150,7 @@ function failureNotice(provider: AgentProvider, failure: Failure): ConversationI
       return {
         ...base,
         tone: "error",
-        text: `${info.label} is not signed in. Sign in in a terminal, then try again.`,
+        text: `${info.label} is not signed in. Sign in from a terminal, then try again.`,
         action: "sign-in",
         command: info.loginCommand,
       };
@@ -174,12 +174,15 @@ export function notReadyMessage(status: ProviderStatus): string {
   switch (r.state) {
     case "sign-in-required":
       return r.message
-        ? `${r.message} Run \`${r.command}\` in a terminal, then connect again.`
-        : `Sign in to ${status.label} first: run \`${r.command}\` in a terminal, then connect again.`;
+        ? `${r.message} Run ${r.command} in a terminal, then connect again.`
+        : `Sign in to ${status.label} first: run ${r.command} in a terminal, then connect again.`;
     case "missing":
-      return `${status.label} is not installed on this computer. Install it with \`${r.installCommand}\`.`;
+      return `${status.label} is not installed on this computer. Install it with ${r.installCommand}.`;
     case "unsupported":
-      return `This ${status.label} version (${r.version}) is not supported. Toony works with ${r.supported}.`;
+      return (
+        r.detail ??
+        `This ${status.label} version (${r.version}) is not supported. Toony works with ${r.supported}.`
+      );
     case "unavailable":
       return r.detail;
     case "checking":

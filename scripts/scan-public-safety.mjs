@@ -62,6 +62,7 @@ const TEXT_EXTENSIONS = new Set([
   ".toml",
   ".env",
   ".sh",
+  ".py",
   ".html",
   ".css",
   ".svg",
@@ -125,6 +126,18 @@ const TEXT_RULES = [
   {
     name: "github-token",
     regex: /\bgh[pousr]_[0-9A-Za-z]{36,}\b/,
+  },
+  {
+    name: "openai-anthropic-key",
+    regex: /\bsk-(?:ant-)?[A-Za-z0-9_-]{20,}\b/,
+  },
+  {
+    name: "npm-token",
+    regex: /\bnpm_[A-Za-z0-9]{36,}\b/,
+  },
+  {
+    name: "stripe-key",
+    regex: /\b[sp]k_(?:live|test)_[A-Za-z0-9]{20,}\b/,
   },
   {
     name: "private-url-credentials",
@@ -384,6 +397,9 @@ function hasJpegApp1(buf) {
 function main() {
   const files = listTrackedFiles();
   const source = loadNames(NAME_SOURCE_DEFAULT, files);
+  if (source === null && process.argv.includes("--require-names")) {
+    fail("the release check requires the untracked name source; names were NOT checked.");
+  }
   const names = source ? source.names : null;
   const findings = [];
   // A file is counted as inspected only once a read of it returned, so the

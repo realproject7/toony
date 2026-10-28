@@ -233,7 +233,7 @@ test("a conflicting draft is refused with nothing written, and discard removes o
   const result = await applyFromStudio(root, existing.episode.id, view.fingerprint);
   assert.equal(result.applied, false);
   assert.equal(result.refusal?.reason, "conflicts");
-  assert.match(describeRefusal(result), /conflict\(s\)/);
+  assert.match(describeRefusal(result), /already in the episode, so nothing was changed/);
   assert.deepEqual(await snapshot(root), before);
 
   assert.equal(await discardFromStudio(root, existing.episode.id), true);

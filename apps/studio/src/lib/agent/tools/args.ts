@@ -31,7 +31,10 @@ import type { MemoryNote, QuestionOption, TaskItem } from "../protocol.js";
 import { EXPORT_OUTPUTS } from "./catalog.js";
 
 export class ToolInputError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly agentHint?: string,
+  ) {
     super(message);
     this.name = "ToolInputError";
   }
@@ -580,6 +583,7 @@ export interface DrawCutInput {
   cutId: string;
   prompt: string;
   negative?: string;
+  framing?: "detail";
   /** Another cut whose picture this one starts from, to keep the place and light. */
   fromCutId?: string;
 }
@@ -680,7 +684,10 @@ export function drawCutsArgs(raw: unknown): {
       fail(`${where} must be an object with cutId and prompt.`);
     }
     const item = value as Args;
-    noExtra(item, ["cutId", "prompt", "negative", "fromCutId"], where);
+    noExtra(item, ["cutId", "prompt", "negative", "fromCutId", "framing"], where);
+    if (item.framing !== undefined && item.framing !== "detail") {
+      fail(`${where}.framing must be detail when supplied.`);
+    }
     const cutId = id(item, "cutId", "a cut");
     if (seen.has(cutId)) fail(`${where}: ${cutId} is listed twice.`);
     seen.add(cutId);
@@ -694,6 +701,7 @@ export function drawCutsArgs(raw: unknown): {
       prompt: text(item, "prompt", PROMPT_MAX, `${where}.prompt`),
       ...(negative === undefined ? {} : { negative }),
       ...(fromCutId === undefined ? {} : { fromCutId }),
+      ...(item.framing === "detail" ? { framing: "detail" as const } : {}),
     };
   });
   return { episodeId, cuts, newTake: bool(args, "newTake") ?? false };
@@ -751,7 +759,7 @@ function optionalJobId(args: Args): string | undefined {
   const value = args.jobId;
   if (value === undefined) return undefined;
   if (typeof value !== "string" || !JOB_ID.test(value)) {
-    fail("jobId must be a drawing job id from draw_cuts, edit_cut_art or art_status.");
+    fail("jobId must be a drawing or character training job id from art_status.");
   }
   return value;
 }

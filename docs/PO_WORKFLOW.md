@@ -42,7 +42,7 @@ See [VERIFICATION.md](./VERIFICATION.md) for the existing gate contract.
 
 ## Data boundaries
 
-Repository privacy does not make internal material suitable for code history.
+The repository is public, and internal material is never suitable for code history.
 Never commit secrets, credentials, private projects or reference captures,
 studied-work names or source links, local absolute paths or session names,
 private model/checkpoint/runtime/accelerator identifiers, or provider account

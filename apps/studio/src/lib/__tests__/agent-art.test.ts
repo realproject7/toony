@@ -11,9 +11,10 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { composeCut, encodeCanvas } from "@toony/export";
 import type { GenerateIo, RenderImageOptions } from "@toony/generate";
-import { importImageBytes, loadProject } from "@toony/project-io";
+import { importImageBytes, loadProject, writeLettering, writeWebtoon } from "@toony/project-io";
 import { AGENT_RULES } from "../agent/rules.js";
 import * as A from "../agent/tools/args.js";
 import {
@@ -30,11 +31,18 @@ import {
   CONTINUITY_STRENGTH,
   listArtJobs,
   plainFailure,
+  queueEngineWork,
   setGenerateRunner,
+  tryEngineWork,
   waitForArtJob,
 } from "../art/jobs.js";
 import { PORTRAIT_PROMPT, setPortraitRenderer } from "../art/portrait.js";
-import { waitForTrainJob } from "../art/training.js";
+import {
+  getTrainJob,
+  startTrainingSet,
+  trainingSetWaiting,
+  waitForTrainJob,
+} from "../art/training.js";
 import { readJournal } from "../ops/index.js";
 import { FakeHost } from "./fake-tool-host.js";
 
@@ -316,7 +324,7 @@ test("newTake rolls a new seed, edit_cut_art starts from the current image", asy
         cuts: [{ cutId: "cut-009", prompt: "x" }],
       }),
     ),
-    /cut-009 is not in this episode/,
+    /cut-009 was not found/,
   );
 });
 
@@ -559,7 +567,7 @@ test("after a restart, a job cut short reads as interrupted and is not drawn aga
       ],
     }),
   );
-  const status = json(await runTool(host, "art_status", {}));
+  const status = json(await runTool(host, "art_status", { jobId }));
   const jobs = status.jobs as Array<{
     jobId: string;
     state: string;
@@ -574,7 +582,7 @@ test("after a restart, a job cut short reads as interrupted and is not drawn aga
   assert.ok(!kept.includes(root) && kept.length <= 400, "saved messages are clipped and path free");
   const restored = jobs[0]?.cuts[1];
   assert.equal(restored?.cut, "a cut", "a saved label that is not a cut label is not repeated");
-  assert.match(restored?.message ?? "", /^Studio stopped while this cut was being drawn/);
+  assert.match(restored?.message ?? "", /^Toony stopped while this cut was being drawn/);
   assert.equal(jobs[0]?.state, "interrupted");
   assert.deepEqual(
     jobs[0]?.cuts.map((cut) => cut.state),
@@ -583,7 +591,7 @@ test("after a restart, a job cut short reads as interrupted and is not drawn aga
   assert.equal(runner.calls.length, 0, "nothing is drawn again by itself");
   assert.match(errorText(await runTool(host, "stop_drawing", {})), /No drawing job is running/);
   const brief = (await runTool(host, "get_status", {})).content[0]?.text ?? "";
-  assert.match(brief, new RegExp(`${jobId} was interrupted when Studio stopped`));
+  assert.match(brief, new RegExp(`${jobId} was interrupted when Toony stopped`));
   await savedJobs(root, (list) => list.some((job) => job.state === "interrupted"));
 });
 
@@ -648,7 +656,7 @@ test("fromCutId starts a cut from another cut's picture, drawn before or earlier
         cuts: [{ cutId: "cut-003", prompt: "she reads", fromCutId: "cut-002" }],
       }),
     ),
-    /cut-002 has no artwork/,
+    /source cut has no artwork.*cut-002/,
   );
   assert.match(
     errorText(
@@ -822,7 +830,7 @@ test("the portrait gate: candidates change nothing, choose keeps one, avoid tags
   host.live = true;
   assert.match(
     errorText(await runTool(host, "draw_character", { characterId: "mina", choose: 201 })),
-    /no candidate 201/,
+    /no portrait candidate/,
   );
   json(await runTool(host, "draw_portraits", { characterId: "mina" }));
   const chosen = json(await runTool(host, "draw_character", { characterId: "mina", choose: 205 }));
@@ -933,7 +941,7 @@ if (args[0] === "fail") { console.error("out of memory at step 3"); process.exit
   );
   assert.match(
     errorText(await runTool(host, "train_character", { characterId: "mina" })),
-    /waiting for your check/,
+    /waiting to be checked/,
   );
 
   // The agent sees the set as one numbered sheet.
@@ -975,10 +983,13 @@ if (args[0] === "fail") { console.error("out of memory at step 3"); process.exit
     /drop or redraw, not both/,
   );
 
-  // The second call trains on the set without the dropped pictures.
+  // The second call trains without the render service, which can be stopped to free memory.
+  const renderUrl = process.env.TOONY_COMFYUI_URL;
+  process.env.TOONY_COMFYUI_URL = "http://127.0.0.1:1";
   const started = json(
     await runTool(host, "train_character", { characterId: "mina", drop: [4, 9] }),
   );
+  process.env.TOONY_COMFYUI_URL = renderUrl;
   assert.equal(started.pictures, 21);
   const done = await waitForTrainJob(String(started.jobId), 10_000);
   assert.equal(done?.state, "finished", JSON.stringify(done));
@@ -1047,6 +1058,33 @@ if (args[0] === "fail") { console.error("out of memory at step 3"); process.exit
   assert.ok(host.followUps.some((text) => /Training of Mina failed.*tries again/.test(text)));
   const kept = json(await runTool(host, "view_training_set", { characterId: "mina" }));
   assert.equal(kept.pictures, 23);
+  const replaceSet = json(
+    await runTool(host, "train_character", { characterId: "mina", redraw: true }),
+  );
+  assert.equal((await waitForTrainJob(String(replaceSet.jobId), 10_000))?.state, "drawn");
+  assert.notEqual(replaceSet.jobId, redrawing.jobId);
+  assert.equal((await trainingSetWaiting(root, "mina"))?.length, 23);
+  // Stop a running trainer, not merely a queued set, and retain the checked set for retry.
+  const marker = join(bin, "started");
+  await writeFile(
+    join(bin, "hold.mjs"),
+    `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "ready"); setInterval(() => {}, 1000);`,
+  );
+  process.env.TOONY_LORA_TRAIN_COMMAND = `${process.execPath} ${join(bin, "hold.mjs")}`;
+  const held = json(await runTool(host, "train_character", { characterId: "mina", drop: [] }));
+  const deadline = Date.now() + 5000;
+  while (!(await readFile(marker, "utf8").catch(() => null))) {
+    assert.ok(Date.now() < deadline, "the trainer starts within the bounded wait");
+    await delay(10);
+  }
+  assert.match(
+    errorText(await runTool(host, "train_character", { characterId: "mina", drop: [] })),
+    /already running/,
+  );
+  json(await runTool(host, "stop_drawing", { jobId: String(held.jobId) }));
+  assert.equal((await waitForTrainJob(String(held.jobId), 10_000))?.state, "stopped");
+  assert.equal((await trainingSetWaiting(root, "mina"))?.length, 23);
+  assert.ok(host.followUps.some((text) => /was stopped.*drop: \[\]/.test(text)));
 });
 
 test("drawing arguments, rules and summaries", () => {
@@ -1105,4 +1143,261 @@ test("drawing arguments, rules and summaries", () => {
   };
   assert.equal(artProgressLine(view), "1 of 2 drawn · 1 failed");
   assert.match(artFollowUp(view, "Episode 1"), /Cut 2 failed: out of memory/);
+});
+
+test("region edits exclude left, right and both lettering margins before applying the image view", async (t) => {
+  await engine(t);
+  const runner = fakeRunner();
+  const previous = setGenerateRunner(runner.runner);
+  t.after(() => setGenerateRunner(previous));
+  const { host, root } = await work(t);
+  json(
+    await runTool(host, "draw_cuts", {
+      episodeId: "ep-001",
+      cuts: [{ cutId: "cut-001", prompt: "harbor" }],
+    }),
+  );
+  json(
+    await runTool(host, "set_dialogue", {
+      episodeId: "ep-001",
+      cutId: "cut-001",
+      lines: [{ text: "Hello", speaker: "mina" }],
+    }),
+  );
+  const loaded = await loadProject(root);
+  const base = loaded.project.episodes[0]?.lettering[0];
+  assert.ok(base);
+  await writeWebtoon(root, { ...loaded.project.webtoon, gutterBandWidth: 0.2 });
+  const region = { x: 0.3, y: 0.1, w: 0.24, h: 0.2 };
+  for (const [sides, expected] of [
+    [["left"], "0.125,0.1,0.3,0.2"],
+    [["right"], "0.375,0.1,0.3,0.2"],
+    [["left", "right"], "0.1667,0.1,0.4,0.2"],
+  ] as const) {
+    await writeLettering(
+      root,
+      "ep-001",
+      sides.map((side) => ({ ...base, id: side, placement: "gutter", placementSide: side })),
+    );
+    json(
+      await runTool(host, "edit_cut_art", {
+        episodeId: "ep-001",
+        cutId: "cut-001",
+        prompt: "smile",
+        region,
+      }),
+    );
+    const args = runner.calls.at(-1) ?? [];
+    assert.equal(args[args.indexOf("--region") + 1], expected);
+  }
+  json(
+    await runTool(host, "edit_cut_art", {
+      episodeId: "ep-001",
+      cutId: "cut-001",
+      prompt: "smile",
+      region: { ...region, x: 0.1, w: 0.2 },
+    }),
+  );
+  const overlap = runner.calls.at(-1) ?? [];
+  assert.equal(overlap[overlap.indexOf("--region") + 1], "0,0.1,0.1667,0.2");
+  const count = runner.calls.length;
+  assert.match(
+    errorText(
+      await runTool(host, "edit_cut_art", {
+        episodeId: "ep-001",
+        cutId: "cut-001",
+        prompt: "smile",
+        region: { ...region, x: 0, w: 0.1 },
+      }),
+    ),
+    /lettering margin/,
+  );
+  assert.equal(runner.calls.length, count, "a margin-only edit never reaches the engine");
+  json(
+    await runTool(host, "edit_cuts", {
+      episodeId: "ep-001",
+      operations: [
+        { op: "update", cutId: "cut-001", view: { x: 0.1, y: 0.2, width: 0.8, height: 0.6 } },
+      ],
+    }),
+  );
+  json(
+    await runTool(host, "edit_cut_art", {
+      episodeId: "ep-001",
+      cutId: "cut-001",
+      prompt: "smile",
+      region,
+    }),
+  );
+  const viewed = runner.calls.at(-1) ?? [];
+  assert.equal(viewed[viewed.indexOf("--region") + 1], "0.2333,0.26,0.32,0.12");
+});
+
+test("detail framing and explicit replacement reach the shared generate caller", async (t) => {
+  await engine(t);
+  const { host } = await work(t);
+  const runner = fakeRunner();
+  const previous = setGenerateRunner(runner.runner);
+  t.after(() => setGenerateRunner(previous));
+  json(
+    await runTool(host, "draw_cuts", {
+      episodeId: "ep-001",
+      cuts: [{ cutId: "cut-002", prompt: "close-up of a hand", framing: "detail" }],
+    }),
+  );
+  const args = runner.calls[0] ?? [];
+  assert.equal(args[args.indexOf("--framing") + 1], "detail");
+  assert.equal(runner.ios[0]?.replaces, true);
+  assert.throws(
+    () =>
+      A.drawCutsArgs({
+        episodeId: "ep-001",
+        cuts: [{ cutId: "cut-002", prompt: "hand", framing: "unknown" }],
+      }),
+    /framing/,
+  );
+});
+
+test("default stop skips training, explicit stop ends it, and portraits cannot bypass the shared queue", async (t) => {
+  await engine(t, { portraits: true });
+  const { host, root } = await work(t);
+  const character = (await loadProject(root)).project.webtoon.characters?.[0];
+  assert.ok(character);
+  let release!: () => void;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const hold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let renders = 0;
+  const prior = setPortraitRenderer(async (_root, options) => {
+    renders++;
+    entered();
+    await hold;
+    return {
+      bytes: PNG,
+      contentType: "image/png",
+      seed: 1,
+      workflowDigest: "test",
+      referenced: true,
+      prompt: options.prompt,
+    };
+  });
+  t.after(() => {
+    release();
+    setPortraitRenderer(prior);
+  });
+  const training = startTrainingSet({
+    ctx: { root, workId: String(host.workId()), actor: "agent" },
+    character,
+    portrait: PNG,
+    env: {},
+  });
+  await started;
+  const busy = errorText(await runTool(host, "draw_portraits", { characterId: "mina" }));
+  assert.match(busy, /engine is busy/);
+  assert.match(
+    errorText(await runTool(host, "draw_character", { characterId: "mina" })),
+    /engine is busy/,
+  );
+  assert.equal(renders, 1);
+  const brief = (await runTool(host, "get_status", {})).content[0]?.text ?? "";
+  assert.match(brief, /Mina: Drawing the training set/);
+  assert.match(errorText(await runTool(host, "stop_drawing", {})), new RegExp(training.id));
+  host.live = false;
+  const drawing = json(
+    await runTool(host, "draw_cuts", {
+      episodeId: "ep-001",
+      cuts: [{ cutId: "cut-001", prompt: "harbor" }],
+    }),
+  );
+  assert.match(String(drawing.note), /queued.*training/);
+  const stopped = json(await runTool(host, "stop_drawing", {}));
+  assert.equal(stopped.jobId, drawing.jobId);
+  assert.equal(getTrainJob(training.id)?.state, "drawing");
+  json(await runTool(host, "stop_drawing", { jobId: training.id }));
+  release();
+  assert.equal((await waitForTrainJob(training.id, 10_000))?.state, "stopped");
+  assert.equal((await waitForArtJob(String(drawing.jobId), 10_000))?.state, "stopped");
+  await queueEngineWork(async () => undefined);
+  assert.equal(await tryEngineWork(async () => "free"), "free");
+  await assert.rejects(
+    queueEngineWork(async () => {
+      throw new Error("engine failed");
+    }),
+    /engine failed/,
+  );
+  assert.equal(await tryEngineWork(async () => "recovered"), "recovered");
+});
+
+test("training sets require portrait nodes and reject any render that omitted its reference", async (t) => {
+  const options = { portraits: false };
+  await engine(t, options);
+  const { host, root } = await work(t);
+  const previousCommand = process.env.TOONY_LORA_TRAIN_COMMAND;
+  process.env.TOONY_LORA_TRAIN_COMMAND = "unused-test-trainer";
+  let reference = true;
+  let calls = 0;
+  const prior = setPortraitRenderer(async (_root, input) => {
+    calls++;
+    return {
+      bytes: PNG,
+      contentType: "image/png",
+      seed: calls,
+      workflowDigest: "test",
+      referenced: reference,
+      prompt: input.prompt,
+    };
+  });
+  t.after(() => {
+    setPortraitRenderer(prior);
+    if (previousCommand === undefined) delete process.env.TOONY_LORA_TRAIN_COMMAND;
+    else process.env.TOONY_LORA_TRAIN_COMMAND = previousCommand;
+  });
+  json(await runTool(host, "draw_character", { characterId: "mina" }));
+  assert.match(
+    errorText(await runTool(host, "train_character", { characterId: "mina" })),
+    /portrait reference support/,
+  );
+  assert.equal(calls, 1, "preflight refuses before drawing a set");
+  const row = host.items.at(-1);
+  assert.ok(
+    row?.kind === "activity" && !row.detail?.includes("train_character"),
+    "person-facing errors omit tool instructions",
+  );
+  options.portraits = true;
+  reference = false;
+  const first = json(await runTool(host, "train_character", { characterId: "mina" }));
+  assert.equal((await waitForTrainJob(String(first.jobId), 10_000))?.state, "failed");
+  const dir = join(root, ".toony/agent/training/mina");
+  assert.deepEqual((await readdir(dir)).sort(), ["00.png", "00.txt"]);
+  assert.equal(await trainingSetWaiting(root, "mina"), null);
+  reference = true;
+  const valid = json(await runTool(host, "train_character", { characterId: "mina" }));
+  assert.equal((await waitForTrainJob(String(valid.jobId), 10_000))?.state, "drawn");
+  let index = 0;
+  setPortraitRenderer(async (_root, input) => ({
+    bytes: PNG,
+    contentType: "image/png",
+    seed: ++index,
+    workflowDigest: "test",
+    referenced: index < 3,
+    prompt: input.prompt,
+  }));
+  const redraw = json(
+    await runTool(host, "train_character", { characterId: "mina", redraw: true }),
+  );
+  assert.equal((await waitForTrainJob(String(redraw.jobId), 10_000))?.state, "failed");
+  assert.equal(
+    await trainingSetWaiting(root, "mina"),
+    null,
+    "a failed replacement cannot leave the old set eligible for training",
+  );
+  assert.deepEqual((await readdir(dir)).filter((file) => file.endsWith(".png")).sort(), [
+    "00.png",
+    "01.png",
+    "02.png",
+  ]);
 });

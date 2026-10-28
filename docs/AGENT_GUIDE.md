@@ -5,16 +5,28 @@ Toony to an exported episode, which command answers which question, and what the
 tool enforces so you do not have to remember it.
 
 Toony is a tool a person and an agent use together. You do the work, including
-drawing and changing the cut art; the person directs, letters and signs off. Everything you do is a local file or a `toony` command, and every
-command prints JSON with `--json` and exits 0 on success, 1 on a domain error, 2
-on a usage or IO error. Nothing here needs a network, a credential or a model
-choice of its own.
+drawing and changing the cut art; the person directs, letters and signs off.
+Everything you do is a local file or a `toony` command. The reporting commands
+(`validate`, `lint`, `lint-episode`, `plan`, `measure`, `packs list`, `packs doctor`,
+`draft`, `revision`, and `produce`) print JSON with `--json`. `generate` does so
+only with `--dry-run --json`; `init`, `studio`, `import-image`, `export`,
+`packs install`, and `packs remove` reject `--json`. Commands exit 0 on success,
+1 on a domain error, and 2 on a usage or IO error. Nothing here needs a network,
+a credential or a model choice of its own.
 
 This guide is for an agent working with the `toony` command and the project
 files. An agent connected inside Toony Studio works differently: see "Inside
 Toony Studio" at the end.
 
 ## The loop
+
+Start a new project with `toony init <name> [--genre <id>]` from the workspace
+folder. It creates a project folder with `webtoon.json`, `story-bible.md` and a
+starter episode, and the result passes `toony validate`. Built-in genres are
+`romance`, `comedy`, `action`, `thriller` and `slice-of-life`; `toony packs list`
+shows genres an installed pack adds. Enter the new project folder for the
+commands below and use the starter episode id that `init` prints. Create
+`script/brief.json` yourself in the first step; `init` does not create `script/`.
 
 1. **Agree on the work.** Talk with the person. Write `script/brief.json`: what
    the work is, who it is for, the world, the story goals, content constraints,
@@ -65,17 +77,19 @@ Toony Studio" at the end.
    no provider call. Run needs `--accept` with the target set inspect printed;
    it stops if the set resolves differently. A local engine (localhost or
    127.0.0.1) needs no `--allow-remote`. A run
-   that changes a prompt, seed, workflow or size on cuts that recorded a render
-   is a revision and needs `--reason`. The cut's own `imagePrompt` is the
+   that changes a prompt, seed, workflow, size or framing on cuts that recorded
+   a render is a revision and needs `--reason`. The cut's own `imagePrompt` is the
    script's scene text; the story bible, the character lockstrings and the
    palette clause compose on top of it on every run, so never write them into
    the cut. A finished render records its prompt, seed and workflow on the cut
    and in the episode's ingest log, so a bare re-run repeats the accepted image.
    Ask for a different take with `--seed fresh`. A run that rewrites authored
    prompts says so on one line, with the ids. Import a person's own art with
-   `toony produce run ... --from <file>`. `toony generate` and
-   `toony import-image` work on single cuts, and
-   `toony generate --cut <cut> --source current --strength 0.5 --prompt <text>`
+   `toony produce run ... --from <file>`. `toony generate` draws one or more
+   `--cut` ids, the episode's cuts matching `--review-status <status>` (explicit
+   `--cut` ids narrow that set), or one `--transition`. `toony import-image`
+   takes one cut or transition, and
+   `toony generate --episode <id> --cut <cut> --source current --strength 0.5 --prompt <text>`
    changes a cut's current image while keeping its composition; add
    `--region x,y,w,h` (fractions of the picture) to change only that part.
    Before a run, inspect the resolved provider inputs without submitting an
@@ -180,8 +194,9 @@ they are looking at.
 - Start a new session with `get_status`: the work, cast, episodes with
   progress, your task list, the open question, remembered notes and what
   changed since your last turn.
-- Read with `read_story`, `read_characters`, `read_episode`, `view_cut` (the
-  cut as an image with its lettering, and the prompt and seed that drew it),
+- Read with `list_works` (workspace webtoons with title, id and episode count,
+  and the current work marked), `read_story`, `read_characters`, `read_episode`,
+  `view_cut` (the cut as an image with its lettering, and the prompt and seed that drew it),
   `view_training_set` (a character's drawn training set as one numbered sheet)
   and `check_episode`.
 - Write with `create_work` (from a library chat only), `update_story`,
@@ -193,8 +208,10 @@ they are looking at.
 - Teach the engine a main character with `train_character` once their portrait
   is kept, in two calls. The first draws about 22 pictures from the portrait in
   the background (views held closely, poses at the usual balance), captions each
-  with a trigger word and the lockstring, and stops. The agent checks the set
-  with `view_training_set`. When most pictures miss the same detail of the
+  with a trigger word and the lockstring, and stops. Drawing the set requires
+  the engine's IP-Adapter nodes and refuses if the portrait was not used.
+  The agent checks the set with `view_training_set`. When most pictures miss
+  the same detail of the
   portrait (a mustache the lockstring does not mention), it draws a new set with
   `redraw` and `prompt` naming it, at most twice; the detail is drawn into every
   picture but left out of the captions, so the LoRA learns it as part of the
@@ -205,14 +222,15 @@ they are looking at.
   the training command the person set up
   (`TOONY_LORA_TRAIN_COMMAND`: a command with `{character}`, `{dataset}`,
   `{name}` and `{steps}` placeholders, run without a shell, that writes
-  `{name}.safetensors` into the engine's LoRA folder). When it succeeds the
-  character's `lora` is recorded (one undoable change) and every picture of them
+  `{name}.safetensors` into the engine's LoRA folder). This training phase needs
+  the configured command but can run while ComfyUI is stopped. When it succeeds,
+  the character's `lora` is recorded (one undoable change) and every picture of them
   is drawn with it: the whole frame for one person, each person's own half in a
   two-person cut drawn side by side (and both lightly on the pass that joins
   them), and every portrait, which the agent then redraws and keeps. Both jobs
   wait in the drawing queue, so drawing and training never share the engine;
-  `art_status` follows it and `stop_drawing` stops it. Without the command,
-  `check_art_engine` reports no training and the tool says so.
+  `art_status` follows it and `stop_drawing` stops it by its job id. Without the
+  command, `check_art_engine` reports no training and the tool says so.
 - Draw portrait candidates with `draw_portraits` (a drawing read: three plain
   portraits from the lockstring, each with its own seed, shown to the agent and
   kept in the work's private agent files; the project does not change).
@@ -233,7 +251,10 @@ they are looking at.
   the people do.
 - Draw cuts with `draw_cuts`: an English image prompt per cut, sent on its
   own (the story bible does not wrap it), and the engine adds the cast's
-  lockstrings. Set a wide or tall cut's shape first with `edit_cuts` (`shape`,
+  lockstrings. For a hand, body-part or object insert, set that item's
+  `framing` to `"detail"`; this keeps the detail prompt and omits full-character
+  descriptions and automatic portrait references. Scene framing is the default.
+  Set a wide or tall cut's shape first with `edit_cuts` (`shape`,
   height as a multiple of width, 0.5 to 2.5). `edit_cuts` can also frame a cut
   that has a picture (`view`, the part it shows in fractions of the picture, or
   null for all of it); the person frames cuts and reuses another cut's picture
@@ -243,6 +264,8 @@ they are looking at.
   `region`, the part it is about boxed on the picture `view_cut` shows: only
   that part is redrawn, larger so a small face can change, and pasted back with
   a soft edge, so nothing outside it changes (`strength` defaults to 0.7 there).
+  A grey gutter band beside the art is not part of the picture; a region wholly
+  inside a band is refused.
   The prompt then says how that part should look, naming what each feature
   does for an expression ("close-up of her face, laughing out loud, mouth wide
   open, eyes squeezed shut"): in testing a bare "laughing" came out as a grin,
@@ -255,16 +278,17 @@ they are looking at.
   two-person cut each person is redrawn from their own side of it.
   Both run as a background job on the person's local ComfyUI: the tool waits a
   few minutes, returns while the rest is drawn, and a follow-up message reaches
-  the agent when the job ends. `art_status` follows a job, `stop_drawing` stops
-  one and `check_art_engine` says whether the engine is ready. Each finished
-  image is one undoable change.
+  the agent when the job ends. `art_status` follows a job. `stop_drawing` without
+  a job id stops the newest unfinished drawing job; stopping training requires
+  its explicit job id. `check_art_engine` says whether the engine is ready.
+  Each finished image is one undoable change.
 - `create_episode` takes the episode script described above (beats, cuts,
   dialogue, `transitionAfter`) without the format, id and brief revision
   fields; Studio fills them, compiles the draft and applies it as the next
   episode.
 - Plan with `update_tasks`, ask with `ask_user` (2 to 6 options, then end the
   turn), keep durable decisions with `remember` and drop them with `forget`.
-- Offer lines with `suggest_dialogue`: two to five short alternatives for one
+- Offer lines with `suggest_dialogue`: one to five short alternatives for one
   cut (speech, thought, narration, or silent when the art carries the beat).
   They appear beside the cut's art; the person edits, copies or inserts one.
   Nothing is lettered by the tool, and new suggestions replace the cut's

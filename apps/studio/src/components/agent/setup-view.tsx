@@ -51,6 +51,7 @@ function ReadinessDetail({ readiness }: { readiness: ProviderReadiness }) {
     case "sign-in-required":
       return (
         <div className="agent-provider-fix">
+          {readiness.message && <p className="agent-provider-note">{readiness.message}</p>}
           <p className="agent-provider-note">
             Sign in with your subscription in a terminal, then check again.
           </p>
@@ -77,7 +78,8 @@ function ReadinessDetail({ readiness }: { readiness: ProviderReadiness }) {
     case "unsupported":
       return (
         <p className="agent-provider-note">
-          Toony supports {readiness.supported}. This computer has {readiness.version}.
+          {readiness.detail ??
+            `Toony supports ${readiness.supported}. This computer has ${readiness.version}.`}
         </p>
       );
     case "checking":

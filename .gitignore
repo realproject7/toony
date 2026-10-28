@@ -1,4 +1,5 @@
 node_modules/
+*.tgz
 .pnpm-store/
 dist/
 # Test compiles emit here, never into dist/ — see turbo.json's `test` task.

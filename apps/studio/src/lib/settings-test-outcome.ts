@@ -1,4 +1,4 @@
-// What pressing "Test connection" reports (#223).
+// What pressing "Save and test" reports (#223).
 //
 // The outcome lives here rather than inside the component for the reason
 // `editor-save.ts` does (#150): it is the part with branches worth pinning, and
@@ -48,18 +48,17 @@ export function isDirty(form: ComfyConfigValues, saved: ComfyConfigValues): bool
 export function describeTestOutcome(state: ConnectionState | undefined, detail?: string): string {
   switch (state) {
     case "reachable":
-      return "Reachable. The saved endpoint answered.";
+      return "Reachable. The saved address answered.";
     case "unreachable":
       return detail
         ? `Not reachable: ${detail}`
-        : "Not reachable. Check that ComfyUI is running at the saved endpoint.";
+        : "Not reachable. Check that ComfyUI is running at the saved address.";
     default:
       // `unconfigured`, `unknown`, and a response with no connection at all
       // share one next step, and it is the one a first-time user needs.
-      return "No endpoint is saved yet. Enter one above and press Save settings.";
+      return "No address is saved yet. Enter one above and press Save and test.";
   }
 }
 
 /** The sentence shown when the form has edits that were never written. */
-export const UNSAVED_EDITS_MESSAGE =
-  "These edits are not saved yet. Save settings first, then test.";
+export const UNSAVED_EDITS_MESSAGE = "These edits are not saved yet. Press Save and test.";

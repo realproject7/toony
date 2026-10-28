@@ -13,25 +13,25 @@ It exercises the v3 **craft skills** end to end:
 - the full **bubble grammar**: narration (borderless), speech, thought, a `beat`
   "…", a `tone=shout` (scalloped), `ambient`, and SFX in two `sfxMode`s
   (`hand_lettered`, `impact_band`);
-- **transition rhythm** across six kinds (`title_card`, `gutter`, `scene-break`,
-  `palette_shift`, `black_band`, `fade`) with `color`;
+- **transition rhythm** across six panels: `time_card`, `color_field`,
+  `narration_card`, `dialogue_card`, `void`, then a `color_field` with a fade;
 - **visual rhythm** via per-cut `shotType` / `palette` / `layer` / `styleTag`.
 
-This seed ships with `image: null` on every cut — the artwork regenerates from
-each cut's `imagePrompt` plus the injected character lockstrings. Nothing is
-hard-coded.
+This example ships with seven clean cut images. You can redraw them from each
+cut's stored `imagePrompt` plus the injected character lockstrings.
 
 ## Reproduce it
 
-From a checkout (after `pnpm install && pnpm -r build`), with a running provider —
-e.g. a local ComfyUI at `http://127.0.0.1:8188` with an illustration checkpoint:
+From the checkout root (after `pnpm install && pnpm build`), with ComfyUI running
+locally at `http://127.0.0.1:8188` with an illustration checkpoint:
 
 ```bash
+alias toony="node $PWD/packages/cli/dist/bin.js"
 cd examples/dead-air
 
-# point the CLI at your provider (runtime-only; never committed)
+# point the CLI at your local ComfyUI (runtime-only; never committed)
 export TOONY_COMFYUI_URL=http://127.0.0.1:8188
-export TOONY_COMFYUI_CHECKPOINT=<your-checkpoint>.safetensors
+export TOONY_COMFYUI_CHECKPOINT="<your-checkpoint>.safetensors"
 
 # generate each cut from its stored imagePrompt + character lockstrings
 for n in 001 002 003 004 005 006 007; do
@@ -46,7 +46,8 @@ toony export ep-001 --output strip --width 800
 toony export ep-001 --output instagram
 ```
 
-Open the studio to preview/edit instead: `toony studio` (from this folder).
+Open the studio to preview or edit instead: `toony studio .` from this folder.
+The example opens as a single work, with its parent folder shown as the library.
 
-Provider-neutral: any configured provider (or manual import via
-`toony import-image`) works — ComfyUI is just the example backend.
+The drawing path uses your local ComfyUI. You can also bring your own artwork
+with `toony import-image`.

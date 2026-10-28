@@ -1,8 +1,8 @@
 // Exercise the shipped server outside the repository's dependency ancestry.
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -198,4 +198,19 @@ test("relocated Studio serves the workspace and exports identical native font pi
     await stop?.();
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("the installable CLI includes the unchanged project license", async () => {
+  const root = fileURLToPath(new URL("../../", import.meta.url));
+  assert.equal(
+    await readFile(join(root, "LICENSE"), "utf8"),
+    await readFile(join(root, "../../LICENSE"), "utf8"),
+  );
+  const packed = JSON.parse(
+    execFileSync("npm", ["pack", "--dry-run", "--json", "--ignore-scripts", "--offline"], {
+      cwd: root,
+      encoding: "utf8",
+    }),
+  ) as Array<{ files: Array<{ path: string }> }>;
+  assert.ok(packed[0]?.files.some((file) => file.path === "LICENSE"));
 });

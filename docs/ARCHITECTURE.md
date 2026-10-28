@@ -66,9 +66,12 @@ whose only defect is a bad `shotType` produces:
 | `toony import-image` | 1 | prints the report, reads no source image and writes nothing |
 
 `generate` and `import-image` share an authoring gate in
-`packages/cli/src/generate-gate.ts`. Both print the validation report and the
-authored values before refusing. Export and measurement require a fully valid
-project, including its wiring; they keep their shorter diagnostic. IO, parse,
+`packages/generate/src/generate-gate.ts`, exported by `@toony/generate`.
+`runGenerate` calls it, including for Studio draws; the CLI's `import-image`
+imports it through the thin `packages/cli/src/generate-gate.ts` re-export.
+Both print the validation report and the authored values before refusing.
+Export and measurement require a fully valid project, including its wiring;
+they keep their shorter diagnostic. IO, parse,
 and usage failures remain exit 2. A completed measurement outside its requested
 band also returns 1, with an out-of-band verdict rather than a validation error.
 
@@ -590,16 +593,19 @@ the same code `toony generate` runs, with the agent's English image prompt and
 `keepCutPrompt`, so the cut's scene text stays in the person's language and
 the submitted prompt goes to the ingest log, and `standalonePrompt`, so the
 story bible does not wrap the agent's prompt (its other cuts' continuity notes
-and prose pulled the model away from the cut). A short negative base is added
+and prose pulled the model away from the cut). Per-cut `framing: "detail"`
+passes `--framing detail` to omit full-character descriptions and automatic
+portrait references for a detail insert. A short negative base is added
 after the agent's own negative: one picture, not a comic page, no lettering. A cut's `panelAspect`, which
 the agent sets as `shape` through `edit_cuts`, sizes the latent; a shape
 shorter than the workflow's latent widens the column to keep the baseline
 pixel count (`keepDetail`), where the CLI refuses without an explicit width. `edit_cut_art` adds
 `--source current --strength <n>`: the provider loads the current image,
 encodes it with the graph's own VAE and starts the sampler from it (image to
-image). With a `region` the tool adds `--region x,y,w,h` (the agent's box on
-the picture `view_cut` shows, mapped through the cut's image view to the
-source): the provider reads the source's size from its header and
+image). With a `region` the tool adds `--region x,y,w,h`: the agent's box on
+the picture `view_cut` shows is intersected with the art rectangle, excluding
+gutter bands, then mapped through the cut's image view to the source. A box
+wholly inside a gutter is refused. The provider reads the source's size from its header and
 `regionBoxes` derives a crop (the region grown by 60% for context), scaled so
 its long side is 1024, and a paste box (grown by 20%); the graph crops, scales,
 redraws, scales back and pastes only the paste box through a feathered mask
@@ -612,7 +618,7 @@ ingest log and is part of the repeat check. A `draw_cuts` item with `fromCutId` 
 is the starting point, so place, light and colours carry over. Because the
 character references attach to every run, an edit and a continued cut are drawn
 with the same portraits as the first drawing. `draw_portraits` draws up to three
-portraits with `renderImage` (the cast member's lockstring and a fixed
+portraits through the shared engine queue with `renderImage` (the cast member's lockstring and a fixed
 plain-portrait prompt, a new seed each, nothing recorded on a cut), keeps them in
 `.toony/agent/portraits/<id>/` and shows them to the agent; it changes no project
 file, so it runs without a proposal. `draw_character` with `choose` stores the
@@ -633,13 +639,15 @@ held strongly, `referenceStrength: "strong"`, and 8 poses at the usual balance)
 into `.toony/agent/training/<id>/`, each picture with a caption of the trigger
 word (`<id>tny`) and the lockstring, writes `set.json` beside them and ends at
 `drawn`; the call's `prompt` adds details to every picture's prompt but not to
-its caption. The agent looks at the set (`view_training_set`) and calls again with
+its caption. This phase requires portrait nodes and fails if the renderer did
+not use the reference. The agent looks at the set (`view_training_set`) and calls again with
 `drop`: the second job deletes those pictures (never `00`, the reference;
 at least 10 must remain), runs `TOONY_LORA_TRAIN_COMMAND` with its
 placeholders filled (split on spaces, no shell) and, on exit code 0, removes
 `set.json` and records
 `lora: { file: "<name>.safetensors", strength: 0.7, trigger }` on the character
-through the write path. Generate resolves each cut's LoRAs from the cast like its
+through the write path. This phase requires the configured training command
+but does not require ComfyUI to be running. Generate resolves each cut's LoRAs from the cast like its
 references (`castSides`): one person over the whole frame, two people on their
 sides; the provider puts LoraLoader nodes on the checkpoint before the
 references attach, or, side by side, one LoRA and its own adapter loader per
@@ -660,6 +668,10 @@ or running reads as interrupted: the cut being drawn is marked failed, cuts not
 started are skipped, nothing is drawn again by itself, and `get_status` tells
 the agent to check those cuts. A conversation read back from disk shows no step
 still running.
+
+`stop_drawing` without a job id selects the newest unfinished drawing job.
+Training is stopped only by its explicit job id from `art_status`. Status and
+stop lookups load saved drawing jobs before resolving an id after a restart.
 
 With "Let the agent make changes without asking" on, writes apply and each
 leaves an undoable change card. Off, each write becomes a proposal card the
@@ -688,9 +700,10 @@ episode that does not exist yet is described, not refused.
 `POST /api/agent` carries the panel's actions (`AgentAction` in
 `lib/agent/protocol.ts`) behind the shared request guard. Every state change
 reaches each tab on `GET /api/live`: `connection`, `providers`, `conversation`,
-`item`, `turn`, `delta`, `tasks`, `rebind`, `navigate`, plus the `project` and
-`export` events of the write path and export jobs. Run Studio bound to loopback;
-do not expose it through a proxy.
+`item`, `turn`, `delta`, `tasks`, `rebind`, `navigate`, `art` (drawing or training
+progress), `suggestions` (new dialogue suggestions for a cut), plus the `project`
+and `export` events of the write path and export jobs. Run Studio bound to
+loopback; do not expose it through a proxy.
 
 ## Studio write path and live feed
 

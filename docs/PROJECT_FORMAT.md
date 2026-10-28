@@ -13,7 +13,6 @@ my-webtoon/
       cuts.yaml
       transitions.yaml
       lettering.json
-      review.md
       assets/
         clean/
         final/
@@ -26,6 +25,8 @@ my-webtoon/
   assets/
   logs/
 ```
+
+Review state is the `reviewStatus` field on each cut and transition, not a file.
 
 `story-bible.md` carries authored premise, cast and world context into image
 generation. An absent, blank or untouched scaffold has no effect. The generator

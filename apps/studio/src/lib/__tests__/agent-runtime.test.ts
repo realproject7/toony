@@ -640,7 +640,7 @@ test("a conversation read back after a restart shows no step still running", () 
   assert.ok(record);
   const [first, second] = record.items;
   assert.ok(first?.kind === "activity" && first.status === "failed");
-  assert.match(first.detail ?? "", /Studio restarted/);
+  assert.match(first.detail ?? "", /Toony restarted/);
   assert.ok(second?.kind === "activity" && second.status === "done");
   assert.equal(record.turn?.state, "failed");
 });

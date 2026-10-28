@@ -250,16 +250,16 @@ export function describeRefusal(result: ApplyResult): string {
   if (refusal === null) return "";
   switch (refusal.reason) {
     case "draft-missing":
-      return "There is no draft for this episode. Compile one with the Toony CLI first.";
+      return "There is no proposal for this episode. Ask the agent to prepare one.";
     case "draft-invalid":
-      return `The draft does not validate: ${refusal.issues.map((i) => i.message).join(" ")}`;
+      return `The proposal has problems. Ask the agent to prepare it again: ${refusal.issues.map((i) => i.message).join(" ")}`;
     case "project-invalid":
-      return "The project does not pass validation. Fix it before applying a draft.";
+      return "The story has problems to fix first. See Needs attention on the story page, or ask the agent to fix them.";
     case "project-changed":
-      return "The project changed since this page was loaded. Reload and review the diff again.";
+      return "The story changed since this page was loaded. Reload and review the proposed changes again.";
     case "conflicts":
-      return `${refusal.conflicts.length} conflict(s) with records the project already holds. Nothing was written.`;
+      return `This would change or remove ${refusal.conflicts.length} ${refusal.conflicts.length === 1 ? "thing" : "things"} already in the episode, so nothing was changed. Ask the agent to update the proposal.`;
     case "result-invalid":
-      return `Applying would leave the project invalid: ${refusal.issues.map((i) => i.message).join(" ")}`;
+      return `Applying would leave the story with problems: ${refusal.issues.map((i) => i.message).join(" ")}`;
   }
 }

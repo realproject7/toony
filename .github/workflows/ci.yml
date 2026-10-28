@@ -1,10 +1,9 @@
 name: CI
 
-# DISABLED (2026-09-08): this repository's GitHub Actions minutes are exhausted,
-# so the workflow is switched off and no longer runs on pushes or pull requests.
-# It is kept here, unchanged, so it can be re-enabled the moment minutes return.
+# DISABLED: hosted CI is switched off in repository settings and does not run
+# on pushes or pull requests. This file is kept so it can be re-enabled later.
 #
-# Until then the release gate is LOCAL and lives in `scripts/verify-release.sh`,
+# Instead, the release gate is LOCAL and lives in `scripts/verify-release.sh`,
 # which does the same thing this workflow did: clean checkout, frozen install,
 # `pnpm check` + `pnpm test` on both supported Node majors. Run it before every
 # merge. `pnpm check` (Biome + typecheck + public-safety + no-stub) is kept fast

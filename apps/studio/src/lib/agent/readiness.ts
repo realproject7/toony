@@ -307,7 +307,7 @@ export class Readiness {
         state: "unsupported",
         version: formatVersion(binary.version),
         supported: info.supported,
-        detail: "This build is missing options Toony needs.",
+        detail: `This ${info.label} build (${formatVersion(binary.version)}) is missing options Toony needs. Update it, then check again.`,
       };
     }
     return null;
