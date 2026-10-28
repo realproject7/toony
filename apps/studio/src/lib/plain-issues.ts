@@ -33,7 +33,7 @@ const MESSAGES: Array<[Matcher, string]> = [
   [code(/^cut\.image/), "The artwork file is missing or cannot be read."],
   [code(/^cut\.character-ref$/), "A cut names a character who is not in the cast."],
   [code(/^character\.reference/), "A reference sheet is missing or in the wrong folder."],
-  [code(/^character\.duplicate-id$/), "Two characters share the same name key."],
+  [code(/^character\.duplicate-id$/), "Two characters share the same folder."],
   [code(/^(geometry|tail|tail-target)\./), "A bubble sits outside its cut."],
   [code(/^(style|overlay|border)\./), "A bubble has a style Toony cannot draw."],
   [code(/^transition\./), "A transition has a setting Toony cannot draw."],

@@ -37,7 +37,7 @@ test("write then read round-trips the config", async () => {
   const config: ToonyConfig = {
     comfyui: {
       endpoint: "http://localhost:8188",
-      checkpoint: "sd_xl_base_1.0.safetensors",
+      checkpoint: "model.safetensors",
       workflow: "txt2img",
     },
   };

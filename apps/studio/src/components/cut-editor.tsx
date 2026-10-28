@@ -778,7 +778,7 @@ export function CutEditor({
         setMessage({
           kind: all ? "error" : "ok",
           text: all
-            ? "Your lettering is copied. Reload, then paste to get it back."
+            ? "Your lettering is copied. Reload the saved version, then paste to get it back."
             : "Copied. Paste in this or another cut.",
         });
       } catch {

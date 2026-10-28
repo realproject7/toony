@@ -47,7 +47,7 @@ const standalone = join(studioApp, ".next", "standalone");
 if (!existsSync(join(standalone, "apps", "studio", "server.js"))) {
   console.error(
     "bundle-studio: standalone build not found at apps/studio/.next/standalone — " +
-      "run `pnpm --filter @toony/studio build` first.",
+      "run `pnpm build` from the repository root first.",
   );
   process.exit(1);
 }

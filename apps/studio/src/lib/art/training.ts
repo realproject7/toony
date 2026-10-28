@@ -295,6 +295,13 @@ async function drawSet(
           message: `The artwork engine could not draw the training set: ${redactPaths(result.error)}`,
         });
       }
+      if (!result.referenced) {
+        return finish({
+          state: "failed",
+          message:
+            "The artwork engine drew without the portrait, so this set cannot be used. Install the portrait nodes and draw the set again.",
+        });
+      }
       const n = String(index + 1).padStart(2, "0");
       await writePrivateFile(join(dir, `${n}.png`), result.bytes);
       await writePrivateFile(join(dir, `${n}.txt`), caption(item.what));

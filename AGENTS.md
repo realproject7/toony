@@ -13,8 +13,8 @@ GitHub ticket-first workflow. Read `docs/VERIFICATION.md` before delivery.
 - The person's connected agent draws and changes cut artwork through the local
   ComfyUI engine; that is the product's core path, not an experiment. The
   person keeps the final visual decisions.
-- Keep code history free of private research, assets, paths and credentials even
-  while the repository is private.
+- The repository is public. Keep code history free of private research, assets,
+  paths and credentials.
 - Historical issue numbers belong to the legacy repository. Current development
   uses local outcome tickets and descriptive branches.
 

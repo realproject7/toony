@@ -18,7 +18,7 @@ const STEPS = [
   },
   {
     title: "Start the artwork engine",
-    text: "ComfyUI on this computer draws the cuts. Add its address in Settings.",
+    text: "ComfyUI on this computer draws the cuts. Add its address and model file in Settings.",
   },
   {
     title: "Describe your story",

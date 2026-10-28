@@ -235,7 +235,7 @@ export function parseRecord(value: unknown, fileId: string): ConversationRecord 
     // Nothing can still be running in a conversation read back from disk.
     items: trimItems(cleanItems(v.items)).map((item) =>
       item.kind === "activity" && item.status === "running"
-        ? { ...item, status: "failed" as const, detail: "Stopped when Studio restarted." }
+        ? { ...item, status: "failed" as const, detail: "Stopped when Toony restarted." }
         : item,
     ),
     tasks: Array.isArray(v.tasks) ? (v.tasks as TaskItem[]).slice(0, 30) : [],

@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { persistWithGuard, type SaveResponse } from "../editor-save.js";
+import { persistWithGuard, requestFailure, type SaveResponse } from "../editor-save.js";
 
 /** A resolved response with the given ok/body, mimicking `fetch`. */
 function response(ok: boolean, body: unknown): SaveResponse {
@@ -75,12 +75,15 @@ test("a body with ok:false is an error even on HTTP 200", async () => {
 test("a rejected request is reported as an error, never a clean save", async () => {
   const outcome = await persistWithGuard({
     request: async () => {
-      throw new Error("network down");
+      throw new TypeError("network down");
     },
     generationAtStart: 1,
     readGeneration: () => 1,
   });
-  assert.deepEqual(outcome, { ok: false, error: "network down" });
+  assert.deepEqual(outcome, {
+    ok: false,
+    error: "Could not reach Toony. Check that it is still running, then try again.",
+  });
 });
 
 test("a response whose json() throws is reported as an error", async () => {
@@ -94,7 +97,10 @@ test("a response whose json() throws is reported as an error", async () => {
     generationAtStart: 1,
     readGeneration: () => 1,
   });
-  assert.deepEqual(outcome, { ok: false, error: "bad json" });
+  assert.deepEqual(outcome, {
+    ok: false,
+    error: "Could not reach Toony. Check that it is still running, then try again.",
+  });
 });
 
 test("a null JSON body is a failed save, not a crash", async () => {
@@ -117,4 +123,20 @@ test("a non-object JSON body (string/number) is a failed save, not a crash", asy
     });
     assert.deepEqual(outcome, { ok: false, error: "Save failed." }, `body=${JSON.stringify(body)}`);
   }
+});
+
+test("save failures preserve deliberate local-address guidance", async () => {
+  const message = "Open Toony from its local address to make changes.";
+  const result = await persistWithGuard({
+    request: async () => {
+      throw new Error(message);
+    },
+    generationAtStart: 1,
+    readGeneration: () => 1,
+  });
+  assert.deepEqual(result, { ok: false, error: message });
+  assert.match(
+    requestFailure(new SyntaxError("Unexpected token in JSON")),
+    /Could not reach Toony/,
+  );
 });

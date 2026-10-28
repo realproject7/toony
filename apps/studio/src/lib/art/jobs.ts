@@ -30,6 +30,7 @@ export interface ArtJobItem {
   /** The image prompt, in English. Absent: the cut's own prompt. */
   prompt?: string;
   negative?: string;
+  framing?: "detail";
   /** "fresh" for a new take, a number to pin one. Absent: the cut's recorded seed. */
   seed?: number | "fresh";
   /** Draw from this cut's picture (a continuity source) instead of from noise. */
@@ -66,6 +67,7 @@ interface JobRecord {
 interface Registry {
   jobs: Map<string, JobRecord>;
   queue: Promise<unknown>;
+  pending: number;
   runner: GenerateRunner;
   /** Work folders whose saved jobs were read back in this process. */
   restored: Set<string>;
@@ -87,6 +89,7 @@ function registry(): Registry {
   state.toonyArtJobs ??= {
     jobs: new Map(),
     queue: Promise.resolve(),
+    pending: 0,
     runner: runGenerate,
     restored: new Set(),
     saving: new Map(),
@@ -100,9 +103,17 @@ function registry(): Registry {
  */
 export function queueEngineWork<T>(work: () => Promise<T>): Promise<T> {
   const reg = registry();
-  const done = reg.queue.then(work);
+  reg.pending++;
+  const done = reg.queue.then(work).finally(() => {
+    reg.pending--;
+  });
   reg.queue = done.catch(() => undefined);
   return done;
+}
+
+/** Start a short portrait call only when the engine is free, without a long tool wait. */
+export function tryEngineWork<T>(work: () => Promise<T>): Promise<T> | null {
+  return registry().pending > 0 ? null : queueEngineWork(work);
 }
 
 /** Use another generate runner (tests). Returns the previous one. */
@@ -210,7 +221,7 @@ function savedJob(value: unknown, workId: string): ArtJobView | null {
 
 /**
  * Read a work's saved jobs once per process. A job that was queued or running
- * when Studio stopped becomes interrupted: its unfinished cuts say what
+ * when Toony stopped becomes interrupted: its unfinished cuts say what
  * happened, and it is never started again by itself.
  */
 export async function restoreArtJobs(workId: string, root: string): Promise<void> {
@@ -237,10 +248,10 @@ export async function restoreArtJobs(workId: string, root: string): Promise<void
         if (cut.state === "drawing") {
           cut.state = "failed";
           cut.message =
-            "Studio stopped while this cut was being drawn. Look at the cut; draw it again if it did not change.";
+            "Toony stopped while this cut was being drawn. Look at the cut; draw it again if it did not change.";
         } else if (cut.state === "queued") {
           cut.state = "skipped";
-          cut.message = "Studio stopped before this cut was drawn.";
+          cut.message = "Toony stopped before this cut was drawn.";
         }
       }
     }
@@ -287,6 +298,9 @@ function prune(jobs: Map<string, JobRecord>): void {
 
 /** One line a person can read, from what the generate run said. */
 export function plainFailure(lines: readonly string[], root: string): string {
+  if (lines.some((line) => line.includes("[detail-character-context]"))) {
+    return "This close-up needs detail framing to keep full character descriptions out of the picture.";
+  }
   const useful = lines
     .filter((line) => !line.startsWith("usage:") && !line.startsWith("note:"))
     .map((line) => line.replace(/^generation failed for [^:]+: /, "").replace(/^error: /, ""));
@@ -334,6 +348,7 @@ async function drawOne(record: JobRecord, cut: ArtJobCut, item: ArtJobItem): Pro
     .filter((part) => part !== "")
     .join(", ");
   args.push("--negative", negative);
+  if (item.framing !== undefined) args.push("--framing", item.framing);
   if (item.seed !== undefined) args.push("--seed", String(item.seed));
   if (params.kind === "edit") {
     args.push("--source", "current", "--strength", String(params.strength ?? 0.5));
@@ -358,6 +373,7 @@ async function drawOne(record: JobRecord, cut: ArtJobCut, item: ArtJobItem): Pro
     keepCutPrompt: true,
     standalonePrompt: true,
     keepDetail: true,
+    replaces: true,
     report: (event) => {
       if (event.kind === "started") {
         cut.state = "drawing";
@@ -479,9 +495,7 @@ export function startArtJob(params: ArtJobParams, listener?: Listener): ArtJobVi
     stop: false,
     done: Promise.resolve(view),
   };
-  const done = reg.queue.then(() => run(record));
-  record.done = done;
-  reg.queue = done.catch(() => undefined);
+  record.done = queueEngineWork(() => run(record));
   reg.jobs.set(view.id, record);
   prune(reg.jobs);
   publish(record);

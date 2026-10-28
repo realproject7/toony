@@ -61,6 +61,6 @@ export async function POST(request: Request): Promise<Response> {
         status,
       );
     },
-    "could not update the draft",
+    "could not update the proposal",
   );
 }

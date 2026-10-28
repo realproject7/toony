@@ -9,6 +9,13 @@
 // the snapshot nor falsely mark itself clean. Pure and React-free, so it runs
 // under the repo-standard `node:test` harness (#157).
 
+/** Keep deliberate local-address guidance, but hide browser network exceptions. */
+export function requestFailure(cause: unknown): string {
+  return cause instanceof Error && !(cause instanceof TypeError) && !(cause instanceof SyntaxError)
+    ? cause.message
+    : "Could not reach Toony. Check that it is still running, then try again.";
+}
+
 /** The minimal response shape this helper needs (a `fetch` Response satisfies it). */
 export interface SaveResponse {
   ok: boolean;
@@ -52,14 +59,14 @@ export async function persistWithGuard(args: {
   try {
     response = await args.request();
   } catch (cause) {
-    return { ok: false, error: cause instanceof Error ? cause.message : String(cause) };
+    return { ok: false, error: requestFailure(cause) };
   }
 
   let parsed: unknown;
   try {
     parsed = await response.json();
-  } catch (cause) {
-    return { ok: false, error: cause instanceof Error ? cause.message : String(cause) };
+  } catch {
+    return { ok: false, error: requestFailure(null) };
   }
 
   const body = readBody(parsed);

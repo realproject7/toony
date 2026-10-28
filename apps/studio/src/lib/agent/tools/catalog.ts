@@ -164,7 +164,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     kind: "read",
     step: "Checking the project",
     description:
-      "Status of this work: story, cast, episodes with progress, your task list, the open question, remembered notes and what changed since your last turn. Call it first in a new session.",
+      "Status of this work: story, cast, episodes with progress, your task list, the open question, remembered notes, artwork engine and running drawing or character training jobs, and what changed since your last turn. Call it first in a new session.",
     inputSchema: obj({}),
   },
   {
@@ -313,7 +313,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     kind: "write",
     step: "Training a character",
     description:
-      "Teach the artwork engine a main character from their kept portrait (a LoRA), so every cut draws the same face, hair and clothes. Two calls. Without drop it draws a training set of about 22 pictures from the portrait in the background (some minutes); you get a message when it is drawn. Check it with view_training_set, then call again with drop: the numbers of pictures that clearly break the portrait's design, show two figures or are broken (an empty list keeps them all). That trains: about an hour in the background, and drawings wait for it. Do it once their portrait is kept (draw_portraits, then draw_character with choose) and their look is settled. When training is done you get a message: then run draw_portraits again (now drawn with what it learned) and keep the best with choose. check_art_engine says whether this computer can train.",
+      "Teach the artwork engine a main character from their kept portrait (a LoRA), so every cut draws the same face, hair and clothes. Two calls. Drawing the set needs a running engine with portrait reference nodes and a configured training command. Training a checked set needs the command but can run with ComfyUI stopped. Without drop it draws a training set of about 22 pictures from the portrait in the background (some minutes); you get a message when it is drawn. Check it with view_training_set, then call again with drop: the numbers of pictures that clearly break the portrait's design, show two figures or are broken (an empty list keeps them all). That trains: about an hour in the background, and drawings wait for it. Do it once their portrait is kept (draw_portraits, then draw_character with choose) and their look is settled. When training is done you get a message: then run draw_portraits again (now drawn with what it learned) and keep the best with choose. check_art_engine says whether this computer can train.",
     inputSchema: obj(
       {
         characterId: str("The character id (from read_characters)."),
@@ -447,6 +447,12 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
             {
               cutId,
               prompt: str("The image prompt, in English."),
+              framing: {
+                type: "string",
+                enum: ["detail"],
+                description:
+                  "Optional: detail for a hand, prop or other insert with no complete character. Omits full-character descriptions and automatic portraits.",
+              },
               negative: str("Optional: what to keep out of the picture, in English."),
               fromCutId: str(
                 "Optional: a cut with art to start from, for the next moment in the same place and a similar framing.",
@@ -471,7 +477,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     kind: "write",
     step: "Changing the art",
     description:
-      "Change a cut's existing artwork while keeping its composition: the engine starts from the current image. Write the prompt in English as the whole picture should look after the change (view_cut shows the prompt that drew it). For a change inside the picture, such as a face's expression, a hand or a prop, give region: the part it is about, boxed on the picture view_cut shows (a face from brows to chin). Only that part is redrawn, larger so a small face can change, and pasted back; nothing outside it changes, and strength defaults to 0.7. With a region, write the prompt as that part should look, and for an expression say what each feature does ('close-up of her face, laughing out loud, mouth wide open, eyes squeezed shut'; 'calm, eyes relaxed and half lidded, brows soft, mouth closed'): a bare 'laughing' comes out as a grin. In a two-person cut the region is drawn with the person on that side only. Without region the whole picture is redrawn: use that for light, colour or the whole figure. strength is how much may change: 0.3 small touch-ups, 0.5 default, 0.7 larger changes (pose, clothing); for a stronger expression, name the features rather than raising strength. To change the composition, use draw_cuts instead.",
+      "Change a cut's existing artwork while keeping its composition: the engine starts from the current image. Write the prompt in English as the whole picture should look after the change (view_cut shows the prompt that drew it). For a change inside the picture, such as a face's expression, a hand or a prop, give region: the part it is about, boxed on the picture view_cut shows (a face from brows to chin). The lettering margin beside the art is not part of the picture. Only that part is redrawn, larger so a small face can change, and pasted back; nothing outside it changes, and strength defaults to 0.7. With a region, write the prompt as that part should look, and for an expression say what each feature does ('close-up of her face, laughing out loud, mouth wide open, eyes squeezed shut'; 'calm, eyes relaxed and half lidded, brows soft, mouth closed'): a bare 'laughing' comes out as a grin. In a two-person cut the region is drawn with the person on that side only. Without region the whole picture is redrawn: use that for light, colour or the whole figure. strength is how much may change: 0.3 small touch-ups, 0.5 default, 0.7 larger changes (pose, clothing); for a stronger expression, name the features rather than raising strength. To change the composition, use draw_cuts instead.",
     inputSchema: obj(
       {
         episodeId,
@@ -500,7 +506,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     kind: "read",
     step: "Checking the drawing",
     description:
-      "Drawing jobs of this work (newest first) and each cut's state, or one job by id. wait (seconds, up to 240) waits for the job to move on before answering.",
+      "Drawing and character training jobs of this work (newest first), or one job by id. wait (seconds, up to 240) waits until a selected job finishes or the wait expires.",
     inputSchema: obj({
       jobId: str("Optional job id."),
       wait: { type: "integer", description: "Optional seconds to wait, 0 to 240." },
@@ -511,7 +517,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
     kind: "collab",
     step: "Stopping the drawing",
     description:
-      "Stop a drawing job (the newest running one of this work, or one by id). Cuts not started yet are skipped; a cut being drawn still finishes.",
+      "Stop a drawing job (the newest running one of this work, or one by id). Cuts not started yet are skipped; a cut being drawn still finishes. A character training or training-set job is stopped only by its explicit jobId from art_status.",
     inputSchema: obj({ jobId: str("Optional job id.") }),
   },
   {
@@ -629,7 +635,7 @@ export const TOOL_CATALOG: readonly ToolSpec[] = [
             },
             ["kind"],
           ),
-          "Two to five alternatives.",
+          "One to five alternatives.",
           { minItems: 1, maxItems: 5 },
         ),
       },

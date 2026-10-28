@@ -34,6 +34,8 @@ const distDir = join(pkgRoot, "dist");
 // Start clean so stale tsc output (or a previous bundle) never leaks in.
 rmSync(distDir, { recursive: true, force: true });
 mkdirSync(distDir, { recursive: true });
+// Include the existing project terms in every installable package.
+cpSync(join(repoRoot, "LICENSE"), join(pkgRoot, "LICENSE"));
 
 await build({
   entryPoints: {

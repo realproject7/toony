@@ -43,12 +43,14 @@ options:
                            mode picks a free port when 4477 is taken)
   studio --no-open         do not open the browser once the studio is ready
   import-image --episode <id> (--cut <id> [--slot clean|final] | --transition <id>)
-               --from <file> [--provider manual]
+               --from <file> [--provider manual] [--allow-remote]
                            strips image metadata at ingest; provider-neutral
-  generate --episode <id> (--cut <id> [--cut <id> ...] [--slot clean|final]
-                           | --transition <id>)
+  generate --episode <id>
+           ([--cut <id> ...] --review-status draft|human-edited|final
+            | --cut <id> [--cut <id> ...] | --transition <id>) [--slot clean|final]
            --prompt <text> [--negative <text>] [--width <px>] [--height <px>]
            [--seed <n>|fresh] [--workflow <name>] [--provider comfyui] [--allow-remote]
+           [--framing scene|detail] [--dry-run [--json]]
            [--source current|cut:<id> [--strength <0-1>] [--region <x,y,w,h>]]
                            generates and ingests an image; the provider endpoint
                            and workflow come from local runtime config/env
@@ -62,6 +64,16 @@ options:
                            repeat --cut to generate several cuts in one run: it
                            prints a per-cut summary, keeps every cut it
                            finished, and exits non-zero if any cut failed.
+                           --review-status selects the episode's cuts in that
+                           review state; explicit --cut ids narrow the set.
+                           With no matches it exits 0 without a provider call.
+                           --framing detail records imageFraming: detail, omits
+                           full-character descriptions and automatic portrait
+                           references, and applies to cuts, not transitions.
+                           --dry-run reports the composed prompt, effective
+                           negative, resolved canvas and preflight findings;
+                           it writes no project data and contacts no provider.
+                           --json gives that report as JSON and requires --dry-run.
                            a project that does not validate is refused before
                            anything is sent: the run prints the report
                            \`toony validate\` prints, plus the offending value as
@@ -164,6 +176,21 @@ options:
                            validate. Creates the episode when it does not
                            exist. There is no force flag
 
+  revision list [path] --episode <id> --cut <id> [--json]
+                           requests for one cut, with id, state and change
+  revision show [path] --id <request-id> [--json]
+                           the saved request and its artwork-change brief
+  revision create [path] --episode <id> --cut <id>
+           --change <text> --preserve <text> [--character <id>] [--json]
+                           snapshot the cut and context for a requested change;
+                           calls no provider and changes no artwork
+  revision stage [path] --id <request-id> --file <image> --note <text> [--json]
+                           import a candidate through the manual importer,
+                           stripping image metadata
+  revision apply [path] --id <request-id> --candidate <sha256> [--json]
+                           adopt the candidate as a draft; refuses if the source
+                           artwork or context changed since the request
+
   produce inspect [path] --episode <id> ([--cut <id> ...] [--review-status <s>]) [--json]
                            resolve the target set exactly as generate would and
                            show what a run would touch: the ids, how many carry
@@ -174,7 +201,7 @@ options:
           --accept <target-set> [--reason <text>] [--from <file>]
           [--prompt <text>] [--negative <text>] [--seed <n>|fresh]
           [--workflow <name>] [--width <px>] [--height <px>]
-          [--slot clean|final] [--provider <id>] [--allow-remote] [--json]
+          [--slot clean|final] [--provider <id>] [--framing scene|detail] [--allow-remote] [--json]
                            the same disclosure, then the run. --accept names
                            the exact target set inspect printed, so a set that
                            resolves differently stops instead of drawing cuts

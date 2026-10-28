@@ -772,3 +772,22 @@ test("renderImage draws one picture outside the records, with the reference when
   assert.equal(withReference.referenced, true);
   assert.equal(comfy.graphs().at(-1)?.[REFERENCE_APPLY_NODE]?.class_type, "IPAdapter");
 });
+
+test("explicit Studio replacement bypasses the size repeat guard while the CLI path still refuses", async () => {
+  const { dir, episodeId, cutId } = await project();
+  const selection = [dir, "--episode", episodeId, "--cut", cutId];
+  assert.equal(
+    await runGenerate(
+      [...selection, "--width", "768", "--height", "1024", "--prompt", "harbor"],
+      io(),
+    ),
+    EXIT_OK,
+  );
+  const before = comfy.graphs().length;
+  const shell = io();
+  assert.notEqual(await runGenerate(selection, shell), EXIT_OK);
+  assert.match(String(shell), /--width/);
+  assert.equal(comfy.graphs().length, before);
+  assert.equal(await runGenerate(selection, io({ replaces: true, keepCutPrompt: true })), EXIT_OK);
+  assert.equal(comfy.graphs().length, before + 1);
+});

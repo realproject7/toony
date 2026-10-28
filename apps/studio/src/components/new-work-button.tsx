@@ -47,7 +47,7 @@ export function NewWorkButton({
       }
       router.push(`/w/${encodeURIComponent(data.id)}`);
     } catch {
-      setError("Toony could not reach the workspace. Check that Studio is still running.");
+      setError("Could not reach Toony. Check that it is still running.");
     } finally {
       setBusy(false);
     }

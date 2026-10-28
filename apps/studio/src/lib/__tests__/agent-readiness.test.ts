@@ -22,6 +22,7 @@ import {
   SUBSCRIPTION_MESSAGE,
   versionInRange,
 } from "../agent/readiness.js";
+import { notReadyMessage } from "../agent/runtime.js";
 
 test("versions are read from CLI output and checked against the supported ranges", () => {
   assert.deepEqual(parseVersion("2.1.293 (Claude Code)"), [2, 1, 293]);
@@ -250,6 +251,7 @@ test("missing and unsupported CLIs get install commands, docs and the supported 
   });
   const result = await noFlags.check("claude");
   assert.equal(result.status.readiness.state, "unsupported");
+  assert.match(notReadyMessage(result.status), /missing options Toony needs.*Update it/);
   assert.ok(result.binary && result.binary.missingFlags.length > 0);
   assert.deepEqual(Readiness.binaryProblem("claude", result.binary)?.state, "unsupported");
 });

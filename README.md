@@ -14,6 +14,9 @@ You need Node 20 or newer, pnpm, Claude Code or Codex installed and signed in
 on this computer (`claude auth login` or `codex login`), and ComfyUI running on
 this computer with a checkpoint for the agent to draw with.
 
+Toony supports Claude Code 2.1.259 or newer before 2.2, and Codex 0.158 or newer
+before 0.170. The agent panel shows the supported range if yours is outside it.
+
 ```bash
 git clone https://github.com/realproject7/toony
 cd toony
@@ -26,8 +29,8 @@ The last command opens Toony in your browser. Then:
 
 1. Connect your agent in the panel on the right. Toony finds the installed CLI
    and checks the sign-in.
-2. Add ComfyUI's address (for example `http://127.0.0.1:8188`) in Settings,
-   Artwork engine.
+2. Add ComfyUI's address (for example `http://127.0.0.1:8188`) and the file name
+   of your checkpoint, as ComfyUI lists it, in Settings, Artwork engine.
 3. Describe your story in the chat. The agent creates the webtoon, the cast and
    the first episode, then draws its cuts; you see each change on the left as
    it happens.
@@ -37,6 +40,10 @@ The last command opens Toony in your browser. Then:
 Projects live in `~/Documents/Toony` unless `TOONY_WORKSPACE_DIR` points
 elsewhere. Every agent change is recorded in the project and can be undone, and
 a new chat picks up where the last one left off.
+
+Character training also needs `TOONY_LORA_TRAIN_COMMAND` in the environment
+that starts Toony. The command's placeholders and output are described in
+[the agent guide](./docs/AGENT_GUIDE.md#inside-toony-studio).
 
 ## For agents
 

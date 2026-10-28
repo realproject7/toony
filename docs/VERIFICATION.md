@@ -20,6 +20,18 @@ store remains shared to reuse downloaded dependencies. This does not isolate a
 run from external store cleanup or corruption. Logs preserve those failures;
 concurrent runs are not a reason to delete another run's scratch directories.
 
+The release gate also requires the source checkout's ignored
+`.toony/public-safety-names.json`. It copies that private name list into the
+scratch checkout with mode `0600`, then runs the public-safety scanner with
+`--require-names` on both Node majors. A missing, tracked, malformed or unusable
+name source fails delivery. Keep the list untracked; never include its contents
+in code history or public verification receipts. Name findings identify source
+entry numbers without printing the names.
+
+For routine work, `pnpm scan` can run without a name source and explicitly
+reports `names NOT CHECKED`. That result does not satisfy the release gate's
+required name check.
+
 ## What must have run
 
 `scripts/test-baseline.json` pins package identities and per-package passed-test

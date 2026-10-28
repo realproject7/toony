@@ -16,6 +16,7 @@ import type {
 } from "@toony/project-io";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
+import { requestFailure } from "@/lib/editor-save";
 import { studioFetch } from "@/lib/studio-fetch";
 
 export interface DraftPanelProps {
@@ -101,7 +102,7 @@ export function DraftPanel({
         }
         router.refresh();
       } catch (cause) {
-        setMessage({ kind: "error", text: cause instanceof Error ? cause.message : String(cause) });
+        setMessage({ kind: "error", text: requestFailure(cause) });
       } finally {
         setBusy(null);
       }

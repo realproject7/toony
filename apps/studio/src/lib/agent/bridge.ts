@@ -53,7 +53,7 @@ async function call(id, params) {
     }
   } catch {
     reply(id, {
-      content: [{ type: "text", text: "Toony Studio did not answer. The turn may have stopped." }],
+      content: [{ type: "text", text: "Toony did not answer. The turn may have stopped." }],
       isError: true,
     });
   }

@@ -120,9 +120,22 @@ export async function upsertCharacters(
       const validation = validateProject({ webtoon, episodes: tx.before.project.episodes });
       const own = validation.issues.filter((issue) => issue.path.startsWith("webtoon.characters"));
       if (own.length > 0) {
-        const detail = own
-          .slice(0, 3)
-          .map((issue) => `${issue.path.replace(/^webtoon\./, "")}: ${issue.message}`);
+        const detail = own.slice(0, 3).map((issue) => {
+          const match = /characters\[(\d+)\](?:\.(.*))?/.exec(issue.path);
+          const character = match ? registry[Number(match[1])] : undefined;
+          const field = match?.[2] ?? "";
+          const outfit = /^wardrobe\[(\d+)\]/.exec(field);
+          const label = outfit
+            ? `Outfit ${Number(outfit[1]) + 1}`
+            : ({
+                visualIdentity: "More about their look",
+                "development.role": "Role",
+                "development.personality": "Personality",
+                lockstring: "Look",
+                name: "Name",
+              }[field] ?? "Character details");
+          return `${character?.name ?? "Character"}, ${label}: ${issue.message}`;
+        });
         throw new OpError("invalid", `The cast would not be valid: ${detail.join(" ")}`);
       }
       await writeWebtoon(tx.root, webtoon);

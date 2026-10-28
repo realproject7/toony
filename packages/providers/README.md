@@ -35,6 +35,41 @@ the sampler starts from the encoded source at the requested strength). A
 loopback endpoint keeps content on the machine; any other endpoint sets
 `transmitsRemotely: true`, so callers gate it behind an explicit opt-in.
 
+## ComfyUI configuration
+
+Runtime settings stay outside `webtoon.json`. Set them in Studio's Settings
+page, or use these environment variables:
+
+| Variable | Value |
+|---|---|
+| `TOONY_COMFYUI_URL` | ComfyUI base address, such as `http://127.0.0.1:8188`. |
+| `TOONY_COMFYUI_WORKFLOW` | Path to a workflow-graph JSON file. |
+| `TOONY_COMFYUI_CHECKPOINT` | Checkpoint file name as ComfyUI lists it. |
+| `TOONY_COMFYUI_CONFIG` | Path to a local JSON configuration file. |
+| `TOONY_COMFYUI_TIMEOUT_MS` | Fixed generation deadline in milliseconds. |
+
+The configuration file accepts `url`, `workflowPath` (a workflow file path) or
+`workflow` (an inline workflow graph), `checkpoint`, `timeoutMs`,
+`pollIntervalMs`, and `injectionMap` (node/input mappings). For example:
+
+```json
+{
+  "url": "http://127.0.0.1:8188",
+  "workflowPath": "./workflow.json",
+  "checkpoint": "model.safetensors",
+  "timeoutMs": 180000,
+  "pollIntervalMs": 1000
+}
+```
+
+Each field resolves independently: programmatic inline overrides take
+precedence over environment variables, then the file named by
+`TOONY_COMFYUI_CONFIG`, then the workspace's `.toony/config.json` saved by
+Studio. A file's inline `workflow` takes precedence over its `workflowPath`.
+An explicitly requested named workflow (`--workflow <name>`) takes precedence
+over environment, file and workspace workflow choices. When no workflow source
+is set, the bundled workflow is used; set the checkpoint it should load.
+
 ## ComfyUI deadlines and cancellation
 
 The implicit generation deadline allows 180 seconds per megapixel of the
